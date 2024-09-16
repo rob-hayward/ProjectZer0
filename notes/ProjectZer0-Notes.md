@@ -1,0 +1,6 @@
+Node types:
+UserNode
+BeliefNode
+EvidenceNode
+ReasearchProposalNode
+ActionProposalNode
