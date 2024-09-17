@@ -1,18 +1,37 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { UsersService } from './users.service';
+import { Injectable } from '@nestjs/common';
+import { Neo4jService } from '../neo4j/neo4j.service';
 
-describe('UsersService', () => {
-  let service: UsersService;
+@Injectable()
+export class UsersService {
+  constructor(private neo4jService: Neo4jService) {}
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService],
-    }).compile();
+  async findOrCreateUser(auth0Id: string, email: string): Promise<any> {
+    const session = this.neo4jService.getWriteSession();
+    try {
+      const result = await session.run(
+        `
+        MERGE (u:User {auth0Id: $auth0Id})
+        ON CREATE SET u.email = $email, u.createdAt = datetime()
+        ON MATCH SET u.lastLogin = datetime()
+        RETURN u
+        `,
+        { auth0Id, email },
+      );
+      return result.records[0].get('u').properties;
+    } finally {
+      await session.close();
+    }
+  }
 
-    service = module.get<UsersService>(UsersService);
-  });
-
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-});
+  async testConnection(): Promise<string> {
+    const session = this.neo4jService.getReadSession();
+    try {
+      const result = await session.run(
+        'RETURN "Connection successful!" AS message',
+      );
+      return result.records[0].get('message');
+    } finally {
+      await session.close();
+    }
+  }
+}

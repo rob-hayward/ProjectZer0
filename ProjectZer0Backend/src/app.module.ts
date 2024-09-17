@@ -14,7 +14,7 @@ import { UsersModule } from './users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        scheme: 'neo4j',
+        scheme: 'neo4j+s',
         host: configService.get('CONNECTION_URL'),
         port: 7687,
         username: configService.get('NEO4J_USER'),

@@ -18,6 +18,50 @@ export class UsersService {
         { auth0Id, email },
       );
       return result.records[0].get('u').properties;
+    } catch (error) {
+      console.error('Error in findOrCreateUser:', error);
+      throw new Error('Failed to find or create user');
+    } finally {
+      await session.close();
+    }
+  }
+
+  async testConnection(): Promise<string> {
+    try {
+      return await this.neo4jService.testConnection();
+    } catch (error) {
+      console.error('Error in testConnection:', error);
+      throw new Error('Failed to test database connection');
+    }
+  }
+
+  async getAllUsers(): Promise<any[]> {
+    const session = this.neo4jService.getReadSession();
+    try {
+      const result = await session.run('MATCH (u:User) RETURN u');
+      return result.records.map((record) => record.get('u').properties);
+    } catch (error) {
+      console.error('Error in getAllUsers:', error);
+      throw new Error('Failed to retrieve users');
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getUserByAuth0Id(auth0Id: string): Promise<any> {
+    const session = this.neo4jService.getReadSession();
+    try {
+      const result = await session.run(
+        'MATCH (u:User {auth0Id: $auth0Id}) RETURN u',
+        { auth0Id },
+      );
+      if (result.records.length === 0) {
+        return null;
+      }
+      return result.records[0].get('u').properties;
+    } catch (error) {
+      console.error('Error in getUserByAuth0Id:', error);
+      throw new Error('Failed to retrieve user');
     } finally {
       await session.close();
     }
