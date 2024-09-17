@@ -5,19 +5,20 @@
   import "../app.css";
 
   // Constants
-  const CAMERA_FOV = 125;
+  const CAMERA_FOV = 100;
   const CAMERA_NEAR = 0.1;
-  const CAMERA_FAR = 1000;
-  const CAMERA_POSITION_Z = 7;
+  const CAMERA_FAR = 2000;
+  const CAMERA_POSITION_Z = 9;
 
-  const SKYBOX_RADIUS = 100;
+  const SKYBOX_RADIUS = 200;
   const SKYBOX_SEGMENTS = 128;
 
-  const LARGER_SPHERE_RADIUS = 4.1;
+  const LARGER_SPHERE_RADIUS = 6;
   const LARGER_SPHERE_SEGMENTS = 64;
 
-  const SMALLER_SPHERE_RADIUS = 1.15;
+  const SMALLER_SPHERE_RADIUS = 0.45;
   const SMALLER_SPHERE_SEGMENTS = 64;
+  const SMALLER_SPHERE_POSITION_Z = 8.3;
 
   const ANIMATION_DURATION = 13;
 
@@ -68,14 +69,22 @@
   }
 
   function createSmallerSphere() {
-    const geometry = new THREE.SphereGeometry(SMALLER_SPHERE_RADIUS, SMALLER_SPHERE_SEGMENTS, SMALLER_SPHERE_SEGMENTS);
-    const texture = new THREE.TextureLoader().load('/images/InvertedStar.png');
-    const material = new THREE.MeshBasicMaterial({ map: texture });
+  const geometry = new THREE.SphereGeometry(SMALLER_SPHERE_RADIUS, SMALLER_SPHERE_SEGMENTS, SMALLER_SPHERE_SEGMENTS);
+  const texture = new THREE.TextureLoader().load('/images/InvertedStar.png');
+  const material = new THREE.MeshBasicMaterial({ map: texture });
 
-    smallerSphere = new THREE.Mesh(geometry, material);
-    smallerSphere.position.set(-5, 0, 4);
-    scene.add(smallerSphere);
-  }
+  smallerSphere = new THREE.Mesh(geometry, material);
+  smallerSphere.position.set(-1, 0, SMALLER_SPHERE_POSITION_Z);
+  scene.add(smallerSphere);
+}
+
+function animateSmallerSphere() {
+  gsap.to(smallerSphere.position, {
+    duration: ANIMATION_DURATION,
+    x: 0,
+    ease: 'expo.out'
+  });
+}
 
   function startAnimation() {
     requestAnimationFrame(startAnimation);
@@ -84,17 +93,10 @@
     skyBoxSphere.rotation.y += 0.00008;
     largerSphere.rotation.x += 0.0001;
     largerSphere.rotation.y += 0.00015;
+    smallerSphere.rotation.x -= 0.0012;
+    smallerSphere.rotation.y -= 0.0013;
 
     renderer.render(scene, camera);
-  }
-
-  function animateSmallerSphere() {
-    gsap.to(smallerSphere.position, {
-      duration: ANIMATION_DURATION,
-      x: 0,
-      z: 5,
-      ease: 'expo.out'
-    });
   }
 
   function onWindowResize() {
@@ -135,7 +137,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    transform: translateY(5vh);
+    transform: translateY(10vh);
   }
 
   h1, h2 {
@@ -144,13 +146,13 @@
   }
 
   h1 {
-    font-size: 7vw;
-    margin-bottom: 1vh;
+    font-size: 5vw;
+    margin-bottom: 0vh;
   }
 
   h2 {
     font-size: 2.4vw;
-    margin-bottom: 16vh;
+    margin-bottom: 10vh;
   }
 
   .enter-button {
