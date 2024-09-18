@@ -1,37 +1,47 @@
-import { Injectable } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { UsersService } from './users.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 
-@Injectable()
-export class UsersService {
-  constructor(private neo4jService: Neo4jService) {}
+describe('UsersService', () => {
+  let service: UsersService;
+  let neo4jServiceMock: Partial<Neo4jService>;
 
-  async findOrCreateUser(auth0Id: string, email: string): Promise<any> {
-    const session = this.neo4jService.getWriteSession();
-    try {
-      const result = await session.run(
-        `
-        MERGE (u:User {auth0Id: $auth0Id})
-        ON CREATE SET u.email = $email, u.createdAt = datetime()
-        ON MATCH SET u.lastLogin = datetime()
-        RETURN u
-        `,
-        { auth0Id, email },
-      );
-      return result.records[0].get('u').properties;
-    } finally {
-      await session.close();
-    }
-  }
+  beforeEach(async () => {
+    neo4jServiceMock = {
+      run: jest.fn(),
+      write: jest.fn(),
+      testConnection: jest.fn(),
+    };
 
-  async testConnection(): Promise<string> {
-    const session = this.neo4jService.getReadSession();
-    try {
-      const result = await session.run(
-        'RETURN "Connection successful!" AS message',
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        UsersService,
+        { provide: Neo4jService, useValue: neo4jServiceMock },
+      ],
+    }).compile();
+
+    service = module.get<UsersService>(UsersService);
+  });
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  describe('findOrCreateUser', () => {
+    it('should create a new user if not exists', async () => {
+      const mockUser = { auth0Id: 'auth0|123', email: 'test@example.com' };
+      neo4jServiceMock.write = jest.fn().mockResolvedValue({
+        records: [{ get: jest.fn().mockReturnValue({ properties: mockUser }) }],
+      });
+
+      const result = await service.findOrCreateUser(
+        mockUser.auth0Id,
+        mockUser.email,
       );
-      return result.records[0].get('message');
-    } finally {
-      await session.close();
-    }
-  }
-}
+      expect(result).toEqual(mockUser);
+      expect(neo4jServiceMock.write).toHaveBeenCalled();
+    });
+  });
+
+  // Add more test cases for other methods
+});
