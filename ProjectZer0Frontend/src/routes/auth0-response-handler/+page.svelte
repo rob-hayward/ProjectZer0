@@ -1,11 +1,11 @@
-<!-- auth0-response-handler.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { createAuth0Client } from '@auth0/auth0-spa-js';
+  import { verifyOrCreateUser } from '$lib/services/api';
+  import { goto } from '$app/navigation';
   
   onMount(async () => {
     try {
-      // Initialize the Auth0 client
       const auth0 = await createAuth0Client({
         domain: import.meta.env.VITE_AUTH0_DOMAIN,
         clientId: import.meta.env.VITE_AUTH0_CLIENT_ID,
@@ -14,30 +14,37 @@
         }
       });
   
-      // Handle the authentication response from Auth0
       await auth0.handleRedirectCallback();
   
-      // At this point, the user is authenticated.
-      // You might want to fetch the user profile or do other post-authentication tasks here.
       const user = await auth0.getUser();
       console.log('Authenticated user:', user);
   
-      // Store the authentication state or user info in your app's state management
-      // For example, you might use a Svelte store:
-      // import { userStore } from './stores';
-      // userStore.set(user);
+      if (user && user.sub && user.email) {
+        const userData = await verifyOrCreateUser(user.sub, user.email);
+        
+        // Store user data in a Svelte store or localStorage
+        // For example:
+        // userStore.set(userData);
+        localStorage.setItem('userData', JSON.stringify(userData));
   
-      // Redirect to the main application page or dashboard
-      window.location.replace('/dashboard');
+        // Redirect based on whether the user is new or existing
+        if (userData.isNewUser) {
+          goto('/edit-profile');
+        } else {
+          goto('/dashboard');
+        }
+      } else {
+        console.error('User data is incomplete');
+        goto('/auth-error');
+      }
     } catch (error) {
       console.error('Error handling Auth0 authentication response:', error);
-      // Handle errors, perhaps by redirecting to an error page
-      window.location.replace('/auth-error');
+      goto('/auth-error');
     }
   });
-  </script>
-  
-  <div>
-    <p>Processing Auth0 authentication response...</p>
-    <!-- You might want to add a loading spinner or more informative message here -->
-  </div>
+</script>
+
+<div>
+  <p>Processing Auth0 authentication response...</p>
+  <!-- You might want to add a loading spinner here -->
+</div>

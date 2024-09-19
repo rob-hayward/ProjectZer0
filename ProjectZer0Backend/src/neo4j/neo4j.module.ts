@@ -17,13 +17,10 @@ export class Neo4jModule {
         {
           provide: NEO4J_DRIVER,
           useFactory: async (config) => {
-            console.log('Neo4j connection config:', config);
             try {
               const driver = await createDriver(config);
-              console.log('Neo4j driver created successfully');
               return driver;
             } catch (error) {
-              console.error('Failed to create Neo4j driver:', error);
               throw error;
             }
           },
