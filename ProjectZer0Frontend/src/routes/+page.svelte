@@ -1,11 +1,7 @@
+<!-- /Users/rob/vsCodeProjects/ProjectZer0/ProjectZer0Frontend/src/routes/+page.svelte -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { handleAuth0Login } from '$lib/services/auth0';
   import ThreeJsHomeScene from '$lib/components/ThreeJsHomeScene.svelte';
-  import { initAuth0, handleAuth0Login } from '$lib/services/auth0';
-
-  onMount(async () => {
-    await initAuth0();
-  });
 </script>
 
 <div class="home-page">

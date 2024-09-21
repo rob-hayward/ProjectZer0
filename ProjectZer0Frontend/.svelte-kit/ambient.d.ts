@@ -36,6 +36,7 @@ declare module '$env/static/private' {
 	export const VITE_AUTH0_CLIENT_ID: string;
 	export const AUTH0_CLIENT_SECRET: string;
 	export const MAIN_APP_PORT: string;
+	export const VITE_API_BASE_URL: string;
 	export const NVM_INC: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
@@ -98,13 +99,7 @@ declare module '$env/static/private' {
 	export const npm_node_execpath: string;
 	export const npm_config_prefix: string;
 	export const COLORTERM: string;
-	export const TEST: string;
-	export const VITEST: string;
 	export const NODE_ENV: string;
-	export const PROD: string;
-	export const DEV: string;
-	export const BASE_URL: string;
-	export const MODE: string;
 }
 
 /**
@@ -146,6 +141,7 @@ declare module '$env/dynamic/private' {
 		VITE_AUTH0_CLIENT_ID: string;
 		AUTH0_CLIENT_SECRET: string;
 		MAIN_APP_PORT: string;
+		VITE_API_BASE_URL: string;
 		NVM_INC: string;
 		TERM_PROGRAM: string;
 		NODE: string;
@@ -208,13 +204,7 @@ declare module '$env/dynamic/private' {
 		npm_node_execpath: string;
 		npm_config_prefix: string;
 		COLORTERM: string;
-		TEST: string;
-		VITEST: string;
 		NODE_ENV: string;
-		PROD: string;
-		DEV: string;
-		BASE_URL: string;
-		MODE: string;
 		[key: `PUBLIC_${string}`]: undefined;
 		[key: `${string}`]: string | undefined;
 	}
