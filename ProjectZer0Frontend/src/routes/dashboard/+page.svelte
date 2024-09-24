@@ -4,12 +4,15 @@
 
   let user: any = null;
   let error: string | null = null;
+  let isLoading = true;
 
   onMount(async () => {
     try {
       user = await auth0.getAuth0User();
     } catch (e) {
       error = 'Failed to fetch user data';
+    } finally {
+      isLoading = false;
     }
   });
 
@@ -20,7 +23,11 @@
 
 <h1>Dashboard</h1>
 
-{#if user}
+{#if isLoading}
+  <p>Loading user data...</p>
+{:else if error}
+  <p class="error">{error}</p>
+{:else if user}
   <div class="user-info">
     <h2>Welcome, {user.name || user.nickname || 'User'}!</h2>
     <p>Email: {user.email || 'Not provided'}</p>
@@ -30,8 +37,6 @@
     <h3>User Details:</h3>
     <pre>{JSON.stringify(user, null, 2)}</pre>
   </div>
-{:else if error}
-  <p class="error">{error}</p>
 {:else}
   <p>No user data available</p>
 {/if}
