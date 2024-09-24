@@ -1,7 +1,11 @@
 <!-- /Users/rob/vsCodeProjects/ProjectZer0/ProjectZer0Frontend/src/routes/+page.svelte -->
 <script lang="ts">
-  import { handleAuth0Login } from '$lib/services/auth0';
+  import { login } from '$lib/services/auth0';
   import ThreeJsHomeScene from '$lib/components/ThreeJsHomeScene.svelte';
+
+  function handleEnter() {
+    login();
+  }
 </script>
 
 <div class="home-page">
@@ -9,7 +13,7 @@
   <div class="centered-content">
     <h1>PROJECT ZER0</h1>
     <h2>EXPERIMENT / GAME / REVOLUTION</h2>
-    <button class="enter-button" on:click={handleAuth0Login}>ENTER</button>
+    <button class="enter-button" on:click={handleEnter}>ENTER</button>
   </div>
 </div>
 

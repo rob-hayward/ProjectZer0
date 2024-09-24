@@ -9,11 +9,6 @@ describe('UsersController', () => {
   beforeEach(async () => {
     usersServiceMock = {
       findOrCreateUser: jest.fn(),
-      getAllUsers: jest.fn(),
-      getUserByAuth0Id: jest.fn(),
-      updateUser: jest.fn(),
-      deleteUser: jest.fn(),
-      testConnection: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -38,6 +33,4 @@ describe('UsersController', () => {
       );
     });
   });
-
-  // Add more test cases for other controller methods
 });

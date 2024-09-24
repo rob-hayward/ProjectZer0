@@ -27,17 +27,4 @@ export class UsersService {
       throw new Error('Failed to find or create user');
     }
   }
-
-  async checkUserExists(auth0Id: string): Promise<boolean> {
-    try {
-      const result = await this.neo4jService.run(
-        'MATCH (u:User {auth0Id: $auth0Id}) RETURN u',
-        { auth0Id },
-      );
-      return result.records.length > 0;
-    } catch (error) {
-      console.error('Error in checkUserExists:', error);
-      throw new Error('Failed to check user existence');
-    }
-  }
 }

@@ -66,8 +66,7 @@
     "src": "src/routes/+page.svelte",
     "isEntry": true,
     "imports": [
-      "_ssr.js",
-      "_client.js"
+      "_ssr.js"
     ],
     "css": [
       "_app/immutable/assets/_page.BbJ17Mls.css"
@@ -79,8 +78,10 @@
     "src": "src/routes/dashboard/+page.svelte",
     "isEntry": true,
     "imports": [
-      "_ssr.js",
-      "_client.js"
+      "_ssr.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.kdH594J4.css"
     ]
   },
   "src/routes/edit-profile/+page.svelte": {

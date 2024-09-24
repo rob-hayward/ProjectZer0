@@ -1,4 +1,3 @@
-// ProjectZer0/ProjectZer0Backend/src/neo4j/neo4j.utils.ts
 import neo4j, { Driver } from 'neo4j-driver';
 
 export const createDriver = async (config: any): Promise<Driver> => {
@@ -8,11 +7,9 @@ export const createDriver = async (config: any): Promise<Driver> => {
   );
 
   try {
-    const serverInfo = await driver.getServerInfo();
-    console.log('Driver created successfully. Server info:', serverInfo);
+    await driver.verifyConnectivity();
     return driver;
   } catch (error) {
-    console.error('Error creating driver:', error);
     await driver.close();
     throw error;
   }

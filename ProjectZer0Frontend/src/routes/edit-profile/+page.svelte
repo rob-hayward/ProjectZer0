@@ -4,16 +4,12 @@
   import { getAuth0User } from '$lib/services/auth0';
   import { goto } from '$app/navigation';
 
-  export let testUser: { sub: string } | null = null;
-
-  let userId: string | null = null;
+  let user: any = null;
   let loading = true;
 
   async function loadUser() {
-    const user = testUser || await getAuth0User();
-    if (user && user.sub) {
-      userId = user.sub;
-    } else {
+    user = await getAuth0User();
+    if (!user) {
       goto('/');
     }
     loading = false;
@@ -32,8 +28,9 @@
 <h1>Edit Profile</h1>
 {#if loading}
   <p>Loading...</p>
-{:else if userId}
-  <p data-testid="user-id">Editing profile for user {userId}</p>
+{:else if user}
+  <p data-testid="user-id">Editing profile for user {user.sub}</p>
+  <!-- Add form fields for editing profile here -->
   <button on:click={handleSave}>Save Profile</button>
 {:else}
   <p>No user found. Please log in.</p>

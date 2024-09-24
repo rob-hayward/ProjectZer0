@@ -1,12 +1,15 @@
 import { Module } from '@nestjs/common';
+import { PassportModule } from '@nestjs/passport';
 import { ConfigModule } from '@nestjs/config';
 import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import auth0Config from './auth0.config';
+import { Auth0Strategy } from './auth0.strategy';
 
 @Module({
-  imports: [ConfigModule.forFeature(auth0Config)],
+  imports: [
+    PassportModule.register({ defaultStrategy: 'auth0' }),
+    ConfigModule,
+  ],
+  providers: [Auth0Strategy],
   controllers: [AuthController],
-  providers: [AuthService],
 })
 export class AuthModule {}

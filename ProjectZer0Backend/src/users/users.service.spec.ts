@@ -8,9 +8,7 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     neo4jServiceMock = {
-      run: jest.fn(),
       write: jest.fn(),
-      testConnection: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -30,18 +28,24 @@ describe('UsersService', () => {
   describe('findOrCreateUser', () => {
     it('should create a new user if not exists', async () => {
       const mockUser = { auth0Id: 'auth0|123', email: 'test@example.com' };
-      neo4jServiceMock.write = jest.fn().mockResolvedValue({
-        records: [{ get: jest.fn().mockReturnValue({ properties: mockUser }) }],
-      });
+      const mockResult = {
+        records: [
+          {
+            get: jest.fn().mockImplementation((key) => {
+              if (key === 'u') return { properties: mockUser };
+              if (key === 'isNewUser') return true;
+            }),
+          },
+        ],
+      };
+      neo4jServiceMock.write = jest.fn().mockResolvedValue(mockResult);
 
       const result = await service.findOrCreateUser(
         mockUser.auth0Id,
         mockUser.email,
       );
-      expect(result).toEqual(mockUser);
+      expect(result).toEqual({ user: mockUser, isNewUser: true });
       expect(neo4jServiceMock.write).toHaveBeenCalled();
     });
   });
-
-  // Add more test cases for other methods
 });
