@@ -15,4 +15,4 @@ export interface Auth0UserProfile {
 }
 
 // Helper type for database operations
-export type UserProfile = Omit<Auth0UserProfile, 'sub'> & { auth0Id: string };
+export type UserProfile = Auth0UserProfile;

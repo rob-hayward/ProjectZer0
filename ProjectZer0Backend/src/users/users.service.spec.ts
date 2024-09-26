@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
+import { Auth0UserProfile } from './user.model';
+import { UserProfile } from './user.model';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -8,7 +10,7 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     neo4jServiceMock = {
-      write: jest.fn(),
+      run: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -26,26 +28,68 @@ describe('UsersService', () => {
   });
 
   describe('findOrCreateUser', () => {
-    it('should create a new user if not exists', async () => {
-      const mockUser = { auth0Id: 'auth0|123', email: 'test@example.com' };
-      const mockResult = {
-        records: [
-          {
-            get: jest.fn().mockImplementation((key) => {
-              if (key === 'u') return { properties: mockUser };
-              if (key === 'isNewUser') return true;
-            }),
-          },
-        ],
+    it('should return existing user if found', async () => {
+      const mockAuth0Profile: Auth0UserProfile = {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+        name: 'Test User',
       };
-      neo4jServiceMock.write = jest.fn().mockResolvedValue(mockResult);
 
-      const result = await service.findOrCreateUser(
-        mockUser.auth0Id,
-        mockUser.email,
+      const mockExistingUser: UserProfile = {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+        name: 'Test User',
+      };
+
+      neo4jServiceMock.run = jest.fn().mockResolvedValueOnce({
+        records: [{ get: () => ({ properties: mockExistingUser }) }],
+      });
+
+      const result = await service.findOrCreateUser(mockAuth0Profile);
+      expect(result).toEqual({ user: mockExistingUser, isNewUser: false });
+      expect(neo4jServiceMock.run).toHaveBeenCalledTimes(1);
+    });
+
+    it('should create a new user if not found', async () => {
+      const mockAuth0Profile: Auth0UserProfile = {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+        name: 'Test User',
+      };
+
+      neo4jServiceMock.run = jest
+        .fn()
+        .mockResolvedValueOnce({ records: [] }) // User not found
+        .mockResolvedValueOnce({
+          // User created
+          records: [{ get: () => ({ properties: mockAuth0Profile }) }],
+        });
+
+      const result = await service.findOrCreateUser(mockAuth0Profile);
+      expect(result).toEqual({
+        user: expect.objectContaining({
+          sub: 'auth0|123',
+          email: 'test@example.com',
+          name: 'Test User',
+        }),
+        isNewUser: true,
+      });
+      expect(neo4jServiceMock.run).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle errors', async () => {
+      const mockAuth0Profile: Auth0UserProfile = {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+      };
+
+      neo4jServiceMock.run = jest
+        .fn()
+        .mockRejectedValue(new Error('Database error'));
+
+      await expect(service.findOrCreateUser(mockAuth0Profile)).rejects.toThrow(
+        'Failed to find or create user',
       );
-      expect(result).toEqual({ user: mockUser, isNewUser: true });
-      expect(neo4jServiceMock.write).toHaveBeenCalled();
     });
   });
 });

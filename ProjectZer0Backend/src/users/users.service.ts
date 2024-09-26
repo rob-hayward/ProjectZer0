@@ -13,7 +13,7 @@ export class UsersService {
       // First, try to find the user
       const findResult = await this.neo4jService.run(
         `
-        MATCH (u:User {auth0Id: $sub})
+        MATCH (u:User {sub: $sub})
         RETURN u
         `,
         { sub: auth0Profile.sub },
@@ -29,13 +29,13 @@ export class UsersService {
         const createResult = await this.neo4jService.run(
           `
           CREATE (u:User {
-            auth0Id: $sub,
+            sub: $sub,
             email: $email,
-            emailVerified: $email_verified,
+            email_verified: $email_verified,
             name: $name,
             nickname: $nickname,
             picture: $picture,
-            lastUpdatedAtAuth0: datetime($updated_at),
+            updated_at: datetime($updated_at),
             createdAt: datetime()
           })
           RETURN u

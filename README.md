@@ -65,3 +65,40 @@ Contributing
 
 License
 [Specify the project's license]
+
+
+Authentication flow.
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant B as Backend
+    participant A as Auth0
+    participant DB as Database
+
+    U->>F: Click "Login"
+    F->>B: GET /auth/login
+    B->>A: Redirect to Auth0 login page
+    A->>U: Display login form
+    U->>A: Enter credentials
+    A->>B: Redirect to /auth/callback with code
+    B->>A: Exchange code for token
+    A->>B: Return user info
+    B->>DB: Check if user exists
+    alt New User
+        DB->>B: User doesn't exist
+        B->>DB: Create new user
+        B->>F: Redirect to /edit-profile
+    else Existing User
+        DB->>B: User exists
+        B->>F: Redirect to /dashboard
+    end
+    F->>B: GET /auth/profile
+    B->>F: Return user profile
+    F->>U: Display user information
+
+    U->>F: Click "Logout"
+    F->>B: GET /auth/logout
+    B->>A: Initiate logout
+    A->>B: Logout successful
+    B->>F: Redirect to homepage
+    F->>U: Display homepage

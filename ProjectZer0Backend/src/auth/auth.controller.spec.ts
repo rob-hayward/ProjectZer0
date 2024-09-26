@@ -53,7 +53,7 @@ describe('AuthController', () => {
       };
 
       const mockDbUser: UserProfile = {
-        auth0Id: 'auth0|123',
+        sub: 'auth0|123',
         email: 'test@example.com',
         email_verified: true,
         name: 'Test User',
@@ -95,7 +95,7 @@ describe('AuthController', () => {
       };
 
       const mockDbUser: UserProfile = {
-        auth0Id: 'auth0|123',
+        sub: 'auth0|123',
         email: 'test@example.com',
         email_verified: true,
         name: 'Test User',
@@ -148,7 +148,7 @@ describe('AuthController', () => {
   describe('getProfile', () => {
     it('should return the user profile from session', () => {
       const mockDbUser: UserProfile = {
-        auth0Id: 'auth0|123',
+        sub: 'auth0|123',
         email: 'test@example.com',
         email_verified: true,
         name: 'Test User',

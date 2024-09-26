@@ -1,6 +1,7 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Auth0UserProfile } from './user.model';
 
 @Controller('users')
 export class UsersController {
@@ -8,7 +9,7 @@ export class UsersController {
 
   @UseGuards(JwtAuthGuard)
   @Post()
-  async findOrCreateUser(@Body() userData: { auth0Id: string; email: string }) {
-    return this.usersService.findOrCreateUser(userData.auth0Id, userData.email);
+  async findOrCreateUser(@Body() userData: Auth0UserProfile) {
+    return this.usersService.findOrCreateUser(userData);
   }
 }
