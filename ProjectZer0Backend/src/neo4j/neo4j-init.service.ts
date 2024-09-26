@@ -6,21 +6,24 @@ export class Neo4jInitService implements OnModuleInit {
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async onModuleInit() {
-    await this.initializeDatabase();
+    try {
+      await this.initializeDatabase();
+    } catch (error) {
+      console.error('Failed to initialize Neo4j database:', error);
+      throw error;
+    }
   }
 
   private async initializeDatabase() {
-    try {
-      // Create index on User(sub)
-      await this.neo4jService.run('CREATE INDEX ON :User(sub) IF NOT EXISTS');
+    // Check connection
+    const result = await this.neo4jService.read('RETURN 1 as test');
+    console.log(
+      'Neo4j database connection successful:',
+      result.records[0].get('test'),
+    );
 
-      // Add any other initialization queries here
+    // You can add other initialization logic here if needed
 
-      console.log('Neo4j database initialized successfully');
-    } catch (error) {
-      console.error('Failed to initialize Neo4j database:', error);
-      // Depending on your error handling strategy, you might want to throw the error
-      // throw error;
-    }
+    console.log('Neo4j database initialized successfully');
   }
 }

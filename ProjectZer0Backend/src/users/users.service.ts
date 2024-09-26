@@ -11,7 +11,7 @@ export class UsersService {
   ): Promise<{ user: UserProfile; isNewUser: boolean }> {
     try {
       // First, try to find the user
-      const findResult = await this.neo4jService.run(
+      const findResult = await this.neo4jService.read(
         `
         MATCH (u:User {sub: $sub})
         RETURN u
@@ -26,7 +26,7 @@ export class UsersService {
         return { user: existingUser, isNewUser: false };
       } else {
         // User doesn't exist, create a new user
-        const createResult = await this.neo4jService.run(
+        const createResult = await this.neo4jService.write(
           `
           CREATE (u:User {
             sub: $sub,

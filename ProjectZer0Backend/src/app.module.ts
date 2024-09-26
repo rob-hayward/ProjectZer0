@@ -1,4 +1,3 @@
-// ProjectZer0/ProjectZer0Backend/src/app.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Neo4jModule } from './neo4j/neo4j.module';
@@ -16,12 +15,9 @@ import { AuthModule } from './auth/auth.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        scheme: 'neo4j+s',
-        host: configService.get('CONNECTION_URL'),
-        port: 7687,
-        username: configService.get('NEO4J_USER'),
+        uri: configService.get('NEO4J_URI'),
+        username: configService.get('NEO4J_USERNAME'),
         password: configService.get('NEO4J_PASSWORD'),
-        database: configService.get('DATABASE_NAME'),
       }),
     }),
     UsersModule,

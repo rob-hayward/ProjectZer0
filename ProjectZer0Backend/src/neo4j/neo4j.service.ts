@@ -1,4 +1,3 @@
-// ProjectZer0/ProjectZer0Backend/src/neo4j/neo4j.service.ts
 import { Injectable, Inject, OnApplicationShutdown } from '@nestjs/common';
 import neo4j, { Driver, SessionConfig, Result } from 'neo4j-driver';
 import { NEO4J_DRIVER } from './neo4j.constants';
@@ -28,7 +27,7 @@ export class Neo4jService implements OnApplicationShutdown {
     return config;
   }
 
-  async run(
+  async read(
     query: string,
     params?: Record<string, any>,
     database?: string,
@@ -58,7 +57,6 @@ export class Neo4jService implements OnApplicationShutdown {
     try {
       const serverInfo = await this.driver.getServerInfo();
       console.log('Connection successful. Server info:', serverInfo);
-      // Use a safe way to access version information
       const versionInfo =
         serverInfo.agent || 'Version information not available';
       return `Connection successful! Neo4j info: ${versionInfo}`;

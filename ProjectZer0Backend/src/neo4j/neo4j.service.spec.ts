@@ -49,5 +49,23 @@ describe('Neo4jService', () => {
     });
   });
 
-  // Add more tests for other methods like run, write, etc.
+  describe('read', () => {
+    it('should execute a read query', async () => {
+      const query = 'MATCH (n) RETURN n';
+      await service.read(query);
+      expect(mockDriver.session).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultAccessMode: 'READ' }),
+      );
+    });
+  });
+
+  describe('write', () => {
+    it('should execute a write query', async () => {
+      const query = 'CREATE (n:Node) RETURN n';
+      await service.write(query);
+      expect(mockDriver.session).toHaveBeenCalledWith(
+        expect.objectContaining({ defaultAccessMode: 'WRITE' }),
+      );
+    });
+  });
 });

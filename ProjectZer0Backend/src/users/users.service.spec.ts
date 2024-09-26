@@ -1,8 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersService } from './users.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
-import { Auth0UserProfile } from './user.model';
-import { UserProfile } from './user.model';
+import { Auth0UserProfile, UserProfile } from './user.model';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -10,7 +9,8 @@ describe('UsersService', () => {
 
   beforeEach(async () => {
     neo4jServiceMock = {
-      run: jest.fn(),
+      read: jest.fn(),
+      write: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -41,13 +41,13 @@ describe('UsersService', () => {
         name: 'Test User',
       };
 
-      neo4jServiceMock.run = jest.fn().mockResolvedValueOnce({
+      neo4jServiceMock.read = jest.fn().mockResolvedValueOnce({
         records: [{ get: () => ({ properties: mockExistingUser }) }],
       });
 
       const result = await service.findOrCreateUser(mockAuth0Profile);
       expect(result).toEqual({ user: mockExistingUser, isNewUser: false });
-      expect(neo4jServiceMock.run).toHaveBeenCalledTimes(1);
+      expect(neo4jServiceMock.read).toHaveBeenCalledTimes(1);
     });
 
     it('should create a new user if not found', async () => {
@@ -57,13 +57,12 @@ describe('UsersService', () => {
         name: 'Test User',
       };
 
-      neo4jServiceMock.run = jest
-        .fn()
-        .mockResolvedValueOnce({ records: [] }) // User not found
-        .mockResolvedValueOnce({
-          // User created
-          records: [{ get: () => ({ properties: mockAuth0Profile }) }],
-        });
+      neo4jServiceMock.read = jest.fn().mockResolvedValueOnce({ records: [] }); // User not found
+
+      neo4jServiceMock.write = jest.fn().mockResolvedValueOnce({
+        // User created
+        records: [{ get: () => ({ properties: mockAuth0Profile }) }],
+      });
 
       const result = await service.findOrCreateUser(mockAuth0Profile);
       expect(result).toEqual({
@@ -74,7 +73,8 @@ describe('UsersService', () => {
         }),
         isNewUser: true,
       });
-      expect(neo4jServiceMock.run).toHaveBeenCalledTimes(2);
+      expect(neo4jServiceMock.read).toHaveBeenCalledTimes(1);
+      expect(neo4jServiceMock.write).toHaveBeenCalledTimes(1);
     });
 
     it('should handle errors', async () => {
@@ -83,7 +83,7 @@ describe('UsersService', () => {
         email: 'test@example.com',
       };
 
-      neo4jServiceMock.run = jest
+      neo4jServiceMock.read = jest
         .fn()
         .mockRejectedValue(new Error('Database error'));
 
