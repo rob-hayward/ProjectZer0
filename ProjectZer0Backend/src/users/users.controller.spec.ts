@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { Auth0UserProfile } from './user.model';
+import { UserProfile } from './user.model';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -12,7 +12,7 @@ describe('UsersController', () => {
     usersServiceMock = {
       findOrCreateUser: jest
         .fn()
-        .mockImplementation(async (userData: Auth0UserProfile) => {
+        .mockImplementation(async (userData: UserProfile) => {
           return {
             user: { ...userData, sub: userData.sub },
             isNewUser: false,
@@ -37,7 +37,7 @@ describe('UsersController', () => {
 
   describe('findOrCreateUser', () => {
     it('should call findOrCreateUser method of UsersService', async () => {
-      const userData: Auth0UserProfile = {
+      const userData: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
         // Add other required fields from Auth0UserProfile
@@ -47,7 +47,7 @@ describe('UsersController', () => {
     });
 
     it('should return the result from UsersService', async () => {
-      const userData: Auth0UserProfile = {
+      const userData: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
         // Add other required fields from Auth0UserProfile

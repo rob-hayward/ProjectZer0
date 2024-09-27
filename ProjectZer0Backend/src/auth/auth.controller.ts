@@ -3,7 +3,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
-import { Auth0UserProfile, UserProfile } from '../users/user.model';
+import { UserProfile } from '../users/user.model';
 
 // Extend the Express.Session interface
 declare module 'express-session' {
@@ -28,19 +28,22 @@ export class AuthController {
   @Get('callback')
   @UseGuards(AuthGuard('auth0'))
   async callback(@Req() req: Request, @Res() res: Response) {
-    console.log('Auth0 profile:', JSON.stringify(req.user, null, 2));
-    const auth0Profile = req.user as Auth0UserProfile;
-    const { user, isNewUser } =
-      await this.usersService.findOrCreateUser(auth0Profile);
+    console.log('Raw Auth0 profile:', JSON.stringify(req.user, null, 2));
+    const auth0Profile = req.user as UserProfile;
+    try {
+      const { user, isNewUser } =
+        await this.usersService.findOrCreateUser(auth0Profile);
 
-    req.session.user = user;
+      req.session.user = user;
 
-    if (isNewUser) {
-      // Redirect new users to the edit profile page
-      res.redirect('http://localhost:5173/edit-profile');
-    } else {
-      // Redirect existing users to the dashboard
-      res.redirect('http://localhost:5173/dashboard');
+      if (isNewUser) {
+        res.redirect('http://localhost:5173/edit-profile');
+      } else {
+        res.redirect('http://localhost:5173/dashboard');
+      }
+    } catch (error) {
+      console.error('Error in callback:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
     }
   }
 

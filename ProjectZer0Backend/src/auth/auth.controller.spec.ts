@@ -5,7 +5,7 @@ import { AuthController } from './auth.controller';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { Request, Response } from 'express';
-import { Auth0UserProfile, UserProfile } from '../users/user.model';
+import { UserProfile } from '../users/user.model';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -42,7 +42,7 @@ describe('AuthController', () => {
 
   describe('callback', () => {
     it('should handle new users', async () => {
-      const mockUser: Auth0UserProfile = {
+      const mockUser: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
         email_verified: true,
@@ -84,7 +84,7 @@ describe('AuthController', () => {
     });
 
     it('should handle existing users', async () => {
-      const mockUser: Auth0UserProfile = {
+      const mockUser: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
         email_verified: true,
