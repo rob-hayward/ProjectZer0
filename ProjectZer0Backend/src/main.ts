@@ -2,11 +2,15 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as session from 'express-session';
 import * as passport from 'passport';
+import * as cookieParser from 'cookie-parser';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
+import { AllExceptionsFilter } from './all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const configService = app.get(ConfigService);
+  const logger = new Logger('Bootstrap');
 
   app.setGlobalPrefix('api');
 
@@ -15,13 +19,15 @@ async function bootstrap() {
     credentials: true,
   });
 
+  app.use(cookieParser());
+
   app.use(
     session({
       secret: configService.get<string>('SESSION_SECRET'),
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: false, // set to true if using https
+        secure: false, // set to false for HTTP in development
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours
       },
@@ -39,6 +45,10 @@ async function bootstrap() {
     done(null, user);
   });
 
+  // Global exception filter
+  app.useGlobalFilters(new AllExceptionsFilter(logger));
+
   await app.listen(3000);
+  logger.log('Application is running on: http://localhost:3000');
 }
 bootstrap();

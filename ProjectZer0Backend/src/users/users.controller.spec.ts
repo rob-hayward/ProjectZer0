@@ -18,6 +18,11 @@ describe('UsersController', () => {
             isNewUser: false,
           };
         }),
+      updateUserProfile: jest
+        .fn()
+        .mockImplementation(async (userData: Partial<UserProfile>) => {
+          return { ...userData, sub: 'testSub' } as UserProfile;
+        }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -63,6 +68,38 @@ describe('UsersController', () => {
       const guards = Reflect.getMetadata(
         '__guards__',
         UsersController.prototype.findOrCreateUser,
+      );
+      expect(guards).toContain(JwtAuthGuard);
+    });
+  });
+
+  describe('updateUserProfile', () => {
+    it('should call updateUserProfile method of UsersService', async () => {
+      const userData: Partial<UserProfile> = {
+        sub: 'testSub',
+        preferred_username: 'testUser',
+        email: 'test@example.com',
+        mission_statement: 'Test mission',
+      };
+      await controller.updateUserProfile(userData);
+      expect(usersServiceMock.updateUserProfile).toHaveBeenCalledWith(userData);
+    });
+
+    it('should return the result from UsersService', async () => {
+      const userData: Partial<UserProfile> = {
+        sub: 'testSub',
+        preferred_username: 'testUser',
+        email: 'test@example.com',
+        mission_statement: 'Test mission',
+      };
+      const result = await controller.updateUserProfile(userData);
+      expect(result).toEqual({ ...userData, sub: 'testSub' });
+    });
+
+    it('should use JwtAuthGuard', () => {
+      const guards = Reflect.getMetadata(
+        '__guards__',
+        UsersController.prototype.updateUserProfile,
       );
       expect(guards).toContain(JwtAuthGuard);
     });

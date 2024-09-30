@@ -12,4 +12,10 @@ export class UsersController {
   async findOrCreateUser(@Body() userData: UserProfile) {
     return this.usersService.findOrCreateUser(userData);
   }
+
+  @Post('update-profile')
+  @UseGuards(JwtAuthGuard)
+  async updateUserProfile(@Body() userData: Partial<UserProfile>) {
+    return this.usersService.updateUserProfile(userData);
+  }
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-auth0';
 import { ConfigService } from '@nestjs/config';
@@ -22,6 +22,14 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     extraParams: any,
     profile: any,
   ): Promise<any> {
-    return profile;
+    try {
+      console.log('Auth0 profile:', JSON.stringify(profile, null, 2));
+      return profile;
+    } catch (error) {
+      console.error('Error in Auth0Strategy validate:', error);
+      throw new InternalServerErrorException(
+        'Error fetching user profile from Auth0',
+      );
+    }
   }
 }

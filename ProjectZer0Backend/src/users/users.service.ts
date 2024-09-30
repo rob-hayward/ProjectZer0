@@ -104,4 +104,44 @@ export class UsersService {
       throw new Error('Failed to find or create user');
     }
   }
+
+  // src/users/users.service.ts
+
+  async updateUserProfile(
+    userData: Partial<UserProfile>,
+  ): Promise<UserProfile> {
+    try {
+      console.log('Received update request for user:', userData.sub);
+      console.log('Update data:', userData);
+
+      const result = await this.neo4jService.write(
+        `
+      MATCH (u:User {sub: $sub})
+      SET u += $updates
+      RETURN u
+      `,
+        {
+          sub: userData.sub,
+          updates: {
+            preferred_username: userData.preferred_username,
+            email: userData.email,
+            mission_statement: userData.mission_statement,
+            updated_at: new Date().toISOString(),
+          },
+        },
+      );
+
+      if (result.records.length === 0) {
+        console.log('User not found:', userData.sub);
+        throw new Error('User not found');
+      }
+
+      const updatedUser = result.records[0].get('u').properties as UserProfile;
+      console.log('User profile updated successfully:', updatedUser);
+      return updatedUser;
+    } catch (error) {
+      console.error('Error updating user profile:', error);
+      throw new Error('Failed to update user profile');
+    }
+  }
 }

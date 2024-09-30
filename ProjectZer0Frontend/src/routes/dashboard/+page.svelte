@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import * as auth0 from '$lib/services/auth0';
+  import { userStore } from '$lib/stores/userStore';
+  import { jwtStore } from '$lib/stores/JWTStore';
 
   let user: any = null;
   let error: string | null = null;
@@ -8,16 +11,21 @@
 
   onMount(async () => {
     try {
+      await auth0.handleAuthCallback();
       user = await auth0.getAuth0User();
+      isLoading = false;
     } catch (e) {
       error = 'Failed to fetch user data';
-    } finally {
       isLoading = false;
     }
   });
 
   function handleLogout() {
     auth0.logout();
+  }
+
+  function handleEditProfile() {
+    goto('/edit-profile');
   }
 </script>
 
@@ -36,6 +44,8 @@
     {/if}
     <h3>User Details:</h3>
     <pre>{JSON.stringify(user, null, 2)}</pre>
+    <p>Mission Statement: {user.mission_statement || 'Not provided'}</p>
+    <button on:click={handleEditProfile}>Edit Profile</button>
   </div>
 {:else}
   <p>No user data available</p>
@@ -66,6 +76,7 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
+    margin-right: 10px;
   }
   button:hover {
     background-color: #0056b3;

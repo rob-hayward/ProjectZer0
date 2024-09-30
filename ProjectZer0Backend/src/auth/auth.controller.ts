@@ -1,22 +1,25 @@
-import { Controller, Get, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Req,
+  Res,
+  UseGuards,
+  UnauthorizedException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { UserProfile } from '../users/user.model';
-
-// Extend the Express.Session interface
-declare module 'express-session' {
-  interface Session {
-    user?: UserProfile; // Use the DbUser type for better type safety
-  }
-}
+import { JwtService } from '@nestjs/jwt';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private configService: ConfigService,
     private usersService: UsersService,
+    private jwtService: JwtService,
   ) {}
 
   @Get('login')
@@ -34,7 +37,17 @@ export class AuthController {
       const { user, isNewUser } =
         await this.usersService.findOrCreateUser(auth0Profile);
 
-      req.session.user = user;
+      const payload = { sub: user.sub, email: user.email };
+      const token = this.jwtService.sign(payload);
+
+      res.cookie('jwt', token, {
+        httpOnly: true,
+        secure: false, // set to false for HTTP in development
+        sameSite: 'lax',
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+      });
+
+      console.log('JWT Token set in cookie:', token);
 
       if (isNewUser) {
         res.redirect('http://localhost:5173/edit-profile');
@@ -43,28 +56,46 @@ export class AuthController {
       }
     } catch (error) {
       console.error('Error in callback:', error);
-      res.status(500).json({ error: 'Internal Server Error' });
+      throw new InternalServerErrorException(
+        'Error during authentication callback: ' + error.message,
+      );
     }
+  }
+
+  @Get('profile')
+  @UseGuards(AuthGuard('jwt'))
+  getProfile(@Req() req: Request) {
+    console.log('Getting profile, user:', req.user);
+    if (!req.user) {
+      throw new UnauthorizedException('User not authenticated');
+    }
+    return req.user;
   }
 
   @Get('logout')
   async logout(@Req() req: Request, @Res() res: Response) {
-    req.session.destroy((err) => {
-      if (err) {
-        console.error('Error destroying session:', err);
-      }
-      const returnTo = encodeURIComponent('http://localhost:5173');
-      const domain = this.configService.get<string>('AUTH0_DOMAIN');
-      const clientId = this.configService.get<string>('AUTH0_CLIENT_ID');
-      res.redirect(
-        `https://${domain}/v2/logout?client_id=${clientId}&returnTo=${returnTo}`,
+    try {
+      res.clearCookie('jwt');
+      req.session.destroy((err) => {
+        if (err) {
+          console.error('Error destroying session:', err);
+          throw new InternalServerErrorException(
+            'Error during logout: ' + err.message,
+          );
+        }
+        const returnTo = encodeURIComponent('http://localhost:5173');
+        const domain = this.configService.get<string>('AUTH0_DOMAIN');
+        const clientId = this.configService.get<string>('AUTH0_CLIENT_ID');
+        res.redirect(
+          `https://${domain}/v2/logout?client_id=${clientId}&returnTo=${returnTo}`,
+        );
+      });
+    } catch (error) {
+      console.error('Error in logout:', error);
+      throw new InternalServerErrorException(
+        'Error during logout: ' + error.message,
       );
-    });
-  }
-
-  @Get('profile')
-  getProfile(@Req() req: Request) {
-    return req.session.user || null;
+    }
   }
 
   @Get('test')

@@ -1,28 +1,34 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import * as jwksRsa from 'jwks-rsa';
 import { ConfigService } from '@nestjs/config';
+import { Request } from 'express';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private configService: ConfigService) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        (request: Request) => {
+          const token = request?.cookies?.jwt;
+          if (!token) {
+            console.log('No JWT token found in cookies');
+            return null;
+          }
+          console.log('JWT token found:', token);
+          return token;
+        },
+      ]),
       ignoreExpiration: false,
-      secretOrKeyProvider: jwksRsa.passportJwtSecret({
-        cache: true,
-        rateLimit: true,
-        jwksRequestsPerMinute: 5,
-        jwksUri: `https://${configService.get('auth0.domain')}/.well-known/jwks.json`,
-      }),
-      audience: configService.get('auth0.audience'),
-      issuer: `https://${configService.get('auth0.domain')}/`,
-      algorithms: ['RS256'],
+      secretOrKey: configService.get<string>('AUTH0_CLIENT_SECRET'),
     });
   }
 
   async validate(payload: any) {
+    console.log('JWT payload:', payload);
+    if (!payload) {
+      throw new UnauthorizedException('Invalid token');
+    }
     return payload;
   }
 }

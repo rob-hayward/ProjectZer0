@@ -33,8 +33,9 @@ export interface UserProfile {
   // Custom fields
   createdAt?: Date;
   lastLogin?: Date;
+  mission_statement?: string;
   // Add any other custom fields here
 
   // This allows for any additional fields that Auth0 might send
-  [key: string]: any;
+  [key: string]: unknown;
 }

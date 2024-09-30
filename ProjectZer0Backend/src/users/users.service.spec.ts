@@ -102,4 +102,59 @@ describe('UsersService', () => {
       );
     });
   });
+
+  describe('updateUserProfile', () => {
+    it('should update an existing user', async () => {
+      const mockUserProfile: Partial<UserProfile> = {
+        sub: 'auth0|123',
+        preferred_username: 'updatedUser',
+        email: 'updated@example.com',
+        mission_statement: 'Updated mission statement',
+      };
+
+      const mockUpdatedUser: UserProfile = {
+        ...mockUserProfile,
+        name: 'Test User',
+        updated_at: expect.any(String),
+      } as UserProfile;
+
+      neo4jServiceMock.write = jest.fn().mockResolvedValueOnce({
+        records: [{ get: () => ({ properties: mockUpdatedUser }) }],
+      });
+
+      const result = await service.updateUserProfile(mockUserProfile);
+      expect(result).toEqual(mockUpdatedUser);
+      expect(neo4jServiceMock.write).toHaveBeenCalledTimes(1);
+    });
+
+    it('should throw an error if user is not found', async () => {
+      const mockUserProfile: Partial<UserProfile> = {
+        sub: 'auth0|nonexistent',
+        preferred_username: 'nonexistentUser',
+      };
+
+      neo4jServiceMock.write = jest.fn().mockResolvedValueOnce({
+        records: [],
+      });
+
+      await expect(service.updateUserProfile(mockUserProfile)).rejects.toThrow(
+        'Failed to update user profile',
+      );
+    });
+
+    it('should handle database errors', async () => {
+      const mockUserProfile: Partial<UserProfile> = {
+        sub: 'auth0|123',
+        preferred_username: 'errorUser',
+      };
+
+      neo4jServiceMock.write = jest
+        .fn()
+        .mockRejectedValue(new Error('Database error'));
+
+      await expect(service.updateUserProfile(mockUserProfile)).rejects.toThrow(
+        'Failed to update user profile',
+      );
+    });
+  });
 });
