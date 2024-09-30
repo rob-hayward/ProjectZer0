@@ -1,32 +1,14 @@
-node_modules
-
-# Output
-.output
-.vercel
-/.svelte-kit
-/build
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Env
-.env
-.env.*
-!.env.example
-!.env.test
-
-# Vite
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
-
 # Node
-node_modules/
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnp/
+.pnp
 .pnp.js
+
+# Svelte
+/.svelte-kit
+/build
 
 # Python
 __pycache__/
@@ -40,7 +22,9 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
+/ProjectZer0Backend/lib/
+!/ProjectZer0Frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -52,40 +36,31 @@ share/python-wheels/
 *.egg
 MANIFEST
 .pytest_cache/
-*.cover
-*.py,cover
 
-# Environments
+# Environment
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
+!.env.test
 .venv
 env/
 venv/
 ENV/
-env.bak/
-venv.bak/
+
+# OS
+.DS_Store
+Thumbs.db
 
 # IDEs and editors
 .vscode/
 .idea/
 *.swp
 *.swo
-.spyderproject
-.spyproject
-.ropeproject
-
-# OS generated
-.DS_Store
-Thumbs.db
 
 # Build outputs
-build/
-dist/
+/ProjectZer0Frontend/build/
+/ProjectZer0Backend/dist/
 coverage/
-htmlcov/
 
 # Logs and databases
 *.log
@@ -96,110 +71,8 @@ htmlcov/
 *.temp
 *.bak
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# PyInstaller
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff
-instance/
-.webassets-cache
-
-# Scrapy stuff
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-Pipfile.lock
-
-# poetry
-poetry.lock
-
-# pdm
-.pdm.toml
-.pdm-python
-.pdm-build/
-
-# PEP 582
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# Lock files
-package-lock.json
-yarn.lock
-
-# Build output
-/project-zero-frontend/build/
-/project-zero-backend/dist/
-
-# Local environment files
-.env*.local
-
-# Specific to your project (if needed)
-# Add any project-specific ignores here
+# Other
+.vercel
+.output
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
