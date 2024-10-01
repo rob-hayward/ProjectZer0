@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UsersService } from './users.service';
+import { UserAuthService } from './user-auth.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 import { UserProfile } from './user.model';
 
-describe('UsersService', () => {
-  let service: UsersService;
+describe('UserAuthService', () => {
+  let service: UserAuthService;
   let neo4jServiceMock: Partial<Neo4jService>;
 
   beforeEach(async () => {
@@ -15,12 +15,12 @@ describe('UsersService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        UsersService,
+        UserAuthService,
         { provide: Neo4jService, useValue: neo4jServiceMock },
       ],
     }).compile();
 
-    service = module.get<UsersService>(UsersService);
+    service = module.get<UserAuthService>(UserAuthService);
   });
 
   it('should be defined', () => {

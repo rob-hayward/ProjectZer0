@@ -10,7 +10,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { Request, Response } from 'express';
 import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../users/users.service';
+import { UserAuthService } from '../users/user-auth.service';
 import { UserProfile } from '../users/user.model';
 import { JwtService } from '@nestjs/jwt';
 
@@ -18,7 +18,7 @@ import { JwtService } from '@nestjs/jwt';
 export class AuthController {
   constructor(
     private configService: ConfigService,
-    private usersService: UsersService,
+    private userAuthService: UserAuthService,
     private jwtService: JwtService,
   ) {}
 
@@ -35,7 +35,7 @@ export class AuthController {
     const auth0Profile = req.user as UserProfile;
     try {
       const { user, isNewUser } =
-        await this.usersService.findOrCreateUser(auth0Profile);
+        await this.userAuthService.findOrCreateUser(auth0Profile);
 
       const payload = { sub: user.sub, email: user.email };
       const token = this.jwtService.sign(payload);
@@ -70,7 +70,9 @@ export class AuthController {
       throw new UnauthorizedException('User not authenticated');
     }
     // Fetch the full user profile from the database
-    const userProfile = await this.usersService.getUserProfile(req.user['sub']);
+    const userProfile = await this.userAuthService.getUserProfile(
+      req.user['sub'],
+    );
     return userProfile;
   }
 

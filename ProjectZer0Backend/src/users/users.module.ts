@@ -1,11 +1,13 @@
-// ProjectZer0Backend/src/users/users.module.ts
 import { Module } from '@nestjs/common';
 import { UsersController } from './users.controller';
-import { UsersService } from './users.service';
+import { UserAuthService } from './user-auth.service';
+import { UserSchema } from '../neo4j/schemas/user.schema';
+import { Neo4jModule } from '../neo4j/neo4j.module';
 
 @Module({
+  imports: [Neo4jModule],
   controllers: [UsersController],
-  providers: [UsersService],
-  exports: [UsersService],
+  providers: [UserAuthService, UserSchema],
+  exports: [UserAuthService],
 })
 export class UsersModule {}

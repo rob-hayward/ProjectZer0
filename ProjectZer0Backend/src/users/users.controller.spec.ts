@@ -1,15 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
-import { UsersService } from './users.service';
+import { UserAuthService } from './user-auth.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserProfile } from './user.model';
 
 describe('UsersController', () => {
   let controller: UsersController;
-  let usersServiceMock: Partial<UsersService>;
+  let userAuthServiceMock: Partial<UserAuthService>;
 
   beforeEach(async () => {
-    usersServiceMock = {
+    userAuthServiceMock = {
       findOrCreateUser: jest
         .fn()
         .mockImplementation(async (userData: UserProfile) => {
@@ -27,7 +27,7 @@ describe('UsersController', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
-      providers: [{ provide: UsersService, useValue: usersServiceMock }],
+      providers: [{ provide: UserAuthService, useValue: userAuthServiceMock }],
     })
       .overrideGuard(JwtAuthGuard)
       .useValue({ canActivate: jest.fn().mockReturnValue(true) })
@@ -41,17 +41,19 @@ describe('UsersController', () => {
   });
 
   describe('findOrCreateUser', () => {
-    it('should call findOrCreateUser method of UsersService', async () => {
+    it('should call findOrCreateUser method of UserAuthService', async () => {
       const userData: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
         // Add other required fields from Auth0UserProfile
       };
       await controller.findOrCreateUser(userData);
-      expect(usersServiceMock.findOrCreateUser).toHaveBeenCalledWith(userData);
+      expect(userAuthServiceMock.findOrCreateUser).toHaveBeenCalledWith(
+        userData,
+      );
     });
 
-    it('should return the result from UsersService', async () => {
+    it('should return the result from UserAuthService', async () => {
       const userData: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
@@ -74,7 +76,7 @@ describe('UsersController', () => {
   });
 
   describe('updateUserProfile', () => {
-    it('should call updateUserProfile method of UsersService', async () => {
+    it('should call updateUserProfile method of UserAuthService', async () => {
       const userData: Partial<UserProfile> = {
         sub: 'testSub',
         preferred_username: 'testUser',
@@ -82,10 +84,12 @@ describe('UsersController', () => {
         mission_statement: 'Test mission',
       };
       await controller.updateUserProfile(userData);
-      expect(usersServiceMock.updateUserProfile).toHaveBeenCalledWith(userData);
+      expect(userAuthServiceMock.updateUserProfile).toHaveBeenCalledWith(
+        userData,
+      );
     });
 
-    it('should return the result from UsersService', async () => {
+    it('should return the result from UserAuthService', async () => {
       const userData: Partial<UserProfile> = {
         sub: 'testSub',
         preferred_username: 'testUser',

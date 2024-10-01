@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { ConfigService } from '@nestjs/config';
-import { UsersService } from '../users/users.service';
+import { UserAuthService } from '../users/user-auth.service';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
 import { UserProfile } from '../users/user.model';
@@ -9,7 +9,7 @@ import { UnauthorizedException } from '@nestjs/common';
 
 describe('AuthController', () => {
   let controller: AuthController;
-  let usersService: UsersService;
+  let userAuthService: UserAuthService;
   let configService: ConfigService;
   let jwtService: JwtService;
 
@@ -18,7 +18,7 @@ describe('AuthController', () => {
       controllers: [AuthController],
       providers: [
         {
-          provide: UsersService,
+          provide: UserAuthService,
           useValue: {
             findOrCreateUser: jest.fn(),
             getUserProfile: jest.fn(),
@@ -40,7 +40,7 @@ describe('AuthController', () => {
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
-    usersService = module.get<UsersService>(UsersService);
+    userAuthService = module.get<UserAuthService>(UserAuthService);
     configService = module.get<ConfigService>(ConfigService);
     jwtService = module.get<JwtService>(JwtService);
   });
@@ -75,14 +75,14 @@ describe('AuthController', () => {
         redirect: jest.fn(),
       } as unknown as Response;
 
-      jest.spyOn(usersService, 'findOrCreateUser').mockResolvedValue({
+      jest.spyOn(userAuthService, 'findOrCreateUser').mockResolvedValue({
         user: mockDbUser,
         isNewUser: true,
       });
 
       await controller.callback(mockReq, mockRes);
 
-      expect(usersService.findOrCreateUser).toHaveBeenCalledWith(mockUser);
+      expect(userAuthService.findOrCreateUser).toHaveBeenCalledWith(mockUser);
       expect(jwtService.sign).toHaveBeenCalled();
       expect(mockRes.cookie).toHaveBeenCalledWith(
         'jwt',
@@ -119,14 +119,14 @@ describe('AuthController', () => {
         redirect: jest.fn(),
       } as unknown as Response;
 
-      jest.spyOn(usersService, 'findOrCreateUser').mockResolvedValue({
+      jest.spyOn(userAuthService, 'findOrCreateUser').mockResolvedValue({
         user: mockDbUser,
         isNewUser: false,
       });
 
       await controller.callback(mockReq, mockRes);
 
-      expect(usersService.findOrCreateUser).toHaveBeenCalledWith(mockUser);
+      expect(userAuthService.findOrCreateUser).toHaveBeenCalledWith(mockUser);
       expect(jwtService.sign).toHaveBeenCalled();
       expect(mockRes.cookie).toHaveBeenCalledWith(
         'jwt',
@@ -182,11 +182,13 @@ describe('AuthController', () => {
         user: { sub: 'auth0|123' },
       } as unknown as Request;
 
-      jest.spyOn(usersService, 'getUserProfile').mockResolvedValue(mockDbUser);
+      jest
+        .spyOn(userAuthService, 'getUserProfile')
+        .mockResolvedValue(mockDbUser);
 
       const result = await controller.getProfile(mockReq);
 
-      expect(usersService.getUserProfile).toHaveBeenCalledWith('auth0|123');
+      expect(userAuthService.getUserProfile).toHaveBeenCalledWith('auth0|123');
       expect(result).toEqual(mockDbUser);
     });
 
