@@ -2,26 +2,27 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { jwtStore } from '../stores/JWTStore';
 import * as auth0Module from './auth0';
+import { userStore } from '../stores/userStore';
 import type { UserProfile } from '../types/user';
 
 describe('Auth0 Service', () => {
-  const originalURLSearchParams = global.URLSearchParams;
+  const originalFetch = global.fetch;
   const originalLocation = window.location;
 
   beforeEach(() => {
     vi.resetAllMocks();
+    global.fetch = vi.fn();
     vi.spyOn(jwtStore, 'setToken').mockImplementation(() => {});
-    vi.spyOn(auth0Module, 'getAuth0User').mockResolvedValue({} as UserProfile);
+    vi.spyOn(userStore, 'set').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    global.URLSearchParams = originalURLSearchParams;
+    global.fetch = originalFetch;
     window.location = originalLocation;
   });
 
   describe('login', () => {
     it('redirects to login URL', () => {
-      const originalLocation = window.location;
       const mockLocation = { href: '' };
       Object.defineProperty(window, 'location', {
         writable: true,
@@ -31,11 +32,6 @@ describe('Auth0 Service', () => {
       auth0Module.login();
 
       expect(mockLocation.href).toBe('http://localhost:3000/api/auth/login');
-
-      Object.defineProperty(window, 'location', {
-        writable: true,
-        value: originalLocation,
-      });
     });
   });
 
@@ -50,82 +46,86 @@ describe('Auth0 Service', () => {
         picture: 'https://example.com/picture.jpg',
         updated_at: new Date().toISOString(),
       };
-      vi.mocked(auth0Module.getAuth0User).mockResolvedValueOnce(mockUserData);
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockUserData),
+      } as Response);
 
       const result = await auth0Module.getAuth0User();
 
       expect(result).toEqual(mockUserData);
+      expect(userStore.set).toHaveBeenCalledWith(mockUserData);
     });
 
     it('returns null and logs error on fetch failure', async () => {
-      vi.mocked(auth0Module.getAuth0User).mockImplementationOnce(async () => {
-        console.error('Error getting user data:', new Error('Network error'));
-        return null;
+      global.fetch = vi.fn().mockRejectedValueOnce(new Error('Network error'));
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      const result = await auth0Module.getAuth0User();
+
+      expect(result).toBeNull();
+      expect(consoleSpy).toHaveBeenCalledWith('Error getting user data:', expect.any(Error));
+    });
+
+    it('redirects to login on 401 unauthorized', async () => {
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+      } as Response);
+
+      const mockLocation = { href: '' };
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: mockLocation,
       });
 
       const result = await auth0Module.getAuth0User();
 
       expect(result).toBeNull();
+      expect(mockLocation.href).toBe('http://localhost:3000/api/auth/login');
     });
   });
 
   describe('handleAuthCallback', () => {
-    const originalURLSearchParams = global.URLSearchParams;
-    const originalLocation = window.location;
-  
-    beforeEach(() => {
-      vi.resetAllMocks();
-    });
-  
-    afterEach(() => {
-      global.URLSearchParams = originalURLSearchParams;
-      window.location = originalLocation;
-    });
-  
-    it('sets JWT token from URL and removes it', async () => {
-      const token = 'mock-jwt-token';
-      
-      // Mock URLSearchParams
-      const mockURLSearchParams = {
-        get: vi.fn().mockReturnValue(token),
-        delete: vi.fn(),
-        toString: vi.fn().mockReturnValue('')
+    it('fetches user data after callback', async () => {
+      const mockUserData: UserProfile = {
+        sub: 'auth0|123',
+        name: 'Test User',
+        email: 'test@example.com',
       };
-      global.URLSearchParams = vi.fn().mockImplementation(() => mockURLSearchParams) as any;
-  
-      // Mock window.location
-      delete (window as any).location;
-      window.location = {
-        ...originalLocation,
-        search: `?token=${token}`,
-      } as any;
-      
-      const setTokenSpy = vi.spyOn(jwtStore, 'setToken');
-      const historyReplaceSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
-      vi.mocked(auth0Module.getAuth0User).mockResolvedValueOnce({} as UserProfile);
-  
+
+      global.fetch = vi.fn().mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockUserData),
+      } as Response);
+
       await auth0Module.handleAuthCallback();
-  
-      expect(setTokenSpy).toHaveBeenCalledWith(token);
-      expect(historyReplaceSpy).toHaveBeenCalled();
-      expect(mockURLSearchParams.delete).toHaveBeenCalledWith('token');
+
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:3000/api/auth/profile',
+        expect.any(Object)
+      );
+      expect(userStore.set).toHaveBeenCalledWith(mockUserData);
     });
-  
-    it('does not set token if not present in URL', async () => {
-      // Mock window.location
-      delete (window as any).location;
-      window.location = {
-        ...originalLocation,
-        search: '',
-      } as any;
-      
-      const setTokenSpy = vi.spyOn(jwtStore, 'setToken');
-      vi.spyOn(auth0Module, 'getAuth0User');
-  
-      await auth0Module.handleAuthCallback();
-  
-      expect(setTokenSpy).not.toHaveBeenCalled();
-      expect(auth0Module.getAuth0User).not.toHaveBeenCalled();
+  });
+
+  describe('logout', () => {
+    it('clears token, user store, and redirects to logout URL', () => {
+      const mockLocation = { href: '' };
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: mockLocation,
+      });
+
+      const clearTokenSpy = vi.spyOn(jwtStore, 'clearToken');
+
+      auth0Module.logout();
+
+      expect(clearTokenSpy).toHaveBeenCalled();
+      expect(userStore.set).toHaveBeenCalledWith(null);
+      expect(mockLocation.href).toBe('http://localhost:3000/api/auth/logout');
     });
   });
 });

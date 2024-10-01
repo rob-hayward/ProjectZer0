@@ -5,6 +5,7 @@ import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
 import { Request, Response } from 'express';
 import { UserProfile } from '../users/user.model';
+import { UnauthorizedException } from '@nestjs/common';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -20,6 +21,7 @@ describe('AuthController', () => {
           provide: UsersService,
           useValue: {
             findOrCreateUser: jest.fn(),
+            getUserProfile: jest.fn(),
           },
         },
         {
@@ -163,7 +165,7 @@ describe('AuthController', () => {
   });
 
   describe('getProfile', () => {
-    it('should return the user profile from request', () => {
+    it('should return the user profile from database', async () => {
       const mockDbUser: UserProfile = {
         sub: 'auth0|123',
         email: 'test@example.com',
@@ -177,20 +179,23 @@ describe('AuthController', () => {
       };
 
       const mockReq = {
-        user: mockDbUser,
+        user: { sub: 'auth0|123' },
       } as unknown as Request;
 
-      const result = controller.getProfile(mockReq);
+      jest.spyOn(usersService, 'getUserProfile').mockResolvedValue(mockDbUser);
 
+      const result = await controller.getProfile(mockReq);
+
+      expect(usersService.getUserProfile).toHaveBeenCalledWith('auth0|123');
       expect(result).toEqual(mockDbUser);
     });
 
-    it('should return null if no user in request', () => {
+    it('should throw UnauthorizedException if no user in request', async () => {
       const mockReq = {} as Request;
 
-      const result = controller.getProfile(mockReq);
-
-      expect(result).toBeNull();
+      await expect(controller.getProfile(mockReq)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
