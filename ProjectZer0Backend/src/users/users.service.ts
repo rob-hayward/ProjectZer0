@@ -105,7 +105,28 @@ export class UsersService {
     }
   }
 
-  // src/users/users.service.ts
+  async getUserProfile(sub: string): Promise<UserProfile> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (u:User {sub: $sub})
+        RETURN u
+        `,
+        { sub },
+      );
+
+      if (result.records.length === 0) {
+        throw new Error('User not found');
+      }
+
+      const userProfile = result.records[0].get('u').properties as UserProfile;
+      console.log('Fetched user profile:', userProfile);
+      return userProfile;
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      throw new Error('Failed to fetch user profile');
+    }
+  }
 
   async updateUserProfile(
     userData: Partial<UserProfile>,

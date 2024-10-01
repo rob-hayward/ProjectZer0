@@ -12,6 +12,7 @@
   let preferred_username = '';
   let email = '';
   let mission_statement = '';
+  let updateSuccess = false;
 
   async function loadUser() {
     await handleAuthCallback();
@@ -41,7 +42,10 @@
       if (updatedUser) {
         console.log('Profile updated:', updatedUser);
         userStore.set(updatedUser);
-        goto('/dashboard');
+        updateSuccess = true;
+        setTimeout(() => {
+          goto('/dashboard');
+        }, 2000); // Redirect after 2 seconds
       } else {
         console.error('Failed to update profile: No data returned');
         // You might want to show an error message to the user here
@@ -95,6 +99,12 @@
 
       <button type="submit">Save Profile</button>
     </form>
+
+    {#if updateSuccess}
+      <div class="success-message">
+        Profile updated successfully! Redirecting to dashboard...
+      </div>
+    {/if}
   {:else}
     <p>No user found. Please log in.</p>
   {/if}
@@ -148,5 +158,13 @@
 
   button:hover {
     background-color: #0056b3;
+  }
+
+  .success-message {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 20px;
   }
 </style>

@@ -64,12 +64,14 @@ export class AuthController {
 
   @Get('profile')
   @UseGuards(AuthGuard('jwt'))
-  getProfile(@Req() req: Request) {
+  async getProfile(@Req() req: Request) {
     console.log('Getting profile, user:', req.user);
     if (!req.user) {
       throw new UnauthorizedException('User not authenticated');
     }
-    return req.user;
+    // Fetch the full user profile from the database
+    const userProfile = await this.usersService.getUserProfile(req.user['sub']);
+    return userProfile;
   }
 
   @Get('logout')

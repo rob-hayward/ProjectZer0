@@ -15,11 +15,6 @@ export function logout() {
   window.location.href = `${API_URL}/auth/logout`;
 }
 
-export async function handleAuthCallback() {
-  // The token is now in a secure cookie, so we don't need to extract it from the URL
-  await getAuth0User();
-}
-
 export async function getAuth0User(): Promise<UserProfile | null> {
   try {
     console.log('Fetching user data from backend...');
@@ -31,9 +26,6 @@ export async function getAuth0User(): Promise<UserProfile | null> {
       },
     });
     
-    console.log('Response status:', response.status);
-    console.log('Response headers:', response.headers);
-
     if (!response.ok) {
       if (response.status === 401) {
         console.log('User is not authenticated. Redirecting to login...');
@@ -45,9 +37,14 @@ export async function getAuth0User(): Promise<UserProfile | null> {
 
     const userData: UserProfile = await response.json();
     console.log('User data received:', userData);
+    userStore.set(userData);  // Update the userStore with the latest data
     return userData;
   } catch (error) {
     console.error('Error getting user data:', error);
     return null;
   }
+}
+
+export async function handleAuthCallback() {
+  await getAuth0User();  // This will update the userStore
 }

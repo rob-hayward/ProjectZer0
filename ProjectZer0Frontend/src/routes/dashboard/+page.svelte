@@ -3,19 +3,24 @@
   import { goto } from '$app/navigation';
   import * as auth0 from '$lib/services/auth0';
   import { userStore } from '$lib/stores/userStore';
-  import { jwtStore } from '$lib/stores/JWTStore';
+  import type { UserProfile } from '$lib/types/user';
 
-  let user: any = null;
+  let user: UserProfile | null = null;
   let error: string | null = null;
   let isLoading = true;
 
   onMount(async () => {
     try {
       await auth0.handleAuthCallback();
-      user = await auth0.getAuth0User();
-      isLoading = false;
+      const fetchedUser = await auth0.getAuth0User();
+      if (fetchedUser) {
+        user = fetchedUser;
+      } else {
+        error = 'Failed to fetch user data';
+      }
     } catch (e) {
       error = 'Failed to fetch user data';
+    } finally {
       isLoading = false;
     }
   });
@@ -37,14 +42,15 @@
   <p class="error">{error}</p>
 {:else if user}
   <div class="user-info">
-    <h2>Welcome, {user.name || user.nickname || 'User'}!</h2>
+    <h2>Welcome, {user.preferred_username || user.name || user.nickname || 'User'}!</h2>
     <p>Email: {user.email || 'Not provided'}</p>
     {#if user.picture}
       <img src={user.picture} alt="User's avatar" class="profile-picture" />
     {/if}
+    <p>Preferred Username: {user.preferred_username || 'Not set'}</p>
+    <p>Mission Statement: {user.mission_statement || 'Not provided'}</p>
     <h3>User Details:</h3>
     <pre>{JSON.stringify(user, null, 2)}</pre>
-    <p>Mission Statement: {user.mission_statement || 'Not provided'}</p>
     <button on:click={handleEditProfile}>Edit Profile</button>
   </div>
 {:else}
