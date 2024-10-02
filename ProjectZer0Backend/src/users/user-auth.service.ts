@@ -86,7 +86,7 @@ export class UserAuthService {
       return updatedUser;
     } catch (error) {
       console.error('Error updating user profile:', error);
-      throw new Error('Failed to update user profile');
+      throw error; // Re-throw the original error instead of creating a new one
     }
   }
 
