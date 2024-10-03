@@ -72,16 +72,4 @@ export class CommentSchema {
       { id },
     );
   }
-
-  async voteComment(id: string, voteType: 'positive' | 'negative') {
-    const result = await this.neo4jService.write(
-      `
-      MATCH (c:CommentNode {id: $id})
-      SET c.${voteType}Votes = c.${voteType}Votes + 1
-      RETURN c
-      `,
-      { id },
-    );
-    return result.records[0].get('c').properties;
-  }
 }

@@ -5,6 +5,7 @@ import { Neo4jService } from '../neo4j.service';
 
 @Injectable()
 export class BeliefSchema {
+  [x: string]: any;
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async createBelief(beliefData: {
@@ -13,6 +14,7 @@ export class BeliefSchema {
     publicCredit: boolean;
     statement: string;
     tags: string[];
+    initialComment: string;
   }) {
     const result = await this.neo4jService.write(
       `
@@ -21,8 +23,7 @@ export class BeliefSchema {
         createdBy: $createdBy,
         publicCredit: $publicCredit,
         statement: $statement,
-        positiveVotes: 0,
-        negativeVotes: 0,
+        initialComment: $initialComment,
         createdAt: datetime(),
         updatedAt: datetime()
       })
@@ -30,8 +31,20 @@ export class BeliefSchema {
       UNWIND $tags as tag
       MERGE (w:WordNode {word: tag})
       CREATE (b)-[:TAGGED]->(w)
+      CREATE (d:DiscussionNode {
+        id: apoc.create.uuid(),
+        createdAt: datetime()
+      })
+      CREATE (b)-[:HAS_DISCUSSION]->(d)
+      CREATE (c:CommentNode {
+        id: apoc.create.uuid(),
+        createdBy: $createdBy,
+        commentText: $initialComment,
+        createdAt: datetime()
+      })
+      CREATE (d)-[:HAS_COMMENT]->(c)
       RETURN b
-      `,
+    `,
       beliefData,
     );
     return result.records[0].get('b').properties;
@@ -93,17 +106,5 @@ export class BeliefSchema {
       `,
       { id },
     );
-  }
-
-  async voteBelief(id: string, voteType: 'positive' | 'negative') {
-    const result = await this.neo4jService.write(
-      `
-      MATCH (b:BeliefNode {id: $id})
-      SET b.${voteType}Votes = b.${voteType}Votes + 1
-      RETURN b
-      `,
-      { id },
-    );
-    return result.records[0].get('b').properties;
   }
 }

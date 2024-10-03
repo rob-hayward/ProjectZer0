@@ -71,16 +71,4 @@ export class DefinitionSchema {
       { id },
     );
   }
-
-  async voteDefinition(id: string) {
-    const result = await this.neo4jService.write(
-      `
-      MATCH (d:DefinitionNode {id: $id})
-      SET d.positiveVotes = d.positiveVotes + 1
-      RETURN d
-      `,
-      { id },
-    );
-    return result.records[0].get('d').properties;
-  }
 }
