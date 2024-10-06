@@ -28,13 +28,16 @@ describe('BeliefSchema', () => {
   });
 
   describe('createBelief', () => {
-    it('should create a belief with tags and initial comment', async () => {
+    it('should create a belief with keywords and initial comment', async () => {
       const mockBelief = {
         id: 'test-id',
         createdBy: 'user-id',
         publicCredit: true,
         statement: 'Test belief',
-        tags: ['tag1', 'tag2'],
+        keywords: [
+          { word: 'tag1', frequency: 2 },
+          { word: 'tag2', frequency: 1 },
+        ],
         initialComment: 'Initial comment',
       };
 
@@ -58,17 +61,25 @@ describe('BeliefSchema', () => {
   });
 
   describe('getBelief', () => {
-    it('should return a belief with its tags', async () => {
+    it('should return a belief with its keywords and related beliefs', async () => {
       const mockBelief = {
         id: 'test-id',
         statement: 'Test belief',
       };
-      const mockTags = ['tag1', 'tag2'];
+      const mockKeywords = [
+        { word: 'tag1', frequency: 2 },
+        { word: 'tag2', frequency: 1 },
+      ];
+      const mockRelatedBeliefs = [
+        { nodeId: 'related-1', sharedWord: 'tag1', strength: 2 },
+        { nodeId: 'related-2', sharedWord: 'tag2', strength: 1 },
+      ];
 
       const mockRecord = {
         get: jest.fn((key) => {
           if (key === 'b') return { properties: mockBelief };
-          if (key === 'tags') return mockTags;
+          if (key === 'keywords') return mockKeywords;
+          if (key === 'relatedBeliefs') return mockRelatedBeliefs;
         }),
       } as unknown as Record;
       const mockResult = {
@@ -85,7 +96,8 @@ describe('BeliefSchema', () => {
       );
       expect(result).toEqual({
         ...mockBelief,
-        tags: mockTags,
+        keywords: mockKeywords,
+        relatedBeliefs: mockRelatedBeliefs,
       });
     });
 
@@ -104,7 +116,10 @@ describe('BeliefSchema', () => {
         id: 'test-id',
         statement: 'Updated belief',
         publicCredit: false,
-        tags: ['new-tag1', 'new-tag2'],
+        keywords: [
+          { word: 'new-tag1', frequency: 3 },
+          { word: 'new-tag2', frequency: 1 },
+        ],
       };
 
       const mockRecord = {
@@ -116,21 +131,23 @@ describe('BeliefSchema', () => {
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      const result = await beliefSchema.updateBelief('test-id', {
-        statement: 'Updated belief',
-        publicCredit: false,
-        tags: ['new-tag1', 'new-tag2'],
-      });
+      const result = await beliefSchema.updateBelief(
+        'test-id',
+        mockUpdatedBelief,
+      );
 
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (b:BeliefNode {id: $id})'),
         expect.objectContaining({
           id: 'test-id',
-          updateData: {
+          updateProperties: {
             statement: 'Updated belief',
             publicCredit: false,
           },
-          tags: ['new-tag1', 'new-tag2'],
+          keywords: [
+            { word: 'new-tag1', frequency: 3 },
+            { word: 'new-tag2', frequency: 1 },
+          ],
         }),
       );
       expect(result).toEqual(mockUpdatedBelief);
@@ -138,7 +155,7 @@ describe('BeliefSchema', () => {
   });
 
   describe('deleteBelief', () => {
-    it('should delete a belief', async () => {
+    it('should delete a belief and its relationships', async () => {
       await beliefSchema.deleteBelief('test-id');
 
       expect(neo4jService.write).toHaveBeenCalledWith(

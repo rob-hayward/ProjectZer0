@@ -3,9 +3,13 @@
 import { Injectable } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 
+interface KeywordWithFrequency {
+  word: string;
+  frequency: number;
+}
+
 @Injectable()
 export class BeliefSchema {
-  [x: string]: any;
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async createBelief(beliefData: {
@@ -13,7 +17,7 @@ export class BeliefSchema {
     createdBy: string;
     publicCredit: boolean;
     statement: string;
-    tags: string[];
+    keywords: KeywordWithFrequency[];
     initialComment: string;
   }) {
     const result = await this.neo4jService.write(
@@ -28,9 +32,16 @@ export class BeliefSchema {
         updatedAt: datetime()
       })
       WITH b
-      UNWIND $tags as tag
-      MERGE (w:WordNode {word: tag})
-      CREATE (b)-[:TAGGED]->(w)
+      UNWIND $keywords as keyword
+      MERGE (w:WordNode {word: keyword.word})
+      CREATE (b)-[:TAGGED {frequency: keyword.frequency}]->(w)
+      WITH b, w, keyword
+      MATCH (o:BeliefNode)-[t:TAGGED]->(w)
+      WHERE o.id <> b.id
+      MERGE (b)-[st:SHARED_TAG {word: w.word}]->(o)
+      ON CREATE SET st.strength = keyword.frequency * t.frequency
+      ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+      WITH b
       CREATE (d:DiscussionNode {
         id: apoc.create.uuid(),
         createdAt: datetime()
@@ -54,14 +65,22 @@ export class BeliefSchema {
     const result = await this.neo4jService.read(
       `
       MATCH (b:BeliefNode {id: $id})
-      OPTIONAL MATCH (b)-[:TAGGED]->(w:WordNode)
-      RETURN b, collect(w.word) as tags
+      OPTIONAL MATCH (b)-[t:TAGGED]->(w:WordNode)
+      OPTIONAL MATCH (b)-[st:SHARED_TAG]->(o:BeliefNode)
+      RETURN b,
+             collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords,
+             collect(DISTINCT {
+               nodeId: o.id,
+               sharedWord: st.word,
+               strength: st.strength
+             }) as relatedBeliefs
       `,
       { id },
     );
     if (result.records.length === 0) return null;
     const belief = result.records[0].get('b').properties;
-    belief.tags = result.records[0].get('tags');
+    belief.keywords = result.records[0].get('keywords');
+    belief.relatedBeliefs = result.records[0].get('relatedBeliefs');
     return belief;
   }
 
@@ -70,29 +89,35 @@ export class BeliefSchema {
     updateData: Partial<{
       statement: string;
       publicCredit: boolean;
-      tags: string[];
+      keywords: KeywordWithFrequency[];
     }>,
   ) {
     const result = await this.neo4jService.write(
       `
       MATCH (b:BeliefNode {id: $id})
-      SET b += $updateData, b.updatedAt = datetime()
+      SET b += $updateProperties, b.updatedAt = datetime()
       WITH b
       OPTIONAL MATCH (b)-[r:TAGGED]->()
       DELETE r
       WITH b
-      UNWIND $tags as tag
-      MERGE (w:WordNode {word: tag})
-      CREATE (b)-[:TAGGED]->(w)
+      UNWIND $keywords as keyword
+      MERGE (w:WordNode {word: keyword.word})
+      CREATE (b)-[:TAGGED {frequency: keyword.frequency}]->(w)
+      WITH b, w, keyword
+      MATCH (o:BeliefNode)-[t:TAGGED]->(w)
+      WHERE o.id <> b.id
+      MERGE (b)-[st:SHARED_TAG {word: w.word}]->(o)
+      ON CREATE SET st.strength = keyword.frequency * t.frequency
+      ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
       RETURN b
       `,
       {
         id,
-        updateData: {
+        updateProperties: {
           statement: updateData.statement,
           publicCredit: updateData.publicCredit,
         },
-        tags: updateData.tags,
+        keywords: updateData.keywords,
       },
     );
     return result.records[0].get('b').properties;
@@ -102,7 +127,8 @@ export class BeliefSchema {
     await this.neo4jService.write(
       `
       MATCH (b:BeliefNode {id: $id})
-      DETACH DELETE b
+      OPTIONAL MATCH (b)-[r]-()
+      DELETE r, b
       `,
       { id },
     );

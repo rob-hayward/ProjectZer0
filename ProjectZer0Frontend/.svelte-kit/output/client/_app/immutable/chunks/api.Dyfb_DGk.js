@@ -1,0 +1,1 @@
+import{j as r}from"./auth0.Bs0tMaqG.js";const s="http://localhost:3000/api";async function i(a,e={}){const o=r.getToken(),n={"Content-Type":"application/json",...e.headers};o&&(n.Authorization=`Bearer ${o}`);const t=await fetch(`${s}${a}`,{...e,headers:n,credentials:"include"});if(!t.ok)throw new Error(`API call failed: ${t.statusText}`);return t.json()}export{i as f};

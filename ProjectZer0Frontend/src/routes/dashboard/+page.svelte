@@ -32,6 +32,10 @@
   function handleEditProfile() {
     goto('/edit-profile');
   }
+
+  function handleCreateNode() {
+    goto('/create-node');
+  }
 </script>
 
 <h1>Dashboard</h1>
@@ -49,9 +53,12 @@
     {/if}
     <p>Preferred Username: {user.preferred_username || 'Not set'}</p>
     <p>Mission Statement: {user.mission_statement || 'Not provided'}</p>
+    <div class="action-buttons">
+      <button on:click={handleCreateNode}>Create New Node</button>
+      <button on:click={handleEditProfile}>Edit Profile</button>
+    </div>
     <h3>User Details:</h3>
     <pre>{JSON.stringify(user, null, 2)}</pre>
-    <button on:click={handleEditProfile}>Edit Profile</button>
   </div>
 {:else}
   <p>No user data available</p>
@@ -74,6 +81,9 @@
   }
   .error {
     color: red;
+  }
+  .action-buttons {
+    margin: 20px 0;
   }
   button {
     padding: 10px 20px;

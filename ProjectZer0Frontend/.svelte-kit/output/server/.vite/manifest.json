@@ -72,6 +72,19 @@
       "_app/immutable/assets/_page.IpuuOhnd.css"
     ]
   },
+  "src/routes/create-node/+page.svelte": {
+    "file": "entries/pages/create-node/_page.svelte.js",
+    "name": "entries/pages/create-node/_page.svelte",
+    "src": "src/routes/create-node/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_ssr.js",
+      "_client.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.CRRyJIDK.css"
+    ]
+  },
   "src/routes/dashboard/+page.svelte": {
     "file": "entries/pages/dashboard/_page.svelte.js",
     "name": "entries/pages/dashboard/_page.svelte",
@@ -82,7 +95,7 @@
       "_client.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.C32cd-jR.css"
+      "_app/immutable/assets/_page.CRbfiWHH.css"
     ]
   },
   "src/routes/edit-profile/+page.svelte": {

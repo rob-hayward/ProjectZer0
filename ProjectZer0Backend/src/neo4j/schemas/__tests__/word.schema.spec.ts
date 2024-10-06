@@ -36,7 +36,9 @@ describe('WordSchema', () => {
       };
 
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockWord }),
+        get: jest.fn().mockReturnValue({
+          properties: { ...mockWord, positiveVotes: 0, negativeVotes: 0 },
+        }),
       } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
@@ -50,7 +52,11 @@ describe('WordSchema', () => {
         expect.stringContaining('MERGE (w:WordNode {word: $word})'),
         mockWord,
       );
-      expect(result).toEqual(mockWord);
+      expect(result).toEqual({
+        ...mockWord,
+        positiveVotes: 0,
+        negativeVotes: 0,
+      });
     });
   });
 
@@ -82,14 +88,24 @@ describe('WordSchema', () => {
   });
 
   describe('getWord', () => {
-    it('should return a word when found', async () => {
+    it('should return a word with its definitions when found', async () => {
       const mockWord = {
         word: 'test',
         createdBy: 'user-id',
+        positiveVotes: 5,
+        negativeVotes: 2,
       };
+      const mockDefinitions = [
+        { id: 'def1', text: 'Definition 1', votes: 3 },
+        { id: 'def2', text: 'Definition 2', votes: 1 },
+      ];
 
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockWord }),
+        get: jest.fn((key) => {
+          if (key === 'w') return { properties: mockWord };
+          if (key === 'definitions')
+            return mockDefinitions.map((d) => ({ properties: d }));
+        }),
       } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
@@ -103,7 +119,10 @@ describe('WordSchema', () => {
         expect.stringContaining('MATCH (w:WordNode {word: $word})'),
         { word: 'test' },
       );
-      expect(result).toEqual(mockWord);
+      expect(result).toEqual({
+        ...mockWord,
+        definitions: mockDefinitions,
+      });
     });
 
     it('should return null when word is not found', async () => {
@@ -154,6 +173,71 @@ describe('WordSchema', () => {
         expect.stringContaining('MATCH (w:WordNode {word: $word})'),
         { word: 'test' },
       );
+    });
+  });
+
+  describe('voteWord', () => {
+    it('should vote on a word', async () => {
+      const mockVotedWord = {
+        word: 'test',
+        positiveVotes: 6,
+        negativeVotes: 2,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockVotedWord }),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.voteWord('test', 'user-id', true);
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+        expect.objectContaining({
+          word: 'test',
+          userId: 'user-id',
+          isPositive: true,
+        }),
+      );
+      expect(result).toEqual(mockVotedWord);
+    });
+  });
+
+  describe('getWordVotes', () => {
+    it('should return vote counts for a word', async () => {
+      const mockVotes = {
+        positiveVotes: 6,
+        negativeVotes: 2,
+      };
+
+      const mockRecord = {
+        get: jest.fn((key) => mockVotes[key]),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.getWordVotes('test');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+        { word: 'test' },
+      );
+      expect(result).toEqual(mockVotes);
+    });
+
+    it('should return null when word is not found', async () => {
+      const mockResult = { records: [] } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.getWordVotes('non-existent');
+      expect(result).toBeNull();
     });
   });
 });
