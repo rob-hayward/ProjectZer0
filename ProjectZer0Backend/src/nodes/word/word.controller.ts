@@ -18,7 +18,9 @@ export class WordController {
 
   @Get('check/:word')
   async checkWordExistence(@Param('word') word: string) {
+    console.log(`Received request to check word: ${word}`);
     const exists = await this.wordService.checkWordExistence(word);
+    console.log(`Word '${word}' exists: ${exists}`);
     return { exists };
   }
 

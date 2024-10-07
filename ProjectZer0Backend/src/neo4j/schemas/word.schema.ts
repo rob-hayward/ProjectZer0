@@ -1,5 +1,3 @@
-// src/neo4j/schemas/word.schema.ts
-
 import { Injectable } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 
@@ -27,15 +25,20 @@ export class WordSchema {
     word: string;
     createdBy: string;
     initialDefinition: string;
+    publicCredit: boolean;
   }) {
     const result = await this.neo4jService.write(
       `
-      MERGE (w:WordNode {word: $word})
-      ON CREATE SET 
-        w.createdAt = datetime(), 
-        w.createdBy = $createdBy,
-        w.positiveVotes = 0,
-        w.negativeVotes = 0
+      CREATE (w:WordNode {
+        id: apoc.create.uuid(),
+        word: $word,
+        createdBy: $createdBy,
+        publicCredit: $publicCredit,
+        createdAt: datetime(),
+        updatedAt: datetime(),
+        positiveVotes: 0,
+        negativeVotes: 0
+      })
       CREATE (d:DefinitionNode {
         id: apoc.create.uuid(),
         text: $initialDefinition,
@@ -44,13 +47,8 @@ export class WordSchema {
         votes: 0
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
-      CREATE (disc:DiscussionNode {
-        id: apoc.create.uuid(),
-        createdAt: datetime()
-      })
-      CREATE (w)-[:HAS_DISCUSSION]->(disc)
       RETURN w
-    `,
+      `,
       wordData,
     );
     return result.records[0].get('w').properties;
@@ -73,7 +71,7 @@ export class WordSchema {
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
       RETURN d
-    `,
+      `,
       wordData,
     );
     return result.records[0].get('d').properties;
@@ -84,7 +82,8 @@ export class WordSchema {
       `
       MATCH (w:WordNode {word: $word})
       OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
-      RETURN w, collect(d) as definitions
+      OPTIONAL MATCH (w)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+      RETURN w, collect(d) as definitions, disc
       `,
       { word },
     );
@@ -93,6 +92,10 @@ export class WordSchema {
     wordNode.definitions = result.records[0]
       .get('definitions')
       .map((d) => d.properties);
+    const discussion = result.records[0].get('disc');
+    if (discussion) {
+      wordNode.discussionId = discussion.properties.id;
+    }
     return wordNode;
   }
 
@@ -109,6 +112,18 @@ export class WordSchema {
       RETURN w
       `,
       { word, updateData },
+    );
+    return result.records[0].get('w').properties;
+  }
+
+  async updateWordWithDiscussionId(wordId: string, discussionId: string) {
+    const result = await this.neo4jService.write(
+      `
+      MATCH (w:WordNode {id: $wordId})
+      SET w.discussionId = $discussionId
+      RETURN w
+      `,
+      { wordId, discussionId },
     );
     return result.records[0].get('w').properties;
   }

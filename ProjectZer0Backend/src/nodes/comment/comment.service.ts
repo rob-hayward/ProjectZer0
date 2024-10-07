@@ -29,4 +29,8 @@ export class CommentService {
   async deleteComment(id: string) {
     return this.commentSchema.deleteComment(id);
   }
+
+  async getCommentsByDiscussionId(discussionId: string) {
+    return this.commentSchema.getCommentsByDiscussionId(discussionId);
+  }
 }

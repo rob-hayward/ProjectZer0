@@ -1,5 +1,3 @@
-// src/neo4j/schemas/comment.schema.ts
-
 import { Injectable } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 
@@ -71,5 +69,17 @@ export class CommentSchema {
       `,
       { id },
     );
+  }
+
+  async getCommentsByDiscussionId(discussionId: string) {
+    const result = await this.neo4jService.read(
+      `
+      MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
+      RETURN c
+      ORDER BY c.createdAt ASC
+      `,
+      { discussionId },
+    );
+    return result.records.map((record) => record.get('c').properties);
   }
 }
