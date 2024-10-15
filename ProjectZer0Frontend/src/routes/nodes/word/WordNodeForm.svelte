@@ -30,13 +30,16 @@
     try {
       if (browser) console.log('Checking word existence for:', word);
       const response = await fetchWithAuth(`/nodes/word/check/${encodeURIComponent(word.trim())}`);
-      if (browser) console.log('Word existence check response:', response);
+      if (browser) console.log('Word existence check response:', JSON.stringify(response, null, 2));
       wordExists = response.exists;
       if (wordExists) {
         dispatch('wordExists', { word: word.trim() });
       }
     } catch (e: unknown) {
-      if (browser) console.error('Error checking word existence:', e);
+      if (browser) {
+        console.error('Error checking word existence:', e);
+        console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
+      }
       error = e instanceof Error ? e.message : 'Failed to check word existence';
     } finally {
       isCheckingWord = false;
@@ -52,19 +55,22 @@
     isCreatingWord = true;
     error = null;
     try {
-      if (browser) console.log('Submitting word creation form:', { word, definition, discussion, publicCredit });
+      const wordData = {
+        word: word.trim(),
+        definition,
+        discussion,
+        publicCredit,
+        createdBy: user?.sub,
+      };
+      
+      if (browser) console.log('Submitting word creation form:', JSON.stringify(wordData, null, 2));
+      
       const createdWord = await fetchWithAuth('/nodes/word', {
         method: 'POST',
-        body: JSON.stringify({
-          word: word.trim(),
-          definition,
-          discussion,
-          publicCredit,
-          createdBy: user?.sub,
-        }),
+        body: JSON.stringify(wordData),
       });
       
-      if (browser) console.log('Word creation response:', createdWord);
+      if (browser) console.log('Word creation response:', JSON.stringify(createdWord, null, 2));
 
       dispatch('nodeCreated', { 
         success: true, 
@@ -82,7 +88,10 @@
       publicCredit = false;
       wordExists = null;
     } catch (e: unknown) {
-      if (browser) console.error('Error creating word:', e);
+      if (browser) {
+        console.error('Error creating word:', e);
+        console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
+      }
       error = e instanceof Error ? e.message : 'Failed to create new word node';
       dispatch('nodeCreated', { 
         success: false, 
@@ -93,6 +102,7 @@
     }
   }
 </script>
+
 <form on:submit|preventDefault={handleSubmit}>
   <label for="word">Word:</label>
   <input

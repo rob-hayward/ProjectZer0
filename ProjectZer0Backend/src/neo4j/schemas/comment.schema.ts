@@ -12,8 +12,11 @@ export class CommentSchema {
     commentText: string;
     parentCommentId?: string;
   }) {
-    const result = await this.neo4jService.write(
-      `
+    console.log(
+      `Creating comment with data:`,
+      JSON.stringify(commentData, null, 2),
+    );
+    const query = `
       MATCH (d:DiscussionNode {id: $discussionId})
       CREATE (c:CommentNode {
         id: $id,
@@ -32,10 +35,14 @@ export class CommentSchema {
         CREATE (parent)-[:HAS_REPLY]->(c)
       )
       RETURN c
-      `,
-      commentData,
-    );
-    return result.records[0].get('c').properties;
+    `;
+    const result = await this.neo4jService.write(query, {
+      ...commentData,
+      parentCommentId: commentData.parentCommentId || null,
+    });
+    const createdComment = result.records[0].get('c').properties;
+    console.log(`Created comment:`, JSON.stringify(createdComment, null, 2));
+    return createdComment;
   }
 
   async getComment(id: string) {

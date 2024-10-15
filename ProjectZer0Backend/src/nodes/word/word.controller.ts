@@ -30,28 +30,33 @@ export class WordController {
   @Post()
   async createWord(@Body() wordData: any) {
     this.logger.log(
-      `Received request to create word: ${JSON.stringify(wordData)}`,
+      `Received request to create word: ${JSON.stringify(wordData, null, 2)}`,
     );
-    const createdWord = await this.wordService.createWord(wordData);
-    this.logger.log(`Created word: ${JSON.stringify(createdWord)}`);
-    return createdWord;
+    try {
+      const createdWord = await this.wordService.createWord(wordData);
+      this.logger.log(`Created word: ${JSON.stringify(createdWord, null, 2)}`);
+      return createdWord;
+    } catch (error) {
+      this.logger.error(`Error creating word: ${error.message}`, error.stack);
+      throw error;
+    }
   }
 
   @Get(':word')
   async getWord(@Param('word') word: string) {
     this.logger.log(`Received request to get word: ${word}`);
     const fetchedWord = await this.wordService.getWord(word.toLowerCase());
-    this.logger.log(`Fetched word: ${JSON.stringify(fetchedWord)}`);
+    this.logger.log(`Fetched word: ${JSON.stringify(fetchedWord, null, 2)}`);
     return fetchedWord;
   }
 
   @Put(':word')
   async updateWord(@Param('word') word: string, @Body() updateData: any) {
     this.logger.log(
-      `Received request to update word: ${word} with data: ${JSON.stringify(updateData)}`,
+      `Received request to update word: ${word} with data: ${JSON.stringify(updateData, null, 2)}`,
     );
     const updatedWord = await this.wordService.updateWord(word, updateData);
-    this.logger.log(`Updated word: ${JSON.stringify(updatedWord)}`);
+    this.logger.log(`Updated word: ${JSON.stringify(updatedWord, null, 2)}`);
     return updatedWord;
   }
 
@@ -69,14 +74,14 @@ export class WordController {
     @Body() voteData: { userId: string; isPositive: boolean },
   ) {
     this.logger.log(
-      `Received request to vote on word: ${word} with data: ${JSON.stringify(voteData)}`,
+      `Received request to vote on word: ${word} with data: ${JSON.stringify(voteData, null, 2)}`,
     );
     const result = await this.wordService.voteWord(
       word,
       voteData.userId,
       voteData.isPositive,
     );
-    this.logger.log(`Vote result: ${JSON.stringify(result)}`);
+    this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
     return result;
   }
 
@@ -84,9 +89,12 @@ export class WordController {
   async getWordVotes(@Param('word') word: string) {
     this.logger.log(`Received request to get votes for word: ${word}`);
     const votes = await this.wordService.getWordVotes(word);
-    this.logger.log(`Votes for word ${word}: ${JSON.stringify(votes)}`);
+    this.logger.log(
+      `Votes for word ${word}: ${JSON.stringify(votes, null, 2)}`,
+    );
     return votes;
   }
+
   @Put(':wordId/visibility')
   async setWordVisibilityStatus(
     @Param('wordId') wordId: string,
@@ -100,7 +108,7 @@ export class WordController {
       visibilityData.isVisible,
     );
     this.logger.log(
-      `Updated word visibility status: ${JSON.stringify(updatedWord)}`,
+      `Updated word visibility status: ${JSON.stringify(updatedWord, null, 2)}`,
     );
     return updatedWord;
   }

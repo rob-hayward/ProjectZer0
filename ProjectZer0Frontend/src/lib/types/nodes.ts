@@ -1,3 +1,5 @@
+// ProjectZer0Frontend/src/lib/types/nodes.ts
+
 export interface Definition {
     id: string;
     text: string;
