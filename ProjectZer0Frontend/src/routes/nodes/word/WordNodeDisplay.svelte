@@ -1,12 +1,17 @@
 <!-- src/routes/nodes/word/WordNodeDisplay.svelte -->
 <script lang="ts">
   import type { WordNode } from '$lib/types/nodes';
+  import { onMount } from 'svelte';
 
   export let word: WordNode;
 
   function formatDate(dateString: string): string {
     return new Date(dateString).toLocaleString();
   }
+
+  onMount(() => {
+    console.log('WordNodeDisplay mounted. Word data:', word);
+  });
 </script>
 
 <div class="word-node">
@@ -26,13 +31,17 @@
   {#if word.discussion}
     <section class="discussion">
       <h2>Discussion</h2>
-      {#each word.discussion.comments as comment}
-        <div class="comment">
-          <p>{comment.commentText}</p>
-          <p>By: {comment.createdBy}</p>
-          <p>Posted: {formatDate(comment.createdAt)}</p>
-        </div>
-      {/each}
+      {#if word.discussion.comments}
+        {#each word.discussion.comments as comment}
+          <div class="comment">
+            <p>{comment.commentText}</p>
+            <p>By: {comment.createdBy}</p>
+            <p>Posted: {formatDate(comment.createdAt)}</p>
+          </div>
+        {/each}
+      {:else}
+        <p>No comments yet.</p>
+      {/if}
     </section>
   {/if}
 

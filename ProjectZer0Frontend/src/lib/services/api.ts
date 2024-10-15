@@ -13,6 +13,7 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     headers['Authorization'] = `Bearer ${token}`;
   }
   try {
+    console.log(`Fetching ${url} with options:`, options);
     const response = await fetch(`${API_BASE_URL}${url}`, { 
       ...options, 
       headers,
@@ -24,14 +25,18 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     if (!response.ok) {
       const errorBody = await response.text();
       console.error('Error response body:', errorBody);
-      throw new Error(`API call failed: ${response.statusText}, body: ${errorBody}`);
+      throw new Error(`API call failed: ${response.status} ${response.statusText}, body: ${errorBody}`);
     }
 
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
-      return await response.json();
+      const jsonResponse = await response.json();
+      console.log('JSON response:', jsonResponse);
+      return jsonResponse;
     } else {
-      return await response.text();
+      const textResponse = await response.text();
+      console.log('Text response:', textResponse);
+      return textResponse;
     }
   } catch (error) {
     console.error('Fetch error:', error);

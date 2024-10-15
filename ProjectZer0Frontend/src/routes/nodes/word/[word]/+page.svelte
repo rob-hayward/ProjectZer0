@@ -15,8 +15,10 @@
   async function fetchWordData() {
     isLoading = true;
     error = null;
+    console.log('Fetching word data for:', data.word);
     try {
       wordData = await fetchWithAuth(`/nodes/word/${encodeURIComponent(data.word.toLowerCase())}`);
+      console.log('Received word data:', wordData);
       isLoading = false;
     } catch (e) {
       console.error('Error fetching word data:', e);
@@ -25,9 +27,16 @@
     }
   }
 
-  $: if (data.word) {
-    fetchWordData();
+  $: {
+    console.log('data.word changed:', data.word);
+    if (data.word) {
+      fetchWordData();
+    }
   }
+
+  onMount(() => {
+    console.log('Component mounted. data.word:', data.word);
+  });
 </script>
 
 {#if isLoading}
