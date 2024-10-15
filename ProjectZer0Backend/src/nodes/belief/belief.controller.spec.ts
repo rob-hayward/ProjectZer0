@@ -1,5 +1,3 @@
-// src/nodes/belief/belief.controller.spec.ts
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { BeliefController } from './belief.controller';
 import { BeliefService } from './belief.service';
@@ -19,6 +17,8 @@ describe('BeliefController', () => {
             getBelief: jest.fn(),
             updateBelief: jest.fn(),
             deleteBelief: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -40,5 +40,20 @@ describe('BeliefController', () => {
     });
   });
 
-  // Add more tests for other methods
+  describe('setVisibilityStatus', () => {
+    it('should call service.setVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      const visibilityData = { isVisible: true };
+      await controller.setVisibilityStatus(id, visibilityData);
+      expect(service.setVisibilityStatus).toHaveBeenCalledWith(id, true);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call service.getVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      await controller.getVisibilityStatus(id);
+      expect(service.getVisibilityStatus).toHaveBeenCalledWith(id);
+    });
+  });
 });

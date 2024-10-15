@@ -17,6 +17,8 @@ describe('DefinitionController', () => {
             getDefinition: jest.fn(),
             updateDefinition: jest.fn(),
             deleteDefinition: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -39,6 +41,23 @@ describe('DefinitionController', () => {
       };
       await controller.createDefinition(definitionData);
       expect(service.createDefinition).toHaveBeenCalledWith(definitionData);
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should call service.setVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      const visibilityData = { isVisible: true };
+      await controller.setVisibilityStatus(id, visibilityData);
+      expect(service.setVisibilityStatus).toHaveBeenCalledWith(id, true);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call service.getVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      await controller.getVisibilityStatus(id);
+      expect(service.getVisibilityStatus).toHaveBeenCalledWith(id);
     });
   });
 

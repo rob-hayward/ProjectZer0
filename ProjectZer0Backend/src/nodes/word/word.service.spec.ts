@@ -1,10 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordService } from './word.service';
 import { WordSchema } from '../../neo4j/schemas/word.schema';
+import { DictionaryService } from '../../dictionary/dictionary.service';
+import { DiscussionService } from '../discussion/discussion.service';
 
 describe('WordService', () => {
   let service: WordService;
   let schema: jest.Mocked<WordSchema>;
+  let dictionaryService: jest.Mocked<DictionaryService>;
+  let discussionService: jest.Mocked<DiscussionService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -20,6 +24,22 @@ describe('WordService', () => {
             deleteWord: jest.fn(),
             voteWord: jest.fn(),
             getWordVotes: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
+            addDefinition: jest.fn(),
+            updateWordWithDiscussionId: jest.fn(),
+          },
+        },
+        {
+          provide: DictionaryService,
+          useValue: {
+            getDefinition: jest.fn(),
+          },
+        },
+        {
+          provide: DiscussionService,
+          useValue: {
+            createDiscussion: jest.fn(),
           },
         },
       ],
@@ -27,6 +47,8 @@ describe('WordService', () => {
 
     service = module.get<WordService>(WordService);
     schema = module.get(WordSchema);
+    dictionaryService = module.get(DictionaryService);
+    discussionService = module.get(DiscussionService);
   });
 
   it('should be defined', () => {
@@ -43,9 +65,42 @@ describe('WordService', () => {
 
   describe('createWord', () => {
     it('should call schema.createWord with correct parameters', async () => {
-      const wordData = { word: 'test', initialDefinition: 'A test word' };
+      const wordData = {
+        word: 'test',
+        createdBy: 'user-id',
+        definition: 'Test definition',
+        discussion: 'Initial comment',
+        publicCredit: true,
+      };
+      schema.createWord.mockResolvedValue({ id: 'word-id', ...wordData });
+      dictionaryService.getDefinition.mockResolvedValue('API definition');
+      discussionService.createDiscussion.mockResolvedValue({
+        id: 'discussion-id',
+      });
+
       await service.createWord(wordData);
-      expect(schema.createWord).toHaveBeenCalledWith(wordData);
+
+      expect(schema.createWord).toHaveBeenCalledWith({
+        word: wordData.word,
+        createdBy: wordData.createdBy,
+        initialDefinition: wordData.definition,
+        publicCredit: wordData.publicCredit,
+      });
+      expect(schema.addDefinition).toHaveBeenCalledWith({
+        word: wordData.word,
+        createdBy: 'FreeDictionaryAPI',
+        definitionText: 'API definition',
+      });
+      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+        createdBy: wordData.createdBy,
+        associatedNodeId: 'word-id',
+        associatedNodeType: 'WordNode',
+        initialComment: wordData.discussion,
+      });
+      expect(schema.updateWordWithDiscussionId).toHaveBeenCalledWith(
+        'word-id',
+        'discussion-id',
+      );
     });
   });
 
@@ -60,7 +115,7 @@ describe('WordService', () => {
   describe('updateWord', () => {
     it('should call schema.updateWord with correct parameters', async () => {
       const word = 'test';
-      const updateData = { definition: 'Updated definition' };
+      const updateData = { liveDefinition: 'Updated definition' };
       await service.updateWord(word, updateData);
       expect(schema.updateWord).toHaveBeenCalledWith(word, updateData);
     });
@@ -89,6 +144,35 @@ describe('WordService', () => {
       const word = 'test';
       await service.getWordVotes(word);
       expect(schema.getWordVotes).toHaveBeenCalledWith(word);
+    });
+  });
+  describe('setWordVisibilityStatus', () => {
+    it('should call schema.setVisibilityStatus with correct parameters', async () => {
+      const wordId = 'word1';
+      const isVisible = false;
+      const mockUpdatedWord = { id: wordId, visibilityStatus: isVisible };
+      schema.setVisibilityStatus.mockResolvedValue(mockUpdatedWord);
+
+      const result = await service.setWordVisibilityStatus(wordId, isVisible);
+
+      expect(schema.setVisibilityStatus).toHaveBeenCalledWith(
+        wordId,
+        isVisible,
+      );
+      expect(result).toEqual(mockUpdatedWord);
+    });
+  });
+
+  describe('getWordVisibilityStatus', () => {
+    it('should call schema.getVisibilityStatus with correct parameters', async () => {
+      const wordId = 'word1';
+      const mockVisibilityStatus = true;
+      schema.getVisibilityStatus.mockResolvedValue(mockVisibilityStatus);
+
+      const result = await service.getWordVisibilityStatus(wordId);
+
+      expect(schema.getVisibilityStatus).toHaveBeenCalledWith(wordId);
+      expect(result).toEqual(mockVisibilityStatus);
     });
   });
 });

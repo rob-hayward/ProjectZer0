@@ -17,6 +17,8 @@ describe('CommentController', () => {
             getComment: jest.fn(),
             updateComment: jest.fn(),
             deleteComment: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -39,6 +41,23 @@ describe('CommentController', () => {
       };
       await controller.createComment(commentData);
       expect(service.createComment).toHaveBeenCalledWith(commentData);
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should call service.setVisibilityStatus with correct parameters', async () => {
+      const id = 'comment1';
+      const visibilityData = { isVisible: true };
+      await controller.setVisibilityStatus(id, visibilityData);
+      expect(service.setVisibilityStatus).toHaveBeenCalledWith(id, true);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call service.getVisibilityStatus with correct parameters', async () => {
+      const id = 'comment1';
+      await controller.getVisibilityStatus(id);
+      expect(service.getVisibilityStatus).toHaveBeenCalledWith(id);
     });
   });
 

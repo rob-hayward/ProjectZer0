@@ -1,7 +1,10 @@
+<!-- ProjectZer0Frontend/src/routes/nodes/word/WordNodeForm.svelte -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { UserProfile } from '$lib/types/user';
   import { fetchWithAuth } from '$lib/services/api';
+  import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
 
   export let user: UserProfile | null;
 
@@ -25,12 +28,15 @@
     isCheckingWord = true;
     error = null;
     try {
+      if (browser) console.log('Checking word existence for:', word);
       const response = await fetchWithAuth(`/nodes/word/check/${encodeURIComponent(word.trim())}`);
+      if (browser) console.log('Word existence check response:', response);
       wordExists = response.exists;
       if (wordExists) {
         dispatch('wordExists', { word: word.trim() });
       }
     } catch (e: unknown) {
+      if (browser) console.error('Error checking word existence:', e);
       error = e instanceof Error ? e.message : 'Failed to check word existence';
     } finally {
       isCheckingWord = false;
@@ -46,7 +52,8 @@
     isCreatingWord = true;
     error = null;
     try {
-      const response = await fetchWithAuth('/nodes/word', {
+      if (browser) console.log('Submitting word creation form:', { word, definition, discussion, publicCredit });
+      const createdWord = await fetchWithAuth('/nodes/word', {
         method: 'POST',
         body: JSON.stringify({
           word: word.trim(),
@@ -56,12 +63,17 @@
           createdBy: user?.sub,
         }),
       });
+      
+      if (browser) console.log('Word creation response:', createdWord);
 
       dispatch('nodeCreated', { 
         success: true, 
-        message: `Word node "${word}" created successfully`,
-        data: response
+        message: `Word node "${createdWord.word}" created successfully`,
+        data: createdWord
       });
+
+      // Navigate to the newly created word's page
+      goto(`/nodes/word/${encodeURIComponent(createdWord.word.toLowerCase())}`);
 
       // Reset form
       word = '';
@@ -70,6 +82,7 @@
       publicCredit = false;
       wordExists = null;
     } catch (e: unknown) {
+      if (browser) console.error('Error creating word:', e);
       error = e instanceof Error ? e.message : 'Failed to create new word node';
       dispatch('nodeCreated', { 
         success: false, 
@@ -80,7 +93,6 @@
     }
   }
 </script>
-
 <form on:submit|preventDefault={handleSubmit}>
   <label for="word">Word:</label>
   <input
@@ -126,35 +138,33 @@
   <p class="error">{error}</p>
 {/if}
   
-  <style>
-    form {
-      display: flex;
-      flex-direction: column;
-      gap: 1rem;
-    }
-    label {
-      font-weight: bold;
-    }
-    input[type="text"], textarea {
-      width: 100%;
-      padding: 0.5rem;
-    }
-    button {
-      align-self: flex-start;
-      padding: 0.5rem 1rem;
-      background-color: #007bff;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    button:disabled {
-      background-color: #cccccc;
-      cursor: not-allowed;
-    }
-    .error {
-      color: red;
-    }
-  </style>
-
-  
+<style>
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  label {
+    font-weight: bold;
+  }
+  input[type="text"], textarea {
+    width: 100%;
+    padding: 0.5rem;
+  }
+  button {
+    align-self: flex-start;
+    padding: 0.5rem 1rem;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+  }
+  .error {
+    color: red;
+  }
+</style>

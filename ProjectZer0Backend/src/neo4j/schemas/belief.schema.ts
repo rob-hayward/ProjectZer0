@@ -10,6 +10,7 @@ interface KeywordWithFrequency {
 
 @Injectable()
 export class BeliefSchema {
+  [x: string]: any;
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async createBelief(beliefData: {

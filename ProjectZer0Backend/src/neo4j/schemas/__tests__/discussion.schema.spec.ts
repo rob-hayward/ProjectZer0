@@ -28,12 +28,13 @@ describe('DiscussionSchema', () => {
   });
 
   describe('createDiscussion', () => {
-    it('should create a discussion', async () => {
+    it('should create a discussion with default visibility status', async () => {
       const mockDiscussion = {
         id: 'test-id',
         createdBy: 'user-id',
         associatedNodeId: 'node-id',
         associatedNodeType: 'BeliefNode',
+        visibilityStatus: true,
       };
 
       const mockRecord = {
@@ -49,7 +50,7 @@ describe('DiscussionSchema', () => {
 
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('CREATE (d:DiscussionNode'),
-        mockDiscussion,
+        expect.objectContaining(mockDiscussion),
       );
       expect(result).toEqual(mockDiscussion);
     });
@@ -128,6 +129,65 @@ describe('DiscussionSchema', () => {
         expect.stringContaining('MATCH (d:DiscussionNode {id: $id})'),
         { id: 'test-id' },
       );
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should set visibility status for a discussion', async () => {
+      const mockUpdatedDiscussion = {
+        id: 'discussion-id',
+        visibilityStatus: false,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockUpdatedDiscussion }),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await discussionSchema.setVisibilityStatus(
+        'discussion-id',
+        false,
+      );
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (d:DiscussionNode {id: $discussionId})'),
+        { discussionId: 'discussion-id', isVisible: false },
+      );
+      expect(result).toEqual(mockUpdatedDiscussion);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should return visibility status when it exists', async () => {
+      const mockResult = {
+        records: [{ get: jest.fn().mockReturnValue(false) }],
+      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result =
+        await discussionSchema.getVisibilityStatus('discussion-id');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (d:DiscussionNode {id: $discussionId})'),
+        { discussionId: 'discussion-id' },
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should return true when visibility status does not exist', async () => {
+      const mockResult = {
+        records: [{ get: jest.fn().mockReturnValue(null) }],
+      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result =
+        await discussionSchema.getVisibilityStatus('discussion-id');
+
+      expect(result).toBe(true);
     });
   });
 });

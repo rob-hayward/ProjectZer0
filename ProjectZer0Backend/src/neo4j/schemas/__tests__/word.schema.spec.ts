@@ -1,5 +1,3 @@
-// src/neo4j/schemas/__tests__/word.schema.spec.ts
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordSchema } from '../word.schema';
 import { Neo4jService } from '../../neo4j.service';
@@ -33,6 +31,7 @@ describe('WordSchema', () => {
         word: 'test',
         createdBy: 'user-id',
         initialDefinition: 'Test definition',
+        publicCredit: true,
       };
 
       const mockRecord = {
@@ -49,7 +48,7 @@ describe('WordSchema', () => {
       const result = await wordSchema.createWord(mockWord);
 
       expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MERGE (w:WordNode {word: $word})'),
+        expect.stringContaining('CREATE (w:WordNode'),
         mockWord,
       );
       expect(result).toEqual({
@@ -105,6 +104,7 @@ describe('WordSchema', () => {
           if (key === 'w') return { properties: mockWord };
           if (key === 'definitions')
             return mockDefinitions.map((d) => ({ properties: d }));
+          if (key === 'disc') return { properties: { id: 'disc1' } };
         }),
       } as unknown as Record;
       const mockResult = {
@@ -116,12 +116,13 @@ describe('WordSchema', () => {
       const result = await wordSchema.getWord('test');
 
       expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+        expect.stringContaining('MATCH (w:WordNode)'),
         { word: 'test' },
       );
       expect(result).toEqual({
         ...mockWord,
         definitions: mockDefinitions,
+        discussionId: 'disc1',
       });
     });
 
@@ -160,6 +161,35 @@ describe('WordSchema', () => {
           word: 'test',
           updateData: { liveDefinition: 'Updated definition' },
         }),
+      );
+      expect(result).toEqual(mockUpdatedWord);
+    });
+  });
+
+  describe('updateWordWithDiscussionId', () => {
+    it('should update a word with discussion ID', async () => {
+      const mockUpdatedWord = {
+        id: 'word1',
+        discussionId: 'disc1',
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockUpdatedWord }),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.updateWordWithDiscussionId(
+        'word1',
+        'disc1',
+      );
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (w:WordNode {id: $wordId})'),
+        { wordId: 'word1', discussionId: 'disc1' },
       );
       expect(result).toEqual(mockUpdatedWord);
     });
@@ -238,6 +268,60 @@ describe('WordSchema', () => {
 
       const result = await wordSchema.getWordVotes('non-existent');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should set visibility status for a word', async () => {
+      const mockUpdatedWord = {
+        id: 'word1',
+        visibilityStatus: false,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockUpdatedWord }),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.setVisibilityStatus('word1', false);
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (w:WordNode {id: $wordId})'),
+        { wordId: 'word1', isVisible: false },
+      );
+      expect(result).toEqual(mockUpdatedWord);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should return visibility status when it exists', async () => {
+      const mockResult = {
+        records: [{ get: jest.fn().mockReturnValue(false) }],
+      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.getVisibilityStatus('word1');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (w:WordNode {id: $wordId})'),
+        { wordId: 'word1' },
+      );
+      expect(result).toBe(false);
+    });
+
+    it('should return true when visibility status does not exist', async () => {
+      const mockResult = {
+        records: [{ get: jest.fn().mockReturnValue(null) }],
+      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await wordSchema.getVisibilityStatus('word1');
+
+      expect(result).toBe(true);
     });
   });
 });

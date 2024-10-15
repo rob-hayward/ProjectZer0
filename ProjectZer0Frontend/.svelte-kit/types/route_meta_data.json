@@ -2,5 +2,6 @@
 	"/": [],
 	"/create-node": [],
 	"/dashboard": [],
-	"/edit-profile": []
+	"/edit-profile": [],
+	"/nodes/word/[word]": []
 }

@@ -1,5 +1,3 @@
-// src/neo4j/schemas/definition.schema.ts
-
 import { Injectable } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 
@@ -22,7 +20,9 @@ export class DefinitionSchema {
         createdBy: $createdBy,
         createdAt: datetime(),
         updatedAt: datetime(),
-        positiveVotes: 0
+        positiveVotes: 0,
+        negativeVotes: 0,
+        visibilityStatus: true
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
       RETURN d
@@ -70,5 +70,28 @@ export class DefinitionSchema {
       `,
       { id },
     );
+  }
+
+  async setVisibilityStatus(definitionId: string, isVisible: boolean) {
+    const result = await this.neo4jService.write(
+      `
+      MATCH (d:DefinitionNode {id: $definitionId})
+      SET d.visibilityStatus = $isVisible, d.updatedAt = datetime()
+      RETURN d
+      `,
+      { definitionId, isVisible },
+    );
+    return result.records[0].get('d').properties;
+  }
+
+  async getVisibilityStatus(definitionId: string) {
+    const result = await this.neo4jService.read(
+      `
+      MATCH (d:DefinitionNode {id: $definitionId})
+      RETURN d.visibilityStatus
+      `,
+      { definitionId },
+    );
+    return result.records[0]?.get('d.visibilityStatus') ?? true;
   }
 }

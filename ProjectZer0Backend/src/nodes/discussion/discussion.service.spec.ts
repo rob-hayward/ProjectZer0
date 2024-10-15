@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { DiscussionService } from './discussion.service';
 import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
+import { CommentService } from '../comment/comment.service';
 
 describe('DiscussionService', () => {
   let service: DiscussionService;
   let schema: jest.Mocked<DiscussionSchema>;
+  let commentService: jest.Mocked<CommentService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -17,6 +19,14 @@ describe('DiscussionService', () => {
             getDiscussion: jest.fn(),
             updateDiscussion: jest.fn(),
             deleteDiscussion: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
+          },
+        },
+        {
+          provide: CommentService,
+          useValue: {
+            createComment: jest.fn(),
           },
         },
       ],
@@ -24,6 +34,7 @@ describe('DiscussionService', () => {
 
     service = module.get<DiscussionService>(DiscussionService);
     schema = module.get(DiscussionSchema);
+    commentService = module.get(CommentService);
   });
 
   it('should be defined', () => {
@@ -44,6 +55,31 @@ describe('DiscussionService', () => {
           id: expect.any(String),
         }),
       );
+    });
+
+    it('should create an initial comment if provided', async () => {
+      const discussionData = {
+        createdBy: 'user1',
+        associatedNodeId: 'node1',
+        associatedNodeType: 'BeliefNode',
+        initialComment: 'Initial comment',
+      };
+      const mockDiscussion = { id: 'discussion1', ...discussionData };
+      schema.createDiscussion.mockResolvedValue(mockDiscussion);
+
+      await service.createDiscussion(discussionData);
+
+      expect(schema.createDiscussion).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ...discussionData,
+          id: expect.any(String),
+        }),
+      );
+      expect(commentService.createComment).toHaveBeenCalledWith({
+        createdBy: discussionData.createdBy,
+        discussionId: mockDiscussion.id,
+        commentText: discussionData.initialComment,
+      });
     });
   });
 
@@ -69,6 +105,23 @@ describe('DiscussionService', () => {
       const id = 'discussion1';
       await service.deleteDiscussion(id);
       expect(schema.deleteDiscussion).toHaveBeenCalledWith(id);
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should call schema.setVisibilityStatus with correct parameters', async () => {
+      const id = 'discussion1';
+      const isVisible = true;
+      await service.setVisibilityStatus(id, isVisible);
+      expect(schema.setVisibilityStatus).toHaveBeenCalledWith(id, isVisible);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call schema.getVisibilityStatus with correct parameters', async () => {
+      const id = 'discussion1';
+      await service.getVisibilityStatus(id);
+      expect(schema.getVisibilityStatus).toHaveBeenCalledWith(id);
     });
   });
 });

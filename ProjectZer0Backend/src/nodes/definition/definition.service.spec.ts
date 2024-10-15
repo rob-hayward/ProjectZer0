@@ -17,6 +17,8 @@ describe('DefinitionService', () => {
             getDefinition: jest.fn(),
             updateDefinition: jest.fn(),
             deleteDefinition: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -44,6 +46,23 @@ describe('DefinitionService', () => {
           id: expect.any(String),
         }),
       );
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should call schema.setVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      const isVisible = true;
+      await service.setVisibilityStatus(id, isVisible);
+      expect(schema.setVisibilityStatus).toHaveBeenCalledWith(id, isVisible);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call schema.getVisibilityStatus with correct parameters', async () => {
+      const id = 'test-id';
+      await service.getVisibilityStatus(id);
+      expect(schema.getVisibilityStatus).toHaveBeenCalledWith(id);
     });
   });
 

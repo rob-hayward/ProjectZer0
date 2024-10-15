@@ -33,4 +33,12 @@ export class CommentService {
   async getCommentsByDiscussionId(discussionId: string) {
     return this.commentSchema.getCommentsByDiscussionId(discussionId);
   }
+
+  async setVisibilityStatus(id: string, isVisible: boolean) {
+    return this.commentSchema.setVisibilityStatus(id, isVisible);
+  }
+
+  async getVisibilityStatus(id: string) {
+    return this.commentSchema.getVisibilityStatus(id);
+  }
 }

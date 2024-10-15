@@ -45,4 +45,20 @@ export class CommentController {
   async deleteComment(@Param('id') id: string) {
     return this.commentService.deleteComment(id);
   }
+
+  @Put(':id/visibility')
+  async setVisibilityStatus(
+    @Param('id') id: string,
+    @Body() visibilityData: { isVisible: boolean },
+  ) {
+    return this.commentService.setVisibilityStatus(
+      id,
+      visibilityData.isVisible,
+    );
+  }
+
+  @Get(':id/visibility')
+  async getVisibilityStatus(@Param('id') id: string) {
+    return this.commentService.getVisibilityStatus(id);
+  }
 }

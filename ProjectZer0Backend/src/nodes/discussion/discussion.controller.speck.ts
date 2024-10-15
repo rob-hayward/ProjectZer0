@@ -17,6 +17,8 @@ describe('DiscussionController', () => {
             getDiscussion: jest.fn(),
             updateDiscussion: jest.fn(),
             deleteDiscussion: jest.fn(),
+            setVisibilityStatus: jest.fn(),
+            getVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -64,6 +66,23 @@ describe('DiscussionController', () => {
       const id = 'discussion1';
       await controller.deleteDiscussion(id);
       expect(service.deleteDiscussion).toHaveBeenCalledWith(id);
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should call service.setVisibilityStatus with correct parameters', async () => {
+      const id = 'discussion1';
+      const visibilityData = { isVisible: true };
+      await controller.setVisibilityStatus(id, visibilityData);
+      expect(service.setVisibilityStatus).toHaveBeenCalledWith(id, true);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should call service.getVisibilityStatus with correct parameters', async () => {
+      const id = 'discussion1';
+      await controller.getVisibilityStatus(id);
+      expect(service.getVisibilityStatus).toHaveBeenCalledWith(id);
     });
   });
 });

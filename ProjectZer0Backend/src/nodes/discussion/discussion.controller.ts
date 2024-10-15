@@ -23,6 +23,7 @@ export class DiscussionController {
       createdBy: string;
       associatedNodeId: string;
       associatedNodeType: string;
+      initialComment?: string;
     },
   ) {
     return this.discussionService.createDiscussion(discussionData);
@@ -41,5 +42,21 @@ export class DiscussionController {
   @Delete(':id')
   async deleteDiscussion(@Param('id') id: string) {
     return this.discussionService.deleteDiscussion(id);
+  }
+
+  @Put(':id/visibility')
+  async setVisibilityStatus(
+    @Param('id') id: string,
+    @Body() visibilityData: { isVisible: boolean },
+  ) {
+    return this.discussionService.setVisibilityStatus(
+      id,
+      visibilityData.isVisible,
+    );
+  }
+
+  @Get(':id/visibility')
+  async getVisibilityStatus(@Param('id') id: string) {
+    return this.discussionService.getVisibilityStatus(id);
   }
 }

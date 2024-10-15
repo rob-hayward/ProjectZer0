@@ -20,6 +20,8 @@ describe('WordController', () => {
             deleteWord: jest.fn(),
             voteWord: jest.fn(),
             getWordVotes: jest.fn(),
+            setWordVisibilityStatus: jest.fn(),
+            getWordVisibilityStatus: jest.fn(),
           },
         },
       ],
@@ -94,6 +96,42 @@ describe('WordController', () => {
       const word = 'test';
       await controller.getWordVotes(word);
       expect(service.getWordVotes).toHaveBeenCalledWith(word);
+    });
+  });
+  describe('setWordVisibilityStatus', () => {
+    it('should call service.setWordVisibilityStatus with correct parameters', async () => {
+      const wordId = 'word1';
+      const visibilityData = { isVisible: false };
+      const mockUpdatedWord = { id: wordId, visibilityStatus: false };
+      jest
+        .spyOn(service, 'setWordVisibilityStatus')
+        .mockResolvedValue(mockUpdatedWord);
+
+      const result = await controller.setWordVisibilityStatus(
+        wordId,
+        visibilityData,
+      );
+
+      expect(service.setWordVisibilityStatus).toHaveBeenCalledWith(
+        wordId,
+        false,
+      );
+      expect(result).toEqual(mockUpdatedWord);
+    });
+  });
+
+  describe('getWordVisibilityStatus', () => {
+    it('should call service.getWordVisibilityStatus with correct parameters', async () => {
+      const wordId = 'word1';
+      const mockVisibilityStatus = true;
+      jest
+        .spyOn(service, 'getWordVisibilityStatus')
+        .mockResolvedValue(mockVisibilityStatus);
+
+      const result = await controller.getWordVisibilityStatus(wordId);
+
+      expect(service.getWordVisibilityStatus).toHaveBeenCalledWith(wordId);
+      expect(result).toEqual({ visibilityStatus: mockVisibilityStatus });
     });
   });
 });

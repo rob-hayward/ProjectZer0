@@ -45,4 +45,20 @@ export class DefinitionController {
   async deleteDefinition(@Param('id') id: string) {
     return this.definitionService.deleteDefinition(id);
   }
+
+  @Put(':id/visibility')
+  async setVisibilityStatus(
+    @Param('id') id: string,
+    @Body() visibilityData: { isVisible: boolean },
+  ) {
+    return this.definitionService.setVisibilityStatus(
+      id,
+      visibilityData.isVisible,
+    );
+  }
+
+  @Get(':id/visibility')
+  async getVisibilityStatus(@Param('id') id: string) {
+    return this.definitionService.getVisibilityStatus(id);
+  }
 }

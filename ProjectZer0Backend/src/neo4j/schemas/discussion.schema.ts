@@ -15,13 +15,14 @@ export class DiscussionSchema {
   }) {
     const result = await this.neo4jService.write(
       `
-      MATCH (n {id: $associatedNodeId})
-      WHERE n:BeliefNode OR n:WordNode
+      MATCH (n)
+      WHERE n.id = $associatedNodeId AND (n:BeliefNode OR n:WordNode)
       CREATE (d:DiscussionNode {
         id: $id,
         createdBy: $createdBy,
         createdAt: datetime(),
-        updatedAt: datetime()
+        updatedAt: datetime(),
+        visibilityStatus: true
       })
       CREATE (n)-[:HAS_DISCUSSION]->(d)
       RETURN d
@@ -64,5 +65,29 @@ export class DiscussionSchema {
       `,
       { id },
     );
+  }
+
+  async setVisibilityStatus(discussionId: string, isVisible: boolean) {
+    const result = await this.neo4jService.write(
+      `
+      MATCH (d:DiscussionNode {id: $discussionId})
+      SET d.visibilityStatus = $isVisible,
+          d.updatedAt = datetime()
+      RETURN d
+      `,
+      { discussionId, isVisible },
+    );
+    return result.records[0].get('d').properties;
+  }
+
+  async getVisibilityStatus(discussionId: string) {
+    const result = await this.neo4jService.read(
+      `
+      MATCH (d:DiscussionNode {id: $discussionId})
+      RETURN d.visibilityStatus
+      `,
+      { discussionId },
+    );
+    return result.records[0]?.get('d.visibilityStatus') ?? true;
   }
 }

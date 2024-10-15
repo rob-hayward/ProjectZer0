@@ -29,4 +29,12 @@ export class DefinitionService {
   async deleteDefinition(id: string) {
     return this.definitionSchema.deleteDefinition(id);
   }
+
+  async setVisibilityStatus(id: string, isVisible: boolean) {
+    return this.definitionSchema.setVisibilityStatus(id, isVisible);
+  }
+
+  async getVisibilityStatus(id: string) {
+    return this.definitionSchema.getVisibilityStatus(id);
+  }
 }

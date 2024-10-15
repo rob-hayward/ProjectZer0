@@ -25,4 +25,12 @@ export class BeliefService {
   async deleteBelief(id: string) {
     return this.beliefSchema.deleteBelief(id);
   }
+
+  async setVisibilityStatus(id: string, isVisible: boolean) {
+    return this.beliefSchema.setVisibilityStatus(id, isVisible);
+  }
+
+  async getVisibilityStatus(id: string) {
+    return this.beliefSchema.getVisibilityStatus(id);
+  }
 }
