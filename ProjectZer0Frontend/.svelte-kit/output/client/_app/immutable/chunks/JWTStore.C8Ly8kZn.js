@@ -1,0 +1,1 @@
+import{w as o}from"./index.A4FuD42y.js";function l(){const{subscribe:t,set:n,update:s}=o(null);return{subscribe:t,setToken:e=>n(e),clearToken:()=>n(null),getToken:()=>{let e=null;return t(r=>{e=r})(),e}}}const a=l();export{a as j};

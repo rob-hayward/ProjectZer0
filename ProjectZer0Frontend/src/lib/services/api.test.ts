@@ -1,11 +1,20 @@
 // src/lib/services/api.test.ts
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fetchWithAuth } from './api';
-import { jwtStore } from '../stores/JWTStore';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+
+// Mock the entire jwtStore
+vi.mock('../stores/JWTStore', () => ({
+  jwtStore: {
+    getToken: vi.fn(),
+  },
+}));
+
+// Import the mocked jwtStore
+import { jwtStore } from '../stores/JWTStore';
 
 describe('API Service', () => {
   beforeEach(() => {
@@ -17,6 +26,9 @@ describe('API Service', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(mockResponse),
+      headers: {
+        get: (name: string) => name === 'content-type' ? 'application/json' : null,
+      },
     });
 
     const result = await fetchWithAuth('/test', { method: 'POST' });
@@ -38,23 +50,27 @@ describe('API Service', () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       statusText: 'Not Found',
+      text: () => Promise.resolve('Not Found'),
     });
 
-    await expect(fetchWithAuth('/test')).rejects.toThrow('API call failed: Not Found');
+    await expect(fetchWithAuth('/test')).rejects.toThrow('API call failed: Not Found, body: Not Found');
   });
 
   it('includes JWT token in Authorization header when available', async () => {
     const mockToken = 'mock-jwt-token';
-    vi.spyOn(jwtStore, 'getToken').mockReturnValue(mockToken as any);
-
+    (jwtStore.getToken as ReturnType<typeof vi.fn>).mockReturnValue(mockToken);
+  
     const mockResponse = { data: 'test' };
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(mockResponse),
+      headers: {
+        get: (name: string) => name === 'content-type' ? 'application/json' : null,
+      },
     });
-
+  
     await fetchWithAuth('/test');
-
+  
     expect(mockFetch).toHaveBeenCalledWith(
       'http://localhost:3000/api/test',
       expect.objectContaining({
@@ -66,12 +82,15 @@ describe('API Service', () => {
   });
 
   it('does not include Authorization header when JWT token is not available', async () => {
-    vi.spyOn(jwtStore, 'getToken').mockReturnValue(null);
+    (jwtStore.getToken as ReturnType<typeof vi.fn>).mockReturnValue(null);
 
     const mockResponse = { data: 'test' };
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () => Promise.resolve(mockResponse),
+      headers: {
+        get: (name: string) => name === 'content-type' ? 'application/json' : null,
+      },
     });
 
     await fetchWithAuth('/test');

@@ -15,9 +15,20 @@
       "_exports.js"
     ]
   },
+  "_escape.js": {
+    "file": "chunks/escape.js",
+    "name": "escape"
+  },
   "_exports.js": {
     "file": "chunks/exports.js",
     "name": "exports"
+  },
+  "_index.js": {
+    "file": "chunks/index.js",
+    "name": "index",
+    "imports": [
+      "_ssr.js"
+    ]
   },
   "_internal.js": {
     "file": "chunks/internal.js",
@@ -37,7 +48,8 @@
     "isEntry": true,
     "imports": [
       "_ssr.js",
-      "_client.js"
+      "_client.js",
+      "_escape.js"
     ]
   },
   "node_modules/@sveltejs/kit/src/runtime/components/svelte-4/layout.svelte": {
@@ -57,7 +69,7 @@
     "imports": [
       "_internal.js",
       "_exports.js",
-      "_ssr.js"
+      "_index.js"
     ]
   },
   "src/routes/+page.svelte": {
@@ -82,7 +94,7 @@
       "_client.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.CRRyJIDK.css"
+      "_app/immutable/assets/_page.dInXHDkj.css"
     ]
   },
   "src/routes/dashboard/+page.svelte": {
@@ -109,6 +121,21 @@
     ],
     "css": [
       "_app/immutable/assets/_page.CVUcsMoz.css"
+    ]
+  },
+  "src/routes/nodes/word/[word]/+page.svelte": {
+    "file": "entries/pages/nodes/word/_word_/_page.svelte.js",
+    "name": "entries/pages/nodes/word/_word_/_page.svelte",
+    "src": "src/routes/nodes/word/[word]/+page.svelte",
+    "isEntry": true,
+    "imports": [
+      "_ssr.js",
+      "_client.js",
+      "_index.js",
+      "_escape.js"
+    ],
+    "css": [
+      "_app/immutable/assets/_page.CdVoAwvo.css"
     ]
   }
 }
