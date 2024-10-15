@@ -26,7 +26,7 @@ export class CommentSchema {
         visibilityStatus: true
       })
       CREATE (d)-[:HAS_COMMENT]->(c)
-      WITH c
+      WITH c, d
       OPTIONAL MATCH (parent:CommentNode {id: $parentCommentId})
       FOREACH (p IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
         CREATE (parent)-[:HAS_REPLY]->(c)

@@ -28,6 +28,7 @@ export class DiscussionService {
         createdBy: discussionData.createdBy,
         discussionId: createdDiscussion.id,
         commentText: discussionData.initialComment,
+        // parentCommentId is not provided for the initial comment
       });
     }
 

@@ -10,6 +10,7 @@ export class CommentService {
     createdBy: string;
     discussionId: string;
     commentText: string;
+    parentCommentId?: string;
   }) {
     const commentWithId = {
       ...commentData,
