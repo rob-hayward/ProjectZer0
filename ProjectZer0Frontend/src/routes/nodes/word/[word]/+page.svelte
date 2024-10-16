@@ -1,41 +1,34 @@
 <!-- src/routes/nodes/word/[word]/+page.svelte -->
 <script lang="ts">
-  import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import { fetchWithAuth } from '$lib/services/api';
+  import { page } from '$app/stores';
+  import { getWordData } from '$lib/services/word';
+  import { wordStore } from '$lib/stores/wordStore';
   import WordNodeDisplay from '../WordNodeDisplay.svelte';
   import type { WordNode } from '$lib/types/nodes';
 
-  export let data: { word: string };
-
+  let word: string | null = null;
   let wordData: WordNode | null = null;
   let error: string | null = null;
   let isLoading = true;
 
-  async function fetchWordData() {
-    isLoading = true;
-    error = null;
-    console.log('Fetching word data for:', data.word);
+  onMount(async () => {
     try {
-      wordData = await fetchWithAuth(`/nodes/word/${encodeURIComponent(data.word.toLowerCase())}`);
-      console.log('Received word data:', wordData);
-      isLoading = false;
+      word = $page.params.word;
+      if (word) {
+        console.log('Fetching word data for:', word);
+        wordData = await getWordData(word);
+        wordStore.set(wordData);
+        console.log('Received word data:', wordData);
+      } else {
+        error = 'No word parameter provided';
+      }
     } catch (e) {
       console.error('Error fetching word data:', e);
       error = e instanceof Error ? e.message : 'An error occurred while fetching word data';
+    } finally {
       isLoading = false;
     }
-  }
-
-  $: {
-    console.log('data.word changed:', data.word);
-    if (data.word) {
-      fetchWordData();
-    }
-  }
-
-  onMount(() => {
-    console.log('Component mounted. data.word:', data.word);
   });
 </script>
 
@@ -44,7 +37,7 @@
 {:else if error}
   <p class="error">{error}</p>
 {:else if wordData}
-  <WordNodeDisplay word={wordData} />
+  <WordNodeDisplay wordData={wordData} />
 {:else}
   <p>No word data available</p>
 {/if}

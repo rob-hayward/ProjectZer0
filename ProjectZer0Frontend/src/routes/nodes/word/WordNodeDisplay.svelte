@@ -3,23 +3,23 @@
   import type { WordNode } from '$lib/types/nodes';
   import { onMount } from 'svelte';
 
-  export let word: WordNode;
+  export let wordData: WordNode;
 
   function formatDate(dateString: string): string {
     return new Date(dateString).toLocaleString();
   }
 
   onMount(() => {
-    console.log('WordNodeDisplay mounted. Word data:', word);
+    console.log('WordNodeDisplay mounted. Word data:', wordData);
   });
 </script>
 
 <div class="word-node">
-  <h1>{word.word}</h1>
+  <h1>{wordData.word}</h1>
   
   <section class="definitions">
     <h2>Definitions</h2>
-    {#each word.definitions as definition}
+    {#each wordData.definitions as definition}
       <div class="definition">
         <h3>{definition.createdBy === 'FreeDictionaryAPI' ? 'Free Dictionary Definition' : 'User-Provided Definition'}</h3>
         <p>{definition.text}</p>
@@ -28,11 +28,11 @@
     {/each}
   </section>
 
-  {#if word.discussion}
+  {#if wordData.discussion}
     <section class="discussion">
       <h2>Discussion</h2>
-      {#if word.discussion.comments}
-        {#each word.discussion.comments as comment}
+      {#if wordData.discussion.comments}
+        {#each wordData.discussion.comments as comment}
           <div class="comment">
             <p>{comment.commentText}</p>
             <p>By: {comment.createdBy}</p>
@@ -46,9 +46,9 @@
   {/if}
 
   <section class="metadata">
-    <p>Created by: {word.publicCredit ? word.createdBy : 'Anonymous'}</p>
-    <p>Created at: {formatDate(word.createdAt)}</p>
-    <p>Last updated: {formatDate(word.updatedAt)}</p>
+    <p>Created by: {wordData.publicCredit ? wordData.createdBy : 'Anonymous'}</p>
+    <p>Created at: {formatDate(wordData.createdAt)}</p>
+    <p>Last updated: {formatDate(wordData.updatedAt)}</p>
   </section>
 </div>
 
