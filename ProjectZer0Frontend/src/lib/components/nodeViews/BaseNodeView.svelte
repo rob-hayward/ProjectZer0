@@ -1,23 +1,18 @@
 <!-- src/lib/components/nodeViews/BaseNodeView.svelte -->
 <script lang="ts">
-    import { NavGraphDashboard } from '$lib/components/navigation';
-    
-    export let title: string;
-  </script>
-  
-  <div class="node-view">
-    <div class="eclipse-ring">
-      <div class="content-area">
-        <h1>{title}</h1>
-        <div class="node-content">
-          <slot></slot>
-        </div>
+  export let title: string;
+</script>
+
+<div class="node-view">
+  <div class="eclipse-ring">
+    <div class="content-area">
+      <h1>{title}</h1>
+      <div class="node-content">
+        <slot></slot>
       </div>
     </div>
-    <div class="mini-nav">
-      <NavGraphDashboard />
-    </div>
   </div>
+</div>
   
   <style>
     :root {
@@ -74,24 +69,10 @@
       flex-grow: 1;
     }
   
-    .mini-nav {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      width: 200px;  /* Adjust this value to make the nav graph smaller */
-      height: 200px; /* Adjust this value to make the nav graph smaller */
-      z-index: 10;
-    }
-  
     @media (max-width: 768px) {
       :root {
         --ring-thickness: 5px;
         --content-padding: 20px;
-      }
-  
-      .mini-nav {
-        width: 150px;  /* Even smaller on mobile devices */
-        height: 150px;
       }
     }
   </style>

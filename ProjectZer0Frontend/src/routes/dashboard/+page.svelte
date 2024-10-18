@@ -4,7 +4,7 @@
   import * as auth0 from '$lib/services/auth0';
   import { userStore } from '$lib/stores/userStore';
   import type { UserProfile } from '$lib/types/user';
-  import UserNodeView from '$lib/components/nodeViews/UserNodeView.svelte';
+  import { default as OwnUserNodeView } from '$lib/components/nodeViews/OwnUserNodeView.svelte';
 
   let user: UserProfile | null = null;
   let error: string | null = null;
@@ -27,15 +27,17 @@
   });
 </script>
 
-{#if isLoading}
-  <p>Loading user data...</p>
-{:else if error}
-  <p class="error">{error}</p>
-{:else if user}
-  <UserNodeView {user} />
-{:else}
-  <p>No user data available</p>
-{/if}
+<div class="dashboard">
+  {#if isLoading}
+    <p>Loading user data...</p>
+  {:else if error}
+    <p class="error">{error}</p>
+  {:else if user}
+    <OwnUserNodeView node={user} />
+  {:else}
+    <p>No user data available</p>
+  {/if}
+</div>
 
 <style>
   :global(body) {
@@ -44,6 +46,11 @@
     margin: 0;
     padding: 0;
     font-family: Arial, sans-serif;
+  }
+
+  .dashboard {
+    width: 100vw;
+    height: 100vh;
   }
 
   .error {
