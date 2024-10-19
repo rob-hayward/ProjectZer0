@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/MainGraph.svelte -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
