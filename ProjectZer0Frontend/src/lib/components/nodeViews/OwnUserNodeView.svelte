@@ -12,13 +12,13 @@
   const dispatch = createEventDispatcher();
 
   const navigationOptions = [
-    { id: 'network', label: 'Social Network', position: { x: 0.85, y: 0.3 }, color: '#80ffff' },
-    { id: 'creations', label: 'My Creations', position: { x: 0.15, y: 0.3 }, color: '#ffff80' },
-    { id: 'interactions', label: 'My Interactions', position: { x: 0.85, y: 0.6 }, color: '#ff80ff' },
-    { id: 'explore', label: 'Explore', position: { x: 0.15, y: 0.6 }, color: '#80ff80' },
-    { id: 'create-node', label: 'Create Node', position: { x: 0.75, y: 0.15 }, color: '#ff8080' },
-    { id: 'edit-profile', label: 'Edit Profile', position: { x: 0.1, y: 0.9 }, color: '#8080ff' },
-    { id: 'logout', label: 'Logout', position: { x: 0.9, y: 0.9 }, color: '#ffa080' }
+    { id: 'network', label: 'social network', position: { x: 0.85, y: 0.3 }, color: '#80ffff' },
+    { id: 'creations', label: 'my creations', position: { x: 0.15, y: 0.3 }, color: '#ffff80' },
+    { id: 'interactions', label: 'my interactions', position: { x: 0.85, y: 0.6 }, color: '#ff80ff' },
+    { id: 'explore', label: 'explore', position: { x: 0.15, y: 0.6 }, color: '#80ff80' },
+    { id: 'create-node', label: 'create node', position: { x: 0.75, y: 0.15 }, color: '#ff8080' },
+    { id: 'edit-profile', label: 'edit profile', position: { x: 0.1, y: 0.9 }, color: '#8080ff' },
+    { id: 'logout', label: 'logout', position: { x: 0.9, y: 0.9 }, color: '#ffa080' }
   ];
 
   function handleNavigation(optionId: string) {
@@ -191,14 +191,30 @@
         .attr("opacity", 0)
         .attr("class", "eclipse-hover");
 
+      // Split the label into words
+      const words = option.label.split(' ');
+      
+      // Create text element
       const text = optionGroup.append("text")
         .attr("text-anchor", "middle")
-        .attr("dy", "0.3em")
-        .text(option.label)
         .attr("font-family", "Orbitron, sans-serif")
         .attr("font-size", "12px")
         .attr("fill", "black")
-        .attr("font-weight", "bold");
+        .attr("font-weight", "bold")
+        .attr("dominant-baseline", "middle");  // This helps with vertical centering
+
+      // Calculate vertical positioning
+      const lineHeight = 1.2;  // line height in ems
+      const totalHeight = words.length * lineHeight;
+      const startY = -(totalHeight - lineHeight) / 2;  // Start position to center text block
+
+      // Add tspan elements for each word
+      words.forEach((word, index) => {
+        text.append("tspan")
+          .attr("x", 0)
+          .attr("dy", index === 0 ? startY + "em" : lineHeight + "em")
+          .text(word);
+      });
 
       // Hover effect
       optionGroup.on("mouseover", function() {
