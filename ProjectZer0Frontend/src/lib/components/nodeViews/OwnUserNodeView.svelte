@@ -231,16 +231,17 @@
 <div class="own-user-node-view">
   <div class="star-background"></div>
   <LargeCentralNodeView 
-    title={`${node.preferred_username || node.nickname || 'User'}'s home`}
-    bind:size={centralNodeSize}
-  >
-    <div class="user-info">
-      <div class="avatar-container">
-        <img src={node.picture} alt="User avatar" class="user-avatar"/>
-      </div>
-      <p class="mission-statement">{node.mission_statement || "No mission statement set."}</p>
+  title=""
+  bind:size={centralNodeSize}
+>
+  <div class="user-info">
+    <div class="avatar-container">
+      <img src={node.picture} alt="User avatar" class="user-avatar"/>
     </div>
-  </LargeCentralNodeView>
+    <h2 class="user-name">{node.preferred_username || node.name || node.nickname || 'User'}</h2>
+    <p class="mission-statement">{node.mission_statement || "No mission statement set."}</p>
+  </div>
+</LargeCentralNodeView>
   <svg bind:this={svg}></svg>
 </div>
 
@@ -292,13 +293,29 @@
   }
 
   .user-info {
-    text-align: center;
-    color: var(--text-color);
-  }
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  padding: 5% 5%; 
+  box-sizing: border-box;
+  font-family: 'Roboto', sans-serif;
+  text-align: center;
+}
+
+.user-name {
+  font-family: 'Orbitron', sans-serif;
+  font-size: 1.5em;
+  margin: 10px 0;
+  text-align: center;
+  width: 100%;
+}
 
   .avatar-container {
-    width: 150px;
-    height: 150px;
+    width: 130px;
+    height: 130px;
     margin: 0 auto 20px;
     position: relative;
   }
@@ -313,12 +330,11 @@
   }
 
   .mission-statement {
-    font-style: italic;
-    margin: 20px 0;
-    font-size: 1.1em;
-    line-height: 1.4;
-    max-width: 80%;
-    margin-left: auto;
-    margin-right: auto;
-  }
+  font-style: italic;
+  margin: 20px 0;
+  font-size: 1.1em;
+  line-height: 1.4;
+  max-width: 80%;
+  text-align: center;
+}
 </style>

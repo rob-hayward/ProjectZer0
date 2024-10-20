@@ -22,7 +22,7 @@
     --background-color: #000000;
     --ring-color: #00FFFF;
     --text-color: #E0E0E0;
-    --accent-color: #26fffb;
+    --accent-color: #26fff4;
     --ring-thickness: 6px;
     --content-padding: 60px;
   }
