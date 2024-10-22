@@ -1,4 +1,3 @@
-<!-- src/lib/components/nodeViews/LargeCentralNodeView.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   export let size: number;
@@ -24,6 +23,8 @@
 
       function draw() {
           ctx.clearRect(0, 0, size, size);
+
+          // Draw particles
           ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
           particles.forEach(particle => {
               ctx.beginPath();
@@ -32,6 +33,13 @@
               particle.y -= particle.speed;
               if (particle.y < 0) particle.y = size;
           });
+
+          // Draw P0 logo
+          ctx.font = '24px Orbitron';
+          ctx.fillStyle = '#00FFFF';
+          ctx.textAlign = 'center';
+          ctx.fillText('P0', size/2, size/4); // Positioned at the top quarter of the circle
+
           requestAnimationFrame(draw);
       }
       draw();
@@ -48,6 +56,8 @@
 </div>
 
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap');
+
   .large-central-node-view {
       width: var(--node-size);
       height: var(--node-size);

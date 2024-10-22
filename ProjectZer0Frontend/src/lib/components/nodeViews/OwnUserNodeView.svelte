@@ -13,16 +13,19 @@
   let canvas: HTMLCanvasElement;
   let mouseX = spring(0);
   let mouseY = spring(0);
+  let hoveredOption: string | null = null;
 
   const navigationOptions = [
-    { id: 'explore', label: 'Explore', icon: '◯' },
-    { id: 'create-node', label: 'Create Node', icon: '+' },
-    { id: 'network', label: 'Social Network', icon: '◎' },
-    { id: 'creations', label: 'My Creations', icon: '✦' },
-    { id: 'interactions', label: 'My Interactions', icon: '⟷' },
-    { id: 'edit-profile', label: 'Edit Profile', icon: '⚙' },
-    { id: 'logout', label: 'Logout', icon: '↪' }
+    { id: 'explore', label: 'explore', icon: '◯' },
+    { id: 'create-node', label: 'create node', icon: '+' },
+    { id: 'network', label: 'social network', icon: '◎' },
+    { id: 'creations', label: 'my creations', icon: '✦' },
+    { id: 'interactions', label: 'my interactions', icon: '⟷' },
+    { id: 'edit-profile', label: 'edit profile', icon: '⚙' },
+    { id: 'logout', label: 'logout', icon: '↪' }
   ];
+
+  let scaleSpring: Record<string, ReturnType<typeof spring<number>>> = {};
 
   function handleNavigation(optionId: string) {
     console.log('Navigation clicked:', optionId);
@@ -41,9 +44,16 @@
     }
   }
 
-  let hoveredOption: string | null = null;
-
   onMount(() => {
+    // Initialize scale springs for each navigation option
+    scaleSpring = navigationOptions.reduce((acc, option) => {
+      acc[option.id] = spring<number>(1, {
+        stiffness: 0.15,
+        damping: 1.6
+      });
+      return acc;
+    }, {} as Record<string, ReturnType<typeof spring<number>>>);
+
     const ctx = canvas.getContext('2d')!;
     let frame: number;
     
@@ -80,6 +90,13 @@
 
     const hoveredNode = getHoveredNode(x, y);
     hoveredOption = hoveredNode ? hoveredNode.id : null;
+
+    // Update scale springs
+    navigationOptions.forEach(option => {
+      if (scaleSpring[option.id]) {
+        scaleSpring[option.id].set(option.id === hoveredOption ? 1.5 : 1);
+      }
+    });
   }
 
   function handleCanvasClick(event: MouseEvent) {
@@ -103,7 +120,7 @@
       const nodeX = centerX + Math.cos(angle) * radius;
       const nodeY = centerY + Math.sin(angle) * radius;
       const distance = Math.sqrt(Math.pow(x - nodeX, 2) + Math.pow(y - nodeY, 2));
-      return distance < 30; // Adjust this value based on the size of your icons
+      return distance < 30;
     });
   }
   
@@ -124,15 +141,15 @@
     ctx.arc(centerX, centerY, 150, 0, 2 * Math.PI);
     ctx.stroke();
     
-    ctx.font = '16px Roboto, sans-serif';
+    ctx.font = '16px "Roboto", sans-serif';
     ctx.fillStyle = 'white';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     
     const name = node.preferred_username || node.name || node.nickname || 'User';
-    ctx.fillText(name, centerX, centerY - 20);
+    ctx.fillText(name.toLowerCase(), centerX, centerY - 20);
     
-    const mission = node.mission_statement || "No mission statement set.";
+    const mission = node.mission_statement || "no mission statement set.";
     const words = mission.split(' ');
     let line = '';
     let y = centerY + 20;
@@ -161,15 +178,30 @@
       const x = centerX + Math.cos(angle) * radius;
       const y = centerY + Math.sin(angle) * radius;
       
-      ctx.font = '24px sans-serif';
+      let currentScale = 1;
+      if (scaleSpring[option.id]) {
+        const unsubscribe = scaleSpring[option.id].subscribe(value => {
+          currentScale = value;
+        });
+        unsubscribe();
+      } else if (hoveredOption === option.id) {
+        currentScale = 1.5;
+      }
+      
+      // Calculate opacity based on scale
+      const opacity = (currentScale - 1) / 0.5; // Will be 0 when scale is 1, and 1 when scale is 1.5
+      
+      // Draw the icon with scaling
+      ctx.font = `${24 * currentScale}px "Roboto", sans-serif`;
       ctx.fillStyle = 'white';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(option.icon, x, y);
       
-      if (hoveredOption === option.id) {
-        console.log('Drawing hover label for:', option.id);
-        ctx.font = '14px Roboto, sans-serif';
+      // Draw label with fade effect
+      if (option.id === hoveredOption || opacity > 0) {
+        ctx.font = '14px "Roboto", sans-serif';
+        ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
         ctx.fillText(option.label, x, y + 30);
       }
     });
@@ -188,7 +220,7 @@
     color: white;
     overflow: hidden;
     position: relative;
-    font-family: 'Roboto', Arial, sans-serif;
+    font-family: 'Roboto', sans-serif;
   }
   
   canvas {
