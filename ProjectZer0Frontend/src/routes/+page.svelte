@@ -17,7 +17,7 @@
 <div class="home-page">
   <ThreeJsHomeScene />
   <div class="centered-content">
-    <h1>PROJECT ZER0</h1>
+    <h1>ProjectZer0</h1>
     <h2>EXPERIMENT / GAME / REVOLUTION</h2>
     <button class="enter-button" on:click={handleEnter}>ENTER</button>
     <button class="logout-button" on:click={handleLogout}>LOGOUT</button>

@@ -1,10 +1,9 @@
-<!-- src/routes/dashboard/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import * as auth0 from '$lib/services/auth0';
   import { userStore } from '$lib/stores/userStore';
   import type { UserProfile } from '$lib/types/user';
-  import { default as OwnUserNodeView } from '$lib/components/nodeViews/OwnUserNodeView.svelte';
+  import DashboardNode from './DashboardNode.svelte';  // Updated import
 
   let user: UserProfile | null = null;
   let error: string | null = null;
@@ -33,7 +32,7 @@
   {:else if error}
     <p class="error">{error}</p>
   {:else if user}
-    <OwnUserNodeView node={user} />
+    <DashboardNode node={user} />  <!-- Updated component usage -->
   {:else}
     <p>No user data available</p>
   {/if}
