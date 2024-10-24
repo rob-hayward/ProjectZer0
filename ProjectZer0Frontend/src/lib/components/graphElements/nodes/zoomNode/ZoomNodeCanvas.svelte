@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/zoomNode/ZoomNodeCanvas.svelte -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import { spring } from 'svelte/motion';

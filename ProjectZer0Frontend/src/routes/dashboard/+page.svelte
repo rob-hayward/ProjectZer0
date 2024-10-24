@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/routes/dashboard/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import * as auth0 from '$lib/services/auth0';
