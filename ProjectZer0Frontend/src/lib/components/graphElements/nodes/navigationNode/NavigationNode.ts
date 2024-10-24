@@ -42,9 +42,8 @@ export function drawNavigationNode(
   // Draw very subtle connection line when hovered
   if (isHovered) {
     ctx.beginPath();
-    ctx.strokeStyle = `${color}20`;
+    ctx.strokeStyle = `${color}50`;
     ctx.lineWidth = 1;
-    ctx.setLineDash([5, 5]);
     ctx.moveTo(x, y);
     ctx.lineTo(ctx.canvas.width / 2, ctx.canvas.height / 2);
     ctx.stroke();
