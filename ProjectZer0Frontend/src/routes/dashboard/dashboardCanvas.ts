@@ -1,5 +1,6 @@
 import type { UserProfile } from '$lib/types/user';
-import { drawGlow, NetworkBackground, drawCursor } from '$lib/utils/canvasAnimations';
+import { drawGlow, drawCursor } from '$lib/utils/canvasAnimations';
+import { NetworkBackground } from '$lib/components/graphElements/backgrounds/ZoomBackground';
 
 let networkBg: NetworkBackground | null = null;
 let time = 0;

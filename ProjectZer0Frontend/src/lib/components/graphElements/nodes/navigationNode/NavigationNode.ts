@@ -1,6 +1,7 @@
 // src/lib/components/graphElements/nodes/navigationNode/NavigationNode.ts
 import type { NavigationOption } from '$lib/types/navigation';
-import { getActionColor, drawGlow } from '$lib/utils/canvasAnimations';
+import { drawGlow } from '$lib/utils/canvasAnimations';
+import { getNavigationColor } from './navigationColors';
 
 export function drawNavigationNode(
   ctx: CanvasRenderingContext2D,
@@ -10,7 +11,7 @@ export function drawNavigationNode(
   scale: number = 1,
   isHovered: boolean = false
 ) {
-  const color = getActionColor(option.id);
+  const color = getNavigationColor(option.id);  // Changed from getActionColor
 
   // Draw a very subtle glow when hovered
   if (isHovered) {
@@ -31,7 +32,7 @@ export function drawNavigationNode(
   // Draw label with fade effect
   const opacity = (scale - 1) / 0.5;
   if (isHovered || opacity > 0) {
-    ctx.font = '14px "Orbitron", sans-serif';  // Changed to Orbitron
+    ctx.font = '14px "Orbitron", sans-serif';
     ctx.fillStyle = isHovered ? 
       color : 
       `rgba(255, 255, 255, ${opacity})`;
