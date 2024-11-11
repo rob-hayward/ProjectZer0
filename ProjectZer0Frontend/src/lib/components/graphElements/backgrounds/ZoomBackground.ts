@@ -10,13 +10,13 @@ interface NetworkNode {
   type: NavigationNodeType;
 }
 
-export class NetworkBackground {
+export class ZoomBackground {
   private nodes: NetworkNode[];
   private width: number;
   private height: number;
   private viewportScale: number = 1.5;
 
-  constructor(count: number = 25, width: number = 1920, height: number = 1080) {
+  constructor(count: number = 35, width: number = 1920, height: number = 1080) {
     this.width = width * this.viewportScale;
     this.height = height * this.viewportScale;
     
@@ -76,7 +76,7 @@ export class NetworkBackground {
       const g = parseInt(baseColor.slice(3, 5), 16);
       const b = parseInt(baseColor.slice(5, 7), 16);
       return {
-        edge: `rgba(${r}, ${g}, ${b}, 0.06)`, // Increased from 0.03
+        edge: `rgba(${r}, ${g}, ${b}, 0.08)`, // Increased from 0.03
         node: `rgba(${r}, ${g}, ${b}, 0.15)` // Increased from 0.1
       };
     };
