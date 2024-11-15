@@ -1,17 +1,38 @@
+<!-- ProjectZer0Frontend/src/routes/create-node/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
   import * as auth0 from '$lib/services/auth0';
   import type { UserProfile } from '$lib/types/user';
-  import WordNodeForm from '../nodes/word/WordNodeForm.svelte';
   import BaseZoomedPage from '$lib/components/graphElements/layouts/BaseZoomedPage.svelte';
-  import { createNodeNavigationOptions } from '$lib/components/graphElements/nodes/navigationNode/navigationOptions';
+  import { NavigationContext, getNavigationOptions, handleNavigation } from '$lib/services/navigation';
   import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/baseZoomedCanvas';
+
+  import MessageDisplay from '$lib/components/forms/nodeCreation/shared/MessageDisplay.svelte';
+  import StepIndicator from '$lib/components/forms/nodeCreation/shared/StepIndicator.svelte';
+  import WordForm from '$lib/components/forms/nodeCreation/word/WordForm.svelte';
+  import DefinitionForm from '$lib/components/forms/nodeCreation/word/DefinitionForm.svelte';
+  import DiscussionForm from '$lib/components/forms/nodeCreation/shared/DiscussionForm.svelte';
+  import WordReview from '$lib/components/forms/nodeCreation/word/WordReview.svelte';
   
   let user: UserProfile | null = null;
-  let selectedNodeType: string = '';
-  let error: string | null = null;
-  let success: string | null = null;
+  let errorMessage: string | null = null;
+  let successMessage: string | null = null;
+  let currentStep = 1;
+  let isLoading = false;
+  let time = 0;
+  
+  let formData = {
+    nodeType: '',
+    word: '',
+    definition: '',
+    discussion: '',
+    publicCredit: false
+  };
+
+  const TOTAL_STEPS = 5;
 
   onMount(async () => {
     try {
@@ -27,170 +48,197 @@
     }
   });
 
-  function handleNodeCreated(event: CustomEvent<{ success: boolean, message: string, data?: any }>) {
-    if (event.detail.success) {
-      success = event.detail.message;
-      error = null;
-      if (event.detail.data && event.detail.data.id) {
-        goto(`/nodes/word/${event.detail.data.id}`);
-      }
-    } else {
-      error = event.detail.message;
-      success = null;
+  function getTitle(): string {
+    if (currentStep === 1) {
+      return 'Create New Node';
+    }
+    return `Create ${formData.nodeType.charAt(0).toUpperCase() + formData.nodeType.slice(1)} Node`;
+  }
+
+  function handleNodeTypeSelection(event: Event) {
+    const select = event.target as HTMLSelectElement;
+    formData.nodeType = select.value;
+    if (formData.nodeType) {
+      currentStep++;
+      time += 0.01;
     }
   }
 
-  function handleWordExists(event: CustomEvent<{ word: string }>) {
-    goto(`/nodes/word/${event.detail.word}`);
+  function nextStep() {
+    if (currentStep < TOTAL_STEPS) {
+      currentStep++;
+      errorMessage = null;
+      time += 0.01;
+    }
   }
 
-  function handleNavigation(optionId: string) {
-    switch(optionId) {
-      case 'dashboard':
-        goto('/dashboard');
-        break;
-      case 'edit-profile':
-        goto('/edit-profile');
-        break;
-      case 'logout':
-        auth0.logout();
-        break;
-      default:
-        goto(`/${optionId}`);
+  function previousStep() {
+    if (currentStep > 1) {
+      currentStep--;
+      errorMessage = null;
+      time += 0.01;
     }
+  }
+
+  function handleWordExists({ detail }: CustomEvent<{ word: string }>) {
+    goto(`/nodes/word/${detail.word}`);
+  }
+
+  function handleSuccess({ detail }: CustomEvent<{ message: string; word: string; }>) {
+    successMessage = detail.message;
+  }
+
+  function handleError({ detail }: CustomEvent<{ message: string; }>) {
+    errorMessage = detail.message;
   }
 
   function drawCreateNodeContent(ctx: CanvasRenderingContext2D, centerX: number, centerY: number) {
-    // ProjectZer0 logo
     BaseZoomedCanvas.setTextStyle(ctx, TEXT_STYLES.logo);
-    ctx.fillText('ProjectZer0', centerX, centerY - 180);
+    ctx.fillText(getTitle(), centerX, centerY - 160);
+  }
 
-    // Create New Node text
-    BaseZoomedCanvas.setTextStyle(ctx, {
-      font: '18px "Orbitron", sans-serif',
-      color: 'rgba(255, 255, 255, 0.7)',
-      align: 'center',
-      baseline: 'middle'
-    });
-    ctx.fillText('Create New Node', centerX, centerY - 140);
+  $: if (browser) {
+    time;
+    drawCreateNodeContent;
   }
 </script>
 
-<BaseZoomedPage
-  navigationOptions={createNodeNavigationOptions}
-  onNavigate={handleNavigation}
-  drawContent={drawCreateNodeContent}
->
-  <div class="content-overlay">
-    <div class="messages">
-      {#if error}
-        <p class="error">{error}</p>
-      {/if}
+{#if user}
+  <BaseZoomedPage
+    navigationOptions={getNavigationOptions(NavigationContext.CREATE_NODE)}
+    onNavigate={(optionId) => handleNavigation(optionId)}
+    drawContent={drawCreateNodeContent}
+  >
+    <div class="content-overlay">
+      <div class="messages-wrapper">
+        <MessageDisplay {errorMessage} {successMessage} />
+      </div>
+      <div class="create-node-container">
+        <div class="create-node-form">
+          <div class="form-content">
+            {#if currentStep === 1}
+              <div class="form-step" transition:fade={{ duration: 200 }}>
+                <div class="form-group">
+                  <label for="node-type">Select Node Type</label>
+                  <select 
+                    id="node-type" 
+                    bind:value={formData.nodeType}
+                    on:change={handleNodeTypeSelection}
+                  >
+                    <option value="">Choose type...</option>
+                    <option value="word">Word</option>
+                  </select>
+                </div>
+              </div>
+            {/if}
 
-      {#if success}
-        <p class="success">{success}</p>
-      {/if}
-    </div>
+            {#if currentStep === 2 && formData.nodeType === 'word'}
+              <div class="form-step" transition:fade={{ duration: 200 }}>
+                <WordForm
+                  bind:word={formData.word}
+                  disabled={isLoading}
+                  on:back={previousStep}
+                  on:proceed={nextStep}
+                  on:wordExists={handleWordExists}
+                />
+              </div>
+            {/if}
 
-    <div class="create-node-container">
-      <div class="create-node-form">
-        <div class="form-group">
-          <label for="node-type">Select Node Type</label>
-          <select id="node-type" bind:value={selectedNodeType}>
-            <option value="">Choose type...</option>
-            <option value="word">Word</option>
-          </select>
-        </div>
+            {#if currentStep === 3}
+              <div class="form-step" transition:fade={{ duration: 200 }}>
+                <DefinitionForm
+                  bind:definition={formData.definition}
+                  disabled={isLoading}
+                  on:back={previousStep}
+                  on:proceed={nextStep}
+                />
+              </div>
+            {/if}
 
-        {#if selectedNodeType === 'word'}
-          <div class="form-scroll-container">
-            <WordNodeForm 
-              on:nodeCreated={handleNodeCreated} 
-              on:wordExists={handleWordExists}
-              {user} 
-            />
+            {#if currentStep === 4}
+              <div class="form-step" transition:fade={{ duration: 200 }}>
+                <DiscussionForm
+                  bind:discussion={formData.discussion}
+                  disabled={isLoading}
+                  placeholder="Start a discussion around this word and its definition."
+                  on:back={previousStep}
+                  on:proceed={nextStep}
+                />
+              </div>
+            {/if}
+
+            {#if currentStep === 5}
+              <div class="form-step" transition:fade={{ duration: 200 }}>
+                <WordReview
+                  word={formData.word}
+                  definition={formData.definition}
+                  discussion={formData.discussion}
+                  bind:publicCredit={formData.publicCredit}
+                  disabled={isLoading}
+                  userId={user?.sub}
+                  on:back={previousStep}
+                  on:success={handleSuccess}
+                  on:error={handleError}
+                />
+              </div>
+            {/if}
           </div>
-        {/if}
+
+          <StepIndicator {currentStep} totalSteps={TOTAL_STEPS} />
+        </div>
       </div>
     </div>
-  </div>
-</BaseZoomedPage>
+  </BaseZoomedPage>
+{/if}
 
 <style>
   .content-overlay {
     position: absolute;
-    top: 50%;
+    top: 55%; /* Move down slightly to avoid title overlap */
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 400px;
+    width: 450px; /* Increase width */
     max-width: 90%;
     z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    max-height: 420px; /* Match circle size */
+    height: 420px;
   }
 
-  .messages {
-    text-align: center;
-    min-height: 30px;
-    position: sticky;
-    top: 0;
+  .messages-wrapper {
+    position: absolute;
+    top: -180px; /* Adjust to account for title */
+    left: 0;
+    right: 0;
     z-index: 2;
-    padding: 0.5rem;
-    backdrop-filter: blur(4px);
-    border-radius: 4px;
-  }
-
-  .error {
-    color: #ff4444;
-    margin: 0;
-    font-size: 0.9rem;
-  }
-
-  .success {
-    color: #44ff44;
-    margin: 0;
-    font-size: 0.9rem;
   }
 
   .create-node-container {
     position: relative;
     height: 100%;
-    max-height: 360px;
+    display: flex;
+    flex-direction: column;
   }
 
   .create-node-form {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    justify-content: space-between;
     height: 100%;
+    padding: 0 1rem;
   }
 
-  .form-scroll-container {
-    overflow-y: auto;
-    padding-right: 0.5rem;
-    margin-right: -0.5rem;
+  .form-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    margin-bottom: 2rem;
   }
 
-  /* Customize scrollbar */
-  .form-scroll-container::-webkit-scrollbar {
-    width: 6px;
-  }
-
-  .form-scroll-container::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-  }
-
-  .form-scroll-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
-  }
-
-  .form-scroll-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.4);
+  .form-step {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    animation: fadeIn 0.3s ease-out;
   }
 
   .form-group {
@@ -227,57 +275,8 @@
     color: white;
   }
 
-  /* Global form styles */
-  :global(.create-node-form input),
-  :global(.create-node-form textarea) {
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: white;
-    border-radius: 4px;
-    padding: 0.5rem;
-    width: 100%;
-    font-family: 'Orbitron', sans-serif;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-  }
-
-  :global(.create-node-form input:focus),
-  :global(.create-node-form textarea:focus) {
-    outline: none;
-    border-color: rgba(255, 255, 255, 0.4);
-    background: rgba(0, 0, 0, 0.5);
-  }
-
-  :global(.create-node-form button) {
-    background: rgba(74, 144, 226, 0.3);
-    border: 1px solid rgba(74, 144, 226, 0.4);
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    font-family: 'Orbitron', sans-serif;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  :global(.create-node-form button:hover) {
-    background: rgba(74, 144, 226, 0.4);
-    border-color: rgba(74, 144, 226, 0.6);
-  }
-
-  :global(.create-node-form button:active) {
-    transform: translateY(1px);
-  }
-
-  /* Fade effect for scrolling content */
-  .create-node-container::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 20px;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-    pointer-events: none;
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 </style>

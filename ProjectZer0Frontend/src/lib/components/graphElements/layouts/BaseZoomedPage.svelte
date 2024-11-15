@@ -1,29 +1,33 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/layouts/BaseZoomedPage.svelte -->
 <script lang="ts">
-  import { spring } from 'svelte/motion';
+  import { spring, type Spring } from 'svelte/motion';
   import ZoomNodeCanvas from '../nodes/zoomNode/ZoomNodeCanvas.svelte';
   import { ZoomBackground } from '../backgrounds/ZoomBackground';
   import { drawNavigationNode, isNavigationNodeHovered } from '../nodes/navigationNode/NavigationNode';
   import type { NavigationOption } from '$lib/types/navigation';
+  import type { NavigationOptionId } from '$lib/services/navigation';
   import { BaseZoomedCanvas } from './baseZoomedCanvas';
 
   // Props
   export let navigationOptions: NavigationOption[];
-  export let onNavigate: (optionId: string) => void;
+  export let onNavigate: (optionId: NavigationOptionId) => void;
   export let drawContent: (ctx: CanvasRenderingContext2D, centerX: number, centerY: number) => void;
 
   // State
   let networkBg: ZoomBackground | null = null;
-  let hoveredOption: string | null = null;
+  let hoveredOption: NavigationOptionId | null = null;
   let time = 0;
-  let scaleSpring: Record<string, ReturnType<typeof spring<number>>> = {};
+  let scaleSpring = new Map<NavigationOptionId, Spring<number>>();
 
   // Initialize springs
   $: {
-    scaleSpring = navigationOptions.reduce((acc, option) => ({
-      ...acc,
-      [option.id]: spring(1, { stiffness: 0.15, damping: 1.6 })
-    }), {});
+    navigationOptions.forEach(option => {
+      if (!scaleSpring.has(option.id as NavigationOptionId)) {
+        scaleSpring.set(
+          option.id as NavigationOptionId,
+          spring(1, { stiffness: 0.15, damping: 1.6 })
+        );
+      }
+    });
   }
 
   function draw(ctx: CanvasRenderingContext2D, mouseX: number, mouseY: number) {
@@ -31,20 +35,14 @@
     const centerX = ctx.canvas.width / 2;
     const centerY = ctx.canvas.height / 2;
 
-    // Initialize and draw background
     if (!networkBg) {
       networkBg = new ZoomBackground(35, ctx.canvas.width, ctx.canvas.height);
     }
     networkBg.update(ctx.canvas.width, ctx.canvas.height);
     networkBg.draw(ctx);
 
-    // Draw central circle using BaseZoomedCanvas
     BaseZoomedCanvas.drawCentralCircle(ctx, centerX, centerY, time);
-
-    // Draw navigation nodes
     drawNavigationNodes(ctx, centerX, centerY);
-
-    // Draw page-specific content
     drawContent(ctx, centerX, centerY);
   }
 
@@ -60,8 +58,9 @@
       const y = centerY + Math.sin(angle) * radius;
       
       let currentScale = 1;
-      if (scaleSpring[option.id]) {
-        const unsubscribe = scaleSpring[option.id].subscribe(value => {
+      const optionSpring = scaleSpring.get(option.id as NavigationOptionId);
+      if (optionSpring) {
+        const unsubscribe = optionSpring.subscribe(value => {
           currentScale = value;
         });
         unsubscribe();
@@ -80,11 +79,12 @@
 
   function handleMouseMove(x: number, y: number) {
     const hoveredNode = getHoveredNode(x, y);
-    hoveredOption = hoveredNode ? hoveredNode.id : null;
+    hoveredOption = hoveredNode ? hoveredNode.id as NavigationOptionId : null;
 
     navigationOptions.forEach(option => {
-      if (scaleSpring[option.id]) {
-        scaleSpring[option.id].set(option.id === hoveredOption ? 1.5 : 1);
+      const springValue = scaleSpring.get(option.id as NavigationOptionId);
+      if (springValue) {
+        springValue.set(option.id === hoveredOption ? 1.5 : 1);
       }
     });
   }
@@ -92,7 +92,7 @@
   function handleClick(x: number, y: number) {
     const clickedNode = getHoveredNode(x, y);
     if (clickedNode) {
-      onNavigate(clickedNode.id);
+      onNavigate(clickedNode.id as NavigationOptionId);
     }
   }
 
@@ -119,18 +119,18 @@
 
 <div class="base-zoomed-page">
   <ZoomNodeCanvas
-      {draw}
-      handleClick={(x, y) => handleClick(x, y)}
-      handleMouseMove={(x, y) => handleMouseMove(x, y)}
-      backgroundColor="black"
+    {draw}
+    handleClick={(x, y) => handleClick(x, y)}
+    handleMouseMove={(x, y) => handleMouseMove(x, y)}
+    backgroundColor="black"
   />
   <slot />
 </div>
 
 <style>
   .base-zoomed-page {
-      width: 100vw;
-      height: 100vh;
-      position: relative;
+    width: 100vw;
+    height: 100vh;
+    position: relative;
   }
 </style>

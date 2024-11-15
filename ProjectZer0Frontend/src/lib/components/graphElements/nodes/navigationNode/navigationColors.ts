@@ -1,3 +1,4 @@
+// ProjectZer0Frontend/src/lib/components/graphElements/nodes/navigationNode/navigationColors.ts
 export const navigationColors = {
   explore: '#3498db',      // Vibrant blue
   'create-node': '#f1c40f', // Sunflower yellow
