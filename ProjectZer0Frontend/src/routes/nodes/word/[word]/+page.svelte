@@ -38,6 +38,7 @@
   <p class="error">{error}</p>
 {:else if wordData}
   <WordNodeDisplay wordData={wordData} />
+  console.log('Fetched word data:', wordData);
 {:else}
   <p>No word data available</p>
 {/if}

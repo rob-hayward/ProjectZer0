@@ -1,16 +1,27 @@
 <!-- ProjectZer0Frontend/src/lib/components/forms/nodeCreation/shared/DiscussionForm.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
-    import FormNavigation from './FormNavigation.svelte';
+  import { createEventDispatcher } from 'svelte';
+  import FormNavigation from './FormNavigation.svelte';
+  import CharacterCount from './CharacterCount.svelte';
+  import { TEXT_LIMITS } from '$lib/constants/validation';
+
+  export let discussion = '';
+  export let disabled = false;
+  export let placeholder = 'Start a discussion around this topic.';
+
+  $: isOverLimit = discussion.length > TEXT_LIMITS.MAX_COMMENT_LENGTH;
   
-    export let discussion = '';
-    export let disabled = false;
-    export let placeholder = 'Start a discussion around this topic.';
-  
-    const dispatch = createEventDispatcher<{
-      back: void;
-      proceed: void;
-    }>();
+  const dispatch = createEventDispatcher<{
+    back: void;
+    proceed: void;
+  }>();
+
+  function handleInput(event: Event) {
+    const textarea = event.target as HTMLTextAreaElement;
+    if (textarea.value.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
+      discussion = textarea.value.slice(0, TEXT_LIMITS.MAX_COMMENT_LENGTH);
+    }
+  }
 </script>
 
 <div class="form-wrapper">
@@ -20,9 +31,15 @@
       <textarea
         id="discussion"
         bind:value={discussion}
+        on:input={handleInput}
         {placeholder}
         rows="3"
         {disabled}
+        class:error={isOverLimit}
+      />
+      <CharacterCount
+        currentLength={discussion.length}
+        maxLength={TEXT_LIMITS.MAX_COMMENT_LENGTH}
       />
     </div>
   </div>
@@ -32,7 +49,7 @@
       onBack={() => dispatch('back')}
       onNext={() => dispatch('proceed')}
       nextLabel="Review"
-      nextDisabled={disabled}
+      nextDisabled={disabled || isOverLimit}
     />
   </div>
 </div>
@@ -81,5 +98,13 @@
     outline: none;
     border-color: rgba(255, 255, 255, 0.4);
     background: rgba(0, 0, 0, 0.5);
+  }
+
+  textarea.error {
+    border-color: #ff4444;
+  }
+
+  textarea.error:focus {
+    border-color: #ff6666;
   }
 </style>

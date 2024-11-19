@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+// src/neo4j/schemas/comment.schema.ts
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
+import { TEXT_LIMITS } from '../../constants/validation';
 
 @Injectable()
 export class CommentSchema {
@@ -12,6 +14,12 @@ export class CommentSchema {
     commentText: string;
     parentCommentId?: string;
   }) {
+    if (commentData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
+      throw new BadRequestException(
+        `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
+      );
+    }
+
     console.log(
       `Creating comment with data:`,
       JSON.stringify(commentData, null, 2),
@@ -64,6 +72,15 @@ export class CommentSchema {
       commentText?: string;
     },
   ) {
+    if (
+      updateData.commentText &&
+      updateData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
+      );
+    }
+
     const result = await this.neo4jService.write(
       `
       MATCH (c:CommentNode {id: $id})

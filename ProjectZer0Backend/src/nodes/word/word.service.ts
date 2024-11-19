@@ -1,3 +1,4 @@
+// src/nodes/word/word.service.ts
 import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { WordSchema } from '../../neo4j/schemas/word.schema';
 import { DictionaryService } from '../../dictionary/dictionary.service';
@@ -41,7 +42,7 @@ export class WordService {
         `Free Dictionary definition: ${freeDictionaryDefinition}`,
       );
 
-      // Create the word node
+      // Create the word node with initial definition
       const wordNode = await this.wordSchema.createWord({
         word: wordData.word,
         createdBy: wordData.createdBy,
@@ -55,22 +56,9 @@ export class WordService {
         `Created word node: ${JSON.stringify(wordNode, null, 2)}`,
       );
 
-      // Add user-provided definition with 1 vote
-      if (wordData.definition) {
-        const userDefinition = await this.wordSchema.addDefinition({
-          word: wordData.word,
-          createdBy: wordData.createdBy,
-          definitionText: wordData.definition,
-        });
-        this.logger.log(
-          `Added user definition: ${JSON.stringify(userDefinition, null, 2)}`,
-        );
-        await this.wordSchema.voteWord(wordData.word, wordData.createdBy, true);
-        this.logger.log(`Added vote for user definition`);
-      }
-
-      // Add Free Dictionary definition with 0 votes if different from user's definition
+      // Only add API definition as secondary definition if there's a user definition
       if (
+        wordData.definition &&
         freeDictionaryDefinition &&
         freeDictionaryDefinition !== wordData.definition
       ) {

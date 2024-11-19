@@ -5,6 +5,7 @@ import {
   Body,
   UseGuards,
   Request,
+  Param,
 } from '@nestjs/common';
 import { UserAuthService } from './user-auth.service';
 import { InteractionService } from './interactions/interaction.service';
@@ -47,5 +48,11 @@ export class UsersController {
           )
         : 0,
     };
+  }
+
+  @Get(':userId/details')
+  @UseGuards(JwtAuthGuard)
+  async getUserDetails(@Param('userId') userId: string) {
+    return this.userAuthService.getUserProfile(userId);
   }
 }

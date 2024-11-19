@@ -28,7 +28,6 @@ function drawActivityMetrics(
   const metrics = [
     { label: 'nodes created', value: activity.nodesCreated },
     { label: 'votes cast', value: activity.votesCast },
-    { label: 'comments made', value: activity.commentsMade }
   ];
 
   metrics.forEach(metric => {

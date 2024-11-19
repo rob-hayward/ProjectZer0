@@ -38,6 +38,7 @@ export class WordSchema {
     return exists;
   }
 
+  // Update createWord method in word.schema.ts
   async createWord(wordData: {
     word: string;
     createdBy: string;
@@ -47,29 +48,31 @@ export class WordSchema {
     this.logger.log(`Creating word with data: ${JSON.stringify(wordData)}`);
     const standardizedWord = this.standardizeWord(wordData.word);
     this.logger.log(`Standardized word for creation: ${standardizedWord}`);
+    const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
+
     const result = await this.neo4jService.write(
       `
-      CREATE (w:WordNode {
-        id: apoc.create.uuid(),
-        word: $word,
-        createdBy: $createdBy,
-        publicCredit: $publicCredit,
-        createdAt: datetime(),
-        updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0
-      })
-      CREATE (d:DefinitionNode {
-        id: apoc.create.uuid(),
-        text: $initialDefinition,
-        createdBy: $createdBy,
-        createdAt: datetime(),
-        votes: 0
-      })
-      CREATE (w)-[:HAS_DEFINITION]->(d)
-      RETURN w
-      `,
-      { ...wordData, word: standardizedWord },
+    CREATE (w:WordNode {
+      id: apoc.create.uuid(),
+      word: $word,
+      createdBy: $createdBy,
+      publicCredit: $publicCredit,
+      createdAt: datetime(),
+      updatedAt: datetime(),
+      positiveVotes: 0,
+      negativeVotes: 0
+    })
+    CREATE (d:DefinitionNode {
+      id: apoc.create.uuid(),
+      text: $initialDefinition,
+      createdBy: $createdBy,
+      createdAt: datetime(),
+      votes: CASE WHEN $isApiDefinition THEN 0 ELSE 1 END
+    })
+    CREATE (w)-[:HAS_DEFINITION]->(d)
+    RETURN w
+    `,
+      { ...wordData, word: standardizedWord, isApiDefinition },
     );
     const createdWord = result.records[0].get('w').properties;
     this.logger.log(`Created word node: ${JSON.stringify(createdWord)}`);
@@ -83,20 +86,22 @@ export class WordSchema {
   }) {
     const standardizedWord = this.standardizeWord(wordData.word);
     this.logger.log(`Adding definition to word: ${standardizedWord}`);
+    const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
+
     const result = await this.neo4jService.write(
       `
-      MATCH (w:WordNode {word: $word})
-      CREATE (d:DefinitionNode {
-        id: apoc.create.uuid(),
-        text: $definitionText,
-        createdBy: $createdBy,
-        createdAt: datetime(),
-        votes: 0
-      })
-      CREATE (w)-[:HAS_DEFINITION]->(d)
-      RETURN d
-      `,
-      { ...wordData, word: standardizedWord },
+    MATCH (w:WordNode {word: $word})
+    CREATE (d:DefinitionNode {
+      id: apoc.create.uuid(),
+      text: $definitionText,
+      createdBy: $createdBy,
+      createdAt: datetime(),
+      votes: CASE WHEN $isApiDefinition THEN 0 ELSE 1 END
+    })
+    CREATE (w)-[:HAS_DEFINITION]->(d)
+    RETURN d
+    `,
+      { ...wordData, word: standardizedWord, isApiDefinition },
     );
     const addedDefinition = result.records[0].get('d').properties;
     this.logger.log(`Added definition: ${JSON.stringify(addedDefinition)}`);

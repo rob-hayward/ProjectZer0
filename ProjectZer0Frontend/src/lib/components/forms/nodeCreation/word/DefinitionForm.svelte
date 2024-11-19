@@ -1,15 +1,26 @@
 <!-- ProjectZer0Frontend/src/lib/components/forms/nodeCreation/word/DefinitionForm.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
-    import FormNavigation from '../shared/FormNavigation.svelte';
+  import { createEventDispatcher } from 'svelte';
+  import FormNavigation from '../shared/FormNavigation.svelte';
+  import CharacterCount from '../shared/CharacterCount.svelte';
+  import { TEXT_LIMITS } from '$lib/constants/validation';
+
+  export let definition = '';
+  export let disabled = false;
+
+  $: isOverLimit = definition.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH;
   
-    export let definition = '';
-    export let disabled = false;
-  
-    const dispatch = createEventDispatcher<{
-      back: void;
-      proceed: void;
-    }>();
+  const dispatch = createEventDispatcher<{
+    back: void;
+    proceed: void;
+  }>();
+
+  function handleInput(event: Event) {
+    const textarea = event.target as HTMLTextAreaElement;
+    if (textarea.value.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH) {
+      definition = textarea.value.slice(0, TEXT_LIMITS.MAX_DEFINITION_LENGTH);
+    }
+  }
 </script>
 
 <div class="form-wrapper">
@@ -19,9 +30,15 @@
       <textarea
         id="definition"
         bind:value={definition}
+        on:input={handleInput}
         placeholder="Enter your definition of this word within the context of its use in ProjectZer0."
         rows="3"
         {disabled}
+        class:error={isOverLimit}
+      />
+      <CharacterCount
+        currentLength={definition.length}
+        maxLength={TEXT_LIMITS.MAX_DEFINITION_LENGTH}
       />
     </div>
   </div>
@@ -30,7 +47,7 @@
     <FormNavigation
       onBack={() => dispatch('back')}
       onNext={() => dispatch('proceed')}
-      nextDisabled={disabled}
+      nextDisabled={disabled || isOverLimit}
     />
   </div>
 </div>
@@ -79,5 +96,13 @@
     outline: none;
     border-color: rgba(255, 255, 255, 0.4);
     background: rgba(0, 0, 0, 0.5);
+  }
+
+  textarea.error {
+    border-color: #ff4444;
+  }
+
+  textarea.error:focus {
+    border-color: #ff6666;
   }
 </style>

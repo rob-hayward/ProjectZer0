@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+// src/neo4j/schemas/definition.schema.ts
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
+import { TEXT_LIMITS } from '../../constants/validation';
 
 @Injectable()
 export class DefinitionSchema {
@@ -11,6 +13,14 @@ export class DefinitionSchema {
     createdBy: string;
     definitionText: string;
   }) {
+    if (
+      definitionData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`,
+      );
+    }
+
     const result = await this.neo4jService.write(
       `
       MATCH (w:WordNode {word: $word})
@@ -20,8 +30,7 @@ export class DefinitionSchema {
         createdBy: $createdBy,
         createdAt: datetime(),
         updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0,
+        votes: CASE WHEN $createdBy = 'FreeDictionaryAPI' THEN 0 ELSE 1 END,
         visibilityStatus: true
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
@@ -51,6 +60,15 @@ export class DefinitionSchema {
       definitionText?: string;
     },
   ) {
+    if (
+      updateData.definitionText &&
+      updateData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`,
+      );
+    }
+
     const result = await this.neo4jService.write(
       `
       MATCH (d:DefinitionNode {id: $id})
