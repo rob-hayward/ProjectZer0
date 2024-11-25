@@ -8,10 +8,11 @@ export const navigationColors = {
   'edit-profile': '#e67e22', // Carrot orange
   logout: '#e74c3c',       // Coral red
   dashboard: '#3498db',    // Matching explore blue for consistency
+  'alternative-definitions': '#27ae60', // Forest green
 } as const;
 
 export type NavigationNodeType = keyof typeof navigationColors;
 
 export function getNavigationColor(nodeId: string): string {
-return navigationColors[nodeId as NavigationNodeType] || navigationColors.explore;
+  return navigationColors[nodeId as NavigationNodeType] || navigationColors.explore;
 }

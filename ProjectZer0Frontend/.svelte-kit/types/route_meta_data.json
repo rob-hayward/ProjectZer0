@@ -3,5 +3,6 @@
 	"/create-node": [],
 	"/dashboard": [],
 	"/edit-profile": [],
+	"/nodes/definition/[word]": [],
 	"/nodes/word/[word]": []
 }

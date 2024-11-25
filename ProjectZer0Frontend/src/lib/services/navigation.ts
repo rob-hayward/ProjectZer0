@@ -10,7 +10,8 @@ export const NavigationOptionId = {
   NETWORK: 'network',
   INTERACTIONS: 'interactions',
   CREATIONS: 'creations',
-  LOGOUT: 'logout'
+  LOGOUT: 'logout',
+  ALTERNATIVE_DEFINITIONS: 'alternative-definitions'
 } as const;
 
 export type NavigationOptionId = typeof NavigationOptionId[keyof typeof NavigationOptionId];
@@ -25,6 +26,9 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
   [NavigationOptionId.INTERACTIONS]: () => goto('/interactions'),
   [NavigationOptionId.CREATIONS]: () => goto('/creations'),
   [NavigationOptionId.LOGOUT]: () => auth0.logout(),
+  [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => {
+    console.log('View definitions functionality to be implemented');
+  }
 };
 
 export const NavigationContext = {
@@ -46,7 +50,8 @@ const navigationIcons: Record<NavigationOptionId, string> = {
   [NavigationOptionId.EDIT_PROFILE]: '⚙',
   [NavigationOptionId.INTERACTIONS]: '⟷',
   [NavigationOptionId.CREATIONS]: '✦',
-  [NavigationOptionId.DASHBOARD]: '⌂'
+  [NavigationOptionId.DASHBOARD]: '⌂',
+  [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: '≣'
 };
 
 // Navigation option configurations per context
@@ -69,9 +74,15 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     NavigationOptionId.INTERACTIONS,
     NavigationOptionId.CREATIONS
   ],
-  [NavigationContext.EXPLORE]: [],  // Fill in as needed
-  [NavigationContext.WORD]: [],     // Fill in as needed
-  [NavigationContext.PROFILE]: [],  // Fill in as needed
+  [NavigationContext.EXPLORE]: [],
+  [NavigationContext.WORD]: [
+    NavigationOptionId.EXPLORE,
+    NavigationOptionId.DASHBOARD,
+    NavigationOptionId.LOGOUT,
+    NavigationOptionId.CREATE_NODE,
+    NavigationOptionId.ALTERNATIVE_DEFINITIONS
+  ],
+  [NavigationContext.PROFILE]: [],
 } as const;
 
 export function handleNavigation(optionId: NavigationOptionId): void {

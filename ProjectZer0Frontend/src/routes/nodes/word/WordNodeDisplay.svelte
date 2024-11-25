@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/routes/nodes/word/WordNodeDisplay.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { WordNode, Definition } from '$lib/types/nodes';
