@@ -1,10 +1,14 @@
-<!-- src/routes/nodes/word/[word]/+page.svelte -->
+<!-- ProjectZer0Frontend/src/routes/nodes/word/[word]/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { page } from '$app/stores';
   import { getWordData } from '$lib/services/word';
   import { wordStore } from '$lib/stores/wordStore';
+  import { wordViewStore } from '$lib/stores/wordViewStore';
+  import { fade, scale } from 'svelte/transition';
   import WordNodeDisplay from '../WordNodeDisplay.svelte';
+  import WordNodePreview from '$lib/components/graphElements/nodes/previews/WordNodePreview.svelte';
+  import ConcentricLayout from '$lib/components/graphElements/layouts/ConcentricLayout/ConcentricLayout.svelte';
   import type { WordNode } from '$lib/types/nodes';
 
   let word: string | null = null;
@@ -12,14 +16,15 @@
   let error: string | null = null;
   let isLoading = true;
 
+  // Subscribe to view state
+  $: isAlternativeView = $wordViewStore.currentView === 'alternative-definitions';
+
   onMount(async () => {
     try {
       word = $page.params.word;
       if (word) {
-        console.log('Fetching word data for:', word);
         wordData = await getWordData(word);
         wordStore.set(wordData);
-        console.log('Received word data:', wordData);
       } else {
         error = 'No word parameter provided';
       }
@@ -37,13 +42,53 @@
 {:else if error}
   <p class="error">{error}</p>
 {:else if wordData}
-  <WordNodeDisplay wordData={wordData} />
-  console.log('Fetched word data:', wordData);
+  <div class="word-view">
+    {#if isAlternativeView}
+      <div 
+        class="alternative-view"
+        in:fade={{ duration: 300 }}
+        out:fade={{ duration: 300 }}
+      >
+        <ConcentricLayout
+          wordData={wordData}
+          alternativeDefinitions={wordData.definitions}
+          sortMode={$wordViewStore.sortMode}
+        />
+      </div>
+    {:else}
+      <div 
+        class="full-view"
+        in:scale={{ duration: 300, start: 0.5 }}
+        out:scale={{ duration: 300, start: 1 }}
+      >
+        <WordNodeDisplay {wordData} />
+      </div>
+    {/if}
+  </div>
 {:else}
   <p>No word data available</p>
 {/if}
 
 <style>
+  .word-view {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .alternative-view,
+  .full-view {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .error {
     color: red;
   }

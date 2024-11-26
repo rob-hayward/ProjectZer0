@@ -1,6 +1,7 @@
 import { goto } from '$app/navigation';
 import * as auth0 from './auth0';
 import type { NavigationOption } from '$lib/types/navigation';
+import { wordViewStore } from '$lib/stores/wordViewStore';
 
 export const NavigationOptionId = {
   DASHBOARD: 'dashboard',
@@ -27,7 +28,7 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
   [NavigationOptionId.CREATIONS]: () => goto('/creations'),
   [NavigationOptionId.LOGOUT]: () => auth0.logout(),
   [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => {
-    console.log('View definitions functionality to be implemented');
+    wordViewStore.showAlternativeDefinitions();
   }
 };
 

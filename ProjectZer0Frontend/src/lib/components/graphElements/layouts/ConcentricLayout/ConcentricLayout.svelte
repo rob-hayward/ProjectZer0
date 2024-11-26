@@ -1,6 +1,6 @@
 <!-- src/lib/components/graphElements/layouts/ConcentricLayout/ConcentricLayout.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, tick } from 'svelte';
     import type { WordNode, Definition } from '$lib/types/nodes';
     import type { 
       ConcentricLayoutConfig, 
@@ -12,13 +12,16 @@
       calculateNodePositions,
       calculateTransitionPositions 
     } from '$lib/services/layout/concentricPositioning';
-    import WordNodeDisplay from '../../../../../routes/nodes/word/WordNodeDisplay.svelte';
-    import AlternativeDefinitionNodeDisplay from '../../../../../routes/nodes/definition/AlternativeDefinitionNodeDisplay.svelte';
+    import WordNodePreview from '../../nodes/previews/WordNodePreview.svelte';
+    import AlternativeDefinitionPreview from '../../nodes/previews/AlternativeDefinitionPreview.svelte';
   
     // Props
     export let wordData: WordNode;
     export let alternativeDefinitions: Definition[];
     export let sortMode: SortMode = 'popular';
+  
+    // Constants
+    const PAN_SPEED = 20; // Pixels per key press
   
     // Internal state
     let container: HTMLElement;
@@ -28,6 +31,8 @@
     let transitionStartTime: number;
     let startPositions: Map<string, ConcentricNodePosition>;
     let targetPositions: Map<string, ConcentricNodePosition>;
+    let isPanning = false;
+    let panDirection = '';
   
     // View state
     let zoom = 100;
@@ -41,11 +46,11 @@
   
     // Configuration
     const config: ConcentricLayoutConfig = {
-      centerRadius: 200,
-      ringSpacing: 250,
+      centerRadius: 100,    // Reduced for better initial view
+      ringSpacing: 150,     // Reduced for better spacing
       minNodeSize: 100,
-      maxNodeSize: 200,
-      initialZoom: 1,
+      maxNodeSize: 150,
+      initialZoom: 0.8,     // Start slightly zoomed out
       minZoom: 0.5,
       maxZoom: 2
     };
@@ -90,15 +95,17 @@
       return { center, alternatives };
     }
   
-    function updateLayout(immediate = false) {
+    async function updateLayout(immediate = false) {
+      if (!container) return;
+      
       const { center, alternatives } = createNodeMetadata();
       const newPositions = calculateNodePositions(
         center,
         alternatives,
         config,
         sortMode,
-        container.clientWidth,
-        container.clientHeight
+        container.clientWidth || window.innerWidth,
+        container.clientHeight || window.innerHeight
       );
   
       if (immediate || !positions.size) {
@@ -128,9 +135,55 @@
       }
     }
   
-    // Interaction handlers
+    // Pan with arrow keys
+    function handleKeyboardNavigation(event: KeyboardEvent) {
+      switch(event.key) {
+        case 'ArrowLeft':
+          event.preventDefault();
+          panX += PAN_SPEED;
+          panDirection = 'left';
+          isPanning = true;
+          setTimeout(() => isPanning = false, 150);
+          break;
+        case 'ArrowRight':
+          event.preventDefault();
+          panX -= PAN_SPEED;
+          panDirection = 'right';
+          isPanning = true;
+          setTimeout(() => isPanning = false, 150);
+          break;
+        case 'ArrowUp':
+          event.preventDefault();
+          panY += PAN_SPEED;
+          panDirection = 'up';
+          isPanning = true;
+          setTimeout(() => isPanning = false, 150);
+          break;
+        case 'ArrowDown':
+          event.preventDefault();
+          panY -= PAN_SPEED;
+          panDirection = 'down';
+          isPanning = true;
+          setTimeout(() => isPanning = false, 150);
+          break;
+        case '+':
+          event.preventDefault();
+          updateZoom(10, container.clientWidth / 2, container.clientHeight / 2);
+          break;
+        case '-':
+          event.preventDefault();
+          updateZoom(-10, container.clientWidth / 2, container.clientHeight / 2);
+          break;
+        case 'Escape':
+          isDragging = false;
+          isPanning = false;
+          break;
+      }
+    }
+  
+    // Mouse interaction handlers
     function handleMouseDown(event: MouseEvent) {
-      if (event.button === 0 && (isPanMode || event.shiftKey)) {
+      if (event.button === 0) {
         isDragging = true;
         lastMouseX = event.clientX;
         lastMouseY = event.clientY;
@@ -173,40 +226,8 @@
       }
     }
   
-    function handleKeyboardNavigation(event: KeyboardEvent) {
-      switch(event.key) {
-        case 'ArrowLeft':
-        case 'ArrowRight':
-        case 'ArrowUp':
-        case 'ArrowDown':
-          event.preventDefault();
-          navigateNodes(event.key);
-          break;
-        case '+':
-          event.preventDefault();
-          updateZoom(10, container.clientWidth / 2, container.clientHeight / 2);
-          break;
-        case '-':
-          event.preventDefault();
-          updateZoom(-10, container.clientWidth / 2, container.clientHeight / 2);
-          break;
-        case ' ':
-          event.preventDefault();
-          isPanMode = !isPanMode;
-          break;
-        case 'Escape':
-          isDragging = false;
-          isPanMode = false;
-          break;
-      }
-    }
-  
-    function navigateNodes(direction: string) {
-      // Implementation for keyboard navigation between nodes
-      // This will need to be implemented based on your navigation requirements
-    }
-  
-    onMount(() => {
+    onMount(async () => {
+      await tick();
       updateLayout(true);
       window.addEventListener('resize', () => updateLayout(true));
     });
@@ -216,7 +237,7 @@
       window.removeEventListener('resize', () => updateLayout(true));
     });
   
-    $: if (sortMode) updateLayout();
+    $: if (sortMode && container) updateLayout();
   </script>
   
   <div 
@@ -227,8 +248,8 @@
   >
     <!-- Screen reader description -->
     <div class="sr-only">
-      Interactive graph view showing word definitions. Use arrow keys to navigate between nodes, 
-      plus and minus to zoom, and space to toggle pan mode. When pan mode is active, use the mouse to drag the view.
+      Interactive graph view showing word definitions. Use arrow keys to pan the view, 
+      plus and minus to zoom. Click nodes to view details.
     </div>
   
     <!-- Status updates -->
@@ -244,6 +265,8 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div 
       class="graph-viewport"
+      class:is-panning={isPanning}
+      data-pan-direction={panDirection}
       bind:this={container}
       on:mousedown={handleMouseDown}
       on:mousemove={handleMouseMove}
@@ -256,14 +279,14 @@
     >
       <div 
         class="nodes-container"
-        style="transform: translate({panX}px, {panY}px) scale({zoom / 100})"
+        style="transform: translate(calc(-50% + {panX}px), calc(-50% + {panY}px)) scale({zoom / 100})"
       >
         <!-- Center word node -->
         <div 
           class="node center-node"
           style="transform: translate({positions.get('center')?.x ?? 0}px, {positions.get('center')?.y ?? 0}px) scale({positions.get('center')?.scale ?? 1})"
         >
-          <WordNodeDisplay {wordData} />
+          <WordNodePreview {wordData} />
         </div>
   
         <!-- Alternative definition nodes -->
@@ -274,9 +297,9 @@
               class="node alt-node"
               style="transform: translate({position?.x ?? 0}px, {position?.y ?? 0}px) scale({position?.scale ?? 1})"
             >
-              <AlternativeDefinitionNodeDisplay 
-                word={wordData.word}
+              <AlternativeDefinitionPreview
                 {definition}
+                word={wordData.word}
               />
             </div>
           {/if}
@@ -286,9 +309,8 @@
   
     <!-- Keyboard controls overlay -->
     <div class="keyboard-controls" aria-hidden="true">
-      <kbd>↑↓←→</kbd> Navigate 
+      <kbd>↑↓←→</kbd> Pan view
       <kbd>+/-</kbd> Zoom
-      <kbd>Space</kbd> Toggle pan mode
     </div>
   </div>
   
@@ -298,6 +320,7 @@
       height: 100%;
       position: relative;
       overflow: hidden;
+      background: rgba(0, 0, 0, 0.2);
     }
   
     .graph-viewport {
@@ -306,6 +329,11 @@
       position: relative;
       overflow: hidden;
       user-select: none;
+    }
+  
+    .graph-viewport.is-panning {
+      transition: background-color 0.15s ease-out;
+      background-color: rgba(255, 255, 255, 0.05);
     }
   
     .nodes-container {
