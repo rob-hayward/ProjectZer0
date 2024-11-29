@@ -1,7 +1,32 @@
 // src/lib/types/layout.ts
 
+import type { Definition, WordNode } from './nodes';
+
 // Sort mode type for alternative definitions
 export type SortMode = 'newest' | 'popular';
+
+// Node type for layout identification
+export type NodeType = 'word' | 'liveDefinition' | 'alternativeDefinition';
+
+// Props interfaces for preview components
+export interface BasePreviewProps {
+    isExpanded?: boolean;
+}
+
+export interface WordPreviewProps extends BasePreviewProps {
+    wordData: WordNode;
+}
+
+export interface DefinitionPreviewProps extends BasePreviewProps {
+    definition: Definition;
+    word: string;
+}
+
+// Props interface for ConcentricLayout
+export interface ConcentricLayoutProps {
+    wordData: WordNode;
+    sortMode?: SortMode;
+}
 
 // Base position interface for any node
 export interface NodePosition {
@@ -57,5 +82,6 @@ export interface NodeLayoutMetadata {
     timestamp: Date;
     votesCount: number;
     size: number;            // Calculated size based on importance
+    nodeType: NodeType;     // Identifies the type of node for layout
     position: ConcentricNodePosition;
 }

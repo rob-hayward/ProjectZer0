@@ -1,99 +1,66 @@
 <!-- src/lib/components/graphElements/nodes/previews/WordNodePreview.svelte -->
 <script lang="ts">
-    import { onMount } from 'svelte';
-    import type { WordNode, Definition } from '$lib/types/nodes';
+    import type { WordPreviewProps } from '$lib/types/layout';
     import GraphNode from '../graphNode/GraphNode.svelte';
-    import { PREVIEW_TEXT_STYLES } from '../graphNode/previewStyles';
-    import { BaseZoomedCanvas } from '$lib/components/graphElements/layouts/baseZoomedCanvas';
+    import { PreviewNodeCanvas, PREVIEW_TEXT_STYLES } from './previewNodeCanvas';
   
     // Props
-    export let wordData: WordNode;
-    export let isExpanded = false;
+    export let wordData: WordPreviewProps['wordData'];
+    export let isExpanded: WordPreviewProps['isExpanded'] = false;
   
     // Internal state
     let isHovered = false;
-    const NODE_SIZE = 150; // Smaller size for preview
-  
-    function getLiveDefinition(definitions: Definition[]): Definition | null {
-      if (!definitions || definitions.length === 0) return null;
-  
-      const userDefinitions = definitions.filter(d => d.createdBy !== 'FreeDictionaryAPI');
-      return userDefinitions.sort((a, b) => 
-        getVoteValue(b.votes) - getVoteValue(a.votes)
-      )[0] || null;
-    }
-  
-    function getVoteValue(votes: any): number {
-      if (typeof votes === 'number') return votes;
-      if (votes && typeof votes === 'object' && 'low' in votes) {
-        return votes.low;
-      }
-      return 0;
-    }
+    const NODE_SIZE = 150;
+    const PADDING = 15;
+    const LINE_HEIGHT = 8;
   
     function drawWordPreview(ctx: CanvasRenderingContext2D, centerX: number, centerY: number) {
-      const startX = centerX - (NODE_SIZE / 2) + 20; // Add padding
-      let y = centerY - 20; // Start above center
+        const startX = centerX - (NODE_SIZE / 2) + PADDING;
+        let y = centerY - (LINE_HEIGHT * 2);  // Start slightly higher
+        const maxWidth = NODE_SIZE - (PADDING * 2);
   
-      // Draw word
-      BaseZoomedCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.title);
-      ctx.fillText("word:", startX, y);
-      y += 20;
+        // Draw title
+        PreviewNodeCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.title);
+        ctx.fillText("Word Node", startX, y);
+        y += LINE_HEIGHT * 2;  // Add extra space between title and word
       
-      BaseZoomedCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.value);
-      const wordText = wordData.word;
-      // Truncate if too long
-      const maxWidth = NODE_SIZE - 40;
-      if (ctx.measureText(wordText).width > maxWidth) {
-        let truncated = wordText;
-        while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
-          truncated = truncated.slice(0, -1);
+        // Draw word value
+        PreviewNodeCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.value);
+        const text = wordData.word;
+        
+        // Handle long words
+        if (ctx.measureText(text).width > maxWidth) {
+            let truncated = text;
+            while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
+                truncated = truncated.slice(0, -1);
+            }
+            ctx.fillText(truncated + '...', startX, y);
+        } else {
+            ctx.fillText(text, startX, y);
         }
-        ctx.fillText(truncated + '...', startX, y);
-      } else {
-        ctx.fillText(wordText, startX, y);
-      }
-      y += 30;
-  
-      // Draw definition
-      const liveDefinition = getLiveDefinition(wordData.definitions);
-      if (liveDefinition) {
-        BaseZoomedCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.title);
-        ctx.fillText("definition:", startX, y);
-        y += 20;
-  
-        BaseZoomedCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.value);
-        const definitionText = liveDefinition.text;
-        // Truncate definition to fit
-        let truncated = definitionText;
-        while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
-          truncated = truncated.slice(0, -1);
-        }
-        ctx.fillText(truncated + '...', startX, y);
-      }
     }
   
     function handleClick() {
-      // Dispatch event to parent to handle expansion
-      // This will be implemented in the graph layout
+        // Dispatch click event to parent
+        // To be implemented in graph layout
     }
-  </script>
+</script>
   
-  <div class="word-node-preview">
+<div class="word-node-preview">
     <GraphNode
-      width={NODE_SIZE}
-      height={NODE_SIZE}
-      {isHovered}
-      {isExpanded}
-      drawContent={drawWordPreview}
-      on:hover={({ detail }) => isHovered = detail.isHovered}
-      on:click={handleClick}
+        width={NODE_SIZE}
+        height={NODE_SIZE}
+        {isHovered}
+        {isExpanded}
+        drawContent={drawWordPreview}
+        on:hover={({ detail }) => isHovered = detail.isHovered}
+        on:click={handleClick}
     />
-  </div>
+</div>
   
-  <style>
+<style>
     .word-node-preview {
-      width: 150px;
-      height: 150px;
+        width: 150px;
+        height: 150px;
     }
-  </style>
+</style>

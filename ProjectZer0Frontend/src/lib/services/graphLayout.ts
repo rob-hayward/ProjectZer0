@@ -1,4 +1,4 @@
-// src/lib/types/layout.ts
+// ProjectZer0Frontend/src/lib/services/graphLayout.ts
 
 // Sort mode type for alternative definitions
 export type SortMode = 'newest' | 'popular';
@@ -51,11 +51,15 @@ export interface LayoutContext {
     transitions: TransitionConfig;
 }
 
+// Node type for layout identification
+export type NodeType = 'word' | 'liveDefinition' | 'alternativeDefinition';
+
 // Node metadata for layout calculations
 export interface NodeLayoutMetadata {
     id: string;
     timestamp: Date;
     votesCount: number;
     size: number;            // Calculated size based on importance
+    nodeType?: NodeType;     // Identifies the type of node for layout purposes
     position: ConcentricNodePosition;
 }

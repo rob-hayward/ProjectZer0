@@ -1,4 +1,4 @@
-<!-- src/lib/components/graphElements/nodes/previews/AlternativeDefinitionPreview.svelte -->
+<!-- src/lib/components/graphElements/nodes/previews/LiveDefinitionPreview.svelte -->
 <script lang="ts">
     import type { DefinitionPreviewProps } from '$lib/types/layout';
     import GraphNode from '../graphNode/GraphNode.svelte';
@@ -15,14 +15,14 @@
     const PADDING = 15;
     const LINE_HEIGHT = 8;
   
-    function drawAlternativeDefinitionPreview(ctx: CanvasRenderingContext2D, centerX: number, centerY: number) {
+    function drawLiveDefinitionPreview(ctx: CanvasRenderingContext2D, centerX: number, centerY: number) {
         const startX = centerX - (NODE_SIZE / 2) + PADDING;
         let y = centerY - (NODE_SIZE / 3);
         const maxWidth = NODE_SIZE - (PADDING * 2);
   
         // Draw header
         PreviewNodeCanvas.setTextStyle(ctx, PREVIEW_TEXT_STYLES.title);
-        ctx.fillText("Alternative", startX, y);
+        ctx.fillText("Live Definition", startX, y);
         y += LINE_HEIGHT * 1.5;
         
         // Draw word reference
@@ -56,20 +56,20 @@
     }
 </script>
   
-<div class="alternative-definition-preview">
+<div class="live-definition-preview">
     <GraphNode
         width={NODE_SIZE}
         height={NODE_SIZE}
         {isHovered}
         {isExpanded}
-        drawContent={drawAlternativeDefinitionPreview}
+        drawContent={drawLiveDefinitionPreview}
         on:hover={({ detail }) => isHovered = detail.isHovered}
         on:click={handleClick}
     />
 </div>
   
 <style>
-    .alternative-definition-preview {
+    .live-definition-preview {
         width: 150px;
         height: 150px;
     }

@@ -17,13 +17,13 @@ import type {
     const positions = new Map<string, ConcentricNodePosition>();
     
     // Calculate base scale based on canvas size
-    const baseScale = Math.min(canvasWidth, canvasHeight) / 2000;
+    const baseScale = Math.max(0.5, Math.min(canvasWidth, canvasHeight) / 400);
     
-    // Position center node exactly in the middle with appropriate scale
+    // Position center node exactly in the middle
     positions.set(centerNode.id, {
       x: 0,
       y: 0,
-      scale: baseScale,
+      scale: baseScale * 1.2, // Slightly larger for center node
       ring: 0,
       ringPosition: 0,
       distanceFromCenter: 0
@@ -39,41 +39,17 @@ import type {
   
     // Position nodes in each ring
     rings.forEach((nodesInRing, ringIndex) => {
-      const ringRadius = (config.centerRadius + (ringIndex + 1) * config.ringSpacing) * baseScale;
+      const ringRadius = (config.centerRadius + (ringIndex + 1) * config.ringSpacing * 0.5) * baseScale; // Reduced spacing
       positionNodesInRing(nodesInRing, ringRadius, ringIndex + 1, positions, baseScale);
     });
   
     return positions;
   }
   
-  export function calculateTransitionPositions(
-    currentPositions: Map<string, ConcentricNodePosition>,
-    targetPositions: Map<string, ConcentricNodePosition>,
-    progress: number
-  ): Map<string, ConcentricNodePosition> {
-    const interpolatedPositions = new Map<string, ConcentricNodePosition>();
-  
-    currentPositions.forEach((currentPos, nodeId) => {
-      const targetPos = targetPositions.get(nodeId);
-      if (!targetPos) return;
-  
-      interpolatedPositions.set(nodeId, {
-        x: interpolate(currentPos.x, targetPos.x, progress),
-        y: interpolate(currentPos.y, targetPos.y, progress),
-        scale: interpolate(currentPos.scale, targetPos.scale, progress),
-        ring: targetPos.ring,
-        ringPosition: interpolate(currentPos.ringPosition, targetPos.ringPosition, progress),
-        distanceFromCenter: interpolate(currentPos.distanceFromCenter, targetPos.distanceFromCenter, progress),
-        rotation: interpolate(currentPos.rotation || 0, targetPos.rotation || 0, progress)
-      });
-    });
-  
-    return interpolatedPositions;
-  }
-  
   function calculateOptimalNodesPerRing(totalNodes: number): number[] {
+    // More compact ring distribution
     if (totalNodes <= 6) return [totalNodes];
-    if (totalNodes <= 12) return [6, totalNodes - 6];
+    if (totalNodes <= 10) return [6, totalNodes - 6];
     
     const rings: number[] = [];
     let remainingNodes = totalNodes;
@@ -97,6 +73,7 @@ import type {
     baseScale: number
   ): void {
     const angleStep = (2 * Math.PI) / nodes.length;
+    // Start angle offset to position first node at top
     const startAngle = -Math.PI / 2;
     
     nodes.forEach((node, index) => {
@@ -104,7 +81,8 @@ import type {
       const x = radius * Math.cos(angle);
       const y = radius * Math.sin(angle);
       
-      const scale = baseScale * Math.max(0.7, 1 - (ringNumber * 0.1));
+      // Scale gets smaller as rings go out, but not too much
+      const scale = baseScale * Math.max(0.8, 1 - (ringNumber * 0.1));
   
       positions.set(node.id, {
         x,
@@ -146,6 +124,35 @@ import type {
     }
   
     return rings;
+  }
+  
+  export function calculateTransitionPositions(
+    currentPositions: Map<string, ConcentricNodePosition>,
+    targetPositions: Map<string, ConcentricNodePosition>,
+    progress: number
+  ): Map<string, ConcentricNodePosition> {
+    const interpolatedPositions = new Map<string, ConcentricNodePosition>();
+  
+    currentPositions.forEach((currentPos, nodeId) => {
+      const targetPos = targetPositions.get(nodeId);
+      if (!targetPos) return;
+  
+      interpolatedPositions.set(nodeId, {
+        x: interpolate(currentPos.x, targetPos.x, progress),
+        y: interpolate(currentPos.y, targetPos.y, progress),
+        scale: interpolate(currentPos.scale, targetPos.scale, progress),
+        ring: targetPos.ring,
+        ringPosition: interpolate(currentPos.ringPosition, targetPos.ringPosition, progress),
+        distanceFromCenter: interpolate(
+          currentPos.distanceFromCenter,
+          targetPos.distanceFromCenter,
+          progress
+        ),
+        rotation: interpolate(currentPos.rotation || 0, targetPos.rotation || 0, progress)
+      });
+    });
+  
+    return interpolatedPositions;
   }
   
   function interpolate(start: number, end: number, progress: number): number {

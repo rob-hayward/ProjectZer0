@@ -7,7 +7,6 @@
   import { wordViewStore } from '$lib/stores/wordViewStore';
   import { fade, scale } from 'svelte/transition';
   import WordNodeDisplay from '../WordNodeDisplay.svelte';
-  import WordNodePreview from '$lib/components/graphElements/nodes/previews/WordNodePreview.svelte';
   import ConcentricLayout from '$lib/components/graphElements/layouts/ConcentricLayout/ConcentricLayout.svelte';
   import type { WordNode } from '$lib/types/nodes';
 
@@ -20,20 +19,20 @@
   $: isAlternativeView = $wordViewStore.currentView === 'alternative-definitions';
 
   onMount(async () => {
-    try {
-      word = $page.params.word;
-      if (word) {
-        wordData = await getWordData(word);
-        wordStore.set(wordData);
-      } else {
-        error = 'No word parameter provided';
+      try {
+          word = $page.params.word;
+          if (word) {
+              wordData = await getWordData(word);
+              wordStore.set(wordData);
+          } else {
+              error = 'No word parameter provided';
+          }
+      } catch (e) {
+          console.error('Error fetching word data:', e);
+          error = e instanceof Error ? e.message : 'An error occurred while fetching word data';
+      } finally {
+          isLoading = false;
       }
-    } catch (e) {
-      console.error('Error fetching word data:', e);
-      error = e instanceof Error ? e.message : 'An error occurred while fetching word data';
-    } finally {
-      isLoading = false;
-    }
   });
 </script>
 
@@ -43,27 +42,26 @@
   <p class="error">{error}</p>
 {:else if wordData}
   <div class="word-view">
-    {#if isAlternativeView}
-      <div 
-        class="alternative-view"
-        in:fade={{ duration: 300 }}
-        out:fade={{ duration: 300 }}
-      >
-        <ConcentricLayout
-          wordData={wordData}
-          alternativeDefinitions={wordData.definitions}
-          sortMode={$wordViewStore.sortMode}
-        />
-      </div>
-    {:else}
-      <div 
-        class="full-view"
-        in:scale={{ duration: 300, start: 0.5 }}
-        out:scale={{ duration: 300, start: 1 }}
-      >
-        <WordNodeDisplay {wordData} />
-      </div>
-    {/if}
+      {#if isAlternativeView}
+          <div 
+              class="alternative-view"
+              in:fade={{ duration: 300 }}
+              out:fade={{ duration: 300 }}
+          >
+              <ConcentricLayout
+                  {wordData}
+                  sortMode={$wordViewStore.sortMode}
+              />
+          </div>
+      {:else}
+          <div 
+              class="full-view"
+              in:scale={{ duration: 300, start: 0.5 }}
+              out:scale={{ duration: 300, start: 1 }}
+          >
+              <WordNodeDisplay {wordData} />
+          </div>
+      {/if}
   </div>
 {:else}
   <p>No word data available</p>
@@ -71,25 +69,29 @@
 
 <style>
   .word-view {
-    width: 100vw;
-    height: 100vh;
-    position: relative;
-    overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      overflow: hidden;
   }
 
   .alternative-view,
   .full-view {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
   }
 
   .error {
-    color: red;
+      color: red;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
   }
 </style>
