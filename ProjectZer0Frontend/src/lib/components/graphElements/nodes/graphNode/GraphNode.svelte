@@ -1,7 +1,7 @@
 <!-- src/lib/components/graphElements/nodes/graphNode/GraphNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import { PreviewNodeCanvas, PREVIEW_TEXT_STYLES } from '../previews/previewNodeCanvas';
+    import { PreviewNodeCanvas, PREVIEW_TEXT_STYLES } from '../previews/base/previewNodeCanvas';
   
     const dispatch = createEventDispatcher<{
       click: void;

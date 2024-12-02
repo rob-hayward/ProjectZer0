@@ -3,8 +3,8 @@
   import { onMount } from 'svelte';
   import type { WordNode } from '$lib/types/nodes';
   import type { UserProfile } from '$lib/types/user';
-  import BaseZoomedPage from '$lib/components/graphElements/layouts/BaseZoomedPage.svelte';
-  import { BaseZoomedCanvas, TEXT_STYLES, CIRCLE_RADIUS } from '$lib/components/graphElements/layouts/baseZoomedCanvas';
+  import BaseZoomedPage from '$lib/components/graphElements/layouts/base/BaseZoomedPage.svelte';
+    import { BaseZoomedCanvas, CIRCLE_RADIUS, TEXT_STYLES } from '$lib/components/graphElements/layouts/base/baseZoomedCanvas';
   import { NavigationContext, getNavigationOptions, handleNavigation } from '$lib/services/navigation';
   import { getUserDetails } from '$lib/services/userLookup';
 

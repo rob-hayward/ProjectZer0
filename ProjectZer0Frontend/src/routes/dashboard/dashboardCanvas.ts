@@ -1,7 +1,7 @@
 // ProjectZer0Frontend/src/routes/dashboard/dashboardCanvas.ts
 import type { UserProfile } from '$lib/types/user';
 import type { UserActivity } from '$lib/services/userActivity';
-import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/baseZoomedCanvas';
+import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/base/baseZoomedCanvas';
 
 // Constants
 const CONTENT_WIDTH = 350;

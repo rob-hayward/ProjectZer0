@@ -1,4 +1,4 @@
-// src/lib/components/graphElements/nodes/previews/previewNodeCanvas.ts
+// ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/previewNodeCanvas.ts
 
 export interface PreviewTextConfig {
     font: string;

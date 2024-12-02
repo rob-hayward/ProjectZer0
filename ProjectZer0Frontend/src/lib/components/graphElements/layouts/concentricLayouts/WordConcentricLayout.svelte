@@ -1,4 +1,4 @@
-<!-- src/lib/components/graphElements/layouts/ConcentricLayout/ConcentricLayout.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/layouts/concentricLayouts/WordConcentricLayout.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, tick } from 'svelte';
     import type { WordNode, Definition } from '$lib/types/nodes';
@@ -13,7 +13,7 @@
     import { 
         calculateNodePositions,
         calculateTransitionPositions 
-    } from '$lib/services/layout/concentricPositioning';
+    } from '$lib/components/graphElements/layouts/concentricLayouts/base/concentricPositioning';
     import WordNodePreview from '../../nodes/previews/WordNodePreview.svelte';
     import LiveDefinitionPreview from '../../nodes/previews/LiveDefinitionPreview.svelte';
     import AlternativeDefinitionPreview from '../../nodes/previews/AlternativeDefinitionPreview.svelte';
@@ -24,42 +24,49 @@
   
     // Constants
     const PAN_SPEED = 20;
+    const WORD_NODE_SIZE = 150;
+    const DEFINITION_NODE_SIZE = 130;
+    const MIN_ZOOM = 50;
+    const MAX_ZOOM = 200;
+    const INITIAL_ZOOM = 100;
+    const BASE_RING_SPACING = 60;
+    const SPACING_MULTIPLIER = 0.5;
   
     // Internal state
     let container: HTMLElement;
+    let nodesContainer: HTMLElement;
     let positions = new Map<string, ConcentricNodePosition>();
     let isTransitioning = false;
-    let animationFrame: number;
+    let animationFrame: number | null = null;
     let transitionStartTime: number;
     let startPositions: Map<string, ConcentricNodePosition>;
     let targetPositions: Map<string, ConcentricNodePosition>;
     let isPanning = false;
     let panDirection = '';
   
-    // View state
-    let zoom = 100;
+    // View state with proper initialization
+    let zoom = INITIAL_ZOOM;
     let panX = 0;
     let panY = 0;
     let isDragging = false;
     let lastMouseX = 0;
     let lastMouseY = 0;
+    let containerCenter = { x: 0, y: 0 };
   
-    // Configuration
+    // Configuration with dynamic spacing
     const config: ConcentricLayoutConfig = {
-        centerRadius: 100,
-        ringSpacing: 150,
-        minNodeSize: 100,
-        maxNodeSize: 150,
-        initialZoom: 0.8,
-        minZoom: 0.5,
-        maxZoom: 2
+        centerRadius: WORD_NODE_SIZE / 2,
+        ringSpacing: BASE_RING_SPACING * SPACING_MULTIPLIER,
+        minNodeSize: DEFINITION_NODE_SIZE,
+        maxNodeSize: WORD_NODE_SIZE,
+        initialZoom: INITIAL_ZOOM / 100,
+        minZoom: MIN_ZOOM / 100,
+        maxZoom: MAX_ZOOM / 100
     };
 
-    // Derived values for live and alternative definitions
+    // Derived values
     $: liveDefinition = getLiveDefinition(wordData.definitions);
     $: alternativeDefinitions = getAlternativeDefinitions(wordData.definitions, liveDefinition?.id);
-    
-    // Status text for screen readers
     $: statusText = `${zoom}% zoom, viewing word "${wordData.word}" with ${alternativeDefinitions.length + 1} definitions`;
     
     function getVoteValue(votes: any): number {
@@ -81,15 +88,26 @@
         return definitions.filter(def => def.id !== liveDefId);
     }
 
+    function updateContainerCenter() {
+        if (!container) return;
+        const rect = container.getBoundingClientRect();
+        containerCenter = {
+            x: rect.width / 2,
+            y: rect.height / 2
+        };
+    }
+
     function createNodeMetadata(): {
         center: NodeLayoutMetadata;
         alternatives: NodeLayoutMetadata[];
     } {
+        updateContainerCenter();
+        
         const center: NodeLayoutMetadata = {
             id: 'center',
             timestamp: new Date(wordData.createdAt),
             votesCount: 0,
-            size: config.maxNodeSize,
+            size: WORD_NODE_SIZE,
             nodeType: 'word',
             position: {
                 x: 0,
@@ -103,40 +121,40 @@
   
         const alternatives: NodeLayoutMetadata[] = [];
 
-        // Add live definition first
         if (liveDefinition) {
             alternatives.push({
                 id: liveDefinition.id,
                 timestamp: new Date(liveDefinition.createdAt),
                 votesCount: getVoteValue(liveDefinition.votes),
-                size: config.minNodeSize,
+                size: DEFINITION_NODE_SIZE,
                 nodeType: 'liveDefinition',
                 position: {
                     x: 0,
-                    y: 0,
+                    y: -config.ringSpacing,
                     scale: 1,
                     ring: 1,
                     ringPosition: 0,
-                    distanceFromCenter: 0
+                    distanceFromCenter: config.ringSpacing
                 }
             });
         }
 
-        // Add alternative definitions
-        alternativeDefinitions.forEach((def) => {
+        const ringRadius = config.ringSpacing * 1.5;
+        alternativeDefinitions.forEach((def, index) => {
+            const angle = (index / alternativeDefinitions.length) * 2 * Math.PI;
             alternatives.push({
                 id: def.id,
                 timestamp: new Date(def.createdAt),
                 votesCount: getVoteValue(def.votes),
-                size: config.minNodeSize,
+                size: DEFINITION_NODE_SIZE,
                 nodeType: 'alternativeDefinition',
                 position: {
-                    x: 0,
-                    y: 0,
+                    x: Math.cos(angle) * ringRadius,
+                    y: Math.sin(angle) * ringRadius,
                     scale: 1,
                     ring: 2,
-                    ringPosition: 0,
-                    distanceFromCenter: 0
+                    ringPosition: index / alternativeDefinitions.length,
+                    distanceFromCenter: ringRadius
                 }
             });
         });
@@ -146,22 +164,30 @@
   
     async function updateLayout(immediate = false) {
         if (!container) return;
-      
+
         const { center, alternatives } = createNodeMetadata();
         const newPositions = calculateNodePositions(
             center,
             alternatives,
             config,
             sortMode || 'popular',
-            container.clientWidth || window.innerWidth,
-            container.clientHeight || window.innerHeight
+            container.clientWidth,
+            container.clientHeight
         );
   
         if (immediate || !positions.size) {
             positions = newPositions;
+            resetView();
         } else {
             startTransition(positions, newPositions);
         }
+    }
+
+    function resetView() {
+        panX = 0;
+        panY = 0;
+        zoom = INITIAL_ZOOM;
+        updateContainerCenter();
     }
 
     function startTransition(from: Map<string, ConcentricNodePosition>, to: Map<string, ConcentricNodePosition>) {
@@ -181,12 +207,12 @@
             animationFrame = requestAnimationFrame(animateTransition);
         } else {
             isTransitioning = false;
+            animationFrame = null;
         }
     }
 
-    // Mouse and keyboard handlers
     function handleMouseDown(event: MouseEvent) {
-        if (event.button === 0) {
+        if (event.button === 0 && !isTransitioning) {
             isDragging = true;
             lastMouseX = event.clientX;
             lastMouseY = event.clientY;
@@ -198,10 +224,14 @@
         if (!isDragging) return;
         const dx = event.clientX - lastMouseX;
         const dy = event.clientY - lastMouseY;
-        panX += dx;
-        panY += dy;
+        updatePan(dx, dy);
         lastMouseX = event.clientX;
         lastMouseY = event.clientY;
+    }
+
+    function updatePan(dx: number, dy: number) {
+        panX += dx;
+        panY += dy;
     }
 
     function handleMouseUp() {
@@ -210,79 +240,47 @@
 
     function handleWheel(event: WheelEvent) {
         event.preventDefault();
-        const zoomDelta = -event.deltaY * 0.1;
-        updateZoom(zoomDelta, event.clientX, event.clientY);
+        if (isTransitioning) return;
+
+        const rect = container.getBoundingClientRect();
+        const mouseX = event.clientX - rect.left - containerCenter.x;
+        const mouseY = event.clientY - rect.top - containerCenter.y;
+        
+        const zoomDelta = -event.deltaY * 0.5;
+        updateZoom(zoomDelta, mouseX, mouseY);
     }
 
-    function handleKeyboardNavigation(event: KeyboardEvent) {
-        switch(event.key) {
-            case 'ArrowLeft':
-                event.preventDefault();
-                panX += PAN_SPEED;
-                panDirection = 'left';
-                isPanning = true;
-                setTimeout(() => isPanning = false, 150);
-                break;
-            case 'ArrowRight':
-                event.preventDefault();
-                panX -= PAN_SPEED;
-                panDirection = 'right';
-                isPanning = true;
-                setTimeout(() => isPanning = false, 150);
-                break;
-            case 'ArrowUp':
-                event.preventDefault();
-                panY += PAN_SPEED;
-                panDirection = 'up';
-                isPanning = true;
-                setTimeout(() => isPanning = false, 150);
-                break;
-            case 'ArrowDown':
-                event.preventDefault();
-                panY -= PAN_SPEED;
-                panDirection = 'down';
-                isPanning = true;
-                setTimeout(() => isPanning = false, 150);
-                break;
-            case '+':
-                event.preventDefault();
-                updateZoom(10, container.clientWidth / 2, container.clientHeight / 2);
-                break;
-            case '-':
-                event.preventDefault();
-                updateZoom(-10, container.clientWidth / 2, container.clientHeight / 2);
-                break;
-            case 'Escape':
-                isDragging = false;
-                isPanning = false;
-                break;
-        }
-    }
-
-    function updateZoom(delta: number, clientX: number, clientY: number) {
-        const newZoom = Math.max(25, Math.min(400, zoom + delta));
-        if (newZoom !== zoom) {
-            const rect = container.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
-            
-            const zoomRatio = newZoom / zoom;
-            panX = x - (x - panX) * zoomRatio;
-            panY = y - (y - panY) * zoomRatio;
-            
+    function updateZoom(delta: number, mouseX: number, mouseY: number) {
+        const oldZoom = zoom;
+        const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom + delta));
+        
+        if (newZoom !== oldZoom) {
+            const scale = newZoom / oldZoom;
+            panX = mouseX - (mouseX - panX) * scale;
+            panY = mouseY - (mouseY - panY) * scale;
             zoom = newZoom;
         }
     }
 
-    onMount(async () => {
-        await tick();
-        updateLayout(true);
-        window.addEventListener('resize', () => updateLayout(true));
-    });
+    onMount(() => {
+        async function setup() {
+            await tick();
+            updateLayout(true);
+            
+            const resizeObserver = new ResizeObserver(() => {
+                updateLayout(true);
+            });
+            
+            resizeObserver.observe(container);
+        }
 
-    onDestroy(() => {
-        if (animationFrame) cancelAnimationFrame(animationFrame);
-        window.removeEventListener('resize', () => updateLayout(true));
+        setup();
+
+        return () => {
+            if (animationFrame) {
+                cancelAnimationFrame(animationFrame);
+            }
+        };
     });
 
     $: if (sortMode && container) updateLayout();
@@ -295,7 +293,7 @@
     tabindex="-1"
 >
     <div class="sr-only">
-        Interactive graph view showing word definitions. Use arrow keys to pan the view, 
+        Interactive graph view showing word definitions. Use arrow keys to pan,
         plus and minus to zoom. Click nodes to view details.
     </div>
 
@@ -313,27 +311,28 @@
         on:mouseup={handleMouseUp}
         on:mouseleave={handleMouseUp}
         on:wheel={handleWheel}
-        on:keydown={handleKeyboardNavigation}
         role="presentation"
-        aria-roledescription="Graph viewport"
     >
         <div 
             class="nodes-container"
-            style="transform: translate(calc(-50% + {panX}px), calc(-50% + {panY}px)) scale({zoom / 100})"
+            bind:this={nodesContainer}
+            style="transform: translate3d({containerCenter.x + panX}px, {containerCenter.y + panY}px, 0) scale({zoom / 100})"
         >
             <!-- Center word node -->
-            <div 
-                class="node center-node"
-                style="transform: translate({positions.get('center')?.x ?? 0}px, {positions.get('center')?.y ?? 0}px) scale({positions.get('center')?.scale ?? 1})"
-            >
+            <div class="node word-node">
                 <WordNodePreview {wordData} />
             </div>
 
-            <!-- Live definition -->
+            <!-- Live definition node -->
             {#if liveDefinition && positions.has(liveDefinition.id)}
+                {@const position = positions.get(liveDefinition.id)}
                 <div 
                     class="node live-definition-node"
-                    style="transform: translate({positions.get(liveDefinition.id)?.x ?? 0}px, {positions.get(liveDefinition.id)?.y ?? 0}px) scale({positions.get(liveDefinition.id)?.scale ?? 1})"
+                    style="transform: translate3d(
+                        {position?.x ?? 0}px,
+                        {position?.y ?? 0}px,
+                        0
+                    ) translate(-50%, -50%)"
                 >
                     <LiveDefinitionPreview 
                         definition={liveDefinition}
@@ -342,13 +341,17 @@
                 </div>
             {/if}
 
-            <!-- Alternative definitions -->
-            {#each alternativeDefinitions as definition}
+            <!-- Alternative definition nodes -->
+            {#each alternativeDefinitions as definition (definition.id)}
                 {#if positions.has(definition.id)}
                     {@const position = positions.get(definition.id)}
                     <div 
-                        class="node alt-node"
-                        style="transform: translate({position?.x ?? 0}px, {position?.y ?? 0}px) scale({position?.scale ?? 1})"
+                        class="node alternative-node"
+                        style="transform: translate3d(
+                            {position?.x ?? 0}px,
+                            {position?.y ?? 0}px,
+                            0
+                        ) translate(-50%, -50%)"
                     >
                         <AlternativeDefinitionPreview
                             definition={definition}
@@ -358,11 +361,6 @@
                 {/if}
             {/each}
         </div>
-    </div>
-
-    <div class="keyboard-controls" aria-hidden="true">
-        <kbd>↑↓←→</kbd> Pan view
-        <kbd>+/-</kbd> Zoom
     </div>
 </div>
 
@@ -383,34 +381,27 @@
         user-select: none;
     }
 
-    .graph-viewport.is-panning {
-        transition: background-color 0.15s ease-out;
-        background-color: rgba(255, 255, 255, 0.05);
-    }
-
     .nodes-container {
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform-origin: center center;
+        transform-origin: center;
         will-change: transform;
     }
 
     .node {
         position: absolute;
-        transform-origin: center center;
-        transition: transform 0.5s ease-out;
+        pointer-events: auto;
     }
 
-    .center-node {
+    .word-node {
         z-index: 3;
+        transform: translate(-50%, -50%);
     }
 
     .live-definition-node {
         z-index: 2;
     }
 
-    .alt-node {
+    .alternative-node {
         z-index: 1;
     }
 
@@ -435,23 +426,6 @@
         padding: 0.5rem;
         border-radius: 4px;
         font-size: 0.9rem;
-    }
-
-    .keyboard-controls {
-        position: absolute;
-        bottom: 1rem;
-        left: 1rem;
-        background: rgba(0, 0, 0, 0.5);
-        color: white;
-        padding: 0.5rem;
-        border-radius: 4px;
-        font-size: 0.9rem;
-    }
-
-    kbd {
-        background: rgba(255, 255, 255, 0.1);
-        padding: 0.2rem 0.4rem;
-        border-radius: 3px;
-        margin: 0 0.2rem;
+        z-index: 10;
     }
 </style>

@@ -6,9 +6,9 @@
   import { browser } from '$app/environment';
   import * as auth0 from '$lib/services/auth0';
   import type { UserProfile } from '$lib/types/user';
-  import BaseZoomedPage from '$lib/components/graphElements/layouts/BaseZoomedPage.svelte';
+  import BaseZoomedPage from '$lib/components/graphElements/layouts/base/BaseZoomedPage.svelte';
+  import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/base/baseZoomedCanvas';
   import { NavigationContext, getNavigationOptions, handleNavigation } from '$lib/services/navigation';
-  import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/baseZoomedCanvas';
 
   import MessageDisplay from '$lib/components/forms/nodeCreation/shared/MessageDisplay.svelte';
   import StepIndicator from '$lib/components/forms/nodeCreation/shared/StepIndicator.svelte';

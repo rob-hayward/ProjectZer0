@@ -4,7 +4,7 @@
   import type { UserProfile } from '$lib/types/user';
   import type { UserActivity } from '$lib/services/userActivity';
   import { getUserActivity } from '$lib/services/userActivity';
-  import BaseZoomedPage from '$lib/components/graphElements/layouts/BaseZoomedPage.svelte';
+  import BaseZoomedPage from '$lib/components/graphElements/layouts/base/BaseZoomedPage.svelte';
   import { NavigationContext, getNavigationOptions, handleNavigation } from '$lib/services/navigation';
   import { drawUserNode } from './dashboardCanvas';
 
