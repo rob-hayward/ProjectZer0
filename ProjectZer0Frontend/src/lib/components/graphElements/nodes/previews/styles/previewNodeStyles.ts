@@ -1,4 +1,6 @@
-// ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/styles/previewNodeStyles.ts
+// src/lib/components/graphElements/nodes/previews/styles/previewNodeStyles.ts
+import { LAYOUT_CONSTANTS } from '../../../layouts/concentricLayouts/base/concentricPositioning';
+
 export interface PreviewNodeStyle {
     size: number;
     padding: number;
@@ -21,19 +23,18 @@ export interface PreviewNodeStyle {
     };
 }
 
-// Base styles that all nodes share
 const baseFont = {
     font: {
-        titleSize: '6px',
-        textSize: '6px',
+        titleSize: '18px',
+        textSize: '16px',
         family: '"Orbitron", sans-serif'
     }
 } as const;
 
 export const WORD_NODE_STYLE: PreviewNodeStyle = {
-    size: 150,
+    size: LAYOUT_CONSTANTS.WORD_NODE_SIZE,
     padding: 15,
-    lineHeight: 8,
+    lineHeight: 16,
     colors: {
         background: 'rgba(0, 0, 0, 0.7)',
         border: 'rgba(255, 255, 255, 0.1)',
@@ -45,9 +46,9 @@ export const WORD_NODE_STYLE: PreviewNodeStyle = {
 } as const;
 
 export const LIVE_DEFINITION_STYLE: PreviewNodeStyle = {
-    size: 130,
+    size: LAYOUT_CONSTANTS.DEFINITION_NODE_SIZE,
     padding: 12,
-    lineHeight: 8,
+    lineHeight: 16,
     colors: {
         background: 'rgba(0, 0, 0, 0.8)',
         border: 'rgba(74, 144, 226, 0.1)',
@@ -63,9 +64,9 @@ export const LIVE_DEFINITION_STYLE: PreviewNodeStyle = {
 } as const;
 
 export const ALTERNATIVE_DEFINITION_STYLE: PreviewNodeStyle = {
-    size: 130,
+    size: LAYOUT_CONSTANTS.DEFINITION_NODE_SIZE,
     padding: 12,
-    lineHeight: 8,
+    lineHeight: 16,
     colors: {
         background: 'rgba(0, 0, 0, 0.8)',
         border: 'rgba(255, 255, 255, 0.1)',

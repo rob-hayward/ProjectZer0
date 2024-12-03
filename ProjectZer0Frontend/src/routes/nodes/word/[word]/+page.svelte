@@ -7,7 +7,7 @@
   import { wordViewStore } from '$lib/stores/wordViewStore';
   import { fade, scale } from 'svelte/transition';
   import WordNodeDisplay from '../WordNodeDisplay.svelte';
-  import ConcentricLayout from '$lib/components/graphElements/layouts/concentricLayouts/WordConcentricLayout.svelte';
+  import ConcentricLayout from '$lib/components/graphElements/layouts/concentricLayouts/word/WordConcentricLayout.svelte';
   import type { WordNode } from '$lib/types/nodes';
 
   let word: string | null = null;
