@@ -1,131 +1,189 @@
-// ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/previewNodeCanvas.ts
-
 export interface PreviewTextConfig {
-    font: string;
-    color: string;
-    align: CanvasTextAlign;
-    baseline: CanvasTextBaseline;
-  }
-  
-  export const PREVIEW_TEXT_STYLES = {
-    title: {
-      font: '6px "Orbitron", sans-serif',
+  font: string;
+  color: string;
+  align: CanvasTextAlign;
+  baseline: CanvasTextBaseline;
+}
+
+// Base text styles that can be customized per implementation
+export const PREVIEW_TEXT_STYLES = {
+  title: {
+      font: '24px "Orbitron", sans-serif',
       color: 'rgba(255, 255, 255, 0.9)',
-      align: 'left' as const,
+      align: 'left' as const,  // Default to left alignment
       baseline: 'middle' as const
-    },
-    value: {
-      font: '6px "Orbitron", sans-serif',
+  },
+  value: {
+      font: '28px "Orbitron", sans-serif',
       color: 'rgba(255, 255, 255, 1)',
-      align: 'left' as const,
+      align: 'left' as const,  // Default to left alignment
       baseline: 'middle' as const
-    },
-    hover: {
-      font: '6px "Orbitron", sans-serif',
+  },
+  hover: {
+      font: '20px "Orbitron", sans-serif',
       color: 'rgba(255, 255, 255, 0.7)',
-      align: 'center' as const,
+      align: 'left' as const,  // Default to left alignment
       baseline: 'middle' as const
-    }
-  };
-  
-  class PreviewNodeCanvasClass {
-    static initializeCanvas(canvas: HTMLCanvasElement, width: number, height: number): CanvasRenderingContext2D | null {
+  }
+};
+
+class PreviewNodeCanvasClass {
+  static initializeCanvas(canvas: HTMLCanvasElement, width: number, height: number): CanvasRenderingContext2D | null {
       const dpr = window.devicePixelRatio || 1;
       canvas.width = width * dpr;
       canvas.height = height * dpr;
       
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
-  
+
       ctx.scale(dpr, dpr);
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       
       return ctx;
-    }
-  
-    static clearCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+  }
+
+  static clearCanvas(ctx: CanvasRenderingContext2D, width: number, height: number): void {
       ctx.clearRect(0, 0, width, height);
-    }
-  
-    static setTextStyle(ctx: CanvasRenderingContext2D, style: PreviewTextConfig): void {
+  }
+
+  static setTextStyle(ctx: CanvasRenderingContext2D, style: PreviewTextConfig): void {
       ctx.font = style.font;
       ctx.fillStyle = style.color;
       ctx.textAlign = style.align;
       ctx.textBaseline = style.baseline;
-    }
-  
-    static drawNodeBackground(
+  }
+
+  static drawNodeBackground(
       ctx: CanvasRenderingContext2D, 
       centerX: number, 
       centerY: number, 
       radius: number,
       isHovered: boolean
-    ): void {
+  ): void {
+      // Draw main circle background
       ctx.beginPath();
       ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      
-      ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.1)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
       ctx.fill();
-  
+
+      // Draw glow effect
       if (isHovered) {
-        const gradient = ctx.createRadialGradient(
-          centerX, centerY, radius * 0.8,
-          centerX, centerY, radius * 1.2
-        );
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.1)');
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
-        ctx.fillStyle = gradient;
-        ctx.fill();
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+          ctx.clip();
+
+          const gradient = ctx.createRadialGradient(
+              centerX, centerY, radius * 0.8,
+              centerX, centerY, radius * 1.1
+          );
+          gradient.addColorStop(0, 'rgba(255, 255, 255, 0.15)');
+          gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+          
+          ctx.fillStyle = gradient;
+          ctx.fill();
+          ctx.restore();
       }
-    }
-  
-    static drawWrappedText(
+
+      // Draw main border
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+      ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 5;
+      ctx.stroke();
+
+      // Draw inner border
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, radius - 6, 0, Math.PI * 2);
+      ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+  }
+
+  static drawWrappedText(
       ctx: CanvasRenderingContext2D,
       text: string,
       x: number,
       startY: number,
       maxWidth: number,
-      lineHeight: number
-    ): number {
+      lineHeight: number,
+      align: CanvasTextAlign = 'left'
+  ): number {
+      const originalAlign = ctx.textAlign;
+      ctx.textAlign = align;
+
       const words = text.split(' ');
       let line = '';
       let y = startY;
-  
+
       for (const word of words) {
-        const testLine = line + (line ? ' ' : '') + word;
-        const metrics = ctx.measureText(testLine);
-        
-        if (metrics.width > maxWidth && line !== '') {
-          ctx.fillText(line, x, y);
-          line = word;
-          y += lineHeight;
-        } else {
-          line = testLine;
-        }
+          const testLine = line + (line ? ' ' : '') + word;
+          const metrics = ctx.measureText(testLine);
+          
+          if (metrics.width > maxWidth && line !== '') {
+              if (align === 'center') {
+                  ctx.fillText(line, x + (maxWidth / 2), y);
+              } else {
+                  ctx.fillText(line, x, y);
+              }
+              line = word;
+              y += lineHeight;
+          } else {
+              line = testLine;
+          }
       }
       
       if (line) {
-        ctx.fillText(line, x, y);
-        y += lineHeight;
+          if (align === 'center') {
+              ctx.fillText(line, x + (maxWidth / 2), y);
+          } else {
+              ctx.fillText(line, x, y);
+          }
+          y += lineHeight;
       }
-      
+
+      ctx.textAlign = originalAlign;
       return y;
-    }
   }
-  
-  // Export the static methods as a namespace
-  export const PreviewNodeCanvas = {
-    initializeCanvas: PreviewNodeCanvasClass.initializeCanvas,
-    clearCanvas: PreviewNodeCanvasClass.clearCanvas,
-    setTextStyle: PreviewNodeCanvasClass.setTextStyle,
-    drawNodeBackground: PreviewNodeCanvasClass.drawNodeBackground,
-    drawWrappedText: PreviewNodeCanvasClass.drawWrappedText
-  };
-  
-  // Also export the type
-  export type PreviewNodeCanvasType = typeof PreviewNodeCanvas;
+
+  static drawTruncatedText(
+      ctx: CanvasRenderingContext2D,
+      text: string,
+      x: number,
+      y: number,
+      maxWidth: number,
+      align: CanvasTextAlign = 'left'
+  ): void {
+      const originalAlign = ctx.textAlign;
+      ctx.textAlign = align;
+
+      const metrics = ctx.measureText(text);
+      if (metrics.width > maxWidth) {
+          let truncated = text;
+          while (ctx.measureText(truncated + '...').width > maxWidth && truncated.length > 0) {
+              truncated = truncated.slice(0, -1);
+          }
+          text = truncated + '...';
+      }
+
+      if (align === 'center') {
+          ctx.fillText(text, x + (maxWidth / 2), y);
+      } else {
+          ctx.fillText(text, x, y);
+      }
+
+      ctx.textAlign = originalAlign;
+  }
+}
+
+export const PreviewNodeCanvas = {
+  initializeCanvas: PreviewNodeCanvasClass.initializeCanvas,
+  clearCanvas: PreviewNodeCanvasClass.clearCanvas,
+  setTextStyle: PreviewNodeCanvasClass.setTextStyle,
+  drawNodeBackground: PreviewNodeCanvasClass.drawNodeBackground,
+  drawWrappedText: PreviewNodeCanvasClass.drawWrappedText,
+  drawTruncatedText: PreviewNodeCanvasClass.drawTruncatedText
+};
+
+export type PreviewNodeCanvasType = typeof PreviewNodeCanvas;

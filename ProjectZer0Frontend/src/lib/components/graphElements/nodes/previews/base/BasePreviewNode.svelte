@@ -1,4 +1,3 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/BasePreviewNode.svelte -->
 <script lang="ts">
     import type { BasePreviewProps } from '$lib/types/layout';
     import type { PreviewNodeStyle, PreviewNodeType } from '../styles/previewNodeStyles';
@@ -13,7 +12,8 @@
         ctx: CanvasRenderingContext2D, 
         centerX: number, 
         centerY: number, 
-        style: PreviewNodeStyle
+        style: PreviewNodeStyle,
+        isHovered: boolean
     ) => void;
 
     // Internal state
@@ -26,7 +26,7 @@
     }
 
     function drawWithStyle(ctx: CanvasRenderingContext2D, centerX: number, centerY: number) {
-        drawContent(ctx, centerX, centerY, style);
+        drawContent(ctx, centerX, centerY, style, isHovered);
     }
 </script>
 

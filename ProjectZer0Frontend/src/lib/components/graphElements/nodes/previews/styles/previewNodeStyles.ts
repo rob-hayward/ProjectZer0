@@ -33,14 +33,18 @@ const baseFont = {
 
 export const WORD_NODE_STYLE: PreviewNodeStyle = {
     size: LAYOUT_CONSTANTS.WORD_NODE_SIZE,
-    padding: 15,
-    lineHeight: 16,
+    padding: 40,              // Increased padding for better spacing
+    lineHeight: 36,           // Increased for better vertical spacing
     colors: {
         background: 'rgba(0, 0, 0, 0.7)',
-        border: 'rgba(255, 255, 255, 0.1)',
-        hoverBorder: 'rgba(255, 255, 255, 0.3)',
+        border: 'rgba(255, 255, 255, 0.2)',
+        hoverBorder: 'rgba(255, 255, 255, 0.4)',
         title: 'rgba(255, 255, 255, 0.9)',
         text: 'rgba(255, 255, 255, 1)',
+        gradient: {
+            start: 'rgba(255, 255, 255, 0.15)',
+            end: 'rgba(255, 255, 255, 0)'
+        }
     },
     font: baseFont.font
 } as const;

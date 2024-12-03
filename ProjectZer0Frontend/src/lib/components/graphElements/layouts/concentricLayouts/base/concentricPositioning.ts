@@ -9,15 +9,15 @@ import type {
 // Layout Constants
 export const LAYOUT_CONSTANTS = {
   // Node Sizes
-  WORD_NODE_SIZE: 300,          // Doubled from 180
-  DEFINITION_NODE_SIZE: 360,    // Doubled from 150
+  WORD_NODE_SIZE: 300,          
+  DEFINITION_NODE_SIZE: 360,    
   
   // Spacing
-  BASE_RING_SPACING: 250,       // Halved from 250 and adjusted for better distribution
+  BASE_RING_SPACING: 250,      
   SPACING_MULTIPLIERS: {
-      LIVE_DEFINITION: 1.0,     // Adjusted to keep live definition closer
-      ALTERNATIVE_SPACING: 1.2,  // Reduced for tighter grouping
-      RING_INCREMENT: 0.2       // Reduced for closer rings
+      LIVE_DEFINITION: 1.0,     
+      ALTERNATIVE_SPACING: 1.2,  
+      RING_INCREMENT: 0.2       
   },
   
   // Zoom and View Settings
@@ -51,15 +51,18 @@ function sortNodes(nodes: NodeLayoutMetadata[], mode: SortMode): NodeLayoutMetad
   });
 }
 
-function calculateRingRadius(ringIndex: number, baseSpacing: number): number {
-  if (ringIndex === 0) {
-    // Live definition spacing
-    return baseSpacing * LAYOUT_CONSTANTS.SPACING_MULTIPLIERS.LIVE_DEFINITION;
+function calculateRingRadius(ringIndex: number, baseSpacing: number, nodeVotes: number, totalNodes: number): number {
+  const baseRadius = baseSpacing * LAYOUT_CONSTANTS.SPACING_MULTIPLIERS.LIVE_DEFINITION;
+  
+  if (ringIndex > 0) {
+    const voteMultiplier = Math.max(0.5, Math.min(1, nodeVotes / 100));
+    const popularitySpacing = baseSpacing * (1.2 - voteMultiplier);
+    const positionSpacing = baseSpacing * (ringIndex / totalNodes) * LAYOUT_CONSTANTS.SPACING_MULTIPLIERS.RING_INCREMENT;
+    
+    return baseRadius + popularitySpacing + positionSpacing;
   }
-  // Alternative definitions spacing
-  const baseRadius = baseSpacing * LAYOUT_CONSTANTS.SPACING_MULTIPLIERS.ALTERNATIVE_SPACING;
-  const increment = baseSpacing * LAYOUT_CONSTANTS.SPACING_MULTIPLIERS.RING_INCREMENT * ringIndex;
-  return baseRadius + increment;
+  
+  return baseRadius;
 }
 
 function positionNodesInRing(
@@ -71,12 +74,14 @@ function positionNodesInRing(
   centerX: number,
   centerY: number
 ): void {
-  // For single nodes in a ring
-  if (nodes.length === 1) {
+  const totalNodes = nodes.length;
+  
+  if (totalNodes === 1) {
     const node = nodes[0];
     const angle = -Math.PI / 6;  // 30 degrees up from horizontal right
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
+    const adjustedRadius = calculateRingRadius(0, radius, node.votesCount, totalNodes);
+    const x = Math.cos(angle) * adjustedRadius;
+    const y = Math.sin(angle) * adjustedRadius;
     
     positions.set(node.id, {
       x,
@@ -84,30 +89,40 @@ function positionNodesInRing(
       scale: baseScale,
       ring: ringNumber,
       ringPosition: 0,
-      distanceFromCenter: radius,
+      distanceFromCenter: adjustedRadius,
       rotation: (angle * 180) / Math.PI
     });
     return;
   }
 
-  // For multiple nodes, start from the same position and distribute around
-  const angleStep = (2 * Math.PI) / Math.max(6, nodes.length);  // Use minimum of 6 positions for spacing
-  const startAngle = -Math.PI / 6;  // Same starting position as single node
-  
   nodes.forEach((node, index) => {
-    const angle = startAngle + (index * angleStep);
-    const x = Math.cos(angle) * radius;
-    const y = Math.sin(angle) * radius;
+    let angle: number;
     
-    const scale = baseScale * Math.max(0.8, 1 - (ringNumber * 0.1));
+    if (index === 0) {
+      angle = -Math.PI / 6;  // First node always at -30 degrees
+    } else if (totalNodes === 2) {
+      angle = -Math.PI / 6 + Math.PI;  // Second node opposite when only two
+    } else {
+      const remainingAngleRange = 2 * Math.PI - (2 * Math.PI / totalNodes);
+      const angleStep = remainingAngleRange / (totalNodes - 1);
+      angle = -Math.PI / 6 + ((index) * angleStep);
+    }
+
+    const adjustedRadius = calculateRingRadius(index, radius, node.votesCount, totalNodes);
+    const x = Math.cos(angle) * adjustedRadius;
+    const y = Math.sin(angle) * adjustedRadius;
+    
+    const voteMultiplier = Math.max(0.8, Math.min(1, node.votesCount / 100));
+    const positionScale = Math.max(0.8, 1 - (index * 0.05));
+    const scale = baseScale * voteMultiplier * positionScale;
 
     positions.set(node.id, {
       x,
       y,
       scale,
       ring: ringNumber,
-      ringPosition: index / nodes.length,
-      distanceFromCenter: radius,
+      ringPosition: index / totalNodes,
+      distanceFromCenter: adjustedRadius,
       rotation: (angle * 180) / Math.PI
     });
   });
@@ -181,7 +196,7 @@ export function calculateNodePositions(
   const rings = distributeNodesIntoRings(sortedNodes, nodesPerRing);
 
   rings.forEach((nodesInRing, ringIndex) => {
-    const radius = calculateRingRadius(ringIndex + 1, config.ringSpacing);
+    const radius = calculateRingRadius(ringIndex + 1, config.ringSpacing, 0, rings.length);
     positionNodesInRing(nodesInRing, radius, ringIndex + 1, positions, baseScale, 0, 0);
   });
 
