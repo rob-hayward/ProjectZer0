@@ -2,7 +2,7 @@
     import type { WordPreviewProps } from '$lib/types/layout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
     import BasePreviewNode from './base/BasePreviewNode.svelte';
-    import { drawTitle, drawText } from './base/previewDrawing';
+    import { drawText } from './base/previewDrawing';
     import { PreviewNodeCanvas, PREVIEW_TEXT_STYLES } from './base/previewNodeCanvas';
     
     export let wordData: WordPreviewProps['wordData'];
@@ -20,20 +20,20 @@
         const wordY = centerY + (style.size * 0.05);
 
         // Draw "Word:" title centered
-        drawTitle(ctx, "Word:", centerX, titleY, style);
+        drawText(ctx, "word node", centerX, titleY, PREVIEW_TEXT_STYLES.word.title);
         
         // Draw the word centered
-        drawText(ctx, wordData.word, centerX, wordY, style);
+        drawText(ctx, wordData.word, centerX, wordY, PREVIEW_TEXT_STYLES.word.value);
         
         // If hovered, draw "Click to view" text
         if (isHovered) {
-            PreviewNodeCanvas.setTextStyle(ctx, {
-                font: PREVIEW_TEXT_STYLES.hover.font,
-                color: PREVIEW_TEXT_STYLES.hover.color,
-                align: 'center',
-                baseline: 'middle'
-            });
-            ctx.fillText("Click to view", centerX, centerY + (style.size * 0.3));
+            drawText(
+                ctx, 
+                "Click to view", 
+                centerX, 
+                centerY + (style.size * 0.3),
+                PREVIEW_TEXT_STYLES.word.hover
+            );
         }
     }
 </script>

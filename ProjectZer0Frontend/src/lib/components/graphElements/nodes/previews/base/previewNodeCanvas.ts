@@ -7,23 +7,45 @@ export interface PreviewTextConfig {
 
 // Base text styles that can be customized per implementation
 export const PREVIEW_TEXT_STYLES = {
-  title: {
-      font: '24px "Orbitron", sans-serif',
-      color: 'rgba(255, 255, 255, 0.9)',
-      align: 'left' as const,  // Default to left alignment
-      baseline: 'middle' as const
+  word: {
+      title: {
+          font: '24px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 0.9)',
+          align: 'center' as const,
+          baseline: 'middle' as const
+      },
+      value: {
+          font: '26px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 1)',
+          align: 'center' as const,
+          baseline: 'middle' as const
+      },
+      hover: {
+          font: '18px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 0.7)',
+          align: 'center' as const,
+          baseline: 'middle' as const
+      }
   },
-  value: {
-      font: '28px "Orbitron", sans-serif',
-      color: 'rgba(255, 255, 255, 1)',
-      align: 'left' as const,  // Default to left alignment
-      baseline: 'middle' as const
-  },
-  hover: {
-      font: '20px "Orbitron", sans-serif',
-      color: 'rgba(255, 255, 255, 0.7)',
-      align: 'left' as const,  // Default to left alignment
-      baseline: 'middle' as const
+  definition: {
+      title: {
+          font: '18px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 0.9)',
+          align: 'left' as const,
+          baseline: 'middle' as const
+      },
+      value: {
+          font: '16px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 1)',
+          align: 'left' as const,
+          baseline: 'middle' as const
+      },
+      hover: {
+          font: '14px "Orbitron", sans-serif',
+          color: 'rgba(255, 255, 255, 0.7)',
+          align: 'left' as const,
+          baseline: 'middle' as const
+      }
   }
 };
 

@@ -1,5 +1,6 @@
 // src/lib/components/graphElements/nodes/previews/base/previewDrawing.ts
 import type { PreviewNodeStyle } from '../styles/previewNodeStyles';
+import type { PreviewTextConfig } from './previewNodeCanvas';
 
 export function drawTitle(
     ctx: CanvasRenderingContext2D,
@@ -21,13 +22,12 @@ export function drawText(
     text: string,
     x: number,
     y: number,
-    style: PreviewNodeStyle,
-    textAlign: CanvasTextAlign = 'center'
+    textStyle: PreviewTextConfig
 ) {
-    ctx.font = `${style.font.textSize} ${style.font.family}`;
-    ctx.fillStyle = style.colors.text;
-    ctx.textAlign = textAlign;
-    ctx.textBaseline = 'middle';
+    ctx.font = textStyle.font;
+    ctx.fillStyle = textStyle.color;
+    ctx.textAlign = textStyle.align;
+    ctx.textBaseline = textStyle.baseline;
     ctx.fillText(text, x, y);
 }
 

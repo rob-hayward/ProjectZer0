@@ -2,8 +2,8 @@
     import type { DefinitionPreviewProps } from '$lib/types/layout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
     import BasePreviewNode from './base/BasePreviewNode.svelte';
-    import { drawTitle, drawText, drawWrappedText } from './base/previewDrawing';
-    import { PREVIEW_TEXT_STYLES } from './base/previewNodeCanvas';
+    import { drawText, drawWrappedText } from './base/previewDrawing';
+    import { PreviewNodeCanvas, PREVIEW_TEXT_STYLES } from './base/previewNodeCanvas';
     
     export let definition: DefinitionPreviewProps['definition'];
     export let word: DefinitionPreviewProps['word'];
@@ -14,15 +14,15 @@
         let y = centerY - (style.size / 3);
         const maxWidth = style.size - (style.padding * 2);
 
-        // Draw title left-aligned
-        drawTitle(ctx, "Live Definition", startX, y, style, 'left');
+        // Draw title
+        drawText(ctx, "Live Definition", startX, y, PREVIEW_TEXT_STYLES.definition.title);
         y += style.lineHeight * 1.5;
         
-        // Draw word left-aligned
-        drawText(ctx, word, startX, y, style, 'left');
+        // Draw word
+        drawText(ctx, word, startX, y, PREVIEW_TEXT_STYLES.definition.value);
         y += style.lineHeight * 2;
         
-        // Draw definition text left-aligned and wrapped
+        // Draw definition text wrapped
         drawWrappedText(ctx, definition.text, startX, y, maxWidth, style, 'left');
     }
 </script>
