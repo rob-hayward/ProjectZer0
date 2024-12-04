@@ -10,7 +10,7 @@ export type NodeType = 'word' | 'liveDefinition' | 'alternativeDefinition';
 
 // Props interfaces for preview components
 export interface BasePreviewProps {
-    isExpanded?: boolean;
+    isZoomed?: boolean;  
 }
 
 export interface WordPreviewProps extends BasePreviewProps {

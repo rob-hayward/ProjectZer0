@@ -21,7 +21,7 @@ export const PREVIEW_TEXT_STYLES = {
           baseline: 'middle' as const
       },
       hover: {
-          font: '18px "Orbitron", sans-serif',
+          font: '14px "Orbitron", sans-serif',
           color: 'rgba(255, 255, 255, 0.7)',
           align: 'center' as const,
           baseline: 'middle' as const
@@ -115,12 +115,6 @@ class PreviewNodeCanvasClass {
       ctx.lineWidth = 5;
       ctx.stroke();
 
-      // Draw inner border
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius - 6, 0, Math.PI * 2);
-      ctx.strokeStyle = isHovered ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)';
-      ctx.lineWidth = 2;
-      ctx.stroke();
   }
 
   static drawWrappedText(

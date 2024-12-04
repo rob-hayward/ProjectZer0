@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/lib/components/graphElements/backgrounds/ZoomBackground.ts
+// ProjectZer0Frontend/src/lib/components/graphElements/backgrounds/BaseBackground.ts
 import { navigationColors } from '../nodes/navigationNode/navigationColors';
 import type { NavigationNodeType } from '../nodes/navigationNode/navigationColors';
 

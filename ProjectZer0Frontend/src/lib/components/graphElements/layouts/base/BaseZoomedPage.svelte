@@ -1,7 +1,7 @@
 <script lang="ts">
   import { spring, type Spring } from 'svelte/motion';
   import ZoomNodeCanvas from '../../nodes/zoomNode/ZoomNodeCanvas.svelte';
-  import { ZoomBackground } from '../../backgrounds/ZoomBackground';
+  import { ZoomBackground } from '../../backgrounds/BaseBackground';
   import { drawNavigationNode, isNavigationNodeHovered } from '../../nodes/navigationNode/NavigationNode';
   import type { NavigationOption } from '$lib/types/navigation';
   import type { NavigationOptionId } from '$lib/services/navigation';

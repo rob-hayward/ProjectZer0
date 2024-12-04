@@ -3,14 +3,14 @@
   import { PreviewNodeCanvas } from '../previews/base/previewNodeCanvas';
 
   const dispatch = createEventDispatcher<{
-    click: void;
+    click: { x: number; y: number; width: number; height: number };
     hover: { isHovered: boolean };
   }>();
 
   export let width = 150;
   export let height = 150;
   export let isHovered = false;
-  export let isExpanded = false;
+  export let isZoomed = false;  // Changed from isZoomeded
   export let drawContent: ((ctx: CanvasRenderingContext2D, centerX: number, centerY: number) => void) | null = null;
 
   let canvas: HTMLCanvasElement;
@@ -44,12 +44,22 @@
       drawContent(ctx, centerX, centerY);
     }
   }
+
+  function handleClick() {
+    const rect = canvas.getBoundingClientRect();
+    dispatch('click', {
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height
+    });
+  }
 </script>
 
 <button 
   class="graph-node"
   class:hovered={isHovered}
-  class:expanded={isExpanded}
+  class:zoomed={isZoomed}
   style="width: {width}px; height: {height}px;"
   on:mouseenter={() => {
       isHovered = true;
@@ -59,11 +69,11 @@
       isHovered = false;
       dispatch('hover', { isHovered: false });
   }}
-  on:click={() => dispatch('click')}
+  on:click={handleClick}
   on:keydown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          dispatch('click');
+          handleClick();
       }
   }}
   aria-label="Graph node, click to view details"
@@ -92,7 +102,7 @@
       transform: scale(1.05);
   }
 
-  .graph-node.expanded {
+  .graph-node.zoomed {  /* Changed from expanded */
       transform: scale(1);
       cursor: default;
   }

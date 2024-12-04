@@ -13,8 +13,9 @@
     import LiveDefinitionPreview from '../../../nodes/previews/LiveDefinitionPreview.svelte';
     import AlternativeDefinitionPreview from '../../../nodes/previews/AlternativeDefinitionPreview.svelte';
     import { LAYOUT_CONSTANTS, DEFAULT_CONFIG } from '../base/concentricPositioning';
-    import { ZoomBackground } from '../../../backgrounds/ZoomBackground';
+    import { ZoomBackground } from '../../../backgrounds/BaseBackground';
     import ZoomNodeCanvas from '../../../nodes/zoomNode/ZoomNodeCanvas.svelte';
+
     // Props
     export let wordData: ConcentricLayoutProps['wordData'];
     export let sortMode: ConcentricLayoutProps['sortMode'] = 'popular';
@@ -31,6 +32,7 @@
     let positions = new Map<string, ConcentricNodePosition>();
     let isTransitioning = false;
     let rafId: number | null = null;
+    let zoomedNodeId: string | null = null;
     
     // View state
     let zoom = LAYOUT_CONSTANTS.INITIAL_ZOOM as number;
@@ -80,6 +82,11 @@
             y: rect.height / 2
         };
     }
+
+    function handleNodeZoom(nodeId: string, bounds: { x: number; y: number; width: number; height: number }) {
+        zoomedNodeId = zoomedNodeId === nodeId ? null : nodeId;
+        updateLayout();
+    }
     
     // Layout management
     async function updateLayout(immediate = false) {
@@ -120,7 +127,8 @@
             ],
             sortMode || 'popular',
             container.clientWidth,
-            container.clientHeight
+            container.clientHeight,
+            zoomedNodeId
         );
     
         if (immediate || !positions.size) {
@@ -156,6 +164,8 @@
         panX = 0;
         panY = 0;
         zoom = LAYOUT_CONSTANTS.INITIAL_ZOOM as number;
+        zoomedNodeId = null;
+        updateLayout(true);
     }
     
     // Interaction handlers
@@ -262,55 +272,65 @@
         on:mouseleave={handleMouseUp}
         on:wheel={handleWheel}
     >
+    <div class="nodes-container"
+    bind:this={nodesContainer}
+    style="transform: translate3d({containerCenter.x + panX}px, {containerCenter.y + panY}px, 0) scale({zoom/100})"
+>
+    <!-- Word Node -->
+    {#if positions.has(wordData.id)}
+        {@const pos = positions.get(wordData.id)}
         <div
-            class="nodes-container"
-            bind:this={nodesContainer}
-            style="transform: translate3d({containerCenter.x + panX}px, {containerCenter.y + panY}px, 0) scale({zoom/100})"
+            class="node word-node"
+            class:zoomed={zoomedNodeId === wordData.id}
+            style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
         >
-            <!-- Word Node -->
-            {#if positions.has(wordData.id)}
-                {@const pos = positions.get(wordData.id)}
-                <div
-                    class="node word-node"
-                    style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
-                >
-                    <WordNodePreview {wordData} />
-                </div>
-            {/if}
-
-            <!-- Live Definition -->
-            {#if getLiveDefinition(wordData.definitions)}
-                {@const def = getLiveDefinition(wordData.definitions)}
-                {#if def && positions.has(def.id)}
-                    {@const pos = positions.get(def.id)}
-                    <div
-                        class="node definition-node"
-                        style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
-                    >
-                        <LiveDefinitionPreview
-                            definition={def}
-                            word={wordData.word}
-                        />
-                    </div>
-                {/if}
-            {/if}
-
-            <!-- Alternative Definitions -->
-            {#each getAlternativeDefinitions(wordData.definitions, getLiveDefinition(wordData.definitions)?.id) as def (def.id)}
-                {#if positions.has(def.id)}
-                    {@const pos = positions.get(def.id)}
-                    <div
-                        class="node definition-node"
-                        style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
-                    >
-                        <AlternativeDefinitionPreview
-                            definition={def}
-                            word={wordData.word}
-                        />
-                    </div>
-                {/if}
-            {/each}
+            <WordNodePreview 
+                {wordData} 
+                isZoomed={zoomedNodeId === wordData.id}
+                on:zoom={({ detail }) => handleNodeZoom(wordData.id, detail.bounds)}
+            />
         </div>
+    {/if}
+
+    <!-- Live Definition -->
+    {#if getLiveDefinition(wordData.definitions)}
+        {@const def = getLiveDefinition(wordData.definitions)}
+        {#if def && positions.has(def.id)}
+            {@const pos = positions.get(def.id)}
+            <div
+                class="node definition-node"
+                class:zoomed={zoomedNodeId === def.id}
+                style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
+            >
+                <LiveDefinitionPreview
+                    definition={def}
+                    word={wordData.word}
+                    isZoomed={zoomedNodeId === def.id}
+                    on:zoom={({ detail }) => handleNodeZoom(def.id, detail.bounds)}
+                />
+            </div>
+        {/if}
+    {/if}
+
+    <!-- Alternative Definitions -->
+    {#each getAlternativeDefinitions(wordData.definitions, getLiveDefinition(wordData.definitions)?.id) as def (def.id)}
+        {#if positions.has(def.id)}
+            {@const pos = positions.get(def.id)}
+            <div
+                class="node definition-node"
+                class:zoomed={zoomedNodeId === def.id}
+                style="transform: translate(-50%, -50%) translate3d({pos?.x}px, {pos?.y}px, 0) scale({pos?.scale ?? 1})"
+            >
+                <AlternativeDefinitionPreview
+                    definition={def}
+                    word={wordData.word}
+                    isZoomed={zoomedNodeId === def.id}
+                    on:zoom={({ detail }) => handleNodeZoom(def.id, detail.bounds)}
+                />
+            </div>
+        {/if}
+    {/each}
+</div>
     </div>
 </div>
 

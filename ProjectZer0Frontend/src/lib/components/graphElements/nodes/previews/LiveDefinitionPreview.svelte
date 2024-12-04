@@ -7,7 +7,7 @@
     
     export let definition: DefinitionPreviewProps['definition'];
     export let word: DefinitionPreviewProps['word'];
-    export let isExpanded: DefinitionPreviewProps['isExpanded'] = false;
+    export let isZoomed: DefinitionPreviewProps['isZoomed'] = false;
     
     function drawContent(ctx: CanvasRenderingContext2D, centerX: number, centerY: number, style: PreviewNodeStyle) {
         const startX = centerX - (style.size / 2) + style.padding;
@@ -29,6 +29,6 @@
 
 <BasePreviewNode 
     nodeType="liveDefinition"
-    {isExpanded}
+    {isZoomed}
     {drawContent}
 />
