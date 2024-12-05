@@ -1,7 +1,8 @@
 import { goto } from '$app/navigation';
+import { get } from 'svelte/store';
 import * as auth0 from './auth0';
 import type { NavigationOption } from '$lib/types/navigation';
-import { wordViewStore } from '$lib/stores/wordViewStore';
+import { wordStore } from '$lib/stores/wordStore';
 
 export const NavigationOptionId = {
   DASHBOARD: 'dashboard',
@@ -28,7 +29,10 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
   [NavigationOptionId.CREATIONS]: () => goto('/creations'),
   [NavigationOptionId.LOGOUT]: () => auth0.logout(),
   [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => {
-    wordViewStore.showAlternativeDefinitions();
+    const currentWord = get(wordStore);
+    if (currentWord) {
+      goto(`/graph-test/${currentWord.word}`);
+    }
   }
 };
 

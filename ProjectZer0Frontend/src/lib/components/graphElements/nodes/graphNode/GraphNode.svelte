@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/graphNode/GraphNode.svelte -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte';
   import { PreviewNodeCanvas } from '../previews/base/previewNodeCanvas';

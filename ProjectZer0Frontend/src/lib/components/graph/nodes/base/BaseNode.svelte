@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { NodeMode } from '$lib/types/nodes';

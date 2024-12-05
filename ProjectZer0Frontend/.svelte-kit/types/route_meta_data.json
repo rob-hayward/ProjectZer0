@@ -3,6 +3,10 @@
 	"/create-node": [],
 	"/dashboard": [],
 	"/edit-profile": [],
+	"/graph-test": [
+		"src/routes/graph-test/+page.ts"
+	],
+	"/graph-test/[word]": [],
 	"/nodes/definition/[word]": [],
 	"/nodes/word/[word]": []
 }
