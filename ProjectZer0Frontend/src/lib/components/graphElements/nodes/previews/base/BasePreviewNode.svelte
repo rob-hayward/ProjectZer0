@@ -1,6 +1,6 @@
 <!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/BasePreviewNode.svelte -->
 <script lang="ts">
-    import type { BasePreviewProps } from '$lib/types/layout';
+    import type { BasePreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle, PreviewNodeType } from '../styles/previewNodeStyles';
     import GraphNode from '../../graphNode/GraphNode.svelte';
     import { getNodeStyle } from '../styles/previewNodeStyles';

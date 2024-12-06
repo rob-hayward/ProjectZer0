@@ -7,7 +7,7 @@
         ConcentricNodePosition, 
         NodeType,
         SortMode 
-    } from '$lib/types/layout';
+    } from '$lib/types/graphLayout';
     import type { Definition } from '$lib/types/nodes';
     import WordNodePreview from '../../../nodes/previews/WordNodePreview.svelte';
     import LiveDefinitionPreview from '../../../nodes/previews/LiveDefinitionPreview.svelte';

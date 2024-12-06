@@ -1,6 +1,6 @@
 <!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/WordNodePreview.svelte -->
 <script lang="ts">
-    import type { WordPreviewProps } from '$lib/types/layout';
+    import type { WordPreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
     import type { Definition } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';

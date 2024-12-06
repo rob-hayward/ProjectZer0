@@ -1,23 +1,20 @@
+<!-- MainGraph.svelte -->
 <script lang="ts">
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
     import ConcentricLayout from './layouts/ConcentricLayout.svelte';
-
+  
     export let nodes: GraphNode[];
     export let edges: GraphEdge[];
 
-    console.log('MainGraph received nodes:', nodes);
-    console.log('MainGraph received edges:', edges);
+    const dispatch = createEventDispatcher();
 </script>
 
-<div class="main-graph" style="border: 1px solid rgba(255,255,255,0.1);">
-    {#if nodes.length > 0}
+<div class="main-graph">
+    {#if nodes && edges}
         <ConcentricLayout {nodes} {edges} let:node>
-            <div class="node-debug">
-                <slot name="node" {node} />
-            </div>
+            <slot name="node" {node} />
         </ConcentricLayout>
-    {:else}
-        <div class="loading">No nodes to display</div>
     {/if}
 </div>
 
@@ -26,18 +23,7 @@
         width: 100%;
         height: 100%;
         position: relative;
-    }
-
-    .node-debug {
-        outline: 1px solid rgba(255,255,255,0.2);
-    }
-
-    .loading {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        color: white;
-        font-family: 'Orbitron', sans-serif;
+        background-color: black;
+        overflow: hidden;
     }
 </style>

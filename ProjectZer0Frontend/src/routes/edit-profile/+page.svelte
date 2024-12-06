@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/routes/graph-test/[word]/+page.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { browser } from '$app/environment';

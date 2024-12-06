@@ -35,8 +35,8 @@ export const NODE_CONSTANTS = {
         }
     },
     FONTS: {
-        title: '24px "Orbitron", sans-serif',
-        value: '26px "Orbitron", sans-serif',
-        hover: '18px "Orbitron", sans-serif'
+        title: '16px "Orbitron", sans-serif',
+        value: '14px "Orbitron", sans-serif',
+        hover: '10px "Orbitron", sans-serif'
     }
 } as const;

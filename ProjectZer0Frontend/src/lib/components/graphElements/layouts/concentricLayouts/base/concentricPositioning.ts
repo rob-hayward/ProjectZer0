@@ -4,7 +4,7 @@ import type {
   NodeLayoutMetadata, 
   SortMode,
   ConcentricNodePosition 
-} from '$lib/types/layout';
+} from '$lib/types/graphLayout';
 
 // Layout Constants
 export const LAYOUT_CONSTANTS = {

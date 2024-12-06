@@ -22,17 +22,30 @@
       draw();
     }
   
+    $: if (canvas && !ctx) {
+        console.log('Initializing canvas with dimensions:', { width, height });
+        ctx = BaseNodeDisplay.initializeCanvas(canvas, width, height);
+        if (ctx) {
+            console.log('Canvas context initialized');
+            draw();
+        } else {
+            console.error('Failed to get canvas context');
+        }
+    }
+
     function draw() {
-      if (!ctx) return;
-      BaseNodeDisplay.clearCanvas(ctx, width, height);
-      const centerX = width / 2;
-      const centerY = height / 2;
-      const radius = Math.min(width, height) / 2 - 5;
-  
-      BaseNodeDisplay.drawNodeBackground(ctx, centerX, centerY, radius, isHovered);
-      if (drawContent) {
-        drawContent(ctx, centerX, centerY);
-      }
+        if (!ctx) return;
+        console.log('Drawing node with content:', !!drawContent);
+        BaseNodeDisplay.clearCanvas(ctx, width, height);
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const radius = Math.min(width, height) / 2 - 5;
+
+        BaseNodeDisplay.drawNodeBackground(ctx, centerX, centerY, radius, isHovered);
+        if (drawContent) {
+            console.log('Drawing content');
+            drawContent(ctx, centerX, centerY);
+        }
     }
   
     function handleClick() {

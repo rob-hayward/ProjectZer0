@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <script lang="ts">
     import type { Definition, NodeStyle } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';

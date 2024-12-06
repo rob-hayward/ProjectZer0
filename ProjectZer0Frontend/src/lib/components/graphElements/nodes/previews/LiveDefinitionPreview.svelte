@@ -1,6 +1,6 @@
 <!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/LiveDefinitionPreview.svelte -->
 <script lang="ts">
-    import type { DefinitionPreviewProps } from '$lib/types/layout';
+    import type { DefinitionPreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
     import BasePreviewNode from './base/BasePreviewNode.svelte';
     import { drawText, drawWrappedText } from './base/previewDrawing';

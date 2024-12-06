@@ -9,7 +9,7 @@ import type {
     SortMode,
     ConcentricNodePosition,
     ConcentricLayoutConfig 
-} from '$lib/types/layout';
+} from '$lib/types/graphLayout';
 
 // Word-specific layout adjustments
 export const WORD_LAYOUT_CONSTANTS = {
