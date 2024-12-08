@@ -1,7 +1,7 @@
-import type { SimulationNodeDatum } from 'd3';
-import type { WordNode, Definition } from './nodes';
+// src/lib/types/graph.ts
+import type { Definition } from './nodes';
 
-export interface GraphNode extends SimulationNodeDatum {
+export interface GraphNode {
     id: string;
     type: 'word' | 'definition';
     data: WordNode | Definition;
@@ -9,21 +9,23 @@ export interface GraphNode extends SimulationNodeDatum {
 }
 
 export interface GraphEdge {
-    source: GraphNode | string;  // D3 force simulation can use either
-    target: GraphNode | string;
+    source: string;
+    target: string;
     type: string;
 }
 
-export interface MainGraphProps {
-    nodes: GraphNode[];
-    edges: GraphEdge[];
-}
-
-export interface MainGraphSlotProps {
-    node: GraphNode;
-}
-
-// Type guard for checking if source/target is a GraphNode
-export function isGraphNode(value: GraphNode | string): value is GraphNode {
-    return typeof value === 'object' && value !== null && 'id' in value;
+export interface WordNode {
+    id: string;
+    word: string;
+    createdBy: string;
+    publicCredit: boolean;
+    createdAt: string;
+    updatedAt: string;
+    positiveVotes: number;
+    negativeVotes: number;
+    definitions: Definition[];
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
 }

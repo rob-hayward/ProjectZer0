@@ -6,8 +6,8 @@
     import { getWordData } from '$lib/services/word';
     import type { WordNode, Definition } from '$lib/types/nodes';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
-    import WordNodeComponent from '$lib/components/graph/nodes/word/WordNode.svelte';
-    import DefinitionNodeComponent from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
+    import SvgWordNode from '$lib/components/graph/nodes/word/SvgWordNode.svelte';
+    import SvgDefinitionNode from '$lib/components/graph/nodes/definition/SvgDefinitionNode.svelte';
     import MainGraph from '$lib/components/graph/MainGraph.svelte';
     import { BaseBackground } from '$lib/components/graph/backgrounds/BaseBackground';
 
@@ -99,6 +99,10 @@
             isLoading = false;
         }
     });
+
+    function handleZoomChange(event: CustomEvent<{scale: number}>) {
+        zoom = event.detail.scale;
+    }
 </script>
 
 <div class="graph-test">
@@ -123,21 +127,30 @@
 
     {#if !isLoading && !error && wordData && nodes.length > 0}
         <div class="graph-container">
-            <MainGraph {nodes} {edges}>
-                <svelte:fragment slot="node" let:node>
+            <MainGraph 
+                {nodes} 
+                {edges}
+                on:zoomChange={handleZoomChange}
+            >
+                <svelte:fragment slot="node" let:node let:position>
                     {#if node.type === 'word' && isWordNode(node.data)}
-                        <WordNodeComponent 
+                        <SvgWordNode 
                             data={node.data} 
+                            {position}
                             mode="preview"
                         />
                     {:else if node.type === 'definition' && isDefinition(node.data)}
-                        <DefinitionNodeComponent 
+                        <SvgDefinitionNode 
                             data={node.data}
                             word={wordData.word}
+                            {position}
                             type={node.data.id === wordData.definitions[0].id ? 'live' : 'alternative'}
-                            mode="preview"
                         />
                     {/if}
+                </svelte:fragment>
+
+                <svelte:fragment slot="edge" let:edge>
+                    <!-- SVG path for edge will be handled by MainGraph -->
                 </svelte:fragment>
             </MainGraph>
         </div>
