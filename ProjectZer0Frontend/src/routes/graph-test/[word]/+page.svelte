@@ -1,15 +1,13 @@
-<!-- ProjectZer0Frontend/src/routes/graph-test/[word]/+page.svelte -->
+<!-- src/routes/graph-test/[word]/+page.svelte -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
-    import { browser } from '$app/environment';
     import { getWordData } from '$lib/services/word';
     import type { WordNode, Definition } from '$lib/types/nodes';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
     import SvgWordNode from '$lib/components/graph/nodes/word/SvgWordNode.svelte';
     import SvgDefinitionNode from '$lib/components/graph/nodes/definition/SvgDefinitionNode.svelte';
     import MainGraph from '$lib/components/graph/MainGraph.svelte';
-    import { BaseBackground } from '$lib/components/graph/backgrounds/BaseBackground';
 
     let wordData: WordNode | null = null;
     let error: string | null = null;
@@ -18,35 +16,6 @@
     let edges: GraphEdge[] = [];
     let zoom = 100;
 
-    // Canvas background
-    let backgroundCanvas: HTMLCanvasElement;
-    let background: BaseBackground | null = null;
-    let canvasWidth = 0;
-    let canvasHeight = 0;
-
-    function updateBackground() {
-        if (!backgroundCanvas || !background) return;
-        const ctx = backgroundCanvas.getContext('2d');
-        if (!ctx) return;
-
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-        background.update(canvasWidth, canvasHeight);
-        background.draw(ctx);
-        requestAnimationFrame(updateBackground);
-    }
-
-    function initializeCanvas() {
-        if (!browser || !backgroundCanvas) return;
-        canvasWidth = window.innerWidth;
-        canvasHeight = window.innerHeight;
-        backgroundCanvas.width = canvasWidth;
-        backgroundCanvas.height = canvasHeight;
-        
-        background = new BaseBackground(35, canvasWidth, canvasHeight);
-        updateBackground();
-    }
-
-    // Type guards
     function isWordNode(data: WordNode | Definition): data is WordNode {
         return 'word' in data;
     }
@@ -56,7 +25,6 @@
     }
 
     onMount(async () => {
-        console.log('Graph test page mounted');
         try {
             const word = $page.params.word;
             if (!word) throw new Error('No word parameter provided');
@@ -65,7 +33,6 @@
             const data = await getWordData(word);
             if (!data) throw new Error('No word data found');
             
-            console.log('Word data loaded:', data);
             wordData = data;
             
             nodes = [
@@ -88,10 +55,6 @@
                 type: 'wordDefinition'
             }));
 
-            console.log('Created nodes:', nodes);
-            console.log('Created edges:', edges);
-
-            initializeCanvas();
         } catch (e) {
             console.error('Error loading word data:', e);
             error = e instanceof Error ? e.message : 'An error occurred loading the word';
@@ -106,11 +69,6 @@
 </script>
 
 <div class="graph-test">
-    <canvas 
-        bind:this={backgroundCanvas}
-        class="background-canvas"
-    />
-
     <div class="status-overlay">
         <div class="status-text">
             {#if isLoading}
@@ -148,10 +106,6 @@
                         />
                     {/if}
                 </svelte:fragment>
-
-                <svelte:fragment slot="edge" let:edge>
-                    <!-- SVG path for edge will be handled by MainGraph -->
-                </svelte:fragment>
             </MainGraph>
         </div>
     {/if}
@@ -164,15 +118,6 @@
         position: relative;
         overflow: hidden;
         background: black;
-    }
-
-    .background-canvas {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 1;
     }
 
     .status-overlay {

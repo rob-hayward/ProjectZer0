@@ -181,3 +181,11 @@
 - Consider implementing the ProjectZer0AI integration early to facilitate tag generation
 - Keep focusing on test-driven development as we implement new features
 - Regularly review and update this TODO list as the project progresses
+
+
+
+Add nav nodes,
+Add expand and contract between detail and preview node views for all nodes
+colour code nodes
+Update dashboard and word page (and forms?) to exist on our graph.
+

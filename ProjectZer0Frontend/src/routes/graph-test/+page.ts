@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/routes/graph-test/+page.ts
+// src/routes/graph-test/[word]/+page.ts
 export const ssr = false;
 
 export function load() {

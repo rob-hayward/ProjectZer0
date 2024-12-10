@@ -1,33 +1,61 @@
 <!-- src/lib/components/graph/MainGraph.svelte -->
 <script lang="ts">
-    import { onMount, createEventDispatcher } from 'svelte';
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+    import { browser } from '$app/environment';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
-    import type { SvgLayoutConfig, SvgNodePosition } from '$lib/types/svgLayout';
+    import type { SvgLayoutConfig } from '$lib/types/svgLayout';
     import SvgConcentricLayout from './layouts/SvgConcentricLayout.svelte';
+    import { SvgBackground } from './backgrounds/SvgBackground';
+    import type { BackgroundConfig } from './backgrounds/backgroundConfig';
+    import { DEFAULT_BACKGROUND_CONFIG } from './backgrounds/backgroundConfig';
 
     export let nodes: GraphNode[];
     export let edges: GraphEdge[];
     export let config: Partial<SvgLayoutConfig> = {};
+    export let backgroundConfig: Partial<BackgroundConfig> = {};
+
+    const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
     const dispatch = createEventDispatcher<{
         nodeClick: { node: GraphNode };
         nodeHover: { node: GraphNode; isHovered: boolean };
-        detailView: { node: GraphNode };  // Changed from zoomChange
+        detailView: { node: GraphNode };
     }>();
 
     let container: HTMLDivElement;
     let containerWidth: number;
     let containerHeight: number;
 
-    // Handle window resizing
+    // Background elements
+    let backgroundSvg: SVGSVGElement;
+    let backgroundGroup: SVGGElement;
+    let background: SvgBackground | null = null;
+
     function updateDimensions() {
         if (!container) return;
         const rect = container.getBoundingClientRect();
         containerWidth = rect.width;
         containerHeight = rect.height;
+        
+        if (background) {
+            background.resize(containerWidth, containerHeight);
+        }
     }
 
-    // Handle node events
+    // In MainGraph.svelte
+    function initializeBackground() {
+        if (!browser || !backgroundGroup) return;
+        background = new SvgBackground(
+            backgroundGroup, 
+            containerWidth, 
+            containerHeight,
+            
+        );
+        if (background) {
+            background.start();
+        }
+    }
+
     function handleNodeClick(event: CustomEvent<{ node: GraphNode }>) {
         dispatch('nodeClick', event.detail);
     }
@@ -43,17 +71,41 @@
     onMount(() => {
         updateDimensions();
         window.addEventListener('resize', updateDimensions);
-
-        return () => {
-            window.removeEventListener('resize', updateDimensions);
-        };
+        if (containerWidth && containerHeight) {
+            initializeBackground();
+        }
     });
+
+    onDestroy(() => {
+        window.removeEventListener('resize', updateDimensions);
+        if (background) {
+            background.destroy();
+        }
+    });
+
+    $: viewBox = containerWidth ? 
+        `${containerWidth * mergedConfig.viewport.origin.x} ${containerHeight * mergedConfig.viewport.origin.y} ${containerWidth * mergedConfig.viewport.scale} ${containerHeight * mergedConfig.viewport.scale}` : 
+        '0 0 100 100';
 </script>
 
 <div 
     class="main-graph"
     bind:this={container}
 >
+    <svg 
+        bind:this={backgroundSvg}
+        class="background-svg"
+        width="100%"
+        height="100%"
+        {viewBox}
+        preserveAspectRatio={mergedConfig.viewport.preserveAspectRatio}
+    >
+        <g 
+            bind:this={backgroundGroup}
+            class="background-group"
+        />
+    </svg>
+
     {#if nodes && edges && containerWidth && containerHeight}
         <SvgConcentricLayout 
             {nodes}
@@ -85,6 +137,17 @@
         position: relative;
         overflow: hidden;
         background-color: black;
+    }
+
+    .background-svg {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 1;
+        pointer-events: none;
+        overflow: visible;
     }
 
     :global(.main-graph svg) {

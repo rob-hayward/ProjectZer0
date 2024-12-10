@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/layouts/SvgConcentricLayout.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount } from 'svelte';
     import * as d3 from 'd3';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
     import type { SvgLayoutConfig, SvgNodePosition } from '$lib/types/svgLayout';
@@ -16,7 +16,7 @@
     let width: number;
     let height: number;
     let viewBox: string;
-
+    
     const layout = new ConcentricLayout(config);
     let zoomBehavior: d3.ZoomBehavior<SVGSVGElement, unknown>;
 
@@ -29,7 +29,6 @@
         positions = layout.calculateLayout(nodes, edges, width, height);
     }
 
-    // Edge position calculation helper
     function getEdgePath(edge: GraphEdge): string {
         if (typeof edge.source !== 'string' || typeof edge.target !== 'string') {
             console.error('Invalid edge format:', edge);
@@ -87,28 +86,10 @@
             );
     }
 
-    const resizeObserver = new ResizeObserver((entries) => {
-        for (const entry of entries) {
-            if (entry.target === svg) {
-                const rect = entry.contentRect;
-                width = rect.width;
-                height = rect.height;
-                viewBox = `0 0 ${width} ${height}`;
-                positions = layout.calculateLayout(nodes, edges, width, height);
-                initializeZoom();
-            }
-        }
-    });
-
     onMount(() => {
         if (svg) {
-            resizeObserver.observe(svg);
             initializeZoom();
         }
-    });
-
-    onDestroy(() => {
-        resizeObserver.disconnect();
     });
 </script>
 
@@ -121,28 +102,6 @@
         class="layout-svg"
         preserveAspectRatio="xMidYMid meet"
     >
-        <defs>
-            <pattern 
-                id="layout-grid" 
-                width="50" 
-                height="50" 
-                patternUnits="userSpaceOnUse"
-            >
-                <path 
-                    d="M 50 0 L 0 0 0 50" 
-                    fill="none" 
-                    stroke="rgba(255,255,255,0.1)" 
-                    stroke-width="0.5"
-                />
-            </pattern>
-        </defs>
-
-        <rect 
-            width="100%" 
-            height="100%" 
-            fill="url(#layout-grid)"
-        />
-
         <g 
             bind:this={contentGroup}
             class="content-group"
