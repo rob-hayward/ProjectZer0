@@ -94,14 +94,14 @@
                     {#if node.type === 'word' && isWordNode(node.data)}
                         <SvgWordNode 
                             data={node.data} 
-                            {position}
+                            transform={position.svgTransform}
                             mode="preview"
                         />
                     {:else if node.type === 'definition' && isDefinition(node.data)}
                         <SvgDefinitionNode 
                             data={node.data}
                             word={wordData.word}
-                            {position}
+                            transform={position.svgTransform}
                             type={node.data.id === wordData.definitions[0].id ? 'live' : 'alternative'}
                         />
                     {/if}

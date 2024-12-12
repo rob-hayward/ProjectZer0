@@ -1,43 +1,38 @@
 <!-- src/lib/components/graph/nodes/definition/SvgDefinitionNode.svelte -->
 <script lang="ts">
+    import { createEventDispatcher } from 'svelte';
     import type { Definition } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';
-    import type { SvgNodePosition } from '$lib/types/svgLayout';
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
-    import { createEventDispatcher } from 'svelte';
+    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import BaseSvgNode from '../base/BaseSvgNode.svelte';
 
     export let data: Definition;
     export let word: string;
-    export let position: SvgNodePosition;
+    export let transform: string;
     export let type: 'live' | 'alternative' = 'alternative';
     
     const dispatch = createEventDispatcher<{
         click: { data: Definition };
-        mouseenter: { data: Definition };
-        mouseleave: { data: Definition };
+        hover: { data: Definition; isHovered: boolean };
     }>();
 
     let creatorDetails: UserProfile | null = null;
-    let isHovered = false;
 
-    const nodeRadius = type === 'live' ? 180 : 160;
-    const fontSize = type === 'live' ? 16 : 14;
-
-    const colors = {
-        background: type === 'live' 
-            ? 'rgba(74, 144, 226, 0.1)' 
-            : 'rgba(0, 0, 0, 0.7)',
-        border: type === 'live'
-            ? 'rgba(74, 144, 226, 0.3)'
-            : 'rgba(255, 255, 255, 0.2)',
-        borderHover: type === 'live'
-            ? 'rgba(74, 144, 226, 0.5)'
-            : 'rgba(255, 255, 255, 0.4)',
-        text: type === 'live'
-            ? 'rgba(74, 144, 226, 0.9)'
-            : 'rgba(255, 255, 255, 0.9)'
+    $: style = {
+        previewSize: type === 'live' 
+            ? NODE_CONSTANTS.SIZES.DEFINITION.live.preview 
+            : NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview,
+        zoomedSize: NODE_CONSTANTS.SIZES.DEFINITION.base.zoomed,
+        colors: NODE_CONSTANTS.COLORS.DEFINITION[type],
+        padding: NODE_CONSTANTS.PADDING,
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT
     };
+
+    $: fontSize = type === 'live' 
+        ? NODE_CONSTANTS.FONTS.title.size
+        : NODE_CONSTANTS.FONTS.value.size;
 
     async function loadUserDetails() {
         if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
@@ -49,109 +44,123 @@
         dispatch('click', { data });
     }
 
-    function handleMouseEnter() {
-        isHovered = true;
-        dispatch('mouseenter', { data });
+    function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
+        dispatch('hover', { data, isHovered: event.detail.isHovered });
     }
-
-    function handleMouseLeave() {
-        isHovered = false;
-        dispatch('mouseleave', { data });
-    }
-
-    // Use position for transform
-    $: transform = position?.svgTransform || '';
 
     $: {
         loadUserDetails();
     }
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
-<g
-    class="definition-node"
-    class:is-hovered={isHovered}
-    class:is-live={type === 'live'}
+<BaseSvgNode
+    {style}
     {transform}
     on:click={handleClick}
-    on:mouseenter={handleMouseEnter}
-    on:mouseleave={handleMouseLeave}
+    on:hover={handleHover}
+    let:isHovered
 >
-    <!-- Rest of the template remains the same -->
-    <circle
-        r={nodeRadius}
-        fill={colors.background}
-        stroke={isHovered ? colors.borderHover : colors.border}
-        stroke-width="2"
-    />
+    <defs>
+        <radialGradient id="definition-gradient-{type}" cx="50%" cy="50%" r="50%">
+            <stop 
+                offset="0%" 
+                stop-color={style.colors.gradient.start}
+            />
+            <stop 
+                offset="100%" 
+                stop-color={style.colors.gradient.end}
+            />
+        </radialGradient>
 
+        <filter id="definition-glow-{type}">
+            <feGaussianBlur 
+                in="SourceGraphic" 
+                stdDeviation={NODE_CONSTANTS.SVG.filters.glow.deviation}
+            />
+            <feComponentTransfer>
+                <feFuncA 
+                    type="linear" 
+                    slope={NODE_CONSTANTS.SVG.filters.glow.strength}
+                />
+            </feComponentTransfer>
+        </filter>
+    </defs>
+
+    <!-- Title -->
     <text
+        y={-style.previewSize/4}
         class="title"
-        y={-nodeRadius + 30}
-        fill={colors.text}
-        font-family="Orbitron, sans-serif"
-        font-size={fontSize}
-        text-anchor="middle"
+        style:font-family={NODE_CONSTANTS.FONTS.title.family}
+        style:font-size={fontSize}
+        style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
     >
         {type === 'live' ? 'Live Definition' : 'Alternative Definition'}
     </text>
 
+    <!-- Word -->
     <text
+        y={-style.previewSize/4 + style.lineHeight.preview * 2}
         class="word"
-        y={-nodeRadius + 60}
-        fill={colors.text}
-        font-family="Orbitron, sans-serif"
-        font-size={fontSize + 2}
-        text-anchor="middle"
+        style:font-family={NODE_CONSTANTS.FONTS.value.family}
+        style:font-size={fontSize}
+        style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
     >
         {word}
     </text>
 
+    <!-- Definition text -->
     <foreignObject
-        x={-nodeRadius + 20}
-        y={-nodeRadius + 80}
-        width={nodeRadius * 2 - 40}
-        height={nodeRadius * 2 - 100}
+        x={-style.previewSize/2 + style.padding.preview}
+        y={-style.previewSize/4 + style.lineHeight.preview * 3}
+        width={style.previewSize - style.padding.preview * 2}
+        height={style.previewSize/2}
     >
         <div class="definition-text">
             {data.text}
         </div>
     </foreignObject>
 
-    <text
-        class="creator"
-        y={nodeRadius - 20}
-        fill={colors.text}
-        font-family="Orbitron, sans-serif"
-        font-size={fontSize - 4}
-        text-anchor="middle"
-    >
-        Created by: {getDisplayName(data.createdBy, creatorDetails, false)}
-    </text>
-
+    <!-- Creator info -->
     {#if data.createdBy !== 'FreeDictionaryAPI'}
         <text
+            y={style.previewSize/4 - style.lineHeight.preview * 2}
             class="votes"
-            y={nodeRadius - 40}
-            fill={colors.text}
-            font-family="Orbitron, sans-serif"
-            font-size={fontSize - 2}
-            text-anchor="middle"
+            style:font-family={NODE_CONSTANTS.FONTS.value.family}
+            style:font-size={fontSize}
+            style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
         >
             Votes: {data.votes}
         </text>
     {/if}
-</g>
+
+    <text
+        y={style.previewSize/4 - style.lineHeight.preview}
+        class="creator"
+        style:font-family={NODE_CONSTANTS.FONTS.value.family}
+        style:font-size={fontSize}
+        style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+    >
+        Created by: {getDisplayName(data.createdBy, creatorDetails, false)}
+    </text>
+</BaseSvgNode>
 
 <style>
-    .definition-node {
-        cursor: pointer;
-        transition: all 0.3s ease-out;
+    text {
+        text-anchor: middle;
+        fill: var(--text-color, white);
+        user-select: none;
+    }
+
+    .title {
+        --text-color: var(--title-color, rgba(255, 255, 255, 0.9));
+    }
+
+    .word {
+        --text-color: var(--word-color, white);
     }
 
     .definition-text {
-        color: white;
+        color: var(--text-color, rgba(255, 255, 255, 0.9));
         font-family: 'Orbitron', sans-serif;
         font-size: 14px;
         line-height: 1.4;
@@ -160,16 +169,11 @@
         padding: 0 10px;
     }
 
-    .is-hovered {
-        filter: brightness(1.2);
+    .votes, .creator {
+        --text-color: var(--meta-color, rgba(255, 255, 255, 0.7));
     }
 
-    :global(.definition-node text) {
-        user-select: none;
-    }
-
-    :global(.definition-text) {
-        background: transparent;
-        color: rgba(255, 255, 255, 0.9);
+    :global(.definition-node) {
+        transition: all var(--animation-duration, 0.3s) var(--animation-easing, ease-out);
     }
 </style>

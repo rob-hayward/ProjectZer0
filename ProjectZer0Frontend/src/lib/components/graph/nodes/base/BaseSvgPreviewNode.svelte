@@ -1,20 +1,16 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseSvgPreviewNode.svelte -->
+<!-- src/lib/components/graph/nodes/base/BaseSvgPreviewNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { spring } from 'svelte/motion';
     import type { NodeStyle } from '$lib/types/nodes';
-    import type { SvgNodePosition } from '$lib/types/svgLayout';
 
     export let style: NodeStyle;
-    export let position: SvgNodePosition;
+    export let transform: string;
 
     let isHovered = false;
-    let centerX: number;
-    let centerY: number;
-    let radius: number;
-
+    
     const dispatch = createEventDispatcher<{
-        detail: void;  // Renamed from zoom to detail
+        detail: void;
         hover: { isHovered: boolean };
     }>();
 
@@ -29,7 +25,7 @@
     }
 
     function handleClick() {
-        dispatch('detail');  // Renamed from zoom
+        dispatch('detail');
     }
 
     // Spring animation for hover effect
@@ -38,26 +34,34 @@
         damping: 0.6
     });
 
-    $: {
-        centerX = position.x;
-        centerY = position.y;
-        radius = style.previewSize / 2;
-        hoverScale.set(isHovered ? 1.05 : 1);
-    }
+    $: hoverScale.set(isHovered ? 1.05 : 1);
 </script>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
     class="preview-node"
-    transform={position.svgTransform}
+    {transform}
+    on:mouseenter={handleMouseEnter}
+    on:mouseleave={handleMouseLeave}
+    on:click={handleClick}
 >
-    <!-- Separate group for hover animation to avoid conflicts with positioning -->
     <g transform={`scale(${$hoverScale})`}>
         <slot 
-            {centerX} 
-            {centerY} 
-            {radius} 
             {isHovered} 
             {style}
         />
     </g>
 </g>
+
+<style>
+    .preview-node {
+        transform-origin: center;
+        transition: transform 0.3s ease-out;
+        cursor: pointer;
+    }
+
+    :global(.preview-node *) {
+        vector-effect: non-scaling-stroke;
+    }
+</style>

@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/word/SvgWordZoomed.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/word/SvgWordDetail.svelte -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';

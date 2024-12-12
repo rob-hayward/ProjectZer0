@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/layouts/SvgConcentricLayout.svelte -->
+<!-- src/lib/components/graph/layouts/SvgConcentricLayout.svelte
 <script lang="ts">
     import { onMount } from 'svelte';
     import * as d3 from 'd3';
@@ -200,4 +200,4 @@
     :global(.node-wrapper *) {
         vector-effect: non-scaling-stroke;
     }
-</style>
+</style> -->

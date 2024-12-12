@@ -1,4 +1,32 @@
 // src/lib/types/nodes.ts
+export interface Definition {
+    id: string;
+    text: string;
+    createdBy: string;
+    createdAt: string;
+    votes: number;
+    isLive?: boolean;
+}
+
+export interface WordNode {
+    id: string;
+    word: string;
+    createdBy: string;
+    publicCredit: boolean;
+    createdAt: string;
+    updatedAt: string;
+    positiveVotes: number;
+    negativeVotes: number;
+    definitions: Definition[];
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
+export type NodeMode = 'preview' | 'zoomed';
+export type NodeType = 'word' | 'definition' | 'belief';
+
 export interface NodeStyle {
     previewSize: number;
     zoomedSize: number;
@@ -29,32 +57,10 @@ export interface NodeStyle {
             duration: string;
             easing: string;
         };
+        transform?: {
+            translate?: { x: number; y: number };
+            scale?: number;
+            rotate?: number;
+        };
     };
 }
-
-export interface Definition {
-    id: string;
-    text: string;
-    createdBy: string;
-    createdAt: string;
-    votes: number;
-}
-
-export interface WordNode {
-    id: string;
-    word: string;
-    createdBy: string;
-    publicCredit: boolean;
-    createdAt: string;
-    updatedAt: string;
-    positiveVotes: number;
-    negativeVotes: number;
-    definitions: Definition[];
-    discussion?: {
-        id: string;
-        comments: Comment[];
-    };
-}
-
-export type NodeMode = 'preview' | 'zoomed';
-export type NodeType = 'word' | 'definition' | 'belief';

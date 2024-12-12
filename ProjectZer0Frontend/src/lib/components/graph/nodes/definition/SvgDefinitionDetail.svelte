@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/nodes/definition/SvgDefinitionZoomed.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/definition/SvgDefinitionDetail.svelte-->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { Definition, NodeStyle } from '$lib/types/nodes';

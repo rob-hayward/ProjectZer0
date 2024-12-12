@@ -76,17 +76,17 @@
     }
 
     .title {
-        font-size: 16px;
+        font-size: 12px;
     }
 
     .word {
-        font-size: 24px;
+        font-size: 14px;
         fill: white;
         font-weight: 500;
     }
 
     .hover-text {
-        font-size: 14px;
+        font-size: 10px;
         fill: rgba(255, 255, 255, 0.7);
     }
 </style>

@@ -2,16 +2,15 @@
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
-    import type { GraphNode, GraphEdge } from '$lib/types/graph';
-    import type { SvgLayoutConfig } from '$lib/types/svgLayout';
-    import SvgConcentricLayout from './layouts/SvgConcentricLayout.svelte';
+    import type { GraphNode, GraphEdge, GraphLayoutConfig } from '$lib/types/graph';
+    import ForceLayout from './layouts/ForceLayout.svelte';
     import { SvgBackground } from './backgrounds/SvgBackground';
     import type { BackgroundConfig } from './backgrounds/backgroundConfig';
     import { DEFAULT_BACKGROUND_CONFIG } from './backgrounds/backgroundConfig';
 
     export let nodes: GraphNode[];
     export let edges: GraphEdge[];
-    export let config: Partial<SvgLayoutConfig> = {};
+    export let config: Partial<GraphLayoutConfig> = {};
     export let backgroundConfig: Partial<BackgroundConfig> = {};
 
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
@@ -42,14 +41,12 @@
         }
     }
 
-    // In MainGraph.svelte
     function initializeBackground() {
         if (!browser || !backgroundGroup) return;
         background = new SvgBackground(
             backgroundGroup, 
             containerWidth, 
-            containerHeight,
-            
+            containerHeight
         );
         if (background) {
             background.start();
@@ -107,7 +104,7 @@
     </svg>
 
     {#if nodes && edges && containerWidth && containerHeight}
-        <SvgConcentricLayout 
+        <ForceLayout 
             {nodes}
             {edges}
             {config}
@@ -115,7 +112,7 @@
             on:nodeHover={handleNodeHover}
             on:detailView={handleDetailView}
         >
-            <svelte:fragment slot="default" let:node let:position>
+            <svelte:fragment slot="node" let:node let:position>
                 <slot 
                     name="node" 
                     {node}
@@ -126,7 +123,7 @@
             <svelte:fragment slot="edge" let:edge>
                 <slot name="edge" {edge} />
             </svelte:fragment>
-        </SvgConcentricLayout>
+        </ForceLayout>
     {/if}
 </div>
 
