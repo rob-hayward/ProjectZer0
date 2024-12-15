@@ -1,23 +1,41 @@
-// src/components/graph/nodes/utils/nodeStyles.ts
+// ProjectZer0Frontend/src/lib/components/graph/nodes/utils/nodeStyles.ts
 import type { NodeStyle } from '$lib/types/nodes';
 import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
 
 export function createWordNodeStyle(): NodeStyle {
     return {
         previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
-        zoomedSize: NODE_CONSTANTS.SIZES.WORD.zoomed,
+        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
         colors: NODE_CONSTANTS.COLORS.WORD,
-        padding: NODE_CONSTANTS.PADDING,
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT
+        padding: {
+            preview: NODE_CONSTANTS.PADDING.preview,
+            detail: NODE_CONSTANTS.PADDING.detail
+        },
+        lineHeight: {
+            preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
+            detail: NODE_CONSTANTS.LINE_HEIGHT.detail
+        },
+        stroke: NODE_CONSTANTS.STROKE
     };
 }
 
-export function createDefinitionNodeStyle(): NodeStyle {
+export function createDefinitionNodeStyle(type: 'live' | 'alternative'): NodeStyle {
     return {
-        previewSize: NODE_CONSTANTS.SIZES.DEFINITION.preview,
-        zoomedSize: NODE_CONSTANTS.SIZES.DEFINITION.zoomed,
-        colors: NODE_CONSTANTS.COLORS.DEFINITION,
-        padding: NODE_CONSTANTS.PADDING,
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT
+        previewSize: type === 'live' 
+            ? NODE_CONSTANTS.SIZES.DEFINITION.live.preview
+            : NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview,
+        detailSize: type === 'live'
+            ? NODE_CONSTANTS.SIZES.DEFINITION.live.detail
+            : NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail,
+        colors: NODE_CONSTANTS.COLORS.DEFINITION[type],
+        padding: {
+            preview: NODE_CONSTANTS.PADDING.preview,
+            detail: NODE_CONSTANTS.PADDING.detail
+        },
+        lineHeight: {
+            preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
+            detail: NODE_CONSTANTS.LINE_HEIGHT.detail
+        },
+        stroke: NODE_CONSTANTS.STROKE
     };
 }

@@ -12,8 +12,8 @@
 
     const CONTENT_WIDTH = 350;
     const CONTENT_START_Y = -180;
-    const PADDING = style.padding.zoomed;
-    const LINE_HEIGHT = style.lineHeight.zoomed;
+    const PADDING = style.padding.detail;
+    const LINE_HEIGHT = style.lineHeight.detail;
 
     let wordCreatorDetails: UserProfile | null = null;
     let definitionCreatorDetails: UserProfile | null = null;
@@ -59,7 +59,7 @@
     $: definitionLines = liveDefinition ? wrapText(liveDefinition.text) : [];
 </script>
 
-<g class="word-zoomed">
+<g class="word-detail">
     <!-- Background gradient -->
     <defs>
         <linearGradient id="contentGradient" x1="0" y1="0" x2="0" y2="1">
@@ -167,7 +167,7 @@
         fill: white;
     }
 
-    :global(.word-zoomed text) {
+    :global(.word-detail text) {
         vector-effect: non-scaling-stroke;
     }
 </style>

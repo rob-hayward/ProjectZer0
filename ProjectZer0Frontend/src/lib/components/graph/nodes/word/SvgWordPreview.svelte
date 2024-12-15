@@ -30,7 +30,7 @@
         cy={centerY}
         r={radius}
         stroke={borderColor}
-        stroke-width="2"
+        stroke-width="12"
         fill="none"
     />
 

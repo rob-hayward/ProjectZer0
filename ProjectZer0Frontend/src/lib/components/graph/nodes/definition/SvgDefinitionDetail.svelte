@@ -15,11 +15,11 @@
 
     const CONTENT_WIDTH = 350;
     const CONTENT_START_Y = -180;
-    const PADDING = style.padding.zoomed;
-    const LINE_HEIGHT = style.lineHeight.zoomed;
+    const PADDING = style.padding.detail;
+    const LINE_HEIGHT = style.lineHeight.detail;
 
     // Generate unique gradient ID for this instance
-    const gradientId = `definition-zoomed-${Math.random().toString(36).substr(2, 9)}`;
+    const gradientId = `definition-detail-${Math.random().toString(36).substr(2, 9)}`;
 
     // Calculate wrapped definition text
     $: definitionLines = wrapSvgText(
@@ -33,7 +33,7 @@
 
 <!-- Rest of the component remains the same -->
 
-<g class="definition-zoomed" class:is-live={type === 'live'}>
+<g class="definition-detail" class:is-live={type === 'live'}>
     <defs>
         <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stop-color={type === 'live' ? 'rgba(74, 144, 226, 0.1)' : 'rgba(255, 255, 255, 0.1)'} />
@@ -46,7 +46,7 @@
         x={-CONTENT_WIDTH/2}
         y={CONTENT_START_Y}
         width={CONTENT_WIDTH}
-        height={style.zoomedSize}
+        height={style.detailSize}
         fill={`url(#${gradientId})`}
         rx="4"
         ry="4"
@@ -105,7 +105,7 @@
 </g>
 
 <style>
-    .definition-zoomed text {
+    .definition-detail text {
         font-family: 'Orbitron', sans-serif;
         vector-effect: non-scaling-stroke;
     }
@@ -146,11 +146,11 @@
     }
 
     /* Hover effects */
-    .definition-zoomed {
+    .definition-detail {
         transition: all 0.3s ease-out;
     }
 
-    .definition-zoomed:hover {
+    .definition-detail:hover {
         filter: brightness(1.1);
     }
 </style>

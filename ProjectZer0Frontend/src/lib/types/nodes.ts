@@ -24,12 +24,12 @@ export interface WordNode {
     };
 }
 
-export type NodeMode = 'preview' | 'zoomed';
+export type NodeMode = 'preview' | 'detail';
 export type NodeType = 'word' | 'definition' | 'belief';
 
 export interface NodeStyle {
     previewSize: number;
-    zoomedSize: number;
+    detailSize: number;
     colors: {
         background: string;
         border: string;
@@ -38,29 +38,24 @@ export interface NodeStyle {
         gradient?: {
             start: string;
             end: string;
-        }
+        };
     };
     padding: {
         preview: number;
-        zoomed: number;
+        detail: number;
     };
     lineHeight: {
         preview: number;
-        zoomed: number;
+        detail: number;
     };
-    svg?: {
-        filters?: {
-            blur?: string;
-            glow?: string;
+    stroke: {
+        preview: {
+            normal: number;
+            hover: number;
         };
-        animation?: {
-            duration: string;
-            easing: string;
-        };
-        transform?: {
-            translate?: { x: number; y: number };
-            scale?: number;
-            rotate?: number;
+        detail: {
+            normal: number;
+            hover: number;
         };
     };
 }

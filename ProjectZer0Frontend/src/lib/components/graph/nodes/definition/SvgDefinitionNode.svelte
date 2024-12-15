@@ -24,10 +24,11 @@
         previewSize: type === 'live' 
             ? NODE_CONSTANTS.SIZES.DEFINITION.live.preview 
             : NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview,
-        zoomedSize: NODE_CONSTANTS.SIZES.DEFINITION.base.zoomed,
+        detailSize: NODE_CONSTANTS.SIZES.DEFINITION.live.detail,
         colors: NODE_CONSTANTS.COLORS.DEFINITION[type],
         padding: NODE_CONSTANTS.PADDING,
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE
     };
 
     $: fontSize = type === 'live' 

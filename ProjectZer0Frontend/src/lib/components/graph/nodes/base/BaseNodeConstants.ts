@@ -1,65 +1,87 @@
-// src/lib/components/graph/nodes/base/BaseNodeConstants.ts
+// ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseNodeConstants.ts
+import { COLORS } from '$lib/constants/colors';
+
 export const CIRCLE_RADIUS = 290;
 
 export const NODE_CONSTANTS = {
     SIZES: {
         WORD: {
-            preview: 300,      
-            zoomed: 600       
+            preview: 135,      
+            detail: 600       
         },
         DEFINITION: {
-            base: {
-                preview: 360,
-                zoomed: 600
-            },
             live: {
-                preview: 360,
-                zoomed: 600
+                preview: 320,
+                detail: 600
             },
             alternative: {
                 preview: 320,
-                zoomed: 600
+                detail: 600
             }
         }
     },
+    STROKE: {
+        preview: {
+            normal: 3,
+            hover: 6
+        },
+        detail: {
+            normal: 2,
+            hover: 3
+        }
+    },
     PADDING: {
-        preview: 20,         
-        zoomed: 40           
+        preview: 10,         
+        detail: 40           
     },
     LINE_HEIGHT: {
         preview: 16,         
-        zoomed: 24           
+        detail: 24           
+    },
+    EFFECTS: {
+        glow: {
+            normal: {
+                blur: 5,
+                strength: 0.6,
+                spread: 2
+            },
+            hover: {
+                blur: 8,
+                strength: 0.8,
+                spread: 3
+            }
+        }
     },
     COLORS: {
         WORD: {
-            background: 'rgba(0, 0, 0, 0.7)',
-            border: 'rgba(255, 255, 255, 0.2)',
-            text: 'rgba(255, 255, 255, 0.9)',
-            hover: 'rgba(255, 255, 255, 0.4)',
+            background: `${COLORS.PRIMARY.BLUE}33`,
+            border: `${COLORS.PRIMARY.BLUE}FF`,
+            text: `${COLORS.PRIMARY.BLUE}FF`,
+            hover: `${COLORS.PRIMARY.BLUE}FF`,
             gradient: {
-                start: 'rgba(0, 0, 0, 0.8)',
-                end: 'rgba(0, 0, 0, 0.7)'
+                start: `${COLORS.PRIMARY.BLUE}66`,
+                end: `${COLORS.PRIMARY.BLUE}33`
             }
         },
         DEFINITION: {
             live: {
-                background: 'rgba(74, 144, 226, 0.1)',
-                border: 'rgba(74, 144, 226, 0.3)',
-                text: 'rgba(74, 144, 226, 0.9)',
-                hover: 'rgba(74, 144, 226, 0.5)',
+                background: `${COLORS.PRIMARY.BLUE}33`,
+                border: `${COLORS.PRIMARY.BLUE}FF`,
+                text: `${COLORS.PRIMARY.BLUE}FF`,
+                hover: `${COLORS.PRIMARY.BLUE}FF`,
                 gradient: {
-                    start: 'rgba(74, 144, 226, 0.2)',
-                    end: 'rgba(74, 144, 226, 0.1)'
+                    start: `${COLORS.PRIMARY.BLUE}66`,
+                    end: `${COLORS.PRIMARY.BLUE}33`
                 }
             },
             alternative: {
-                background: 'rgba(0, 0, 0, 0.8)',
-                border: 'rgba(255, 255, 255, 0.2)',
-                text: 'rgba(255, 255, 255, 0.9)',
-                hover: 'rgba(255, 255, 255, 0.4)',
+                background: `${COLORS.PRIMARY.PURPLE}33`,
+                border: `${COLORS.PRIMARY.PURPLE}FF`,
+                text: `${COLORS.PRIMARY.PURPLE}FF`,
+                hover: `${COLORS.PRIMARY.PURPLE}FF`,
                 gradient: {
-                    start: 'rgba(0, 0, 0, 0.9)',
-                    end: 'rgba(0, 0, 0, 0.8)'
+                    start: `${COLORS.PRIMARY.PURPLE}66`,
+                    end: `${COLORS.PRIMARY.PURPLE}33`
                 }
             }
         }
@@ -67,13 +89,13 @@ export const NODE_CONSTANTS = {
     FONTS: {
         title: {
             family: 'Orbitron',
-            size: '16px',
+            size: '12px',
             weight: '500'
         },
         value: {
             family: 'Orbitron',
-            size: '14px',
-            weight: '400'
+            size: '13px',
+            weight: '300'
         },
         hover: {
             family: 'Orbitron',
@@ -95,19 +117,6 @@ export const NODE_CONSTANTS = {
         animation: {
             duration: '0.3s',
             easing: 'ease-out'
-        }
-    },
-    LAYOUT: {
-        RADIUS: {
-            CENTER: 0,
-            LIVE_DEFINITION: 200,
-            ALTERNATIVE_BASE: 300,
-            MAX_RADIUS: 500
-        },
-        FORCES: {
-            CHARGE: -800,
-            COLLISION: 150,
-            RADIAL: 0.7
         }
     }
 } as const;

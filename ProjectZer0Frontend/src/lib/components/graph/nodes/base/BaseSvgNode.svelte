@@ -1,4 +1,3 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseSvgNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { NodeStyle } from '$lib/types/nodes';
@@ -15,33 +14,91 @@
     function handleClick() {
         dispatch('click');
     }
+
+    const filterId = `glow-${Math.random().toString(36).slice(2)}`;
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
     class="base-node"
-    class:hovered={isHovered}
     {transform}
     on:mouseenter={() => dispatch('hover', { isHovered: true })}
     on:mouseleave={() => dispatch('hover', { isHovered: false })}
     on:click={handleClick}
 >
-    <!-- Background -->
-    <circle
-        r={style.previewSize / 2}
-        class="background"
-        fill={style.colors.background}
-    />
+<defs>
+    <filter 
+        id={filterId} 
+        x="-50%" 
+        y="-50%" 
+        width="200%" 
+        height="200%" 
+        filterUnits="userSpaceOnUse"
+    >
+        <!-- Multiple blur layers for stronger glow -->
+        <feGaussianBlur 
+            in="SourceAlpha" 
+            stdDeviation="2"
+            result="blur1"
+        />
+        <feFlood 
+            flood-color={style.colors.border}
+            flood-opacity="1"
+            result="color1"
+        />
+        <feComposite 
+            in="color1"
+            in2="blur1"
+            operator="in"
+            result="shadow1"
+        />
+        
+        <!-- Second glow layer for intensity -->
+        <feGaussianBlur 
+            in="SourceAlpha" 
+            stdDeviation="4"
+            result="blur2"
+        />
+        <feFlood 
+            flood-color={style.colors.border}
+            flood-opacity="0.8"
+            result="color2"
+        />
+        <feComposite 
+            in="color2"
+            in2="blur2"
+            operator="in"
+            result="shadow2"
+        />
+
+        <feMerge>
+            <feMergeNode in="shadow2"/>
+            <feMergeNode in="shadow1"/>
+            <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+    </filter>
+</defs>
     
-    <!-- Border -->
-    <circle
-        r={style.previewSize / 2}
-        class="border"
-        stroke={isHovered ? style.colors.hover : style.colors.border}
-        stroke-width="2"
-        fill="none"
-    />
+    <!-- Glow group -->
+    <g class="glow-group">
+        <!-- Background -->
+        <circle
+            r={style.previewSize / 2}
+            class="background"
+            fill={style.colors.background}
+        />
+        
+        <!-- Border with glow -->
+        <circle
+            r={style.previewSize / 2}
+            class="border"
+            stroke={style.colors.border}
+            stroke-width={style.stroke.preview.normal}
+            fill="none"
+            filter={`url(#${filterId})`}
+        />
+    </g>
     
     <!-- Content slot -->
     <slot {isHovered} />
@@ -50,11 +107,11 @@
 <style>
     .base-node {
         transform-origin: center;
-        transition: transform 0.3s ease-out;
     }
     
-    .hovered {
-        transform: scale(1.05);
+    .glow-group {
+        transform-box: fill-box;
+        transform-origin: center;
     }
     
     .background {
@@ -62,7 +119,7 @@
     }
     
     .border {
-        transition: stroke 0.3s ease-out;
+        vector-effect: non-scaling-stroke;
     }
 
     :global(.base-node *) {

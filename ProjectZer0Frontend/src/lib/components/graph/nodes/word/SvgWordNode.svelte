@@ -11,10 +11,11 @@
 
     const style = {
         previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
-        zoomedSize: NODE_CONSTANTS.SIZES.WORD.zoomed,
+        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
         colors: NODE_CONSTANTS.COLORS.WORD,
         padding: NODE_CONSTANTS.PADDING,
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE
     };
 
     const dispatch = createEventDispatcher<{
@@ -26,7 +27,7 @@
     function handleClick() {
         dispatch('click', { data });
         dispatch('modeChange', { 
-            mode: mode === 'preview' ? 'zoomed' : 'preview' 
+            mode: mode === 'preview' ? 'detail' : 'preview' 
         });
     }
 
