@@ -1,5 +1,6 @@
+
 <!-- ProjectZer0Frontend/src/lib/components/graph/layouts/ForceLayout.svelte -->
-<script lang="ts">
+<!-- <script lang="ts">
     import { onMount, createEventDispatcher, onDestroy } from 'svelte';
     import * as d3 from 'd3';
     import type { GraphNode, GraphEdge, GraphLayoutConfig, NodePosition } from '$lib/types/graph';
@@ -195,9 +196,9 @@
             </g>
         {/if}
     </g>
-</svg>
+</svg> -->
 
-<style>
+<!-- <style>
     .force-layout {
         width: 100%;
         height: 100%;
@@ -233,4 +234,4 @@
     :global(.force-layout *) {
         vector-effect: non-scaling-stroke;
     }
-</style>
+</style> -->

@@ -1,2 +1,2 @@
-import * as universal from "../../../../src/routes/graph-test/+page.ts";
+import * as universal from "../../../../src/routes/graph/+page.ts";
 export { universal };

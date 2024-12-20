@@ -2,6 +2,7 @@
 import { COLORS } from '$lib/constants/colors';
 
 export const LAYOUT_CONSTANTS = {
+    // Original constants for word/definition views
     RADIUS: {
         CENTER: 0,
         LIVE_DEFINITION: {
@@ -31,11 +32,22 @@ export const LAYOUT_CONSTANTS = {
         }
     },
 
+    // New navigation-specific layout constants
+    NAVIGATION: {
+        RADIUS: 350,         // Increased radius for better spacing
+        SPACING: 60,         // Increased minimum spacing between nodes
+        STRENGTH: {
+            RADIAL: 2.0,     // Increased to maintain circular formation
+            COLLISION: 1.5,   // Increased to prevent overlap
+            CHARGE: -200     // Stronger repulsion between nodes
+        }
+    },
+
     // Simulation settings
     SIMULATION: {
-        VELOCITY_DECAY: 0.4,
-        ALPHA_DECAY: 0.01,
-        ITERATIONS: 300
+        VELOCITY_DECAY: 0.7,    // Increased to stabilize positions
+        ALPHA_DECAY: 0.02,      // Adjusted for quicker settling
+        ITERATIONS: 500         // Increased for better settling
     },
 
     // Colors for edges/links

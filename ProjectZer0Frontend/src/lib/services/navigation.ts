@@ -1,3 +1,4 @@
+// ProjectZer0Frontend/src/lib/services/navigation.ts
 import { goto } from '$app/navigation';
 import { get } from 'svelte/store';
 import * as auth0 from './auth0';

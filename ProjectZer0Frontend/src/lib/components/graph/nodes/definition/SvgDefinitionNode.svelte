@@ -6,7 +6,7 @@
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
-    import BaseSvgNode from '../base/BaseSvgNode.svelte';
+    import BaseSvgNode from '../base/BaseNode.svelte';
 
     export let data: Definition;
     export let word: string;

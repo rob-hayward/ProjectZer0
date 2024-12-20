@@ -1,60 +1,61 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/edges/base/BaseEdge.svelte -->
 <script lang="ts">
+    import { calculateEdgePath, adjustEdgeLength, getNodeRadius } from '../utils/edgeUtils';
+    import { EDGE_CONSTANTS } from './BaseEdgeConstants';
     import type { GraphNode } from '$lib/types/graph';
-    import type { WordNode, Definition } from '$lib/types/nodes';
-    import { NODE_CONSTANTS } from '../../nodes/base/BaseNodeConstants';
-    
+ 
     export let sourceNode: GraphNode;
     export let targetNode: GraphNode;
     export let sourceX: number;
     export let sourceY: number;
     export let targetX: number;
     export let targetY: number;
-
+ 
     const edgeId = `edge-${Math.random().toString(36).slice(2)}`;
     const gradientId = `gradient-${edgeId}`;
-
-    // Determine if this is a live definition connection
-    $: isLiveDefinition = 
-        targetNode.type === 'definition' && 
-        targetNode.group === 'live-definition';
-
-    // Get node colors
-    $: sourceColor = NODE_CONSTANTS.COLORS.WORD.border;
-    $: targetColor = isLiveDefinition ? 
-        NODE_CONSTANTS.COLORS.DEFINITION.live.border : 
-        NODE_CONSTANTS.COLORS.DEFINITION.alternative.border;
-
-    // Calculate path with proper node radii
-    $: path = (() => {
-        const sourceRadius = sourceNode.type === 'word' ? 
-            NODE_CONSTANTS.SIZES.WORD.preview / 2 : 
-            NODE_CONSTANTS.SIZES.DEFINITION.live.preview / 2;
-
-        const targetRadius = targetNode.type === 'word' ? 
-            NODE_CONSTANTS.SIZES.WORD.preview / 2 : 
-            (isLiveDefinition ? 
-                NODE_CONSTANTS.SIZES.DEFINITION.live.preview / 2 : 
-                NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview / 2);
-
-        const dx = targetX - sourceX;
-        const dy = targetY - sourceY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+    const filterGlowId = `glow-${edgeId}`;
+ 
+    let path: string;
+    $: {
+        const sourceRadius = getNodeRadius(sourceNode);
+        const targetRadius = getNodeRadius(targetNode);
         
-        if (distance === 0) return '';
-
-        const angle = Math.atan2(dy, dx);
-        const startX = sourceX + (sourceRadius * Math.cos(angle));
-        const startY = sourceY + (sourceRadius * Math.sin(angle));
-        const endX = targetX - (targetRadius * Math.cos(angle));
-        const endY = targetY - (targetRadius * Math.sin(angle));
-
-        return `M ${startX} ${startY} L ${endX} ${endY}`;
-    })();
-</script>
-
-<g class="edge">
+        // Adjust coordinates to account for node sizes
+        const adjusted = adjustEdgeLength(
+            sourceX,
+            sourceY,
+            targetX,
+            targetY,
+            sourceRadius,
+            targetRadius
+        );
+        
+        path = calculateEdgePath(
+            adjusted.x1,
+            adjusted.y1,
+            adjusted.x2,
+            adjusted.y2
+        );
+    }
+ </script>
+ 
+ <g 
+    class="edge" 
+    data-edge-id={edgeId}
+    data-source-id={sourceNode.id}
+    data-target-id={targetNode.id}
+ >
     <defs>
+        <!-- Add glow filter -->
+        <filter id={filterGlowId} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
+            <feColorMatrix
+                type="matrix"
+                values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1  0 0 0 0.5 0"
+            />
+            <feComposite in="SourceGraphic" operator="over" />
+        </filter>
+ 
         <linearGradient
             id={gradientId}
             gradientUnits="userSpaceOnUse"
@@ -63,27 +64,53 @@
             x2={targetX}
             y2={targetY}
         >
-            <stop offset="0%" stop-color={sourceColor} stop-opacity="0.8" />
-            <stop offset="100%" stop-color={targetColor} stop-opacity="0.8" />
+            <slot name="gradient">
+                <stop
+                    offset="0%"
+                    stop-color={EDGE_CONSTANTS.COLORS.WORD}
+                    stop-opacity="0.8"
+                />
+                <stop
+                    offset="100%"
+                    stop-color={EDGE_CONSTANTS.COLORS.WORD}
+                    stop-opacity="0.4"
+                />
+            </slot>
         </linearGradient>
     </defs>
-
+ 
+    <!-- Background glow -->
+    <path
+        d={path}
+        class="edge-glow"
+        filter={`url(#${filterGlowId})`}
+    />
+ 
+    <!-- Main edge path -->
     <path
         d={path}
         stroke={`url(#${gradientId})`}
-        stroke-width="2"
         class="edge-path"
+        data-source-type={sourceNode.type}
+        data-target-type={targetNode.type}
     />
-</g>
-
-<style>
-    .edge-path {
-        fill: none;
-        vector-effect: non-scaling-stroke;
-    }
-
+ </g>
+ 
+ <style>
     .edge {
         pointer-events: none;
-        mix-blend-mode: screen;
     }
-</style>
+ 
+    .edge-path {
+        fill: none;
+        stroke-width: 2px;
+        vector-effect: non-scaling-stroke;
+    }
+ 
+    .edge-glow {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.1);
+        stroke-width: 4px;
+        vector-effect: non-scaling-stroke;
+    }
+ </style>

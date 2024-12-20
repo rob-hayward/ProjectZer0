@@ -1,121 +1,119 @@
-<!-- src/lib/components/graph/nodes/navigation/NavigationNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { NavigationOption } from '$lib/types/navigation';
     import { getNavigationColor } from './navigationColors';
-    import { COLORS } from '$lib/constants/colors';
-    
-    export let option: NavigationOption;
-    export let x: number = 0;
-    export let y: number = 0;
-    export let scale: number = 1;
-    export let isHovered: boolean = false;
+    import { createGlowFilter, createGlowGradient } from '$lib/utils/svgAnimations';
 
     const dispatch = createEventDispatcher();
 
-    $: color = getNavigationColor(option.id);
-    $: transform = `translate(${x}, ${y}) scale(${scale})`;
-    $: opacity = isHovered ? 1 : (scale - 1) / 0.5;
-    $: labelOpacity = Math.max(0, Math.min(1, opacity));
+    export let option: NavigationOption;
+    export let transform: string;
+    export let isHovered = false;
 
-    function handleClick() {
-        dispatch('click', { id: option.id });
-    }
-
-    function handleMouseEnter() {
-        dispatch('mouseenter', { id: option.id });
-    }
-
-    function handleMouseLeave() {
-        dispatch('mouseleave', { id: option.id });
-    }
+    const color = getNavigationColor(option.id);
+    
+    // Create unique filter and gradient IDs for this node
+    const glowEffect = {
+        color,
+        radius: 25,
+        intensity: 0.2,
+        fade: true
+    };
+    
+    const { id: filterId, element: filterElement } = createGlowFilter(glowEffect);
+    const { id: gradientId, element: gradientElement } = createGlowGradient(glowEffect);
+    
+    $: transformValues = transform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)?.slice(1).map(Number) ?? [0, 0];
+    $: [translateX, translateY] = transformValues;
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
-    class="navigation-node" 
+    class="navigation-node"
     {transform}
-    class:hovered={isHovered}
-    on:click={handleClick}
-    on:mouseenter={handleMouseEnter}
-    on:mouseleave={handleMouseLeave}
+    on:mouseenter
+    on:mouseleave
+    on:click
 >
-    <!-- Glow effect when hovered -->
-    {#if isHovered}
-        <circle
-            r="25"
-            class="glow"
-            fill="none"
-            stroke={color}
-            stroke-opacity="0.15"
-            filter="url(#navigationGlow)"
-        />
-    {/if}
+    <defs>
+        {@html filterElement}
+        {@html gradientElement}
+    </defs>
 
-    <!-- Connection line when hovered -->
     {#if isHovered}
-        <line
+        <!-- Connection line to center -->
+        <line 
             class="connection-line"
             x1="0"
             y1="0"
-            x2={-x}
-            y2={-y}
-            stroke={color}
-            stroke-opacity="0.3"
+            x2={-translateX}
+            y2={-translateY}
+            stroke={`${color}50`}
             stroke-width="1"
+        />
+
+        <!-- Glow effect -->
+        <circle
+            class="glow"
+            r="25"
+            fill={`url(#${gradientId})`}
+            filter={`url(#${filterId})`}
         />
     {/if}
 
     <!-- Icon -->
     <text
         class="icon"
-        fill={isHovered ? color : COLORS.UI.TEXT.PRIMARY}
-        font-size="24"
-        text-anchor="middle"
-        dominant-baseline="central"
+        style:fill={isHovered ? color : 'white'}
+        style:filter={isHovered ? `url(#${filterId})` : 'none'}
     >
         {option.icon}
     </text>
 
     <!-- Label -->
-    <text
-        class="label"
-        y="30"
-        fill={isHovered ? color : COLORS.UI.TEXT.SECONDARY}
-        opacity={labelOpacity}
-        font-size="14"
-        text-anchor="middle"
-        dominant-baseline="central"
-    >
-        {option.label}
-    </text>
+    {#if isHovered}
+        <text
+            class="label"
+            dy="30"
+            style:fill={color}
+        >
+            {option.label}
+        </text>
+    {/if}
 </g>
 
 <style>
     .navigation-node {
-        font-family: 'Orbitron', sans-serif;
-        transition: transform 0.3s ease-out;
         cursor: pointer;
     }
 
-    .glow {
-        transition: stroke-opacity 0.3s ease-out;
-    }
-
-    .connection-line {
-        transition: stroke-opacity 0.3s ease-out;
-    }
-
     .icon {
-        transition: fill 0.3s ease-out;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 24px;
+        text-anchor: middle;
+        dominant-baseline: middle;
+        transition: fill 0.3s ease;
     }
 
     .label {
-        transition: fill 0.3s ease-out, opacity 0.3s ease-out;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 14px;
+        text-anchor: middle;
+        dominant-baseline: middle;
+        transition: fill 0.3s ease;
     }
 
-    :global(.navigation-node text) {
-        user-select: none;
+    .connection-line {
+        pointer-events: none;
+        vector-effect: non-scaling-stroke;
+    }
+
+    .glow {
+        pointer-events: none;
+    }
+
+    :global(.navigation-node *) {
+        vector-effect: non-scaling-stroke;
     }
 </style>

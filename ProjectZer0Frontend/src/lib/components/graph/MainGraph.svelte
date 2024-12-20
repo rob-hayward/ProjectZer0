@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/MainGraph.svelte -->
+<!-- src/lib/components/graph/MainGraph.svelte
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
@@ -175,4 +175,4 @@
         background: rgba(0, 0, 0, 0.8);
         border-color: rgba(255, 255, 255, 0.4);
     }
-</style>
+</style> -->

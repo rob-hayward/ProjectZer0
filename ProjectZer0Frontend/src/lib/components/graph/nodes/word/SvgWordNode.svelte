@@ -3,7 +3,7 @@
     import { createEventDispatcher } from 'svelte';
     import type { WordNode, NodeMode } from '$lib/types/nodes';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
-    import BaseSvgNode from '../base/BaseSvgNode.svelte';
+    import BaseSvgNode from '../base/BaseNode.svelte';
     
     export let data: WordNode;
     export let mode: NodeMode = 'preview';
