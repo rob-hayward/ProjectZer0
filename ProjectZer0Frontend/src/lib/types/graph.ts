@@ -3,7 +3,7 @@ import type { SimulationNodeDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
 
-export type NodeType = 'dashboard' | 'navigation';
+export type NodeType = 'dashboard' | 'edit-profile' | 'navigation';
 export type NodeGroup = 'central' | 'navigation';
 
 export interface GraphNode extends SimulationNodeDatum {
@@ -39,6 +39,13 @@ export function isDashboardNode(node: GraphNode): node is GraphNode & {
     data: UserProfile;
 } {
     return node.type === 'dashboard';
+}
+
+export function isEditProfileNode(node: GraphNode): node is GraphNode & {
+    type: 'edit-profile';
+    data: UserProfile;
+} {
+    return node.type === 'edit-profile';
 }
 
 // // src/lib/types/graph.ts

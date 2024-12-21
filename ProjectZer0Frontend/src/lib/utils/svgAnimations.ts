@@ -4,15 +4,15 @@ interface GlowEffect {
     radius: number;
     intensity: number;
     fade?: boolean;
-}
-
-export function createGlowFilter(effect: GlowEffect): {
+ }
+ 
+ export function createGlowFilter(effect: GlowEffect): {
     id: string;
     element: string;
-} {
+ } {
     const id = `glow-${Math.random().toString(36).slice(2)}`;
     
-    // Convert intensity to hex, matching canvas implementation
+    // Match canvas intensity calculations exactly
     const intensityHex = Math.floor(effect.intensity * 255)
         .toString(16)
         .padStart(2, '0');
@@ -20,65 +20,27 @@ export function createGlowFilter(effect: GlowEffect): {
     const intensityHighHex = Math.floor(effect.intensity * 1.5 * 255)
         .toString(16)
         .padStart(2, '0');
-
-    // Create SVG filter that mimics the canvas radial gradient
+ 
+    // Simplified filter matching canvas gradient behavior
     const element = `
         <filter id="${id}" x="-100%" y="-100%" width="300%" height="300%">
-            ${effect.fade ? `
-                <!-- Fading glow effect -->
-                <feGaussianBlur in="SourceAlpha" stdDeviation="${effect.radius / 6}" result="blur"/>
-                <feColorMatrix
-                    in="blur"
-                    type="matrix"
-                    values="
-                        1 0 0 0 ${parseInt(effect.color.slice(1,3), 16)/255}
-                        0 1 0 0 ${parseInt(effect.color.slice(3,5), 16)/255}
-                        0 0 1 0 ${parseInt(effect.color.slice(5,7), 16)/255}
-                        0 0 0 ${effect.intensity * 1.5} 0
-                    "
-                    result="coloredBlur"
-                />
-                <feGaussianBlur in="SourceAlpha" stdDeviation="${(effect.radius - 20) / 6}" result="innerBlur"/>
-                <feColorMatrix
-                    in="innerBlur"
-                    type="matrix"
-                    values="
-                        1 0 0 0 ${parseInt(effect.color.slice(1,3), 16)/255}
-                        0 1 0 0 ${parseInt(effect.color.slice(3,5), 16)/255}
-                        0 0 1 0 ${parseInt(effect.color.slice(5,7), 16)/255}
-                        0 0 0 ${effect.intensity} 0
-                    "
-                    result="coloredInnerBlur"
-                />
-            ` : `
-                <!-- Solid center glow effect -->
-                <feGaussianBlur in="SourceAlpha" stdDeviation="${effect.radius / 6}" result="blur"/>
-                <feColorMatrix
-                    in="blur"
-                    type="matrix"
-                    values="
-                        1 0 0 0 ${parseInt(effect.color.slice(1,3), 16)/255}
-                        0 1 0 0 ${parseInt(effect.color.slice(3,5), 16)/255}
-                        0 0 1 0 ${parseInt(effect.color.slice(5,7), 16)/255}
-                        0 0 0 ${effect.intensity} 0
-                    "
-                />
-            `}
+            <feGaussianBlur in="SourceAlpha" stdDeviation="${effect.fade ? effect.radius - 20 : 0}" result="blur"/>
+            <feFlood flood-color="${effect.color}" flood-opacity="${effect.fade ? 0 : 1}" result="color"/>
+            <feComposite in="color" in2="blur" operator="in" result="glow"/>
             <feMerge>
-                <feMergeNode in="coloredBlur"/>
-                ${effect.fade ? `<feMergeNode in="coloredInnerBlur"/>` : ''}
+                <feMergeNode in="glow"/>
                 <feMergeNode in="SourceGraphic"/>
             </feMerge>
         </filter>
     `;
-
+ 
     return { id, element };
-}
-
-export function createGlowGradient(effect: GlowEffect): {
+ }
+ 
+ export function createGlowGradient(effect: GlowEffect): {
     id: string;
     element: string;
-} {
+ } {
     const id = `glow-gradient-${Math.random().toString(36).slice(2)}`;
     
     const intensityHex = Math.floor(effect.intensity * 255)
@@ -88,7 +50,8 @@ export function createGlowGradient(effect: GlowEffect): {
     const intensityHighHex = Math.floor(effect.intensity * 1.5 * 255)
         .toString(16)
         .padStart(2, '0');
-
+ 
+    // Exactly match canvas gradient stops
     const stops = effect.fade
         ? `
             <stop offset="0%" stop-color="${effect.color}" stop-opacity="0"/>
@@ -100,16 +63,18 @@ export function createGlowGradient(effect: GlowEffect): {
             <stop offset="50%" stop-color="${effect.color}" stop-opacity="${effect.intensity}"/>
             <stop offset="100%" stop-color="${effect.color}" stop-opacity="0"/>
         `;
-
+ 
+    // Match canvas gradient radius behavior
     const element = `
         <radialGradient id="${id}" 
             cx="50%" cy="50%" 
-            r="50%" 
+            r="${effect.radius}" 
             fx="50%" fy="50%"
+            gradientUnits="userSpaceOnUse"
         >
             ${stops}
         </radialGradient>
     `;
-
+ 
     return { id, element };
-}
+ }

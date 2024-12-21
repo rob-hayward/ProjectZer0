@@ -15,16 +15,35 @@
     // Create unique filter and gradient IDs for this node
     const glowEffect = {
         color,
-        radius: 25,
-        intensity: 0.2,
+        radius: 10,
+        intensity: 0.1,
         fade: true
     };
     
     const { id: filterId, element: filterElement } = createGlowFilter(glowEffect);
     const { id: gradientId, element: gradientElement } = createGlowGradient(glowEffect);
     
-    $: transformValues = transform.match(/translate\(([-\d.]+),\s*([-\d.]+)\)/)?.slice(1).map(Number) ?? [0, 0];
-    $: [translateX, translateY] = transformValues;
+    let transformValues: number[] = [];
+    let translateX: number = 0;
+    let translateY: number = 0;
+
+    $: {
+        const matches = transform.match(/translate\(([-\d.e+-]+),\s*([-\d.e+-]+)\)/);
+        if (matches) {
+            transformValues = [parseFloat(matches[1]), parseFloat(matches[2])];
+            [translateX, translateY] = transformValues;
+        } else {
+            transformValues = [0, 0];
+            [translateX, translateY] = transformValues;
+        }
+        console.log(`Node ${option.id}:`, {
+            transform,
+            transformValues,
+            translateX,
+            translateY,
+            isHovered
+        });
+    }
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -65,6 +84,7 @@
     <!-- Icon -->
     <text
         class="icon"
+        class:hovered={isHovered}
         style:fill={isHovered ? color : 'white'}
         style:filter={isHovered ? `url(#${filterId})` : 'none'}
     >
@@ -93,7 +113,11 @@
         font-size: 24px;
         text-anchor: middle;
         dominant-baseline: middle;
-        transition: fill 0.3s ease;
+        transition: font-size 0.2s ease-out;
+    }
+
+    .icon.hovered {
+        font-size: 32px;
     }
 
     .label {

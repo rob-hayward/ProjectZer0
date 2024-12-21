@@ -21,9 +21,9 @@ export type NavigationOptionId = typeof NavigationOptionId[keyof typeof Navigati
 
 // Navigation action handlers
 const navigationHandlers: Record<NavigationOptionId, () => void> = {
-  [NavigationOptionId.DASHBOARD]: () => goto('/dashboard'),
+  [NavigationOptionId.DASHBOARD]: () => goto('/graph/dashboard'),
   [NavigationOptionId.CREATE_NODE]: () => goto('/create-node'),
-  [NavigationOptionId.EDIT_PROFILE]: () => goto('/edit-profile'),
+  [NavigationOptionId.EDIT_PROFILE]: () => goto('/graph/edit-profile'),
   [NavigationOptionId.EXPLORE]: () => goto('/explore'),
   [NavigationOptionId.NETWORK]: () => goto('/network'),
   [NavigationOptionId.INTERACTIONS]: () => goto('/interactions'),

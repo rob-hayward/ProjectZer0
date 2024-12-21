@@ -118,14 +118,14 @@ export class GraphLayout {
    }
 
    private getNodePositions(nodes: SimulationNode[]): Map<string, NodePosition> {
-    console.log('Final node positions after simulation:', nodes.map(node => ({
-        id: node.id,
-        group: node.group,
-        x: node.x,
-        y: node.y,
-        fx: node.fx,
-        fy: node.fy
-    })));
+    nodes.forEach(node => {
+        console.log(`Position for ${node.id}:`, {
+            x: node.x,
+            y: node.y,
+            group: node.group,
+            fixed: { fx: node.fx, fy: node.fy }
+        });
+    });
 
     return new Map(
         nodes.map(node => {

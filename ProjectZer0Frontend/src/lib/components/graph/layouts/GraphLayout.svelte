@@ -6,7 +6,9 @@
     import { GraphLayout } from './GraphLayout';
     import NavigationNode from '../nodes/navigation/NavigationNode.svelte';
     import { isNavigationNode } from '$lib/types/graph';
- 
+    import { handleNavigation } from '$lib/services/navigation';
+    import type { NavigationOptionId } from '$lib/services/navigation';
+
     // Props
     export let nodes: GraphNode[] = [];
     export let width: number;
@@ -23,6 +25,11 @@
     function handleNodeHover(nodeId: string, isHovered: boolean) {
         console.log('Node hover:', nodeId, isHovered);
         hoveredNodeId = isHovered ? nodeId : null;
+    }
+
+    function handleNodeClick(nodeId: string) {
+        console.log('Node click:', nodeId);
+        handleNavigation(nodeId as NavigationOptionId);
     }
  
     export function resetView() {
@@ -78,33 +85,20 @@
     $: if (layout && nodes) {
         updateLayout();
     }
- </script>
+</script>
  
- <svg
+<svg
     bind:this={svg}
     class="graph"
     {width}
     {height}
     viewBox="0 0 {width} {height}"
- >
+>
     <defs>
         <radialGradient id="node-gradient" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stop-color="rgba(255,255,255,0.1)" />
             <stop offset="100%" stop-color="rgba(255,255,255,0)" />
         </radialGradient>
-        <!-- Navigation node glow filter -->
-        <filter id="nav-glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation="3"/>
-            <feColorMatrix
-                type="matrix"
-                values="
-                    1 0 0 0 0
-                    0 1 0 0 0
-                    0 0 1 0 0
-                    0 0 0 5 -1
-                "
-            />
-        </filter>
     </defs>
  
     <g bind:this={container}>
@@ -116,6 +110,7 @@
                         option={node.data}
                         transform={position.svgTransform}
                         isHovered={hoveredNodeId === node.id}
+                        on:click={() => handleNodeClick(node.data.id)}
                         on:mouseenter={() => {
                             console.log('mouseenter', node.id);
                             handleNodeHover(node.id, true);
@@ -141,9 +136,9 @@
             {/if}
         {/each}
     </g>
- </svg>
+</svg>
  
- <style>
+<style>
     .graph {
         width: 100%;
         height: 100%;
@@ -161,4 +156,4 @@
     :global(.graph *) {
         vector-effect: non-scaling-stroke;
     }
- </style>
+</style>
