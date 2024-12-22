@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/editProfile/EditProfileNode.svelte -->
 <script lang="ts">
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
     import type { UserProfile } from '$lib/types/user';

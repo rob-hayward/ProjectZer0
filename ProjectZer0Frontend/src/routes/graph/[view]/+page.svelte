@@ -1,4 +1,3 @@
-<!-- ProjectZer0Frontend/src/routes/graph/[view]/+page.svelte -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
@@ -13,8 +12,8 @@
     import { getNavigationOptions, handleNavigation } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
     import { isDashboardNode, isEditProfileNode } from '$lib/types/graph';
+    import { userStore } from '$lib/stores/userStore';  // Add this import
  
-    let user: UserProfile | null = null;
     let userActivity: UserActivity | undefined;
  
     onMount(async () => {
@@ -25,7 +24,7 @@
                 auth0.login();
                 return;
             }
-            user = fetchedUser;
+            userStore.set(fetchedUser);  // Use userStore instead of local state
             userActivity = await getUserActivity();
         } catch (error) {
             console.error('Error fetching user data:', error);
@@ -35,16 +34,17 @@
  
     $: view = $page.params.view;
  
-    $: centralNode = user ? {
-        id: user.sub,
+    // Make centralNode reactive to userStore changes
+    $: centralNode = $userStore ? {
+        id: $userStore.sub,
         type: view as 'dashboard' | 'edit-profile',
-        data: user,
+        data: $userStore,
         group: 'central' as const
     } : null;
  
     $: context = view === 'dashboard' 
         ? NavigationContext.DASHBOARD 
-        : NavigationContext.PROFILE;
+        : NavigationContext.EDIT_PROFILE;
  
     $: navigationNodes = getNavigationOptions(context)
         .map(option => ({
@@ -55,9 +55,9 @@
         }));
  
     $: nodes = centralNode ? [centralNode, ...navigationNodes] : [];
- </script>
+</script>
  
- {#if centralNode}
+{#if centralNode}
     <Graph nodes={nodes}>
         <svelte:fragment slot="node" let:node>
             {#if isDashboardNode(node)}
@@ -72,6 +72,4 @@
             {/if}
         </svelte:fragment>
     </Graph>
- {/if}
- 
- <userStyle>Normal</userStyle>
+{/if}

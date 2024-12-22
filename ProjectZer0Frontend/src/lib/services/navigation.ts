@@ -42,7 +42,7 @@ export const NavigationContext = {
   CREATE_NODE: 'create-node',
   EXPLORE: 'explore',
   WORD: 'word',
-  PROFILE: 'profile',
+  EDIT_PROFILE: 'edit-profile',
 } as const;
 
 export type NavigationContext = typeof NavigationContext[keyof typeof NavigationContext];
@@ -71,6 +71,15 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     NavigationOptionId.INTERACTIONS,
     NavigationOptionId.CREATIONS
   ],
+  [NavigationContext.EDIT_PROFILE]: [
+    NavigationOptionId.EXPLORE,
+    NavigationOptionId.CREATE_NODE,
+    NavigationOptionId.NETWORK,
+    NavigationOptionId.LOGOUT,
+    NavigationOptionId.DASHBOARD,  
+    NavigationOptionId.INTERACTIONS,
+    NavigationOptionId.CREATIONS
+],
   [NavigationContext.CREATE_NODE]: [
     NavigationOptionId.EXPLORE,
     NavigationOptionId.DASHBOARD,
@@ -88,7 +97,6 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     NavigationOptionId.CREATE_NODE,
     NavigationOptionId.ALTERNATIVE_DEFINITIONS
   ],
-  [NavigationContext.PROFILE]: [],
 } as const;
 
 export function handleNavigation(optionId: NavigationOptionId): void {

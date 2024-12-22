@@ -17,51 +17,67 @@
         valueX: 30
     };
 
-    // Function to wrap text for SVG
     function getWrappedText(text: string, maxWidth: number, x: number) {
-        const words = text.split(' ');
-        const lines: { text: string; x: number; dy: number }[] = [];
-        let currentLine = '';
-        let lineCount = 0;
+    const words = text.split(' ');
+    const lines: { text: string; x: number; dy: number }[] = [];
+    let currentLine = '';
+    let lineCount = 0;
 
-        const tempText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-        tempText.style.fontSize = '14px';
-        tempText.style.fontFamily = 'Orbitron, sans-serif';
-        document.body.appendChild(tempText);
+    // Create and set up temporary text element
+    const tempText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    tempText.setAttribute('font-family', 'Orbitron');
+    tempText.setAttribute('font-size', '14px');
+    // Set position off-screen but still rendered
+    tempText.setAttribute('x', '-1000');
+    tempText.setAttribute('y', '-1000');
+    
+    // Add to SVG temporarily to get accurate measurements
+    const svg = document.querySelector('svg');
+    if (!svg) return lines;
+    svg.appendChild(tempText);
 
-        words.forEach(word => {
-            const testLine = currentLine + (currentLine ? ' ' : '') + word;
-            tempText.textContent = testLine;
-            const testWidth = tempText.getBoundingClientRect().width;
-
-            if (testWidth > maxWidth && currentLine !== '') {
-                lines.push({
-                    text: currentLine,
-                    x,
-                    dy: lineCount * 20 // 20px line height
-                });
-                currentLine = word;
-                lineCount++;
-            } else {
-                currentLine = testLine;
-            }
+    words.forEach(word => {
+        const testLine = currentLine + (currentLine ? ' ' : '') + word;
+        tempText.textContent = testLine;
+        const testWidth = tempText.getComputedTextLength();
+        
+        console.log('Testing line:', { 
+            testLine, 
+            testWidth, 
+            maxWidth, 
+            wouldWrap: testWidth > maxWidth 
         });
 
-        if (currentLine) {
+        if (testWidth > maxWidth && currentLine !== '') {
             lines.push({
                 text: currentLine,
                 x,
                 dy: lineCount * 20
             });
+            currentLine = word;
+            lineCount++;
+        } else {
+            currentLine = testLine;
         }
+    });
 
-        document.body.removeChild(tempText);
-        return lines;
+    if (currentLine) {
+        lines.push({
+            text: currentLine,
+            x,
+            dy: lineCount * 20
+        });
     }
+
+    // Clean up
+    svg.removeChild(tempText);
+    
+    return lines;
+}
 
     $: missionStatementLines = getWrappedText(
         node.mission_statement || "no mission statement set.",
-        200, // Maximum width for wrapped text
+        420, 
         METRICS_SPACING.labelX
     );
 
@@ -95,7 +111,7 @@
         </text>
 
         <!-- Name -->
-        <g transform="translate(0, {-radius + 180})">
+        <g transform="translate(0, {-radius + 170})">
             <text 
                 x={METRICS_SPACING.labelX}
                 class="label left-align"
@@ -112,14 +128,14 @@
         </g>
 
         <!-- Mission Statement -->
-        <g transform="translate(0, {-radius + 260})">
+        <g transform="translate(0, {-radius + 230})">
             <text 
                 x={METRICS_SPACING.labelX}
                 class="label left-align"
             >
                 mission statement:
             </text>
-            {#each missionStatementLines as line}
+            {#each missionStatementLines as line, i}
                 <text 
                     x={line.x}
                     dy={25 + line.dy}
@@ -132,7 +148,7 @@
 
         <!-- Activity Stats -->
         {#if userActivity}
-            <g transform="translate(0, {-radius + 340})">
+            <g transform="translate(0, {-radius + 390})">
                 <text 
                     x={METRICS_SPACING.labelX}
                     class="label left-align"
