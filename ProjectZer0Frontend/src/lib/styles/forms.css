@@ -1,0 +1,110 @@
+/* src/lib/styles/forms.css */
+.form-wrapper {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--form-spacing-gap, 0.5rem);
+}
+
+.form-label {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 0.9rem;
+    font-family: 'Orbitron', sans-serif;
+}
+
+.form-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: white;
+    padding: 8px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    display: block;
+    margin: 0;
+}
+
+.form-input:focus {
+    outline: none;
+    border: 3px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.form-input.error {
+    border-color: #ff4444;
+}
+
+.form-textarea {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 4px;
+    color: white;
+    padding: 8px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    box-sizing: border-box;
+    display: block;
+    margin: 0;
+    height: 120px;
+    resize: none;
+    margin-bottom: 0;
+}
+
+.form-textarea:focus {
+    outline: none;
+    border: 3px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+
+.form-button {
+    width: 100%;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 100px;
+    box-sizing: border-box;
+    margin: 0;
+    color: white;
+}
+
+.form-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.form-button:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+.form-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.form-button.primary {
+    background: rgba(74, 144, 226, 0.3);
+    border: 1px solid rgba(74, 144, 226, 0.4);
+}
+
+.form-button.primary:hover:not(:disabled) {
+    background: rgba(74, 144, 226, 0.4);
+}
+
+.navigation-wrapper {
+    margin-top: 2rem;
+}

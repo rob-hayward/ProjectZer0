@@ -3,7 +3,7 @@ import type { SimulationNodeDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
 
-export type NodeType = 'dashboard' | 'edit-profile' | 'navigation';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation';
 export type NodeGroup = 'central' | 'navigation';
 
 export interface GraphNode extends SimulationNodeDatum {
@@ -27,13 +27,6 @@ export interface GraphData {
 }
 
 // Type guard functions
-export function isNavigationNode(node: GraphNode): node is GraphNode & {
-    type: 'navigation';
-    data: NavigationOption;
-} {
-    return node.type === 'navigation';
-}
-
 export function isDashboardNode(node: GraphNode): node is GraphNode & {
     type: 'dashboard';
     data: UserProfile;
@@ -46,6 +39,20 @@ export function isEditProfileNode(node: GraphNode): node is GraphNode & {
     data: UserProfile;
 } {
     return node.type === 'edit-profile';
+}
+
+export function isCreateNodeNode(node: GraphNode): node is GraphNode & {
+    type: 'create-node';
+    data: UserProfile;
+} {
+    return node.type === 'create-node';
+}
+
+export function isNavigationNode(node: GraphNode): node is GraphNode & {
+    type: 'navigation';
+    data: NavigationOption;
+} {
+    return node.type === 'navigation';
 }
 
 // // src/lib/types/graph.ts

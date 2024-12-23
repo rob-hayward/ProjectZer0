@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/navigation/NavigationNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { NavigationOption } from '$lib/types/navigation';

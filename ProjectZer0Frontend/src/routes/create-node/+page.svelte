@@ -10,12 +10,12 @@
   import { BaseZoomedCanvas, TEXT_STYLES } from '$lib/components/graphElements/layouts/base/baseZoomedCanvas';
   import { NavigationContext, getNavigationOptions, handleNavigation } from '$lib/services/navigation';
 
-  import MessageDisplay from '$lib/components/forms/nodeCreation/shared/MessageDisplay.svelte';
-  import StepIndicator from '$lib/components/forms/nodeCreation/shared/StepIndicator.svelte';
-  import WordForm from '$lib/components/forms/nodeCreation/word/WordForm.svelte';
-  import DefinitionForm from '$lib/components/forms/nodeCreation/word/DefinitionForm.svelte';
-  import DiscussionForm from '$lib/components/forms/nodeCreation/shared/DiscussionForm.svelte';
-  import WordReview from '$lib/components/forms/nodeCreation/word/WordReview.svelte';
+  import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
+  import StepIndicator from '$lib/components/forms/createNode/shared/StepIndicator.svelte';
+  import WordForm from '$lib/components/forms/createNode/word/WordForm.svelte';
+  import DefinitionForm from '$lib/components/forms/createNode/word/DefinitionForm.svelte';
+  import DiscussionForm from '$lib/components/forms/createNode/shared/DiscussionForm.svelte';
+  import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
   
   let user: UserProfile | null = null;
   let errorMessage: string | null = null;
