@@ -4,7 +4,6 @@
     import { FORM_STYLES } from '$lib/styles/forms';
     import { TEXT_LIMITS } from '$lib/constants/validation';
     import FormNavigation from './FormNavigation.svelte';
-    import CharacterCount from './CharacterCount.svelte';
     
     export let discussion = '';
     export let disabled = false;
@@ -29,7 +28,7 @@
     <!-- Label -->
     <text 
         x={FORM_STYLES.layout.leftAlign}
-        y="0"
+        y="-20"
         class="form-label"
     >
         Discussion (optional)
@@ -40,7 +39,7 @@
         x={FORM_STYLES.layout.leftAlign}
         y={FORM_STYLES.layout.verticalSpacing.labelToInput}
         width={FORM_STYLES.layout.fieldWidth}
-        height="150"
+        height="120"
     >
         <textarea
             class="form-textarea"
@@ -53,15 +52,19 @@
     </foreignObject>
 
     <!-- Character Count -->
-    <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.labelToInput + 160})">
-        <CharacterCount
-            currentLength={discussion.length}
-            maxLength={TEXT_LIMITS.MAX_COMMENT_LENGTH}
-        />
-    </g>
+    <text 
+        x={FORM_STYLES.layout.leftAlign + FORM_STYLES.layout.fieldWidth - 90}
+        y={FORM_STYLES.layout.verticalSpacing.labelToInput + 160}
+        class="character-count"
+        class:near-limit={discussion.length > TEXT_LIMITS.MAX_COMMENT_LENGTH - 20}
+        class:over-limit={isOverLimit}
+        text-anchor="end"
+    >
+        {TEXT_LIMITS.MAX_COMMENT_LENGTH - discussion.length} characters remaining
+    </text>
 
     <!-- Navigation -->
-    <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields + 120})">
+    <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields + 110})">
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={() => dispatch('proceed')}
@@ -77,6 +80,20 @@
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
         font-family: 'Orbitron', sans-serif;
+    }
+
+    .character-count {
+        font-size: 12px;
+        font-family: 'Orbitron', sans-serif;
+        fill: rgba(255, 255, 255, 0.6);
+    }
+
+    .character-count.near-limit {
+        fill: #ffd700;
+    }
+
+    .character-count.over-limit {
+        fill: #ff4444;
     }
 
     :global(textarea.form-textarea) {

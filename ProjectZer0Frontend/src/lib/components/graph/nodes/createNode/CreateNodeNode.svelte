@@ -5,7 +5,6 @@
     import { FORM_STYLES } from '$lib/styles/forms';
     import type { UserProfile } from '$lib/types/user';
 
-    // Import form components
     import NodeTypeSelect from '$lib/components/forms/createNode/shared/NodeTypeSelect.svelte';
     import WordInput from '$lib/components/forms/createNode/word/WordInput.svelte';
     import DefinitionInput from '$lib/components/forms/createNode/word/DefinitionInput.svelte';
@@ -15,7 +14,6 @@
     
     export let node: UserProfile;
     
-    // State management
     let currentStep = 1;
     let formData = {
         nodeType: '',
@@ -28,7 +26,6 @@
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
 
-    // Node styling
     const style = {
         previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
         detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
@@ -42,7 +39,9 @@
                    currentStep === 2 ? 'Enter Word' :
                    currentStep === 3 ? 'Add Definition' :
                    currentStep === 4 ? 'Start Discussion' :
-                   'Review';
+                   'Review Creation';
+
+    $: showStepIndicators = currentStep < 5;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -61,7 +60,7 @@
 
 <BaseSvgDetailNode {style}>
     <svelte:fragment let:radius let:isHovered>
-        <g transform="translate(0, {-radius + 120})">
+        <g transform="translate(0, {-radius + (currentStep === 5 ? 100 : 120)})">
             <!-- Title -->
             <text 
                 class="title"
@@ -69,27 +68,29 @@
             >
                 {stepTitle}
             </text>
-
+        
             <!-- Step Indicators -->
-            <g transform="translate(0, 40)">
-                {#each Array(5) as _, i}
-                    <circle
-                        cx={-40 + (i * 20)}
-                        cy="0"
-                        r="4"
-                        class="step-indicator"
-                        class:active={currentStep >= i + 1}
-                    />
-                {/each}
-            </g>
-
+            {#if showStepIndicators}
+                <g transform="translate(0, 40)">
+                    {#each Array(5) as _, i}
+                        <circle
+                            cx={-40 + (i * 20)}
+                            cy="0"
+                            r="4"
+                            class="step-indicator"
+                            class:active={currentStep >= i + 1}
+                        />
+                    {/each}
+                </g>
+            {/if}
+        
             <!-- Error/Success Messages -->
-            <g transform="translate(0, 70)">
+            <g transform="translate(0, {showStepIndicators ? 70 : 40})">
                 <MessageDisplay {errorMessage} {successMessage} />
             </g>
 
             <!-- Dynamic Form Content -->
-            <g transform="translate(0, 100)">
+            <g transform="translate(0, {showStepIndicators ? 100 : 60})">
                 {#if currentStep === 1}
                     <NodeTypeSelect
                         bind:nodeType={formData.nodeType}

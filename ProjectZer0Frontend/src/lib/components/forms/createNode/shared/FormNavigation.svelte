@@ -8,30 +8,33 @@
     export let nextLabel = "Next";
     export let loading = false;
     export let nextDisabled = false;
+    export let showBackButton = true; // New prop
 </script>
 
 <g transform="translate({FORM_STYLES.layout.leftAlign}, 0)">
-    <!-- Back Button -->
-    <foreignObject
-        x="0"
-        y="0"
-        width={FORM_STYLES.layout.buttonWidth}
-        height="50"
-    >
-        <div class="button-wrapper">
-            <button 
-                class="form-button"
-                on:click={onBack}
-                disabled={loading}
-            >
-                {backLabel}
-            </button>
-        </div>
-    </foreignObject>
+    {#if showBackButton}
+        <!-- Back Button -->
+        <foreignObject
+            x="0"
+            y="0"
+            width={FORM_STYLES.layout.buttonWidth}
+            height="50"
+        >
+            <div class="button-wrapper">
+                <button 
+                    class="form-button"
+                    on:click={onBack}
+                    disabled={loading}
+                >
+                    {backLabel}
+                </button>
+            </div>
+        </foreignObject>
+    {/if}
 
     <!-- Next Button -->
     <foreignObject
-        x={FORM_STYLES.layout.fieldWidth - FORM_STYLES.layout.buttonWidth}
+        x={showBackButton ? (FORM_STYLES.layout.fieldWidth - FORM_STYLES.layout.buttonWidth) : (FORM_STYLES.layout.fieldWidth / 2 - FORM_STYLES.layout.buttonWidth / 2)}
         y="0"
         width={FORM_STYLES.layout.buttonWidth}
         height="50"

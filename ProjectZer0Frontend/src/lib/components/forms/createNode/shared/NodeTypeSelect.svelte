@@ -10,6 +10,8 @@
     const dispatch = createEventDispatcher<{
         proceed: void;
     }>();
+
+    const noop = () => {};
 </script>
 
 <g>
@@ -36,17 +38,19 @@
         >
             <option value="">Choose type...</option>
             <option value="word">Word</option>
+            <option value="statement">Statement</option>
+            <option value="quantity">Quantity</option>
         </select>
     </foreignObject>
 
     <!-- Navigation -->
     <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields})">
         <FormNavigation
-            onBack={() => {}}
+            onBack={noop}
             onNext={() => dispatch('proceed')}
-            backLabel=""
             nextLabel="Continue"
             nextDisabled={!nodeType || disabled}
+            showBackButton={false}
         />
     </g>
 </g>

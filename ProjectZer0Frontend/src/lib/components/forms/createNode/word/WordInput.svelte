@@ -68,7 +68,7 @@
             class="form-input"
             class:error={errorMessage}
             bind:value={word}
-            placeholder="Enter keyword you believe important for ProjectZer0"
+            placeholder="Enter important keyword for ProjectZer0"
             {disabled}
         />
     </foreignObject>
