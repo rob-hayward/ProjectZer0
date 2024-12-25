@@ -7,17 +7,30 @@
     import type { UserActivity } from '$lib/services/userActivity';
     import type { GraphNode } from '$lib/types/graph';
     import { getUserActivity } from '$lib/services/userActivity';
+    import { NODE_CONSTANTS } from '$lib/components/graph/nodes/base/BaseNodeConstants';
     import Graph from '$lib/components/graph/Graph.svelte';
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
+    import SvgWordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
+    import SvgWordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
     import { getNavigationOptions, handleNavigation } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
-    import { isDashboardNode, isEditProfileNode, isCreateNodeNode } from '$lib/types/graph';
+    import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode } from '$lib/types/graph';
     import { userStore } from '$lib/stores/userStore';
+    import { wordStore } from '$lib/stores/wordStore';
  
     let userActivity: UserActivity | undefined;
  
+    const wordStyle = {
+        previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
+        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
+        colors: NODE_CONSTANTS.COLORS.WORD,
+        padding: NODE_CONSTANTS.PADDING,
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE
+    };
+
     onMount(async () => {
         try {
             await auth0.handleAuthCallback();
@@ -35,8 +48,14 @@
     });
  
     $: view = $page.params.view;
+    $: wordData = view === 'word' ? $wordStore : null;
  
-    $: centralNode = $userStore ? {
+    $: centralNode = view === 'word' && wordData ? {
+        id: wordData.id,
+        type: 'word' as const,
+        data: wordData,
+        group: 'central' as const
+    } : $userStore ? {
         id: $userStore.sub,
         type: view as 'dashboard' | 'edit-profile' | 'create-node',
         data: $userStore,
@@ -46,6 +65,7 @@
     $: context = 
         view === 'dashboard' ? NavigationContext.DASHBOARD :
         view === 'create-node' ? NavigationContext.CREATE_NODE :
+        view === 'word' ? NavigationContext.WORD :
         NavigationContext.EDIT_PROFILE;
  
     $: navigationNodes = getNavigationOptions(context)
@@ -75,6 +95,19 @@
                 <CreateNodeNode 
                     node={node.data}
                 />
+            {:else if isWordNode(node)}
+                {#if node.group === 'central'}
+                    <SvgWordDetail
+                        data={node.data}
+                        style={wordStyle}
+                    />
+                {:else}
+                    <SvgWordNode
+                        data={node.data}
+                        mode="preview"
+                        transform=""
+                    />
+                {/if}
             {/if}
         </svelte:fragment>
     </Graph>

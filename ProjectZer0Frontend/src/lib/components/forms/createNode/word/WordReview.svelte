@@ -1,9 +1,11 @@
 <!-- src/lib/components/forms/createNode/word/WordReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
+    import { browser } from '$app/environment';
     import { goto } from '$app/navigation';
     import { fetchWithAuth } from '$lib/services/api';
     import { FORM_STYLES } from '$lib/styles/forms';
+    import { wordStore } from '$lib/stores/wordStore';
     import FormNavigation from '../shared/FormNavigation.svelte';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
@@ -27,8 +29,6 @@
 
     async function handleSubmit() {
         isSubmitting = true;
-        errorMessage = null;
-        
         try {
             const wordData = {
                 word: word.trim(),
@@ -36,24 +36,36 @@
                 discussion,
                 publicCredit,
                 createdBy: userId,
-                shareToX
+                shareToX,
             };
+            
+            if (browser) console.log('Submitting word creation form:', JSON.stringify(wordData, null, 2));
             
             const createdWord = await fetchWithAuth('/nodes/word', {
                 method: 'POST',
                 body: JSON.stringify(wordData),
             });
             
+            if (browser) console.log('Word creation response:', JSON.stringify(createdWord, null, 2));
+
             successMessage = `Word node "${createdWord.word}" created successfully`;
             dispatch('success', {
                 message: successMessage,
                 word: createdWord.word
             });
 
+            // Update the wordStore with the created word
+            wordStore.set(createdWord);
+
+            // Wait for success message to be shown, then navigate
             setTimeout(() => {
-                goto(`/graph/word/${encodeURIComponent(createdWord.word.toLowerCase())}`);
+                goto('/graph/word');
             }, 2000);
         } catch (e) {
+            if (browser) {
+                console.error('Error creating word:', e);
+                console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
+            }
             errorMessage = e instanceof Error ? e.message : 'Failed to create new word node';
             dispatch('error', { message: errorMessage });
         } finally {
@@ -207,6 +219,15 @@
         padding-left: 12px;
     }
 
+    :global(.checkbox-label) {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: white;
+        font-size: 11px;
+        font-family: 'Orbitron', sans-serif;
+    }
+
     :global(.checkbox-label:first-child) {
         display: flex;
         align-items: center;
@@ -218,15 +239,6 @@
         align-items: center;
         gap: 6px;
         padding-left: 35px; 
-    }
-
-    :global(.checkbox-label) {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        color: white;
-        font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {

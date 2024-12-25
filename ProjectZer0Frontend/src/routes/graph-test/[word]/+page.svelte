@@ -5,7 +5,7 @@
     import { getWordData } from '$lib/services/word';
     import type { WordNode, Definition } from '$lib/types/nodes';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
-    import SvgWordNode from '$lib/components/graph/nodes/word/SvgWordNode.svelte';
+    import SvgWordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
     import SvgDefinitionNode from '$lib/components/graph/nodes/definition/SvgDefinitionNode.svelte';
     import MainGraph from '$lib/components/graph/MainGraph.svelte';
 

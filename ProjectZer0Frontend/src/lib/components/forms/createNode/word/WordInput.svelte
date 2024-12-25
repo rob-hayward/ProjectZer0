@@ -1,7 +1,9 @@
 <!-- src/lib/components/forms/createNode/word/WordInput.svelte -->
 <script lang="ts">
+    import { goto } from '$app/navigation';
     import { createEventDispatcher } from 'svelte';
     import { fetchWithAuth } from '$lib/services/api';
+    import { wordStore } from '$lib/stores/wordStore';
     import { FORM_STYLES } from '$lib/styles/forms';
     import FormNavigation from '../shared/FormNavigation.svelte';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
@@ -18,6 +20,7 @@
 
     let isCheckingWord = false;
     let errorMessage: string | null = null;
+    let successMessage: string | null = null;
 
     async function checkWordExistence() {
         if (!word.trim()) {
@@ -28,11 +31,22 @@
 
         isCheckingWord = true;
         errorMessage = null;
+        successMessage = null;
         
         try {
             const response = await fetchWithAuth(`/nodes/word/check/${encodeURIComponent(word.trim())}`);
             
             if (response.exists) {
+                // Word exists - fetch its data
+                const wordData = await fetchWithAuth(`/nodes/word/${encodeURIComponent(word.trim())}`);
+                successMessage = `Word "${word.trim()}" already exists. Redirecting...`;
+                
+                // Update word store and navigate
+                wordStore.set(wordData);
+                setTimeout(() => {
+                    goto('/graph/word');
+                }, 2000);
+                
                 dispatch('wordExists', { word: word.trim() });
             } else {
                 dispatch('proceed');
@@ -73,10 +87,10 @@
         />
     </foreignObject>
 
-    <!-- Error Message -->
-    {#if errorMessage}
+    <!-- Error/Success Message -->
+    {#if errorMessage || successMessage}
         <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.labelToInput + 50})">
-            <MessageDisplay errorMessage={errorMessage} />
+            <MessageDisplay {errorMessage} {successMessage} />
         </g>
     {/if}
 
