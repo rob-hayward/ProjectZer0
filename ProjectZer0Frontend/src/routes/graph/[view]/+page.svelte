@@ -19,6 +19,7 @@
     import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode } from '$lib/types/graph';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
+	import { COLORS } from '$lib/constants/colors';
  
     let userActivity: UserActivity | undefined;
  
@@ -28,7 +29,8 @@
         colors: NODE_CONSTANTS.COLORS.WORD,
         padding: NODE_CONSTANTS.PADDING,
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: NODE_CONSTANTS.STROKE
+        stroke: NODE_CONSTANTS.STROKE,
+        highlightColor: COLORS.PRIMARY.BLUE
     };
 
     onMount(async () => {

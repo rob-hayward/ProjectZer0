@@ -6,11 +6,13 @@
     export let transform: string;
     export let style: NodeStyle;
     export let isHovered = false;
-    export let highlightColor = '#FFFFFF';  // Default to white
     
     const radius = style.previewSize / 2;
     const filterId = `glow-${Math.random().toString(36).slice(2)}`;
     const gradientId = `gradient-${Math.random().toString(36).slice(2)}`;
+    
+    // Use style's highlightColor if available, otherwise default to white
+    $: highlightColor = style.highlightColor || '#FFFFFF';
  
     const dispatch = createEventDispatcher<{
         click: void;
@@ -20,17 +22,17 @@
     function handleClick() {
         dispatch('click');
     }
- </script>
+</script>
  
- <!-- svelte-ignore a11y-click-events-have-key-events -->
- <!-- svelte-ignore a11y-no-static-element-interactions -->
- <g 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
+<g 
     class="base-node"
     {transform}
     on:mouseenter={() => dispatch('hover', { isHovered: true })}
     on:mouseleave={() => dispatch('hover', { isHovered: false })}
     on:click={handleClick}
- >
+>
     <defs>
         <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
             <!-- Strong outer glow -->
@@ -100,9 +102,8 @@
         class="middle-ring"
     />
     
-    Content slot
     <slot {isHovered} {radius} />
- </g>
+</g>
  
  <style>
     .base-node {

@@ -58,4 +58,5 @@ export interface NodeStyle {
             hover: number;
         };
     };
+    highlightColor?: string; 
 }
