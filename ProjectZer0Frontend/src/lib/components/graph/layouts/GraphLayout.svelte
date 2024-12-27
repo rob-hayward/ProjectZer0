@@ -36,7 +36,7 @@
         if (!svg || !zoom) return;
         
         const initialTransform = d3.zoomIdentity
-            .translate(width / 2, height / 2);
+            .translate(width / 2, height * 0.515);
  
         d3.select(svg)
             .transition()
@@ -64,7 +64,7 @@
             });
  
         const initialTransform = d3.zoomIdentity
-            .translate(width / 2, height / 2);
+            .translate(width / 2, height * 0.515);
  
         d3.select(svg)
             .call(zoom)

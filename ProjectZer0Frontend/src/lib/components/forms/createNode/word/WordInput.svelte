@@ -13,25 +13,20 @@
 
     const dispatch = createEventDispatcher<{
         back: void;
-        wordExists: { word: string };
         proceed: void;
-        error: { message: string };
     }>();
 
     let isCheckingWord = false;
     let errorMessage: string | null = null;
-    let successMessage: string | null = null;
 
     async function checkWordExistence() {
         if (!word.trim()) {
             errorMessage = 'Please enter a word';
-            dispatch('error', { message: errorMessage });
             return;
         }
 
         isCheckingWord = true;
         errorMessage = null;
-        successMessage = null;
         
         try {
             const response = await fetchWithAuth(`/nodes/word/check/${encodeURIComponent(word.trim())}`);
@@ -39,21 +34,18 @@
             if (response.exists) {
                 // Word exists - fetch its data
                 const wordData = await fetchWithAuth(`/nodes/word/${encodeURIComponent(word.trim())}`);
-                successMessage = `Word "${word.trim()}" already exists. Redirecting...`;
+                errorMessage = `Word "${word.trim()}" already exists. Redirecting to word page...`;
                 
                 // Update word store and navigate
                 wordStore.set(wordData);
                 setTimeout(() => {
                     goto('/graph/word');
                 }, 2000);
-                
-                dispatch('wordExists', { word: word.trim() });
             } else {
                 dispatch('proceed');
             }
         } catch (e) {
             errorMessage = e instanceof Error ? e.message : 'Failed to check word existence';
-            dispatch('error', { message: errorMessage });
         } finally {
             isCheckingWord = false;
         }
@@ -87,10 +79,10 @@
         />
     </foreignObject>
 
-    <!-- Error/Success Message -->
-    {#if errorMessage || successMessage}
+    <!-- Error Message -->
+    {#if errorMessage}
         <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.labelToInput + 50})">
-            <MessageDisplay {errorMessage} {successMessage} />
+            <MessageDisplay {errorMessage} />
         </g>
     {/if}
 

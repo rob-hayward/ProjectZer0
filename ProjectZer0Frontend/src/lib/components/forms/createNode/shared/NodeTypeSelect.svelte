@@ -9,9 +9,14 @@
 
     const dispatch = createEventDispatcher<{
         proceed: void;
+        typeChange: { type: string };
     }>();
 
     const noop = () => {};
+
+    function handleTypeChange() {
+        dispatch('typeChange', { type: nodeType });
+    }
 </script>
 
 <g>
@@ -34,6 +39,7 @@
         <select 
             class="form-input"
             bind:value={nodeType}
+            on:change={handleTypeChange}
             {disabled}
         >
             <option value="">Choose type...</option>

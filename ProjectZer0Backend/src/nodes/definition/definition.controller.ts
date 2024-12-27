@@ -7,6 +7,7 @@ import {
   Body,
   Param,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { DefinitionService } from './definition.service';
@@ -60,5 +61,23 @@ export class DefinitionController {
   @Get(':id/visibility')
   async getVisibilityStatus(@Param('id') id: string) {
     return this.definitionService.getVisibilityStatus(id);
+  }
+
+  @Post(':id/vote')
+  async voteDefinition(
+    @Param('id') id: string,
+    @Request() req,
+    @Body() voteData: { vote: 'agree' | 'disagree' },
+  ) {
+    return this.definitionService.voteDefinition(
+      id,
+      req.user.sub,
+      voteData.vote,
+    );
+  }
+
+  @Get(':id/vote')
+  async getDefinitionVote(@Param('id') id: string, @Request() req) {
+    return this.definitionService.getDefinitionVote(id, req.user.sub);
   }
 }

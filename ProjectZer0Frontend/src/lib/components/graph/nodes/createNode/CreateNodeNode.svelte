@@ -1,7 +1,9 @@
-<!-- src/lib/components/graph/nodes/createNode/CreateNodeNode.svelte -->
+<!-- src/lib/components/forms/createNode/createNode/CreateNodeNode.svelte -->
 <script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { COLORS } from '$lib/constants/colors';
     import { FORM_STYLES } from '$lib/styles/forms';
     import type { UserProfile } from '$lib/types/user';
 
@@ -26,13 +28,57 @@
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
 
-    const style = {
+    let colorIndex = 0;
+    let intervalId: NodeJS.Timeout | undefined;
+
+    $: if (formData.nodeType === '') {
+        if (!intervalId) {
+            const colors = [
+                COLORS.PRIMARY.BLUE,
+                COLORS.PRIMARY.PURPLE,
+                COLORS.PRIMARY.GREEN,
+                COLORS.PRIMARY.TURQUOISE,
+                COLORS.PRIMARY.YELLOW,
+                COLORS.PRIMARY.ORANGE
+            ];
+            
+            intervalId = setInterval(() => {
+                colorIndex = (colorIndex + 1) % colors.length;
+                style = { ...style };
+            }, 300);
+        }
+    } else {
+        if (intervalId) {
+            clearInterval(intervalId);
+            intervalId = undefined;
+        }
+    }
+
+    $: style = {
         previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
         detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
-        colors: NODE_CONSTANTS.COLORS.WORD,
+        colors: formData.nodeType === 'word' ? NODE_CONSTANTS.COLORS.WORD : {
+            background: NODE_CONSTANTS.COLORS.WORD.background,
+            border: NODE_CONSTANTS.COLORS.WORD.border,
+            text: NODE_CONSTANTS.COLORS.WORD.text,
+            hover: NODE_CONSTANTS.COLORS.WORD.hover,
+            gradient: NODE_CONSTANTS.COLORS.WORD.gradient
+        },
         padding: NODE_CONSTANTS.PADDING,
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: NODE_CONSTANTS.STROKE
+        stroke: NODE_CONSTANTS.STROKE,
+        highlightColor: formData.nodeType === 'word' 
+            ? COLORS.PRIMARY.BLUE 
+            : formData.nodeType === ''
+                ? [
+                    COLORS.PRIMARY.BLUE,
+                    COLORS.PRIMARY.PURPLE,
+                    COLORS.PRIMARY.GREEN,
+                    COLORS.PRIMARY.TURQUOISE,
+                    COLORS.PRIMARY.YELLOW,
+                    COLORS.PRIMARY.ORANGE
+                  ][colorIndex]
+                : undefined
     };
 
     $: stepTitle = currentStep === 1 ? 'Create New Node' :
@@ -56,6 +102,12 @@
             errorMessage = null;
         }
     }
+
+    onDestroy(() => {
+        if (intervalId) {
+            clearInterval(intervalId);
+        }
+    });
 </script>
 
 <BaseSvgDetailNode {style}>
@@ -98,14 +150,13 @@
                         on:proceed={handleNext}
                     />
                 {:else if currentStep === 2}
-                    <WordInput
-                        bind:word={formData.word}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                        on:error={e => errorMessage = e.detail.message}
-                        on:wordExists={() => errorMessage = "Word already exists"}
-                    />
+                <WordInput
+                    bind:word={formData.word}
+                    disabled={isLoading}
+                    on:back={handleBack}
+                    on:proceed={handleNext}
+                    on:error={e => errorMessage = e.detail.message}
+                />
                 {:else if currentStep === 3}
                     <DefinitionInput
                         bind:definition={formData.definition}

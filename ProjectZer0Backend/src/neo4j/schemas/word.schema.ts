@@ -52,31 +52,49 @@ export class WordSchema {
 
     const result = await this.neo4jService.write(
       `
-    CREATE (w:WordNode {
-      id: apoc.create.uuid(),
-      word: $word,
-      createdBy: $createdBy,
-      publicCredit: $publicCredit,
-      createdAt: datetime(),
-      updatedAt: datetime(),
-      positiveVotes: 0,
-      negativeVotes: 0
-    })
-    CREATE (d:DefinitionNode {
-      id: apoc.create.uuid(),
-      text: $initialDefinition,
-      createdBy: $createdBy,
-      createdAt: datetime(),
-      votes: CASE WHEN $isApiDefinition THEN 0 ELSE 1 END
-    })
-    CREATE (w)-[:HAS_DEFINITION]->(d)
-    RETURN w
-    `,
-      { ...wordData, word: standardizedWord, isApiDefinition },
+        CREATE (w:WordNode {
+            id: apoc.create.uuid(),
+            word: $word,
+            createdBy: $createdBy,
+            publicCredit: $publicCredit,
+            createdAt: datetime(),
+            updatedAt: datetime()
+        })
+        CREATE (d:DefinitionNode {
+            id: apoc.create.uuid(),
+            text: $initialDefinition,
+            createdBy: $createdBy,
+            createdAt: datetime()
+        })
+        CREATE (w)-[:HAS_DEFINITION]->(d)
+        RETURN w, d
+        `,
+      { ...wordData, word: standardizedWord },
     );
+
     const createdWord = result.records[0].get('w').properties;
+    const initialDefinition = result.records[0].get('d').properties;
+
+    // If this is a user-created definition, add the vote
+    if (!isApiDefinition) {
+      await this.addDefinitionVote(initialDefinition.id, wordData.createdBy);
+    }
+
     this.logger.log(`Created word node: ${JSON.stringify(createdWord)}`);
     return createdWord;
+  }
+
+  async addDefinitionVote(definitionId: string, userId: string) {
+    return this.neo4jService.write(
+      `
+        MATCH (d:DefinitionNode {id: $definitionId})
+        MERGE (u:User {id: $userId})
+        CREATE (u)-[:VOTED_ON {createdAt: datetime(), value: 1}]->(d)
+        SET d.votes = 1
+        RETURN d
+        `,
+      { definitionId, userId },
+    );
   }
 
   async addDefinition(wordData: {

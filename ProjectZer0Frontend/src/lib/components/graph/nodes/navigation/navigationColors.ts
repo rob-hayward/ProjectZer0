@@ -10,7 +10,9 @@ export const navigationColors = {
     'edit-profile': COLORS.PRIMARY.ORANGE,
     logout: COLORS.PRIMARY.RED,
     dashboard: COLORS.PRIMARY.BLUE,  // Matching explore blue
-    'alternative-definitions': COLORS.PRIMARY.FOREST
+    'alternative-definitions': COLORS.PRIMARY.PURPLE,  // Changed from FOREST to PURPLE
+    'create-alternative': COLORS.PRIMARY.PURPLE,      // Same as alternative-definitions
+    'discuss': COLORS.PRIMARY.TURQUOISE               // Using TURQUOISE for discussion
 } as const;
 
 export type NavigationNodeType = keyof typeof navigationColors;

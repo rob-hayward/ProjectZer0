@@ -30,6 +30,18 @@ export class DefinitionService {
     return this.definitionSchema.deleteDefinition(id);
   }
 
+  async voteDefinition(
+    definitionId: string,
+    userId: string,
+    vote: 'agree' | 'disagree',
+  ) {
+    return this.definitionSchema.voteDefinition(definitionId, userId, vote);
+  }
+
+  async getDefinitionVote(definitionId: string, userId: string) {
+    return this.definitionSchema.getDefinitionVote(definitionId, userId);
+  }
+
   async setVisibilityStatus(id: string, isVisible: boolean) {
     return this.definitionSchema.setVisibilityStatus(id, isVisible);
   }
