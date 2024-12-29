@@ -73,7 +73,7 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.DASHBOARD]: '⌂',
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: '≣',
     [NavigationOptionId.CREATE_ALTERNATIVE]: '+ ≣',
-    [NavigationOptionId.DISCUSS]: '⚑'
+    [NavigationOptionId.DISCUSS]: '⌬'
 };
 
 // Navigation option configurations per context
