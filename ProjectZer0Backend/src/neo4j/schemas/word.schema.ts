@@ -90,7 +90,7 @@ export class WordSchema {
       // Create CREATED relationships for user-created content
       WITH w, d, $createdBy as userId
       WHERE NOT $isApiDefinition AND NOT $isAICreated
-      MATCH (u:User {sub: userId})
+      MATCH (u:User {sub: userId})  // Changed from {id: userId} to {sub: userId}
       CREATE (u)-[:CREATED {
           createdAt: datetime(),
           type: 'word'
@@ -109,6 +109,11 @@ export class WordSchema {
         isAICreated,
       },
     );
+
+    if (!result.records || !result.records[0]) {
+      this.logger.error('No result returned from word creation');
+      throw new Error('Failed to create word');
+    }
 
     const createdWord = result.records[0].get('w').properties;
     const initialDefinition = result.records[0].get('d').properties;
@@ -159,7 +164,7 @@ export class WordSchema {
 
       WITH d, $createdBy as userId
       WHERE NOT $isApiDefinition AND NOT $isAICreated
-      MATCH (u:User {sub: userId})
+      MATCH (u:User {sub: userId})  // Changed from {id: userId} to {sub: userId}
       CREATE (u)-[:CREATED {
           createdAt: datetime(),
           type: 'definition'
@@ -169,6 +174,12 @@ export class WordSchema {
       `,
       { ...wordData, word: standardizedWord, isApiDefinition, isAICreated },
     );
+
+    if (!result.records || !result.records[0]) {
+      this.logger.error('No result returned from definition creation');
+      throw new Error('Failed to create definition');
+    }
+
     const addedDefinition = result.records[0].get('d').properties;
     this.logger.log(`Added definition: ${JSON.stringify(addedDefinition)}`);
     return addedDefinition;

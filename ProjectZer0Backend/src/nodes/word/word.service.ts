@@ -56,23 +56,27 @@ export class WordService {
         `Created word node: ${JSON.stringify(wordNode, null, 2)}`,
       );
 
-      // Only add API definition as secondary definition if there's a user definition
+      // Try to add API definition but don't fail if it doesn't work
       if (
         wordData.definition &&
         freeDictionaryDefinition &&
         freeDictionaryDefinition !== wordData.definition
       ) {
-        const freeDefinition = await this.wordSchema.addDefinition({
-          word: wordData.word,
-          createdBy: 'FreeDictionaryAPI',
-          definitionText: freeDictionaryDefinition,
-        });
-        this.logger.log(
-          `Added Free Dictionary definition: ${JSON.stringify(freeDefinition, null, 2)}`,
-        );
+        try {
+          const freeDefinition = await this.wordSchema.addDefinition({
+            word: wordData.word,
+            createdBy: 'FreeDictionaryAPI',
+            definitionText: freeDictionaryDefinition,
+          });
+          this.logger.log(
+            `Added Free Dictionary definition: ${JSON.stringify(freeDefinition, null, 2)}`,
+          );
+        } catch (error) {
+          this.logger.warn(`Failed to add API definition: ${error.message}`);
+        }
       }
 
-      // Create discussion with initial comment if provided
+      // Fix for the discussion block
       if (wordData.discussion) {
         try {
           this.logger.log(`Creating discussion for word: ${wordData.word}`);
@@ -86,7 +90,6 @@ export class WordService {
             `Created discussion: ${JSON.stringify(discussion, null, 2)}`,
           );
 
-          // Update word with discussion ID
           await this.wordSchema.updateWordWithDiscussionId(
             wordNode.id,
             discussion.id,
@@ -95,16 +98,37 @@ export class WordService {
             `Updated word node with discussion ID: ${discussion.id}`,
           );
         } catch (error) {
-          this.logger.error(`Error creating discussion: ${error.message}`);
-          this.logger.error(error.stack);
-          throw new HttpException(
-            'Failed to create discussion',
-            HttpStatus.INTERNAL_SERVER_ERROR,
-          );
+          this.logger.warn(`Failed to create discussion: ${error.message}`);
         }
       }
 
-      // Fetch the complete word node with all related data
+      // Create discussion if provided
+      if (wordData.discussion) {
+        try {
+          this.logger.log(`Creating discussion for word: ${wordData.word}`);
+          const discussion = await this.discussionService.createDiscussion({
+            createdBy: wordData.createdBy,
+            associatedNodeId: wordNode.id,
+            associatedNodeType: 'WordNode',
+            initialComment: wordData.discussion,
+          });
+          this.logger.log(
+            `Created discussion: ${JSON.stringify(discussion, null, 2)}`,
+          );
+
+          await this.wordSchema.updateWordWithDiscussionId(
+            wordNode.id,
+            discussion.id,
+          );
+          this.logger.log(
+            `Updated word node with discussion ID: ${discussion.id}`,
+          );
+        } catch (error) {
+          this.logger.warn(`Failed to create discussion: ${error.message}`);
+        }
+      }
+
+      // Fetch and return the complete word node
       const completeWordNode = await this.getWord(wordData.word);
       this.logger.log(
         `Fetched complete word node: ${JSON.stringify(completeWordNode, null, 2)}`,
