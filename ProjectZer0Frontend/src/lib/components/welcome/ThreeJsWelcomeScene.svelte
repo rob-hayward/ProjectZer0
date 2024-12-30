@@ -84,13 +84,19 @@
   }
   
   function animateSmallerSphere() {
-    console.log('Starting smaller sphere animation');
     gsap.to(smallerSphere.position, {
       duration: ANIMATION_DURATION,
       x: 0,
-      ease: 'expo.out'
+      ease: 'expo.out',
+      onUpdate: () => {
+        // Emit when sphere is 80% of the way there
+        if (smallerSphere.position.x >= -0.2) {
+          const event = new CustomEvent('animationComplete');
+          window.dispatchEvent(event);
+        }
+      }
     });
-  }
+}
   
   function startAnimation() {
     requestAnimationFrame(startAnimation);

@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
+import { UserSchema } from './user.schema';
 
 @Injectable()
 export class WordSchema {
   private readonly logger = new Logger(WordSchema.name);
 
-  constructor(private readonly neo4jService: Neo4jService) {}
+  constructor(
+    private readonly neo4jService: Neo4jService,
+    private readonly userSchema: UserSchema,
+  ) {}
 
   private standardizeWord(word: string): string {
     const standardized = word.trim().toLowerCase();
@@ -38,7 +42,6 @@ export class WordSchema {
     return exists;
   }
 
-  // Update createWord method in word.schema.ts
   async createWord(wordData: {
     word: string;
     createdBy: string;
@@ -49,34 +52,69 @@ export class WordSchema {
     const standardizedWord = this.standardizeWord(wordData.word);
     this.logger.log(`Standardized word for creation: ${standardizedWord}`);
     const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
+    const isAICreated = wordData.createdBy === 'ProjectZeroAI';
 
     const result = await this.neo4jService.write(
       `
-        CREATE (w:WordNode {
-            id: apoc.create.uuid(),
-            word: $word,
-            createdBy: $createdBy,
-            publicCredit: $publicCredit,
-            createdAt: datetime(),
-            updatedAt: datetime()
-        })
-        CREATE (d:DefinitionNode {
-            id: apoc.create.uuid(),
-            text: $initialDefinition,
-            createdBy: $createdBy,
-            createdAt: datetime()
-        })
-        CREATE (w)-[:HAS_DEFINITION]->(d)
-        RETURN w, d
-        `,
-      { ...wordData, word: standardizedWord },
+      // Create User if needed (for non-API creators)
+      CALL {
+        WITH $createdBy as userId
+        WITH userId
+        WHERE userId <> 'FreeDictionaryAPI' AND userId <> 'ProjectZeroAI'
+        MERGE (u:User {sub: userId})
+        RETURN u
+      }
+
+      // Create Word Node
+      CREATE (w:WordNode {
+          id: apoc.create.uuid(),
+          word: $word,
+          createdBy: $createdBy,
+          publicCredit: $publicCredit,
+          createdAt: datetime(),
+          updatedAt: datetime()
+      })
+
+      // Create Definition Node
+      CREATE (d:DefinitionNode {
+          id: apoc.create.uuid(),
+          text: $initialDefinition,
+          createdBy: $createdBy,
+          createdAt: datetime(),
+          votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END
+      })
+
+      // Create HAS_DEFINITION relationship
+      CREATE (w)-[:HAS_DEFINITION]->(d)
+
+      // Create CREATED relationships for user-created content
+      WITH w, d, $createdBy as userId
+      WHERE NOT $isApiDefinition AND NOT $isAICreated
+      MATCH (u:User {sub: userId})
+      CREATE (u)-[:CREATED {
+          createdAt: datetime(),
+          type: 'word'
+      }]->(w)
+      CREATE (u)-[:CREATED {
+          createdAt: datetime(),
+          type: 'definition'
+      }]->(d)
+
+      RETURN w, d
+      `,
+      {
+        ...wordData,
+        word: standardizedWord,
+        isApiDefinition,
+        isAICreated,
+      },
     );
 
     const createdWord = result.records[0].get('w').properties;
     const initialDefinition = result.records[0].get('d').properties;
 
     // If this is a user-created definition, add the vote
-    if (!isApiDefinition) {
+    if (!isApiDefinition && !isAICreated) {
       await this.addDefinitionVote(initialDefinition.id, wordData.createdBy);
     }
 
@@ -87,12 +125,12 @@ export class WordSchema {
   async addDefinitionVote(definitionId: string, userId: string) {
     return this.neo4jService.write(
       `
-        MATCH (d:DefinitionNode {id: $definitionId})
-        MERGE (u:User {id: $userId})
-        CREATE (u)-[:VOTED_ON {createdAt: datetime(), value: 1}]->(d)
-        SET d.votes = 1
-        RETURN d
-        `,
+      MATCH (d:DefinitionNode {id: $definitionId})
+      MERGE (u:User {sub: $userId})
+      CREATE (u)-[:VOTED_ON {createdAt: datetime(), value: 1}]->(d)
+      SET d.votes = 1
+      RETURN d
+      `,
       { definitionId, userId },
     );
   }
@@ -105,21 +143,31 @@ export class WordSchema {
     const standardizedWord = this.standardizeWord(wordData.word);
     this.logger.log(`Adding definition to word: ${standardizedWord}`);
     const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
+    const isAICreated = wordData.createdBy === 'ProjectZeroAI';
 
     const result = await this.neo4jService.write(
       `
-    MATCH (w:WordNode {word: $word})
-    CREATE (d:DefinitionNode {
-      id: apoc.create.uuid(),
-      text: $definitionText,
-      createdBy: $createdBy,
-      createdAt: datetime(),
-      votes: CASE WHEN $isApiDefinition THEN 0 ELSE 1 END
-    })
-    CREATE (w)-[:HAS_DEFINITION]->(d)
-    RETURN d
-    `,
-      { ...wordData, word: standardizedWord, isApiDefinition },
+      MATCH (w:WordNode {word: $word})
+      CREATE (d:DefinitionNode {
+          id: apoc.create.uuid(),
+          text: $definitionText,
+          createdBy: $createdBy,
+          createdAt: datetime(),
+          votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END
+      })
+      CREATE (w)-[:HAS_DEFINITION]->(d)
+
+      WITH d, $createdBy as userId
+      WHERE NOT $isApiDefinition AND NOT $isAICreated
+      MATCH (u:User {sub: userId})
+      CREATE (u)-[:CREATED {
+          createdAt: datetime(),
+          type: 'definition'
+      }]->(d)
+
+      RETURN d
+      `,
+      { ...wordData, word: standardizedWord, isApiDefinition, isAICreated },
     );
     const addedDefinition = result.records[0].get('d').properties;
     this.logger.log(`Added definition: ${JSON.stringify(addedDefinition)}`);

@@ -9,6 +9,6 @@ import { InteractionModule } from './interactions/interaction.module';
   imports: [Neo4jModule, InteractionModule],
   controllers: [UsersController],
   providers: [UserAuthService, UserSchema],
-  exports: [UserAuthService, InteractionModule],
+  exports: [UserAuthService, InteractionModule, UserSchema], // Added UserSchema to exports
 })
 export class UsersModule {}
