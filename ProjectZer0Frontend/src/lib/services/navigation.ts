@@ -34,7 +34,7 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => {
         const currentWord = get(wordStore);
         if (currentWord) {
-            goto(`/graph-test/${currentWord.word}`);
+            goto('/graph/alternative-definitions');
         }
     },
     [NavigationOptionId.CREATE_ALTERNATIVE]: () => {

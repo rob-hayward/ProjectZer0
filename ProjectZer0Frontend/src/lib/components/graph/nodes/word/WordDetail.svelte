@@ -26,6 +26,7 @@
     let voteStatus: 'agree' | 'none' = 'none';
     let isVoting = false;
     let showDisagreeMessage = false;
+    let isMessageClosing = false;  // For animation
  
     // Get the live definition (highest voted)
     $: liveDefinition = data.definitions.length > 0
@@ -97,7 +98,7 @@
             );
 
             voteStatus = 'none';
-            showDisagreeMessage = true;
+            showDisagreeMessage = true;  // Show the message
             liveDefinition.votes = getVoteValue(result.definition.votes);
             
             // Refresh the definition list as other definitions' votes might have changed
@@ -209,20 +210,33 @@
                             {voteStatus}
                         </text>
 
-                        <!-- Disagree Message -->
-                        {#if showDisagreeMessage}
-                            <g transform="translate(0, 60)">
-                                <text x={METRICS_SPACING.labelX} class="message left-align">
-                                    If you disagree with this definition, you can view and vote for
-                                </text>
-                                <text x={METRICS_SPACING.labelX} dy="20" class="message left-align">
-                                    alternative definitions, or suggest your own alternative definition.
-                                </text>
-                                <text x={METRICS_SPACING.labelX} dy="40" class="message left-align">
-                                    The definition with the most votes will be displayed as the live definition.
-                                </text>
-                            </g>
-                        {/if}
+                <!-- Disagree Message -->
+{#if showDisagreeMessage}
+<g transform="translate(0, 0)">
+    <foreignObject 
+        x="-125" 
+        y="-125"
+        width="250" 
+        height="250"  
+    >
+        <div class="message-container">
+            <button 
+                class="close-button"
+                on:click={() => showDisagreeMessage = false}
+                aria-label="Close message"
+            >×</button>
+            <div class="message-content">
+                <p>If you disagree with this definition, you can:</p>
+                <ul>
+                    <li>View alternative definitions</li>
+                    <li>Suggest your own definition</li>
+                </ul>
+                <p class="small-note">The definition with the most votes becomes the live definition.</p>
+            </div>
+        </div>
+    </foreignObject>
+</g>
+{/if}
                     </g>
                 {/if}
             </g>
@@ -290,11 +304,6 @@
     }
 
     .secondary {
-        fill: rgba(255, 255, 255, 0.7);
-    }
-
-    .message {
-        font-size: 12px;
         fill: rgba(255, 255, 255, 0.7);
     }
 
@@ -376,4 +385,72 @@
     font-size: 13px;
     fill: white;
 }
+
+    :global(.message-container) {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            background: rgb(0, 0, 0);  /* Fully opaque black */
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+            pointer-events: auto;  /* Ensure clickable */
+        }
+
+    :global(.close-button) {
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        font-size: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        padding: 0;
+        line-height: 1;
+    }
+
+    :global(.close-button:hover) {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+
+    :global(.message-content) {
+        color: white;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 11px;
+        text-align: center;
+    }
+
+    :global(.message-content p) {
+        margin: 0 0 10px 0;
+    }
+
+    :global(.message-content ul) {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 10px 0;
+    }
+
+    :global(.message-content li) {
+        margin: 5px 0;
+        color: rgba(255, 255, 255, 0.8);
+    }
+
+    :global(.message-content .small-note) {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.6);
+        margin-top: 10px;
+    }
 </style>

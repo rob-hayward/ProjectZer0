@@ -34,8 +34,8 @@ export const BACKGROUND = {
     MIN_CONNECTIONS: 2,
     MAX_CONNECTIONS: 2,
     NODE_SIZE: 0.3,
-    EDGE_OPACITY: 0.02,
-    NODE_OPACITY: 0.6,
+    EDGE_OPACITY: 0.01,
+    NODE_OPACITY: 2,
     Z_POSITION: -50,
     FIELD_SIZE: 375,         // Increased from 100 to cover 4x the area
     MOVEMENT: {

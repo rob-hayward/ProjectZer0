@@ -1,22 +1,13 @@
-<!-- src/lib/components/graph/nodes/word/SvgWordNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import type { WordNode, NodeMode } from '$lib/types/nodes';
+    import type { WordNode, NodeMode, NodeStyle } from '$lib/types/nodes';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
-    import BaseSvgNode from '../base/BaseNode.svelte';
+    import BaseNode from '../base/BaseNode.svelte';
     
     export let data: WordNode;
     export let mode: NodeMode = 'preview';
     export let transform: string;
-
-    const style = {
-        previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
-        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
-        colors: NODE_CONSTANTS.COLORS.WORD,
-        padding: NODE_CONSTANTS.PADDING,
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: NODE_CONSTANTS.STROKE
-    };
+    export let style: NodeStyle;
 
     const dispatch = createEventDispatcher<{
         click: { data: WordNode };
@@ -36,39 +27,13 @@
     }
 </script>
 
-<BaseSvgNode 
+<BaseNode 
     {style}
     {transform}
     on:click={handleClick}
     on:hover={handleHover}
     let:isHovered
 >
-    <defs>
-        <radialGradient id="word-gradient" cx="50%" cy="50%" r="50%">
-            <stop 
-                offset="0%" 
-                stop-color={style.colors.gradient.start}
-            />
-            <stop 
-                offset="100%" 
-                stop-color={style.colors.gradient.end}
-            />
-        </radialGradient>
-
-        <filter id="glow-effect">
-            <feGaussianBlur 
-                in="SourceGraphic" 
-                stdDeviation={NODE_CONSTANTS.SVG.filters.glow.deviation}
-            />
-            <feComponentTransfer>
-                <feFuncA 
-                    type="linear" 
-                    slope={NODE_CONSTANTS.SVG.filters.glow.strength}
-                />
-            </feComponentTransfer>
-        </filter>
-    </defs>
-
     <!-- Title -->
     <text
         y={-style.padding.preview}
@@ -103,7 +68,7 @@
             click to zoom
         </text>
     {/if}
-</BaseSvgNode>
+</BaseNode>
 
 <style>
     text {

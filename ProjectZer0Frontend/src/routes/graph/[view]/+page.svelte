@@ -1,4 +1,3 @@
-<!-- ProjectZer0Frontend/src/routes/graph/[view]/+page.svelte -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
@@ -12,19 +11,19 @@
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
-    import SvgWordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
-    import SvgWordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
+    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
+    import WordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
     import { getNavigationOptions, handleNavigation } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
     import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode } from '$lib/types/graph';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
-	import { COLORS } from '$lib/constants/colors';
+    import { COLORS } from '$lib/constants/colors';
  
     let userActivity: UserActivity | undefined;
  
     const wordStyle = {
-        previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
+        previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
         detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
         colors: NODE_CONSTANTS.COLORS.WORD,
         padding: NODE_CONSTANTS.PADDING,
@@ -50,9 +49,9 @@
     });
  
     $: view = $page.params.view;
-    $: wordData = view === 'word' ? $wordStore : null;
+    $: wordData = (view === 'word' || view === 'alternative-definitions') ? $wordStore : null;
  
-    $: centralNode = view === 'word' && wordData ? {
+    $: centralNode = (view === 'word' || view === 'alternative-definitions') && wordData ? {
         id: wordData.id,
         type: 'word' as const,
         data: wordData,
@@ -67,7 +66,7 @@
     $: context = 
         view === 'dashboard' ? NavigationContext.DASHBOARD :
         view === 'create-node' ? NavigationContext.CREATE_NODE :
-        view === 'word' ? NavigationContext.WORD :
+        view === 'word' || view === 'alternative-definitions' ? NavigationContext.WORD :
         NavigationContext.EDIT_PROFILE;
  
     $: navigationNodes = getNavigationOptions(context)
@@ -99,15 +98,25 @@
                 />
             {:else if isWordNode(node)}
                 {#if node.group === 'central'}
-                    <SvgWordDetail
-                        data={node.data}
-                        style={wordStyle}
-                    />
+                    {#if view === 'alternative-definitions'}
+                        <WordNode
+                            data={node.data}
+                            mode="preview"
+                            transform=""
+                            style={wordStyle}
+                        />
+                    {:else}
+                        <WordDetail
+                            data={node.data}
+                            style={wordStyle}
+                        />
+                    {/if}
                 {:else}
-                    <SvgWordNode
+                    <WordNode
                         data={node.data}
                         mode="preview"
                         transform=""
+                        style={wordStyle}
                     />
                 {/if}
             {/if}

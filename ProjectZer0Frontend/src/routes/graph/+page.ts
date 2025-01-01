@@ -1,4 +1,3 @@
-// src/routes/graph/+page.ts
 import { redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import type { GraphPageData } from '$lib/types/graph';
@@ -14,7 +13,7 @@ interface LoadEvent {
 }
 
 export const load = (async ({ params }: LoadEvent): Promise<GraphPageData> => {
-    const validViews = ['dashboard', 'word', 'create-node', 'edit-profile'];
+    const validViews = ['dashboard', 'word', 'create-node', 'edit-profile', 'alternative-definitions'];
     const view = params.view;
 
     if (!view || !validViews.includes(view)) {
@@ -23,7 +22,7 @@ export const load = (async ({ params }: LoadEvent): Promise<GraphPageData> => {
 
     // Handle word view data
     let wordData = null;
-    if (view === 'word') {
+    if (view === 'word' || view === 'alternative-definitions') {
         const state = history.state?.['wordData'];
         if (state) {
             wordData = state;
