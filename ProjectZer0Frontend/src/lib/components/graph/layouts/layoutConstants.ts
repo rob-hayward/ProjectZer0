@@ -32,14 +32,20 @@ export const LAYOUT_CONSTANTS = {
         }
     },
 
-    // New navigation-specific layout constants
+    // Navigation-specific layout constants with view mode support
     NAVIGATION: {
-        RADIUS: 350,         // Increased radius for better spacing
-        SPACING: 60,         // Increased minimum spacing between nodes
+        RADIUS: {
+            DETAIL: 350,        // Original radius for detail view
+            PREVIEW: 130        // Smaller radius for preview view
+        },
+        SPACING: {
+            DETAIL: 60,         // Original spacing for detail view
+            PREVIEW: 45         // Smaller spacing for preview view
+        },
         STRENGTH: {
-            RADIAL: 2.0,     // Increased to maintain circular formation
-            COLLISION: 1.5,   // Increased to prevent overlap
-            CHARGE: -200     // Stronger repulsion between nodes
+            RADIAL: 2.0,        // Maintain circular formation
+            COLLISION: 1.5,      // Prevent overlap
+            CHARGE: -200         // Node repulsion
         }
     },
 

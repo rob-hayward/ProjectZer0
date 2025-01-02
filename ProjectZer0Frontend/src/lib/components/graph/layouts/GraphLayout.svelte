@@ -13,6 +13,7 @@
     export let nodes: GraphNode[] = [];
     export let width: number;
     export let height: number;
+    export let isPreviewMode: boolean = false;
  
     // Local state
     let svg: SVGSVGElement;
@@ -45,12 +46,14 @@
     }
  
     function initializeLayout() {
-        layout = new GraphLayout(width, height);
+        console.log('GraphLayout.svelte - Initializing layout with isPreviewMode:', isPreviewMode);
+        layout = new GraphLayout(width, height, isPreviewMode);
         updateLayout();
     }
  
     function updateLayout() {
         if (!layout) return;
+        console.log('GraphLayout.svelte - Updating layout with nodes');
         nodePositions = layout.updateLayout({ nodes });
         nodes = nodes; // Force Svelte update
     }
@@ -81,8 +84,16 @@
             layout.stop();
         }
     });
+
+    // Watch for changes in preview mode
+    $: if (layout && isPreviewMode !== undefined) {
+        console.log('GraphLayout.svelte - Reinitializing layout due to preview mode change:', isPreviewMode);
+        layout.updatePreviewMode(isPreviewMode);
+    }
  
+    // Separate reactivity for nodes updates
     $: if (layout && nodes) {
+        console.log('GraphLayout.svelte - Updating layout with nodes');
         updateLayout();
     }
 </script>

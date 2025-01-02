@@ -10,10 +10,12 @@ export class GraphLayout {
    private simulation: d3.Simulation<SimulationNode, undefined>;
    private width: number;
    private height: number;
+   private isPreviewMode: boolean;
 
-   constructor(width: number, height: number) {
+   constructor(width: number, height: number, isPreviewMode: boolean = false) {
        this.width = width;
        this.height = height;
+       this.isPreviewMode = isPreviewMode;
        this.simulation = this.initializeSimulation();
    }
 
@@ -23,14 +25,23 @@ export class GraphLayout {
            .alphaDecay(LAYOUT_CONSTANTS.SIMULATION.ALPHA_DECAY);
    }
 
+   public updatePreviewMode(isPreview: boolean): void {
+        console.log('GraphLayout.ts - Updating preview mode:', isPreview);
+        if (this.isPreviewMode === isPreview) return;
+        
+        this.isPreviewMode = isPreview;
+        if (this.simulation.nodes().length > 0) {
+            this.configureDashboardAndNavigationLayout(this.simulation.nodes());
+            this.simulation.alpha(1).restart();
+        }
+    }
+
    private configureSingleNodeLayout(node: SimulationNode): void {
-       // Remove all forces for single node
        this.simulation.force("center", null);
        this.simulation.force("charge", null);
        this.simulation.force("collision", null);
        this.simulation.force("radial", null);
 
-       // Fix node position at center
        node.fx = 0;
        node.fy = 0;
        node.x = 0;
@@ -38,55 +49,83 @@ export class GraphLayout {
    }
 
    private configureDashboardAndNavigationLayout(nodes: SimulationNode[]): void {
+        // Clear any existing fixed positions first
+        nodes.forEach(node => {
+            if (node.group === 'navigation') {
+                node.fx = undefined;
+                node.fy = undefined;
+            }
+        });
+
         const navigationNodes = nodes.filter(n => n.group === 'navigation');
         const centerNode = nodes.find(n => n.group === 'central');
 
+        console.log('GraphLayout.ts - Configure layout with isPreviewMode:', this.isPreviewMode);
         console.log('Configuring navigation layout:', {
             totalNodes: nodes.length,
             navigationNodes: navigationNodes.length,
-            hasCenterNode: !!centerNode
+            hasCenterNode: !!centerNode,
+            isPreviewMode: this.isPreviewMode
         });
 
         if (!centerNode) return;
 
-        // Fix center node position
         centerNode.fx = 0;
         centerNode.fy = 0;
         centerNode.x = 0;
         centerNode.y = 0;
 
-        // Clear existing forces
         this.simulation.force("center", null);
         this.simulation.force("charge", null);
         this.simulation.force("collision", null);
         this.simulation.force("radial", null);
 
-        // Pre-position navigation nodes in a circle and fix their positions
+        const radius = this.isPreviewMode ? 
+            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.PREVIEW : 
+            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.DETAIL;
+        
+        const spacing = this.isPreviewMode ? 
+            LAYOUT_CONSTANTS.NAVIGATION.SPACING.PREVIEW : 
+            LAYOUT_CONSTANTS.NAVIGATION.SPACING.DETAIL;
+
         navigationNodes.forEach((node, i) => {
             const angle = (i / navigationNodes.length) * 2 * Math.PI - Math.PI / 2;
-            const x = Math.cos(angle) * LAYOUT_CONSTANTS.NAVIGATION.RADIUS;
-            const y = Math.sin(angle) * LAYOUT_CONSTANTS.NAVIGATION.RADIUS;
+            const x = Math.cos(angle) * radius;
+            const y = Math.sin(angle) * radius;
             
-            // Fix the positions of navigation nodes
             node.fx = x;
             node.fy = y;
             node.x = x;
             node.y = y;
 
-            console.log(`Fixed position for node ${i}:`, { x, y });
+            console.log(`Fixed position for node ${i}:`, { 
+                id: node.id, 
+                x, 
+                y, 
+                radius,
+                spacing,
+                isPreviewMode: this.isPreviewMode 
+            });
         });
 
-        // Configure forces with fixed positions
         this.simulation
             .force("collision", d3.forceCollide<SimulationNode>()
-                .radius(LAYOUT_CONSTANTS.NAVIGATION.SPACING)
+                .radius(spacing)
                 .strength(LAYOUT_CONSTANTS.NAVIGATION.STRENGTH.COLLISION))
             .force("center", d3.forceCenter(0, 0));
 
-        // Let's add a check if positions are maintained
-        console.log('Node positions after force configuration:', 
-            nodes.map(n => ({ id: n.id, x: n.x, y: n.y, fx: n.fx, fy: n.fy }))
-        );
+        console.log('Layout configuration:', { 
+            radius, 
+            spacing, 
+            isPreviewMode: this.isPreviewMode,
+            nodePositions: nodes.map(n => ({ 
+                id: n.id, 
+                x: n.x, 
+                y: n.y, 
+                fx: n.fx, 
+                fy: n.fy 
+            }))
+        });
     }
 
    public updateLayout(data: GraphData): Map<string, NodePosition> {
@@ -99,17 +138,14 @@ export class GraphLayout {
            this.configureDashboardAndNavigationLayout(nodes);
        }
 
-       // Update simulation with nodes
        this.simulation.nodes(nodes);
        
-       // Run simulation with more iterations for multi-node layouts
        if (nodes.length === 1) {
            this.simulation.tick();
            this.simulation.stop();
        } else {
            this.simulation.alpha(1).restart();
-           // Increase iterations for better settling
-           for (let i = 0; i < 500; ++i) {
+           for (let i = 0; i < LAYOUT_CONSTANTS.SIMULATION.ITERATIONS; ++i) {
                this.simulation.tick();
            }
        }
@@ -118,15 +154,6 @@ export class GraphLayout {
    }
 
    private getNodePositions(nodes: SimulationNode[]): Map<string, NodePosition> {
-    nodes.forEach(node => {
-        console.log(`Position for ${node.id}:`, {
-            x: node.x,
-            y: node.y,
-            group: node.group,
-            fixed: { fx: node.fx, fy: node.fy }
-        });
-    });
-
     return new Map(
         nodes.map(node => {
             const position = {
@@ -139,11 +166,10 @@ export class GraphLayout {
                 distanceFromCenter: node.group === 'navigation' ?
                     Math.sqrt(Math.pow(node.x ?? 0, 2) + Math.pow(node.y ?? 0, 2)) : undefined
             };
-            console.log(`Position for node ${node.id}:`, position);
             return [node.id, position];
         })
     );
-}
+   }
 
    public resize(width: number, height: number): void {
        this.width = width;

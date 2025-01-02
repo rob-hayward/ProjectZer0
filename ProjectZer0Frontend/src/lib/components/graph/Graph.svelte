@@ -12,6 +12,7 @@
     export let width = window.innerWidth;
     export let height = window.innerHeight;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
+    export let isPreviewMode: boolean = false;
  
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
  
@@ -64,16 +65,25 @@
             background.destroy();
         }
     });
+
+    $: if (isPreviewMode !== undefined) {
+        console.log('Graph.svelte - Preview mode changed:', isPreviewMode);
+        if (graphLayout) {
+            setTimeout(() => {
+                graphLayout.resetView();
+            }, 0);
+        }
+    }
  
     $: viewBox = width ? 
         `${width * mergedConfig.viewport.origin.x} ${height * mergedConfig.viewport.origin.y} ${width * mergedConfig.viewport.scale} ${height * mergedConfig.viewport.scale}` : 
         '0 0 100 100';
- </script>
+</script>
  
- <div 
+<div 
     class="graph-container"
     bind:this={container}
- >
+>
     <button 
         class="reset-button"
         on:click={handleReset}
@@ -101,6 +111,7 @@
         {nodes} 
         {width} 
         {height}
+        {isPreviewMode}
     >
         <svelte:fragment slot="node" let:node let:position>
             <slot 
@@ -110,9 +121,9 @@
             />
         </svelte:fragment>
     </GraphLayout>
- </div>
+</div>
  
- <style>
+<style>
     .graph-container {
         width: 100%;
         height: 100%;
@@ -173,4 +184,4 @@
     :global(.graph-container .edge) {
         pointer-events: none;
     }
- </style>
+</style>
