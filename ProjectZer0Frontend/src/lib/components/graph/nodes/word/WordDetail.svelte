@@ -215,7 +215,7 @@
 <g transform="translate(0, 0)">
     <foreignObject 
         x="-125" 
-        y="-125"
+        y="-175"
         width="250" 
         height="250"  
     >

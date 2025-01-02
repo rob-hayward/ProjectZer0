@@ -6,7 +6,7 @@
     import type { UserActivity } from '$lib/services/userActivity';
     import type { GraphNode, GraphPageData } from '$lib/types/graph';
     import { getUserActivity } from '$lib/services/userActivity';
-    import { getWordData } from '$lib/services/word';  // Add this line
+    import { getWordData } from '$lib/services/word';  
     import { NODE_CONSTANTS } from '$lib/components/graph/nodes/base/BaseNodeConstants';
     import Graph from '$lib/components/graph/Graph.svelte';
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
@@ -37,43 +37,52 @@
     };
 
  // Inside initializeData function in +page.svelte
-async function initializeData() {
-    console.log('Starting initializeData with data:', data);
-    try {
-        await auth0.handleAuthCallback();
-        const fetchedUser = await auth0.getAuth0User();
-        if (!fetchedUser) {
-            console.log('No user found, redirecting to login');
-            auth0.login();
-            return;
-        }
-        userStore.set(fetchedUser);
-        userActivity = await getUserActivity();
+    async function initializeData() {
+        console.log('Starting initializeData:', { 
+            data,
+            currentUrl: window.location.href,
+            view,
+            isWordView 
+        });
+        try {
+            await auth0.handleAuthCallback();
+            const fetchedUser = await auth0.getAuth0User();
+            if (!fetchedUser) {
+                console.log('No user found, redirecting to login');
+                auth0.login();
+                return;
+            }
+            userStore.set(fetchedUser);
+            userActivity = await getUserActivity();
 
-        // If we got word data from the server during load, set it in the store
-        if (data?.wordData && isWordView) {
-            console.log('Setting word data from server load:', data.wordData);
-            wordStore.set(data.wordData, view as 'word' | 'alternative-definitions');
-        } else if (isWordView) {
-            // If we're in a word view but don't have data, try to load from URL
-            const url = new URL(window.location.href);
-            const wordParam = url.searchParams.get('word');
-            if (wordParam) {
-                console.log('Loading word data from URL param:', wordParam);
-                const loadedWord = await getWordData(wordParam);
-                if (loadedWord) {
-                    wordStore.set(loadedWord, view as 'word' | 'alternative-definitions');
+            if (data?.wordData && isWordView) {
+                console.log('Setting word data from server load:', data.wordData);
+                wordStore.set(data.wordData, view as 'word' | 'alternative-definitions');
+            } else if (isWordView) {
+                const url = new URL(window.location.href);
+                const wordParam = url.searchParams.get('word');
+                console.log('Checking URL for word param:', { wordParam, url: url.toString() });
+                if (wordParam) {
+                    console.log('Loading word data from URL param:', wordParam);
+                    const loadedWord = await getWordData(wordParam);
+                    if (loadedWord) {
+                        console.log('Word data loaded from URL:', loadedWord);
+                        wordStore.set(loadedWord, view as 'word' | 'alternative-definitions');
+                    }
                 }
             }
+        } catch (error) {
+            console.error('Error in initializeData:', error);
+            auth0.login();
+        } finally {
+            console.log('Setting isLoading to false', {
+                view,
+                isWordView,
+                hasWordData: !!$wordStore
+            });
+            isLoading = false;
         }
-    } catch (error) {
-        console.error('Error in initializeData:', error);
-        auth0.login();
-    } finally {
-        console.log('Setting isLoading to false');
-        isLoading = false;
     }
-}
 
     onMount(initializeData);
  
