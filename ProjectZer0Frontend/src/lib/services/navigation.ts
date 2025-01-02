@@ -21,6 +21,18 @@ export const NavigationOptionId = {
 
 export type NavigationOptionId = typeof NavigationOptionId[keyof typeof NavigationOptionId];
 
+// Helper function for word-related navigation
+function navigateWithWord(path: string) {
+    const currentWord = get(wordStore);
+    if (currentWord) {
+        const url = `${path}?word=${encodeURIComponent(currentWord.word)}`;
+        goto(url, {
+            replaceState: true,
+            keepFocus: true,
+        });
+    }
+}
+
 // Navigation action handlers
 const navigationHandlers: Record<NavigationOptionId, () => void> = {
     [NavigationOptionId.DASHBOARD]: () => goto('/graph/dashboard'),
@@ -31,24 +43,9 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     [NavigationOptionId.INTERACTIONS]: () => goto('/interactions'),
     [NavigationOptionId.CREATIONS]: () => goto('/creations'),
     [NavigationOptionId.LOGOUT]: () => auth0.logout(),
-    [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => {
-        const currentWord = get(wordStore);
-        if (currentWord) {
-            goto('/graph/alternative-definitions');
-        }
-    },
-    [NavigationOptionId.CREATE_ALTERNATIVE]: () => {
-        const currentWord = get(wordStore);
-        if (currentWord) {
-            goto(`/graph/create-alternative/${currentWord.word}`);
-        }
-    },
-    [NavigationOptionId.DISCUSS]: () => {
-        const currentWord = get(wordStore);
-        if (currentWord) {
-            goto(`/graph/discuss/${currentWord.word}`);
-        }
-    }
+    [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => navigateWithWord('/graph/alternative-definitions'),
+    [NavigationOptionId.CREATE_ALTERNATIVE]: () => navigateWithWord('/graph/create-alternative'),
+    [NavigationOptionId.DISCUSS]: () => navigateWithWord('/graph/discuss')
 };
 
 export const NavigationContext = {

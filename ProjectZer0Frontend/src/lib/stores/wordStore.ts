@@ -2,10 +2,12 @@
 import { writable } from 'svelte/store';
 import type { WordNode } from '$lib/types/nodes';
 
+export type WordViewType = 'word' | 'alternative-definitions' | 'create-alternative' | 'discuss';
+
 function createWordStore() {
     const { subscribe, set: baseSet } = writable<WordNode | null>(null);
 
-    function updateUrl(word: string | null, view: 'word' | 'alternative-definitions') {
+    function updateUrl(word: string | null, view: WordViewType) {
         console.log('WordStore: Updating URL with:', { word, view });
         
         if (word) {
@@ -22,7 +24,6 @@ function createWordStore() {
 
             if (currentWord !== word) {
                 try {
-                    // Use history.replaceState instead of goto
                     const state = { word };
                     window.history.replaceState(state, '', newUrl);
                     console.log('WordStore: URL updated successfully via history API');
@@ -39,7 +40,7 @@ function createWordStore() {
 
     return {
         subscribe,
-        set: (wordData: WordNode | null, view: 'word' | 'alternative-definitions' = 'word') => {
+        set: (wordData: WordNode | null, view: WordViewType = 'word') => {
             console.log('WordStore: Setting word data:', { 
                 wordData, 
                 view,
@@ -64,6 +65,13 @@ function createWordStore() {
             console.log('WordStore: Resetting word data');
             currentWordId = null;
             baseSet(null);
+        },
+        getCurrentWord: () => {
+            let currentWord: WordNode | null = null;
+            subscribe(value => {
+                currentWord = value;
+            })();
+            return currentWord;
         }
     };
 }
