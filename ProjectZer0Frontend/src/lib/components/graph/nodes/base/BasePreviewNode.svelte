@@ -1,7 +1,6 @@
 <!-- src/lib/components/graph/nodes/base/BasePreviewNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import { spring } from 'svelte/motion';
     import type { NodeStyle } from '$lib/types/nodes';
     import { NODE_CONSTANTS } from './BaseNodeConstants';
     import BaseNode from './BaseNode.svelte';
@@ -26,13 +25,29 @@
         dispatch('hover', event.detail);
     }
 
-    // Spring animation for hover effect
-    const hoverScale = spring(1, {
-        stiffness: 0.1,
-        damping: 0.6
-    });
+    function wrapText(text: string, maxWidth: number): string[] {
+        const words = text.split(' ');
+        const lines: string[] = [];
+        let currentLine = '';
 
-    $: hoverScale.set(isHovered ? 1.05 : 1);
+        words.forEach(word => {
+            const testLine = currentLine + (currentLine ? ' ' : '') + word;
+            if (testLine.length * 5 > maxWidth && currentLine) {  
+                lines.push(currentLine);
+                currentLine = word;
+            } else {
+                currentLine = testLine;
+            }
+        });
+
+        if (currentLine) {
+            lines.push(currentLine);
+        }
+
+        return lines;
+    }
+
+    $: hoverLines = wrapText(hoverText, style.previewSize / 2);
 </script>
 
 <BaseNode 
@@ -42,27 +57,39 @@
     on:click={handleClick}
     on:hover={handleHover}
 >
-    <g transform={`scale(${$hoverScale})`}>
-        <slot {isHovered} {style} />
+    <slot {isHovered} {style} />
 
-        {#if isHovered}
+    {#if isHovered}
+        <!-- Hover overlay -->
+        <circle
+            r={style.previewSize / 2 - 12}
+            class="hover-overlay"
+        />
+
+        <!-- Wrapped hover text -->
+        {#each hoverLines as line, i}
             <text
-                y={style.padding.preview * 2}
+                y={-10 + (i * 20)}
                 class="hover-text"
                 style:font-family={NODE_CONSTANTS.FONTS.hover.family}
                 style:font-size={NODE_CONSTANTS.FONTS.hover.size}
                 style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
             >
-                {hoverText}
+                {line}
             </text>
-        {/if}
-    </g>
+        {/each}
+    {/if}
 </BaseNode>
 
 <style>
+    .hover-overlay {
+        fill: rgba(0, 0, 0, 0.85);
+        transition: opacity 0.3s ease-out;
+    }
+
     .hover-text {
         text-anchor: middle;
-        fill: rgba(255, 255, 255, 0.5);
+        fill: rgba(255, 255, 255, 0.9);
         transition: opacity 0.3s ease-out;
         user-select: none;
     }

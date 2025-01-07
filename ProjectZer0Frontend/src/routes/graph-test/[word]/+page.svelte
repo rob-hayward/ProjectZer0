@@ -1,4 +1,4 @@
-<!-- src/routes/graph-test/[word]/+page.svelte -->
+<!-- src/routes/graph-test/[word]/+page.svelte
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
@@ -144,4 +144,4 @@
         height: 100%;
         z-index: 2;
     }
-</style>
+</style> -->

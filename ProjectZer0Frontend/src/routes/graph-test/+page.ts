@@ -1,6 +1,6 @@
-// src/routes/graph-test/[word]/+page.ts
-export const ssr = false;
+// // src/routes/graph-test/[word]/+page.ts
+// export const ssr = false;
 
-export function load() {
-    return {};
-}
+// export function load() {
+//     return {};
+// }

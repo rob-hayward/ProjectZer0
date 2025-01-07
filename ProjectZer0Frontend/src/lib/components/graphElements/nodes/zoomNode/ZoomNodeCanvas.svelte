@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/zoomNode/ZoomNodeCanvas.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/zoomNode/ZoomNodeCanvas.svelte
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import { spring } from 'svelte/motion';
@@ -80,4 +80,4 @@
       width: 100%;
       height: 100%;
     }
-  </style>
+  </style> -->

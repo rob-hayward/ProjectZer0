@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/routes/nodes/definition/AlternativeDefinitionNodeDisplay.svelte -->
+<!-- ProjectZer0Frontend/src/routes/nodes/definition/AlternativeDefinitionNodeDisplay.svelte
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { Definition } from '$lib/types/nodes';
@@ -172,4 +172,4 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
-  </style>
+  </style> -->

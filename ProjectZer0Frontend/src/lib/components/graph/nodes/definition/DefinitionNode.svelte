@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/nodes/definition/SvgDefinitionNode.svelte -->
+<!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { Definition } from '$lib/types/nodes';

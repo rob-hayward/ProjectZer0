@@ -1,4 +1,4 @@
-<script lang="ts">
+<!-- <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { calculateWordNodePositions, calculateTransitionPositions } from './wordConcentricPositioning';
     import type { 
@@ -236,7 +236,7 @@
 </script>
 
 <div class="visualization-container">
-    <!-- Background layer -->
+   
     <div class="background-layer">
         <ZoomNodeCanvas
             draw={drawBackground}
@@ -244,7 +244,7 @@
         />
     </div>
 
-    <!-- Status and controls overlay -->
+   
     <div class="controls-overlay">
         <div class="status-text" role="status">
             {statusText}
@@ -261,8 +261,8 @@
         </div>
     </div>
 
-    <!-- Main layout container -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
+  
+  
     <div
         class="layout-container"
         bind:this={container}
@@ -276,7 +276,6 @@
     bind:this={nodesContainer}
     style="transform: translate3d({containerCenter.x + panX}px, {containerCenter.y + panY}px, 0) scale({zoom/100})"
 >
-    <!-- Word Node -->
     {#if positions.has(wordData.id)}
         {@const pos = positions.get(wordData.id)}
         <div
@@ -292,7 +291,7 @@
         </div>
     {/if}
 
-    <!-- Live Definition -->
+
     {#if getLiveDefinition(wordData.definitions)}
         {@const def = getLiveDefinition(wordData.definitions)}
         {#if def && positions.has(def.id)}
@@ -312,7 +311,7 @@
         {/if}
     {/if}
 
-    <!-- Alternative Definitions -->
+ 
     {#each getAlternativeDefinitions(wordData.definitions, getLiveDefinition(wordData.definitions)?.id) as def (def.id)}
         {#if positions.has(def.id)}
             {@const pos = positions.get(def.id)}
@@ -427,4 +426,4 @@
     .definition-node {
         z-index: 2;
     }
-</style>
+</style> -->

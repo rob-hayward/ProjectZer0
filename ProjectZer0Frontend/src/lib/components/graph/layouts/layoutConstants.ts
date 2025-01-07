@@ -7,8 +7,8 @@ export const LAYOUT_CONSTANTS = {
         CENTER: 0,
         LIVE_DEFINITION: {
             ANGLE: -Math.PI / 7,  // Optimal angle for up-right positioning
-            RADIUS_DIVISOR: 3,    // Divide node sizes by this for better spacing
-            PADDING: 20           // Additional padding between nodes
+            RADIUS_DIVISOR: 2,    // Divide node sizes by this for better spacing
+            PADDING: 300           // Additional padding between nodes
         },
         ALTERNATIVE_BASE: 150,
         MAX_RADIUS: 200

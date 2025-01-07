@@ -1,3 +1,4 @@
+<!-- src/routes/graph/[view]/+page.svelte -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import { page } from '$app/stores';
@@ -14,9 +15,10 @@
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
     import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
     import WordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
+    import DefinitionPreview from '$lib/components/graph/nodes/definition/DefinitionPreview.svelte';
     import { getNavigationOptions, handleNavigation } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
-    import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode } from '$lib/types/graph';
+    import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode, isDefinitionNode } from '$lib/types/graph';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
     import { COLORS } from '$lib/constants/colors';
@@ -36,7 +38,26 @@
         highlightColor: COLORS.PRIMARY.BLUE
     };
 
- // Inside initializeData function in +page.svelte
+    const liveDefinitionStyle = {
+        previewSize: NODE_CONSTANTS.SIZES.DEFINITION.live.preview,
+        detailSize: NODE_CONSTANTS.SIZES.DEFINITION.live.detail,
+        colors: NODE_CONSTANTS.COLORS.DEFINITION.live,
+        padding: NODE_CONSTANTS.PADDING,
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE,
+        highlightColor: COLORS.PRIMARY.BLUE  
+    };
+
+    const alternativeDefinitionStyle = {
+        previewSize: NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview,
+        detailSize: NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail,
+        colors: NODE_CONSTANTS.COLORS.DEFINITION.alternative,
+        padding: NODE_CONSTANTS.PADDING,
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE,
+        highlightColor: COLORS.PRIMARY.PURPLE
+    };
+
     async function initializeData() {
         console.log('Starting initializeData:', { 
             data,
@@ -57,7 +78,7 @@
 
             if (data?.wordData && isWordView) {
                 console.log('Setting word data from server load:', data.wordData);
-                wordStore.set(data.wordData, view as 'word' | 'alternative-definitions');
+                wordStore.set(data.wordData);
             } else if (isWordView) {
                 const url = new URL(window.location.href);
                 const wordParam = url.searchParams.get('word');
@@ -67,7 +88,7 @@
                     const loadedWord = await getWordData(wordParam);
                     if (loadedWord) {
                         console.log('Word data loaded from URL:', loadedWord);
-                        wordStore.set(loadedWord, view as 'word' | 'alternative-definitions');
+                        wordStore.set(loadedWord);
                     }
                 }
             }
@@ -90,13 +111,6 @@
     $: isWordView = view === 'word' || view === 'alternative-definitions';
     $: wordData = isWordView ? $wordStore : null;
 
-    // Update store when word data changes
-    $: {
-        if (wordData && isWordView && view) {
-            wordStore.set(wordData, view as 'word' | 'alternative-definitions');
-        }
-    }
-    
     // Loading state that considers both user and word data
     $: isLoadingComplete = !isLoading && $userStore && (!isWordView || (isWordView && !!$wordStore));
  
@@ -126,21 +140,24 @@
             group: 'navigation' as const
         }));
  
-    $: nodes = centralNode ? [centralNode, ...navigationNodes] : [];
-
-    // Debug logging
-    $: {
-        console.log('State update:', {
-            view,
-            isLoading,
-            hasUser: !!$userStore,
-            isWordView,
-            hasWordData: !!$wordStore,
-            isLoadingComplete,
-            wordData: wordData,
-            loadedData: data?.wordData
-        });
-    }
+    $: nodes = centralNode ? (() => {
+        const baseNodes = [centralNode, ...navigationNodes];
+        
+        // Add live definition node when in alternative-definitions view
+        if (view === 'alternative-definitions' && wordData && wordData.definitions.length > 0) {
+            const liveDefinition = wordData.definitions[0];
+            console.log('Adding live definition node:', liveDefinition);
+            const liveDefinitionNode: GraphNode = {
+                id: liveDefinition.id,
+                type: 'definition',
+                data: liveDefinition,
+                group: 'live-definition'
+            };
+            return [...baseNodes, liveDefinitionNode];
+        }
+        
+        return baseNodes;
+    })() : [];
 </script>
 
 {#if !isLoadingComplete}
@@ -190,6 +207,14 @@
                         style={wordStyle}
                     />
                 {/if}
+            {:else if isDefinitionNode(node) && wordData}
+                <DefinitionPreview
+                    word={wordData.word}
+                    definition={node.data}
+                    type={node.group === 'live-definition' ? 'live' : 'alternative'}
+                    style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
+                    transform=""
+                />
             {/if}
         </svelte:fragment>
     </Graph>

@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/routes/create-node/+page.svelte -->
+<!-- ProjectZer0Frontend/src/routes/create-node/+page.svelte
 <script lang="ts">
   import { onMount } from 'svelte';
   import { fade } from 'svelte/transition';
@@ -279,4 +279,4 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
-</style>
+</style> -->

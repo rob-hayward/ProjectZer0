@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/WordNodePreview.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/WordNodePreview.svelte
 <script lang="ts">
     import type { WordPreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
@@ -202,4 +202,4 @@
     {isZoomed}
     drawContent={isZoomed ? drawZoomedContent : drawPreviewContent}
     on:expand={handleZoom}
-/>
+/> -->

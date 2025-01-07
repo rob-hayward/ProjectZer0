@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/BasePreviewNode.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/base/BasePreviewNode.svelte
 <script lang="ts">
     import type { BasePreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle, PreviewNodeType } from '../styles/previewNodeStyles';
@@ -113,4 +113,4 @@
         height: 100%;
         position: relative;
     }
-</style>
+</style> -->

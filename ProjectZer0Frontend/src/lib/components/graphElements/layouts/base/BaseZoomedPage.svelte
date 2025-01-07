@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/layouts/base/BaseZoomedPage.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/layouts/base/BaseZoomedPage.svelte
 <script lang="ts">
   import { spring, type Spring } from 'svelte/motion';
   import ZoomNodeCanvas from '../../nodes/zoomNode/ZoomNodeCanvas.svelte';
@@ -134,4 +134,4 @@
     height: 100vh;
     position: relative;
   }
-</style>
+</style> -->

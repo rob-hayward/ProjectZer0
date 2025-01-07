@@ -128,30 +128,71 @@ export class GraphLayout {
         });
     }
 
-   public updateLayout(data: GraphData): Map<string, NodePosition> {
-       const nodes = data.nodes as SimulationNode[];
-       console.log('Updating layout with nodes:', nodes);
+    private configureLiveDefinitionLayout(nodes: SimulationNode[]): void {
+        const centerNode = nodes.find(n => n.group === 'central');
+        const liveDefinitionNode = nodes.find(n => n.group === 'live-definition');
+        
+        if (!centerNode || !liveDefinitionNode) return;
+    
+        // Position center node
+        centerNode.fx = 0;
+        centerNode.fy = 0;
+        centerNode.x = 0;
+        centerNode.y = 0;
+    
+        // Use LAYOUT_CONSTANTS for positioning
+        const angle = LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.ANGLE;
+        
+        // Calculate radius based on node sizes and desired spacing
+        const baseRadius = this.isPreviewMode ? 
+            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.PREVIEW / 2 : 
+            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.DETAIL / 2;
+        
+        // Add significant padding to prevent overlap
+        const padding = LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING;
+        const radius = baseRadius + padding;
+    
+        console.log('Live definition layout:', {
+            angle: angle * (180/Math.PI), // Log angle in degrees
+            baseRadius,
+            padding,
+            finalRadius: radius
+        });
+    
+        liveDefinitionNode.fx = Math.cos(angle) * radius;
+        liveDefinitionNode.fy = Math.sin(angle) * radius;
+        liveDefinitionNode.x = liveDefinitionNode.fx;
+        liveDefinitionNode.y = liveDefinitionNode.fy;
+    }
 
-       if (nodes.length === 1) {
-           this.configureSingleNodeLayout(nodes[0]);
-       } else if (nodes.some(n => n.group === 'navigation')) {
-           this.configureDashboardAndNavigationLayout(nodes);
-       }
+  public updateLayout(data: GraphData): Map<string, NodePosition> {
+    const nodes = data.nodes as SimulationNode[];
+    console.log('Updating layout with nodes:', nodes);
 
-       this.simulation.nodes(nodes);
-       
-       if (nodes.length === 1) {
-           this.simulation.tick();
-           this.simulation.stop();
-       } else {
-           this.simulation.alpha(1).restart();
-           for (let i = 0; i < LAYOUT_CONSTANTS.SIMULATION.ITERATIONS; ++i) {
-               this.simulation.tick();
-           }
-       }
+    if (nodes.length === 1) {
+        this.configureSingleNodeLayout(nodes[0]);
+    } else if (nodes.some(n => n.group === 'navigation')) {
+        this.configureDashboardAndNavigationLayout(nodes);
+        // Add this check for live definition node
+        if (nodes.some(n => n.group === 'live-definition')) {
+            this.configureLiveDefinitionLayout(nodes);
+        }
+    }
 
-       return this.getNodePositions(nodes);
-   }
+    this.simulation.nodes(nodes);
+    
+    if (nodes.length === 1) {
+        this.simulation.tick();
+        this.simulation.stop();
+    } else {
+        this.simulation.alpha(1).restart();
+        for (let i = 0; i < LAYOUT_CONSTANTS.SIMULATION.ITERATIONS; ++i) {
+            this.simulation.tick();
+        }
+    }
+
+    return this.getNodePositions(nodes);
+}
 
    private getNodePositions(nodes: SimulationNode[]): Map<string, NodePosition> {
     return new Map(

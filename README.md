@@ -1,151 +1,360 @@
 # ProjectZer0
 
-ProjectZer0 is an ambitious, open-source web application designed to revolutionize how communities share knowledge, make decisions, and visualize complex information. By leveraging modern web technologies and graph database capabilities, it offers a flexible and scalable platform for users to engage in discussions, vote on ideas, and interact with data in novel ways.
+ProjectZer0 is an interactive knowledge-sharing and visualization platform that enables users to explore and contribute to a collective understanding of concepts, beliefs, and their interconnections.
 
-## Project Structure
+## 🌟 Key Features
 
-### Frontend (ProjectZer0Frontend)
-- Framework: SvelteKit
-- Language: TypeScript
-- Authentication: Auth0
-- Data Visualization: D3.js, Three.js (planned)
+### Interactive Graph Visualization
+- Dynamic force-directed and concentric graph layouts
+- Real-time node interactions and animations
+- Custom Three.js-powered welcome scene
+- Smooth transitions and zooming capabilities
 
-### Backend (ProjectZer0Backend)
-- Framework: NestJS
-- Language: TypeScript (Node.js)
-- Database: Neo4j
-- Authentication: Auth0
+### Node Types and Interactions
+- Word Nodes: Explore definitions and relationships
+- Belief Nodes: Share and discuss personal beliefs
+- Discussion System: Engage in meaningful conversations
+- Voting System: Community-driven content curation
 
-### AI Component (ProjectZer0AI)
-- Framework: FastAPI
-- Language: Python
-- Libraries: Hugging Face, KeyBERT
+### User Experience
+- Seamless Auth0 Authentication
+- Customizable user profiles
+- Interactive node creation wizards
+- Real-time activity tracking
+- Responsive design with custom animations
 
-## Key Features
+### Technical Features
+- SVG and Canvas-based rendering
+- WebGL-powered 3D visualizations
+- Custom background animations
+- Advanced state management
+- Optimized performance with virtual scrolling
 
-- Secure User Authentication: Integrated Auth0 for robust, scalable user authentication and management.
-- Discussion Threads: Allows users to create and participate in threaded discussions on various topics.
-- Voting System: Implements a sophisticated voting mechanism for ideas, comments, and other user-generated content.
-- User Profiles: Manages detailed user profiles including activity history and preferences.
-- Core Game Logic: Implements gamification elements to encourage user engagement and contribution.
-- Data Visualization: (Planned) Will feature interactive data visualizations using D3.js and Three.js to represent complex information and user interactions.
-- API-First Design: Built with a microservices architecture, allowing for flexible integration and scalability.
-
-## Current Progress
-
-### Frontend
-- Auth0 Integration: Successfully integrated Auth0 for user authentication.
-- Routing Logic: Implemented routing to direct users to their dashboard or edit-profile page based on their profile status.
-- Testing: Set up unit tests with Vitest.
-
-### Backend
-- Database Connection: Successfully connected to Neo4j database.
-- API Setup: Established basic NestJS application structure.
-- User Verification Endpoint: Prepared to handle requests to verify user existence.
-
-## Next Steps
-
-1. Connect Frontend and Backend:
-   - Implement API calls from the frontend to the backend to verify user existence.
-   - Ensure the backend properly validates Auth0 tokens and retrieves user information.
-2. Profile Management:
-   - Develop features for users to create and edit their profiles.
-3. Error Handling & Notifications:
-   - Implement user feedback for authentication errors or profile issues.
-4. Data Visualization:
-   - Integrate D3.js and Three.js for interactive data representations.
-5. AI Integration:
-   - Develop the FastAPI-based AI component for advanced analytics and recommendations.
-
-## How to Run the Project
+## 🛠 Technology Stack
 
 ### Frontend
-
-1. Install Dependencies:
-   ```bash
-   cd ProjectZer0Frontend
-   npm install
-   ```
-
-2. Run Development Server:
-   ```bash
-   npm run dev
-   ```
-
-3. Run Tests:
-   ```bash
-   npm run test:unit
-   ```
+- **Framework**: SvelteKit with TypeScript
+- **Styling**: Custom CSS with dynamic theming
+- **Visualization**: 
+  - D3.js for graph layouts
+  - Three.js for 3D scenes
+  - Custom Canvas animations
+- **State Management**: Svelte stores
+- **Authentication**: Auth0 integration
 
 ### Backend
+- **Framework**: NestJS with TypeScript
+- **Database**: Neo4j graph database
+- **Authentication**: JWT with Auth0
+- **API**: RESTful endpoints with TypeScript types
 
-1. Install Dependencies:
-   ```bash
-   cd ProjectZer0Backend
-   npm install
-   ```
+### AI Component
+- **Framework**: FastAPI
+- **Models**: Integration with Hugging Face transformers
+- **Features**: Automated tag generation and content analysis
 
-2. Start the Server:
-   ```bash
-   npm run start:dev
-   ```
+## 🚀 Getting Started
 
-## Authentication Flow
+### Prerequisites
+- Node.js (v16 or higher)
+- npm or pnpm
+- Neo4j Database
+- Python 3.8+ (for AI component)
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant B as Backend
-    participant A as Auth0
-    participant DB as Database
+### Frontend Setup
+bash
+cd ProjectZer0Frontend
+npm install
+npm run dev
 
-    U->>F: Click "Login"
-    F->>B: GET /auth/login
-    B->>A: Redirect to Auth0 login page
-    A->>U: Display login form
-    U->>A: Enter credentials
-    A->>B: Redirect to /auth/callback with code
-    B->>A: Exchange code for token
-    A->>B: Return user info
-    B->>DB: Check if user exists
-    alt New User
-        DB->>B: User doesn't exist
-        B->>DB: Create new user
-        B->>F: Redirect to /edit-profile
-    else Existing User
-        DB->>B: User exists
-        B->>F: Redirect to /dashboard
-    end
-    F->>B: GET /auth/profile
-    B->>F: Return user profile
-    F->>U: Display user information
-
-    U->>F: Click "Logout"
-    F->>B: GET /auth/logout
-    B->>A: Initiate logout
-    A->>B: Logout successful
-    B->>F: Redirect to homepage
-    F->>U: Display homepage
+### Backend Setup
+```bash
+cd ProjectZer0Backend
+npm install
+npm run start:dev
 ```
 
-## Testing and Development
+### Environment Variables
+Create `.env` files in both frontend and backend directories:
 
-- Unit Testing: Currently set up on the frontend using Vitest.
-- Environment Variables: Ensure you have a `.env` file set up with the necessary configuration (excluding sensitive information).
+#### Frontend (.env)
+```env
+AUTH0_DOMAIN=your-auth0-domain
+AUTH0_CLIENT_ID=your-client-id
+API_BASE_URL=http://localhost:3000
+```
 
-## Future Plans
+#### Backend (.env)
+```env
+NEO4J_URI=your-neo4j-uri
+NEO4J_USERNAME=your-username
+NEO4J_PASSWORD=your-password
+JWT_SECRET=your-jwt-secret
+```
 
-- Implement real-time updates using WebSockets for live discussion and voting features.
-- Integrate advanced analytics and machine learning to provide personalized user experiences and content recommendations.
-- Expand the platform's API to allow third-party integrations and extensions.
-- Implement a comprehensive testing strategy including unit, integration, and end-to-end tests.
-- Deploy the application using container orchestration for improved scalability and resource management.
+## 🧪 Testing
 
-## Contributing
+### Frontend Tests
+```bash
+# Unit tests
+npm run test:unit
 
-We welcome contributions to ProjectZer0! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on how to submit pull requests, report issues, or request features.
+# Integration tests
+npm run test:integration
 
-## License
+# Coverage report
+npm run test:coverage
+```
 
-This project is licensed under the [MIT License](LICENSE).
+### Backend Tests
+```bash
+# Unit tests
+npm run test
+
+# E2E tests
+npm run test:e2e
+```
+
+## 📦 Project Structure
+
+### Frontend Structure
+```
+ProjectZer0Frontend/
+├── src/
+│   ├── lib/
+│   │   ├── components/
+│   │   │   ├── graph/
+│   │   │   ├── forms/
+│   │   │   └── welcome/
+│   │   ├── services/
+│   │   ├── stores/
+│   │   ├── types/
+│   │   └── utils/
+│   ├── routes/
+│   └── app.html
+```
+
+### Backend Structure
+```
+ProjectZer0Backend/
+├── src/
+│   ├── nodes/
+│   ├── users/
+│   ├── auth/
+│   ├── neo4j/
+│   └── main.ts
+```
+
+## 📚 API Documentation
+
+### Authentication Endpoints
+typescript
+POST /auth/login // Authenticate user
+POST /auth/refresh-token // Refresh JWT token
+GET /auth/profile // Get user profile
+
+### Node Endpoints
+```typescript
+// Word Nodes
+GET    /nodes/word/:id          // Get word node
+POST   /nodes/word              // Create word node
+PUT    /nodes/word/:id          // Update word node
+DELETE /nodes/word/:id          // Delete word node
+
+// Belief Nodes
+GET    /nodes/belief/:id        // Get belief node
+POST   /nodes/belief            // Create belief node
+PUT    /nodes/belief/:id        // Update belief node
+DELETE /nodes/belief/:id        // Delete belief node
+
+// Discussion
+GET    /discussions/:id         // Get discussion
+POST   /discussions            // Create discussion
+PUT    /discussions/:id        // Update discussion
+DELETE /discussions/:id        // Delete discussion
+```
+
+### User Endpoints
+```typescript
+GET    /users/activity         // Get user activity
+PUT    /users/profile         // Update user profile
+GET    /users/interactions    // Get user interactions
+POST   /users/vote           // Cast vote on node
+```
+
+## 🚀 Deployment Guidelines
+
+### Frontend Deployment
+
+1. **Build the Application**
+```bash
+cd ProjectZer0Frontend
+npm run build
+```
+
+2. **Environment Configuration**
+- Update `.env` with production values
+- Configure Auth0 callback URLs
+- Set API base URL
+
+3. **Deployment Options**
+- Vercel (recommended)
+- Netlify
+- Custom server
+
+### Backend Deployment
+
+1. **Build the Application**
+```bash
+cd ProjectZer0Backend
+npm run build
+```
+
+2. **Environment Setup**
+- Configure production environment variables
+- Set up Neo4j database connection
+- Configure JWT secrets
+
+3. **Deployment Options**
+- Docker container
+- Cloud services (AWS, GCP, Azure)
+- Custom VPS
+
+### AI Component Deployment
+
+1. **Build the FastAPI Application**
+```bash
+cd ProjectZer0AI
+python -m pip install -r requirements.txt
+```
+
+2. **Deploy Options**
+- Docker container
+- Cloud Run
+- Kubernetes cluster
+
+## 👥 Contributing Guidelines
+
+### Code Style
+
+1. **TypeScript**
+- Use strict type checking
+- Follow ESLint configuration
+- Use interfaces for complex types
+
+2. **Svelte**
+- Follow component structure guidelines
+- Use SCSS for styling
+- Implement proper reactivity
+
+3. **Testing**
+- Write unit tests for utilities
+- Include integration tests for components
+- Maintain good test coverage
+
+### Git Workflow
+
+1. **Branch Naming**
+```
+feature/description
+bugfix/description
+hotfix/description
+```
+
+2. **Commit Messages**
+```
+feat: Add new feature
+fix: Fix bug
+docs: Update documentation
+style: Format code
+refactor: Refactor code
+test: Add tests
+```
+
+3. **Pull Request Process**
+- Create feature branch
+- Write descriptive PR
+- Include tests
+- Request review
+
+## ⚙️ Advanced Configuration
+
+### Graph Visualization
+
+1. **Force Layout Configuration**
+```typescript
+const forceConfig = {
+  strength: -800,
+  distance: 200,
+  center: 0.1,
+  collision: 80
+}
+```
+
+2. **Three.js Scene Settings**
+```typescript
+const sceneConfig = {
+  fov: 75,
+  near: 0.1,
+  far: 1000,
+  position: [0, 0, 100]
+}
+```
+
+### Performance Optimization
+
+1. **Rendering Options**
+- Enable virtual scrolling
+- Use WebGL when available
+- Implement lazy loading
+
+2. **Caching Strategy**
+- Browser cache configuration
+- Neo4j query optimization
+- State management caching
+
+## 🔧 Troubleshooting Guide
+
+### Common Issues
+
+1. **Authentication Problems**
+- Verify Auth0 configuration
+- Check JWT token expiration
+- Confirm callback URLs
+
+2. **Graph Rendering Issues**
+- Check WebGL compatibility
+- Verify data structure
+- Monitor performance metrics
+
+3. **Database Connection**
+- Verify Neo4j credentials
+- Check connection string
+- Monitor query performance
+
+### Debug Tools
+
+1. **Frontend Debugging**
+- Browser DevTools
+- Svelte DevTools
+- Performance profiler
+
+2. **Backend Logging**
+```typescript
+logger.debug('Detailed information')
+logger.info('General information')
+logger.warn('Warning messages')
+logger.error('Error details')
+```
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## 🙏 Acknowledgments
+
+- Three.js community
+- D3.js contributors
+- Neo4j team
+- Auth0 platform
+- Open source community

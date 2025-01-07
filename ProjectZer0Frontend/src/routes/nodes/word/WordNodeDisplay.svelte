@@ -1,4 +1,4 @@
-<!-- src/routes/nodes/word/WordNodeDisplay.svelte -->
+<!-- src/routes/nodes/word/WordNodeDisplay.svelte
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { WordNode } from '$lib/types/nodes';
@@ -160,4 +160,4 @@
       height: 100vh;
       position: relative;
   }
-</style>
+</style> -->

@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/AlternativeDefinitionPreview.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graphElements/nodes/previews/AlternativeDefinitionPreview.svelte
 <script lang="ts">
     import type { DefinitionPreviewProps } from '$lib/types/graphLayout';
     import type { PreviewNodeStyle } from './styles/previewNodeStyles';
@@ -32,4 +32,4 @@
     nodeType="liveDefinition"
     {isZoomed}
     {drawContent}
-/>
+/> -->
