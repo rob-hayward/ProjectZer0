@@ -35,13 +35,16 @@ export interface NodePosition {
     renderOrder?: number;
 }
 
-// Edge interfaces
-export interface GraphEdge extends SimulationLinkDatum<GraphNode> {
-    source: string;
-    target: string;
+// Modified Edge interfaces to handle D3 force simulation transformations
+export interface GraphEdge {
+    source: string | GraphNode;  // Can be either ID or node reference
+    target: string | GraphNode;  // Can be either ID or node reference
     type: EdgeType;
     value: number;
 }
+
+// Helper type for D3 force simulation
+export type SimulationLink = Omit<SimulationLinkDatum<GraphNode>, 'source' | 'target'> & GraphEdge;
 
 export interface GraphData {
     nodes: GraphNode[];
@@ -91,6 +94,11 @@ export function isDefinitionNode(node: GraphNode): node is GraphNode & {
     return node.type === 'definition';
 }
 
+// Additional type guard for edge source/target
+export function isGraphNodeReference(value: string | GraphNode): value is GraphNode {
+    return typeof value === 'object' && value !== null && 'id' in value;
+}
+
 export function prepareGraphData(wordNode: WordNodeData): GraphData {
     const nodes: GraphNode[] = [
         {
@@ -116,79 +124,3 @@ export function prepareGraphData(wordNode: WordNodeData): GraphData {
 
     return { nodes, links };
 }
-
-// // src/lib/types/graph.ts
-// import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-// import type { WordNode, Definition } from './nodes';
-
-// export interface GraphNode extends SimulationNodeDatum {
-//     id: string;
-//     type: 'word' | 'definition';
-//     data: WordNode | Definition;
-//     group: 'word' | 'live-definition' | 'alternative-definition';
-// }
-
-// export interface GraphEdge extends SimulationLinkDatum<GraphNode> {
-//     source: string;
-//     target: string;
-//     type: 'live' | 'alternative';
-//     value: number;
-// }
-
-// export interface GraphData {
-//     nodes: GraphNode[];
-//     links: GraphEdge[]; 
-// }
-
-// export interface NodePosition {
-//     x: number;
-//     y: number;
-//     scale: number;
-//     ring: number;
-//     ringPosition: number;
-//     distanceFromCenter: number;
-//     rotation: number;
-//     svgTransform: string;
-//     renderOrder: number;
-// }
-
-// export interface GraphLayoutConfig {
-//     renderMode: 'svg';
-//     viewport: {
-//         width: number;
-//         height: number;
-//     };
-//     animation: {
-//         duration: number;
-//         easing: string;
-//     };
-//     initialZoom: number;
-//     minZoom: number;
-//     maxZoom: number;
-// }
-
-// export function prepareGraphData(wordNode: WordNode): GraphData {
-//     const nodes: GraphNode[] = [
-//         {
-//             id: wordNode.id,
-//             type: 'word' as const,
-//             data: wordNode,
-//             group: 'word'
-//         },
-//         ...wordNode.definitions.map((def, index) => ({
-//             id: def.id,
-//             type: 'definition' as const,
-//             data: def,
-//             group: index === 0 ? 'live-definition' as const : 'alternative-definition' as const
-//         }))
-//     ];
-
-//     const links: GraphEdge[] = wordNode.definitions.map((def, index) => ({
-//         source: wordNode.id,
-//         target: def.id,
-//         type: index === 0 ? 'live' : 'alternative',
-//         value: 1
-//     }));
-
-//     return { nodes, links };
-// }

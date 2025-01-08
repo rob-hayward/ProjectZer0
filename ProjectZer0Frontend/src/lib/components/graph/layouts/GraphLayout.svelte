@@ -9,14 +9,12 @@
     import { handleNavigation } from '$lib/services/navigation';
     import type { NavigationOptionId } from '$lib/services/navigation';
 
-    // Props
     export let nodes: GraphNode[] = [];
     export let links: GraphEdge[] = [];
     export let width: number;
     export let height: number;
     export let isPreviewMode: boolean = false;
  
-    // Local state
     let svg: SVGSVGElement;
     let container: SVGGElement;
     let layout: GraphLayout;
@@ -25,12 +23,10 @@
     let hoveredNodeId: string | null = null;
  
     function handleNodeHover(nodeId: string, isHovered: boolean) {
-        console.log('Node hover:', nodeId, isHovered);
         hoveredNodeId = isHovered ? nodeId : null;
     }
 
     function handleNodeClick(nodeId: string) {
-        console.log('Node click:', nodeId);
         handleNavigation(nodeId as NavigationOptionId);
     }
  
@@ -47,16 +43,14 @@
     }
  
     function initializeLayout() {
-        console.log('GraphLayout.svelte - Initializing layout with isPreviewMode:', isPreviewMode);
         layout = new GraphLayout(width, height, isPreviewMode);
         updateLayout();
     }
  
     function updateLayout() {
         if (!layout) return;
-        console.log('GraphLayout.svelte - Updating layout with nodes and links');
         nodePositions = layout.updateLayout({ nodes, links });
-        nodes = nodes; // Force Svelte update
+        nodes = nodes;
     }
  
     function initializeZoom() {
@@ -86,16 +80,33 @@
         }
     });
 
-    // Watch for changes in preview mode
     $: if (layout && isPreviewMode !== undefined) {
-        console.log('GraphLayout.svelte - Reinitializing layout due to preview mode change:', isPreviewMode);
         layout.updatePreviewMode(isPreviewMode);
     }
  
-    // Watch for changes in nodes or links
     $: if (layout && (nodes || links)) {
-        console.log('GraphLayout.svelte - Updating layout with nodes and links');
         updateLayout();
+    }
+
+    // Debug log for edge rendering
+        $: {
+        console.log('Edge rendering state:', {
+            links: links.map(link => ({
+                source: link.source,
+                target: link.target,
+                type: link.type,
+                value: link.value
+            })),
+            nodePositions: Object.fromEntries(
+                Array.from(nodePositions.entries()).map(([id, pos]) => [
+                    id,
+                    {
+                        x: pos.x,
+                        y: pos.y
+                    }
+                ])
+            )
+        });
     }
 </script>
  
@@ -114,10 +125,14 @@
     </defs>
  
     <g bind:this={container}>
-        <!-- Render edges first -->
+      <!-- Update the edge rendering section -->
         {#each links as link}
-            {@const sourcePos = nodePositions.get(link.source)}
-            {@const targetPos = nodePositions.get(link.target)}
+            {@const sourceId = typeof link.source === 'string' ? link.source : 
+                'id' in link.source ? link.source.id : null}
+            {@const targetId = typeof link.target === 'string' ? link.target : 
+                'id' in link.target ? link.target.id : null}
+            {@const sourcePos = sourceId ? nodePositions.get(sourceId) : null}
+            {@const targetPos = targetId ? nodePositions.get(targetId) : null}
             {#if sourcePos && targetPos}
                 <slot 
                     name="edge"
@@ -138,14 +153,8 @@
                         transform={position.svgTransform}
                         isHovered={hoveredNodeId === node.id}
                         on:click={() => handleNodeClick(node.data.id)}
-                        on:mouseenter={() => {
-                            console.log('mouseenter', node.id);
-                            handleNodeHover(node.id, true);
-                        }}
-                        on:mouseleave={() => {
-                            console.log('mouseleave', node.id);
-                            handleNodeHover(node.id, false);
-                        }}
+                        on:mouseenter={() => handleNodeHover(node.id, true)}
+                        on:mouseleave={() => handleNodeHover(node.id, false)}
                     />
                 {:else}
                     <g
