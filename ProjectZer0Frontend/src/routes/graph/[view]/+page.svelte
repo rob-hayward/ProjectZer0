@@ -5,7 +5,7 @@
     import * as auth0 from '$lib/services/auth0';
     import type { UserProfile } from '$lib/types/user';
     import type { UserActivity } from '$lib/services/userActivity';
-    import type { GraphNode, GraphPageData, GraphEdge } from '$lib/types/graph';
+    import type { GraphNode, GraphPageData, GraphEdge, EdgeType, GraphData, NodeGroup, NodeType } from '$lib/types/graph';
     import { getUserActivity } from '$lib/services/userActivity';
     import { getWordData } from '$lib/services/word';  
     import { NODE_CONSTANTS } from '$lib/components/graph/nodes/base/BaseNodeConstants';
@@ -22,6 +22,7 @@
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
     import { COLORS } from '$lib/constants/colors';
+	import { getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
 
     export let data: GraphPageData;
  
@@ -139,35 +140,37 @@
             group: 'navigation' as const
         }));
  
-    $: graphData = centralNode ? (() => {
-        const baseNodes = [centralNode, ...navigationNodes];
+        $: graphData = centralNode ? (() => {
+        const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
         
         if (view === 'alternative-definitions' && wordData && wordData.definitions.length > 0) {
-            const liveDefinition = wordData.definitions[0];
-            console.log('Adding live definition node:', liveDefinition);
-            
-            const liveDefinitionNode: GraphNode = {
-                id: liveDefinition.id,
-                type: 'definition',
-                data: liveDefinition,
-                group: 'live-definition'
-            };
+            // Sort definitions by votes (most popular first)
+            const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
+                getVoteValue(b.votes) - getVoteValue(a.votes)
+            );
 
-            const liveDefinitionLink: GraphEdge = {
+            const definitionNodes: GraphNode[] = sortedDefinitions.map((definition, index) => ({
+                id: definition.id,
+                type: 'definition' as NodeType,
+                data: definition,
+                group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup
+            }));
+
+            const definitionLinks: GraphEdge[] = sortedDefinitions.map((definition, index) => ({
                 source: centralNode.id,
-                target: liveDefinitionNode.id,
-                type: 'live',
-                value: 1
-            };
+                target: definition.id,
+                type: (index === 0 ? 'live' : 'alternative') as EdgeType,
+                value: 1 + getVoteValue(definition.votes)
+            }));
 
             return {
-                nodes: [...baseNodes, liveDefinitionNode],
-                links: [liveDefinitionLink]
-            };
+                nodes: [...baseNodes, ...definitionNodes],
+                links: definitionLinks
+            } satisfies GraphData;
         }
         
-        return { nodes: baseNodes, links: [] };
-    })() : { nodes: [], links: [] };
+        return { nodes: baseNodes, links: [] } satisfies GraphData;
+    })() : { nodes: [], links: [] } satisfies GraphData;
 
     $: nodes = graphData.nodes;
     $: links = graphData.links;

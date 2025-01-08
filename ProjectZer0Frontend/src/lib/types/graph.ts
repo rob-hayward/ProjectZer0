@@ -1,25 +1,27 @@
-// ProjectZer0Frontend/src/lib/types/graph.ts
+// src/lib/types/graph.ts
 
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
-import type { WordNode, Definition } from './nodes';
+import type { Definition } from './nodes';
+import type { WordNode as WordNodeData } from './nodes';  // Renamed to avoid conflict
 
 // Node types and groups
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition';
+export type EdgeType = 'live' | 'alternative';
 
 // Graph page data interface
 export interface GraphPageData {
     view: string;
-    wordData: WordNode | null;
+    wordData: WordNodeData | null;
 }
 
 // Node interfaces
 export interface GraphNode extends SimulationNodeDatum {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition;
+    data: UserProfile | NavigationOption | WordNodeData | Definition;
     group: NodeGroup;
 }
 
@@ -37,29 +39,13 @@ export interface NodePosition {
 export interface GraphEdge extends SimulationLinkDatum<GraphNode> {
     source: string;
     target: string;
-    type: 'live' | 'alternative';
+    type: EdgeType;
     value: number;
 }
 
 export interface GraphData {
     nodes: GraphNode[];
     links?: GraphEdge[];
-}
-
-// Layout configuration
-export interface GraphLayoutConfig {
-    renderMode: 'svg';
-    viewport: {
-        width: number;
-        height: number;
-    };
-    animation: {
-        duration: number;
-        easing: string;
-    };
-    initialZoom: number;
-    minZoom: number;
-    maxZoom: number;
 }
 
 // Type guards
@@ -93,7 +79,7 @@ export function isNavigationNode(node: GraphNode): node is GraphNode & {
 
 export function isWordNode(node: GraphNode): node is GraphNode & {
     type: 'word';
-    data: WordNode;
+    data: WordNodeData;
 } {
     return node.type === 'word';
 }
@@ -105,20 +91,19 @@ export function isDefinitionNode(node: GraphNode): node is GraphNode & {
     return node.type === 'definition';
 }
 
-// Graph data preparation
-export function prepareGraphData(wordNode: WordNode): GraphData {
+export function prepareGraphData(wordNode: WordNodeData): GraphData {
     const nodes: GraphNode[] = [
         {
             id: wordNode.id,
-            type: 'word' as NodeType,
+            type: 'word',
             data: wordNode,
-            group: 'word' as NodeGroup
-        },
-        ...wordNode.definitions.map((def, index) => ({
+            group: 'word'
+        } as GraphNode,
+        ...wordNode.definitions.map((def, index): GraphNode => ({
             id: def.id,
-            type: 'definition' as NodeType,
+            type: 'definition',
             data: def,
-            group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup
+            group: index === 0 ? 'live-definition' : 'alternative-definition'
         }))
     ];
 
