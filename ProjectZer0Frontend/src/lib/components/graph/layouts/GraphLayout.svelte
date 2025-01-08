@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as d3 from 'd3';
-    import type { GraphNode, NodePosition, GraphData } from '$lib/types/graph';
+    import type { GraphNode, NodePosition, GraphData, GraphEdge } from '$lib/types/graph';
     import { GraphLayout } from './GraphLayout';
     import NavigationNode from '../nodes/navigation/NavigationNode.svelte';
     import { isNavigationNode } from '$lib/types/graph';
@@ -11,6 +11,7 @@
 
     // Props
     export let nodes: GraphNode[] = [];
+    export let links: GraphEdge[] = [];
     export let width: number;
     export let height: number;
     export let isPreviewMode: boolean = false;
@@ -53,8 +54,8 @@
  
     function updateLayout() {
         if (!layout) return;
-        console.log('GraphLayout.svelte - Updating layout with nodes');
-        nodePositions = layout.updateLayout({ nodes });
+        console.log('GraphLayout.svelte - Updating layout with nodes and links');
+        nodePositions = layout.updateLayout({ nodes, links });
         nodes = nodes; // Force Svelte update
     }
  
@@ -91,9 +92,9 @@
         layout.updatePreviewMode(isPreviewMode);
     }
  
-    // Separate reactivity for nodes updates
-    $: if (layout && nodes) {
-        console.log('GraphLayout.svelte - Updating layout with nodes');
+    // Watch for changes in nodes or links
+    $: if (layout && (nodes || links)) {
+        console.log('GraphLayout.svelte - Updating layout with nodes and links');
         updateLayout();
     }
 </script>
@@ -113,6 +114,21 @@
     </defs>
  
     <g bind:this={container}>
+        <!-- Render edges first -->
+        {#each links as link}
+            {@const sourcePos = nodePositions.get(link.source)}
+            {@const targetPos = nodePositions.get(link.target)}
+            {#if sourcePos && targetPos}
+                <slot 
+                    name="edge"
+                    {link}
+                    source={sourcePos}
+                    target={targetPos}
+                />
+            {/if}
+        {/each}
+
+        <!-- Render nodes -->
         {#each nodes as node (node.id)}
             {@const position = nodePositions.get(node.id)}
             {#if position}

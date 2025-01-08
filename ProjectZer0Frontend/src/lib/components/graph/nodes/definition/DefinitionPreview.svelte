@@ -54,17 +54,6 @@
             {type === 'live' ? 'Live Definition' : 'Alternative Definition'}
         </text>
 
-        <!-- Word -->
-        <text
-            y={-style.previewSize/4 + style.lineHeight.preview * 2}
-            class="word"
-            style:font-family={NODE_CONSTANTS.FONTS.value.family}
-            style:font-size={NODE_CONSTANTS.FONTS.value.size}
-            style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
-        >
-            {word}
-        </text>
-
         <!-- Definition text -->
         <foreignObject
             x={-textContainerWidth/2}
@@ -80,7 +69,7 @@
         <!-- Votes (if not API definition) -->
         {#if definition.createdBy !== 'FreeDictionaryAPI'}
             <text
-                y={style.previewSize/4 - style.lineHeight.preview}
+                y={style.previewSize/3 - style.lineHeight.preview}
                 class="votes"
                 style:font-family={NODE_CONSTANTS.FONTS.value.family}
                 style:font-size={NODE_CONSTANTS.FONTS.value.size}
@@ -101,10 +90,6 @@
 
     .title {
         --text-color: rgba(255, 255, 255, 0.7);
-    }
-
-    .word {
-        --text-color: white;
     }
 
     .definition-text {

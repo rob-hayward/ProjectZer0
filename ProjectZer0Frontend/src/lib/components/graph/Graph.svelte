@@ -2,13 +2,15 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import { browser } from '$app/environment';
-    import type { GraphNode } from '$lib/types/graph';
+    import type { GraphNode, GraphEdge } from '$lib/types/graph';
     import GraphLayout from '../graph/layouts/GraphLayout.svelte';
+    import Edge from './edges/Edge.svelte';
     import { SvgBackground } from './backgrounds/SvgBackground';
     import type { BackgroundConfig } from './backgrounds/backgroundConfig';
     import { DEFAULT_BACKGROUND_CONFIG } from './backgrounds/backgroundConfig';
  
     export let nodes: GraphNode[] = [];
+    export let links: GraphEdge[] = [];
     export let width = window.innerWidth;
     export let height = window.innerHeight;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
@@ -108,11 +110,16 @@
  
     <GraphLayout 
         bind:this={graphLayout}
-        {nodes} 
+        {nodes}
+        {links}
         {width} 
         {height}
         {isPreviewMode}
     >
+        <svelte:fragment slot="edge" let:link let:source let:target>
+            <Edge {link} {source} {target} />
+        </svelte:fragment>
+
         <svelte:fragment slot="node" let:node let:position>
             <slot 
                 name="node" 

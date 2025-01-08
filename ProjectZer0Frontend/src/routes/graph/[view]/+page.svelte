@@ -5,7 +5,7 @@
     import * as auth0 from '$lib/services/auth0';
     import type { UserProfile } from '$lib/types/user';
     import type { UserActivity } from '$lib/services/userActivity';
-    import type { GraphNode, GraphPageData } from '$lib/types/graph';
+    import type { GraphNode, GraphPageData, GraphEdge } from '$lib/types/graph';
     import { getUserActivity } from '$lib/services/userActivity';
     import { getWordData } from '$lib/services/word';  
     import { NODE_CONSTANTS } from '$lib/components/graph/nodes/base/BaseNodeConstants';
@@ -111,7 +111,6 @@
     $: isWordView = view === 'word' || view === 'alternative-definitions';
     $: wordData = isWordView ? $wordStore : null;
 
-    // Loading state that considers both user and word data
     $: isLoadingComplete = !isLoading && $userStore && (!isWordView || (isWordView && !!$wordStore));
  
     $: centralNode = isWordView && wordData ? {
@@ -140,24 +139,38 @@
             group: 'navigation' as const
         }));
  
-    $: nodes = centralNode ? (() => {
+    $: graphData = centralNode ? (() => {
         const baseNodes = [centralNode, ...navigationNodes];
         
-        // Add live definition node when in alternative-definitions view
         if (view === 'alternative-definitions' && wordData && wordData.definitions.length > 0) {
             const liveDefinition = wordData.definitions[0];
             console.log('Adding live definition node:', liveDefinition);
+            
             const liveDefinitionNode: GraphNode = {
                 id: liveDefinition.id,
                 type: 'definition',
                 data: liveDefinition,
                 group: 'live-definition'
             };
-            return [...baseNodes, liveDefinitionNode];
+
+            const liveDefinitionLink: GraphEdge = {
+                source: centralNode.id,
+                target: liveDefinitionNode.id,
+                type: 'live',
+                value: 1
+            };
+
+            return {
+                nodes: [...baseNodes, liveDefinitionNode],
+                links: [liveDefinitionLink]
+            };
         }
         
-        return baseNodes;
-    })() : [];
+        return { nodes: baseNodes, links: [] };
+    })() : { nodes: [], links: [] };
+
+    $: nodes = graphData.nodes;
+    $: links = graphData.links;
 </script>
 
 {#if !isLoadingComplete}
@@ -167,9 +180,10 @@
     </div>
 {:else if centralNode}
     <Graph 
-        nodes={nodes}
+        nodes={graphData.nodes}
+        links={graphData.links ?? []}
         isPreviewMode={view === 'alternative-definitions'}
-    >
+        >
         <svelte:fragment slot="node" let:node>
             {#if isDashboardNode(node)}
                 <DashboardNode 

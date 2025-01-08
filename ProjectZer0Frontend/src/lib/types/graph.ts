@@ -1,3 +1,5 @@
+// ProjectZer0Frontend/src/lib/types/graph.ts
+
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
