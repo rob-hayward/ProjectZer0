@@ -1,1 +1,2 @@
-export { default as component } from "../../../../src/routes/create-node/+page.svelte";
+import * as universal from "../../../../src/routes/graph/+page.ts";
+export { universal };

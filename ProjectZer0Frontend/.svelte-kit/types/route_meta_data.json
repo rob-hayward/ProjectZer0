@@ -1,14 +1,7 @@
 {
 	"/": [],
-	"/create-node": [],
-	"/graph-test": [
-		"src/routes/graph-test/+page.ts"
-	],
-	"/graph-test/[word]": [],
 	"/graph": [
 		"src/routes/graph/+page.ts"
 	],
-	"/graph/[view]": [],
-	"/nodes/definition/[word]": [],
-	"/nodes/word/[word]": []
+	"/graph/[view]": []
 }

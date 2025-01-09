@@ -81,8 +81,14 @@
     });
 
     $: if (layout && isPreviewMode !== undefined) {
-        layout.updatePreviewMode(isPreviewMode);
-    }
+    console.log('Preview mode change detected:', { isPreviewMode });
+    layout.updatePreviewMode(isPreviewMode);
+    // Force a complete layout update after preview mode changes
+    setTimeout(() => {
+        console.log('Forcing layout update after preview mode change');
+        updateLayout();
+    }, 50); // Small delay to ensure preview mode change has taken effect
+}
  
     $: if (layout && (nodes || links)) {
         updateLayout();

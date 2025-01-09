@@ -25,9 +25,10 @@
 	import { getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
 
     export let data: GraphPageData;
- 
+    
     let userActivity: UserActivity | undefined;
     let isLoading = true;
+    let wordNodeMode: 'preview' | 'detail' = 'preview';
  
     const wordStyle = {
         previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
@@ -58,6 +59,17 @@
         stroke: NODE_CONSTANTS.STROKE,
         highlightColor: COLORS.PRIMARY.PURPLE
     };
+
+    function handleWordNodeModeChange(event: CustomEvent<{ mode: 'preview' | 'detail' }>) {
+        const oldMode = wordNodeMode;
+        wordNodeMode = event.detail.mode;
+        console.log('Word node mode transition:', {
+            from: oldMode,
+            to: wordNodeMode,
+            view,
+            isWordView
+        });
+    }
 
     async function initializeData() {
         console.log('Starting initializeData:', { 
@@ -174,6 +186,7 @@
 
     $: nodes = graphData.nodes;
     $: links = graphData.links;
+
 </script>
 
 {#if !isLoadingComplete}
@@ -185,8 +198,8 @@
     <Graph 
         nodes={graphData.nodes}
         links={graphData.links ?? []}
-        isPreviewMode={view === 'alternative-definitions'}
-        >
+        isPreviewMode={view === 'alternative-definitions' && wordNodeMode === 'preview'}
+    >
         <svelte:fragment slot="node" let:node>
             {#if isDashboardNode(node)}
                 <DashboardNode 
@@ -204,12 +217,20 @@
             {:else if isWordNode(node)}
                 {#if node.group === 'central'}
                     {#if view === 'alternative-definitions'}
-                        <WordNode
-                            data={node.data}
-                            mode="preview"
-                            transform=""
-                            style={wordStyle}
-                        />
+                        {#if wordNodeMode === 'preview'}
+                            <WordNode
+                                data={node.data}
+                                mode="preview"
+                                transform=""
+                                style={wordStyle}
+                                on:modeChange={handleWordNodeModeChange}
+                            />
+                        {:else}
+                            <WordDetail
+                                data={node.data}
+                                style={wordStyle}
+                            />
+                        {/if}
                     {:else}
                         <WordDetail
                             data={node.data}
@@ -262,8 +283,8 @@
     }
 
     .loading-spinner {
-        width: 40px;
-        height: 40px;
+        width: 580px;
+        height: 580px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);
         border-radius: 50%;

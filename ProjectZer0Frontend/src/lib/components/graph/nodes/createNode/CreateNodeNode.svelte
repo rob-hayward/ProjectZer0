@@ -33,19 +33,69 @@
 
     $: if (formData.nodeType === '') {
         if (!intervalId) {
+            // Arranged colors in a more harmonious order
             const colors = [
-                COLORS.PRIMARY.BLUE,
-                COLORS.PRIMARY.PURPLE,
-                COLORS.PRIMARY.GREEN,
-                COLORS.PRIMARY.TURQUOISE,
-                COLORS.PRIMARY.YELLOW,
-                COLORS.PRIMARY.ORANGE
+                {
+                    base: COLORS.PRIMARY.BLUE,
+                    full: `${COLORS.PRIMARY.BLUE}FF`,
+                    semi: `${COLORS.PRIMARY.BLUE}66`,
+                    light: `${COLORS.PRIMARY.BLUE}33`
+                },
+                {
+                    base: COLORS.PRIMARY.PURPLE,
+                    full: `${COLORS.PRIMARY.PURPLE}FF`,
+                    semi: `${COLORS.PRIMARY.PURPLE}66`,
+                    light: `${COLORS.PRIMARY.PURPLE}33`
+                },
+                {
+                    base: COLORS.PRIMARY.TURQUOISE,
+                    full: `${COLORS.PRIMARY.TURQUOISE}FF`,
+                    semi: `${COLORS.PRIMARY.TURQUOISE}66`,
+                    light: `${COLORS.PRIMARY.TURQUOISE}33`
+                },
+                {
+                    base: COLORS.PRIMARY.GREEN,
+                    full: `${COLORS.PRIMARY.GREEN}FF`,
+                    semi: `${COLORS.PRIMARY.GREEN}66`,
+                    light: `${COLORS.PRIMARY.GREEN}33`
+                },
+                {
+                    base: COLORS.PRIMARY.YELLOW,
+                    full: `${COLORS.PRIMARY.YELLOW}FF`,
+                    semi: `${COLORS.PRIMARY.YELLOW}66`,
+                    light: `${COLORS.PRIMARY.YELLOW}33`
+                },
+                {
+                    base: COLORS.PRIMARY.ORANGE,
+                    full: `${COLORS.PRIMARY.ORANGE}FF`,
+                    semi: `${COLORS.PRIMARY.ORANGE}66`,
+                    light: `${COLORS.PRIMARY.ORANGE}33`
+                },
+                {
+                    base: COLORS.PRIMARY.RED,
+                    full: `${COLORS.PRIMARY.RED}FF`,
+                    semi: `${COLORS.PRIMARY.RED}66`,
+                    light: `${COLORS.PRIMARY.RED}33`
+                }
             ];
             
             intervalId = setInterval(() => {
                 colorIndex = (colorIndex + 1) % colors.length;
-                style = { ...style };
-            }, 300);
+                // Update style with transition
+                style = {
+                    ...style,
+                    colors: {
+                        ...style.colors,
+                        border: colors[colorIndex].full as "#3498dbFF",
+                        text: colors[colorIndex].full as "#3498dbFF",
+                        hover: colors[colorIndex].full as "#3498dbFF",
+                        gradient: {
+                            start: colors[colorIndex].semi as "#3498db66",
+                            end: colors[colorIndex].light as "#3498db33"
+                        }
+                    }
+                };
+            }, 2000); // 2 seconds
         }
     } else {
         if (intervalId) {
@@ -200,5 +250,17 @@
 
     .step-indicator.active {
         fill: rgba(255, 255, 255, 0.8);
+    }
+
+    :global(.node) {
+        transition: all 2s ease-in-out;
+    }
+    
+    :global(.outer-ring) {
+        transition: stroke 2s ease-in-out;
+    }
+    
+    :global(text) {
+        transition: fill 2s ease-in-out;
     }
 </style>

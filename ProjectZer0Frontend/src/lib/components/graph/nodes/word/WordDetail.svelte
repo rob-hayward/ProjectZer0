@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/word/WordDetail.svelte -->
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';
     import { NODE_CONSTANTS, CIRCLE_RADIUS } from '../base/BaseNodeConstants';
@@ -12,6 +12,10 @@
  
     export let data: WordNode;
     export let style: NodeStyle;
+
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: 'preview' | 'detail' };
+    }>();
  
     const CONTENT_WIDTH = 450;
     const CONTENT_START_Y = -180;
@@ -26,15 +30,14 @@
     let voteStatus: 'agree' | 'none' = 'none';
     let isVoting = false;
     let showDisagreeMessage = false;
-    let isMessageClosing = false;  // For animation
+    let isMessageClosing = false;
  
-    // Get the live definition (highest voted)
     $: liveDefinition = data.definitions.length > 0
         ? [...data.definitions].sort((a, b) => getVoteValue(b.votes) - getVoteValue(a.votes))
             .find(d => getVoteValue(d.votes) > 0) || data.definitions[0]
         : null;
  
-        onMount(async () => {
+    onMount(async () => {
     if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
         wordCreatorDetails = await getUserDetails(data.createdBy);
     }
@@ -131,16 +134,35 @@
 
         return lines;
     }
+
+    function handleCollapse() {
+        dispatch('modeChange', { mode: 'preview' });
+    }
  
     $: definitionLines = liveDefinition ? wrapText(liveDefinition.text) : [];
 </script>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <BaseDetailNode {style}>
     <svelte:fragment let:radius let:isHovered>
-        <!-- Title -->
-        <text dy={-radius + 120} class="title">
-            Word Node
-        </text>
+        <!-- Clickable header area -->
+        <g class="header-area">
+            <rect
+                x={-200}
+                y={-radius + 100}
+                width="400"
+                height="60"
+                class="click-target"
+                on:click={handleCollapse}
+            />
+            <text dy={-radius + 120} class="title">
+                Word Node
+                <tspan class="collapse-hint" dy="-20" dx="10" font-size="12">
+                    (click to collapse)
+                </tspan>
+            </text>
+        </g>
 
         <!-- Word -->
         <g transform="translate(0, {-radius + 150})">
@@ -266,6 +288,23 @@
 </BaseDetailNode>
 
 <style>
+     .header-area {
+        cursor: pointer;
+    }
+
+    .click-target {
+        fill: transparent;
+    }
+
+    .click-target:hover + .title {
+        fill: rgba(255, 255, 255, 0.9);
+    }
+
+    .collapse-hint {
+        fill: rgba(255, 255, 255, 0.5);
+        font-style: italic;
+    }
+
     text {
         font-family: 'Orbitron', sans-serif;
         fill: white;

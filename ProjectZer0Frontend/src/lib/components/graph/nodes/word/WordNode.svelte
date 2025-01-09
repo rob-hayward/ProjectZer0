@@ -6,6 +6,7 @@
     import BaseNode from '../base/BaseNode.svelte';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import { goto } from '$app/navigation';
+    import { page } from '$app/stores';
     
     export let data: WordNode;
     export let mode: NodeMode = 'preview';
@@ -18,35 +19,34 @@
         modeChange: { mode: NodeMode };
     }>();
  
-    function handleDetailView() {
-        goto(`/graph/word?word=${data.word}`);
-    }
- 
-    function handleDetailClick() {
-        dispatch('click', { data });
-        dispatch('modeChange', { 
-            mode: mode === 'preview' ? 'detail' : 'preview' 
-        });
+    function handleNodeClick() {
+        if ($page.params.view === 'alternative-definitions') {
+            // In alternative definitions view, toggle mode locally
+            const newMode = mode === 'preview' ? 'detail' : 'preview';
+            dispatch('modeChange', { mode: newMode });
+        } else {
+            // In other views, navigate to word detail
+            goto(`/graph/word?word=${data.word}`);
+        }
     }
  
     function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
         dispatch('hover', { data, isHovered: event.detail.isHovered });
     }
  
-    const previewHoverText = 'click to view detailed node';
-    const detailHoverText = 'click to zoom';
- </script>
- 
- {#if mode === 'preview'}
+    const previewHoverText = 'click to expand';
+    const detailHoverText = 'click to collapse';
+</script>
+
+{#if mode === 'preview'}
     <BasePreviewNode 
         {style}
         {transform}
         hoverText={previewHoverText}
-        on:detail={handleDetailView}
+        on:detail={handleNodeClick}
         on:hover={handleHover}
     >
         <svelte:fragment slot="default" let:isHovered>
-            <!-- Title -->
             <text
                 y={-style.padding.preview}
                 class="title"
@@ -56,8 +56,7 @@
             >
                 Word Node
             </text>
- 
-            <!-- Word -->
+
             <text
                 y={style.padding.preview}
                 class="word"
@@ -69,15 +68,14 @@
             </text>
         </svelte:fragment>
     </BasePreviewNode>
- {:else}
+{:else}
     <BaseNode 
         {style}
         {transform}
-        on:click={handleDetailClick}
+        on:click={handleNodeClick}
         on:hover={handleHover}
         let:isHovered
     >
-        <!-- Title -->
         <text
             y={-style.padding.preview}
             class="title"
@@ -87,8 +85,7 @@
         >
             Word Node
         </text>
- 
-        <!-- Word -->
+
         <text
             y={style.padding.preview}
             class="word"
@@ -98,7 +95,7 @@
         >
             {data.word}
         </text>
- 
+
         {#if isHovered}
             <text
                 y={style.padding.preview * 2}
@@ -111,25 +108,25 @@
             </text>
         {/if}
     </BaseNode>
- {/if}
- 
- <style>
+{/if}
+
+<style>
     text {
         text-anchor: middle;
         fill: var(--text-color, white);
         user-select: none;
     }
- 
+
     .title {
         --text-color: rgba(255, 255, 255, 0.7);
     }
- 
+
     .word {
         --text-color: white;
     }
- 
+
     .hover-text {
         --text-color: rgba(255, 255, 255, 0.5);
         transition: opacity var(--animation-duration, 0.3s) var(--animation-easing, ease-out);
     }
- </style>
+</style>

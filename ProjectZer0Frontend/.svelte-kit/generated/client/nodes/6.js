@@ -1,2 +1,1 @@
-import * as universal from "../../../../src/routes/graph-test/+page.ts";
-export { universal };
+export { default as component } from "../../../../src/routes/nodes/word/[word]/+page.svelte";
