@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/Graph.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
     import type { GraphNode, GraphEdge } from '$lib/types/graph';
     import GraphLayout from '../graph/layouts/GraphLayout.svelte';
@@ -17,6 +17,7 @@
     export let isPreviewMode: boolean = false;
  
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
+    const dispatch = createEventDispatcher();
  
     let container: HTMLDivElement;
     let backgroundSvg: SVGSVGElement;
@@ -115,6 +116,7 @@
         {width} 
         {height}
         {isPreviewMode}
+        on:modeChange
     >
         <svelte:fragment slot="edge" let:link let:source let:target>
             <Edge {link} {source} {target} />

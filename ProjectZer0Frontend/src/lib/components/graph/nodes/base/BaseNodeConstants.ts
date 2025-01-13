@@ -5,6 +5,9 @@ export const CIRCLE_RADIUS = 290;
 
 export const NODE_CONSTANTS = {
     SIZES: {
+        DASHBOARD: {
+            size: 600  // Large fixed size for dashboard
+        },
         WORD: {
             preview: 135,      
             detail: 600       
@@ -53,6 +56,16 @@ export const NODE_CONSTANTS = {
         }
     },
     COLORS: {
+        DASHBOARD: {
+            background: `${COLORS.PRIMARY.BLUE}33`,
+            border: `${COLORS.PRIMARY.BLUE}FF`,
+            text: `${COLORS.PRIMARY.BLUE}FF`,
+            hover: `${COLORS.PRIMARY.BLUE}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.BLUE}66`,
+                end: `${COLORS.PRIMARY.BLUE}33`
+            }
+        },
         WORD: {
             background: `${COLORS.PRIMARY.BLUE}33`,
             border: `${COLORS.PRIMARY.BLUE}FF`,
@@ -94,13 +107,18 @@ export const NODE_CONSTANTS = {
         },
         value: {
             family: 'Orbitron',
-            size: '13px',
+            size: '14px',
             weight: '300'
         },
         hover: {
             family: 'Orbitron',
             size: '10px',
             weight: '400'
+        },
+        word: {
+            family: 'Orbitron',
+            size: '14px',
+            weight: '500'
         }
     },
     SVG: {

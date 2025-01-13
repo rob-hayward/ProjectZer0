@@ -38,11 +38,9 @@
 <BasePreviewNode 
     {style}
     {transform}
-    hoverText={type === 'live' ? 'click to view word details' : 'click to view definition'}
     on:detail={handleDetailView}
-    on:hover={handleHover}
 >
-    <svelte:fragment slot="default" let:isHovered>
+    <svelte:fragment>
         <!-- Title -->
         <text
             y={-style.previewSize/4}

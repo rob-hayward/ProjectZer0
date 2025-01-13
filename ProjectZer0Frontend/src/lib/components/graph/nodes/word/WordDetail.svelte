@@ -3,12 +3,13 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';
-    import { NODE_CONSTANTS, CIRCLE_RADIUS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
     import { getUserDetails } from '$lib/services/userLookup';
-    import { getDisplayName, getVoteValue } from '../utils/nodeUtils';
+    import { getDisplayName } from '../utils/nodeUtils';
     import { fetchWithAuth } from '$lib/services/api';
     import { userStore } from '$lib/stores/userStore';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
+    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
  
     export let data: WordNode;
     export let style: NodeStyle;
@@ -16,480 +17,379 @@
     const dispatch = createEventDispatcher<{
         modeChange: { mode: 'preview' | 'detail' };
     }>();
- 
-    const CONTENT_WIDTH = 450;
-    const CONTENT_START_Y = -180;
+
     const METRICS_SPACING = {
-        labelX: -220,
+        labelX: -200,
         equalsX: 0,
         valueX: 30
     };
  
     let wordCreatorDetails: UserProfile | null = null;
-    let definitionCreatorDetails: UserProfile | null = null;
-    let voteStatus: 'agree' | 'none' = 'none';
+    let userVoteStatus: 'agree' | 'disagree' | 'none' = 'none';
     let isVoting = false;
-    let showDisagreeMessage = false;
-    let isMessageClosing = false;
- 
-    $: liveDefinition = data.definitions.length > 0
-        ? [...data.definitions].sort((a, b) => getVoteValue(b.votes) - getVoteValue(a.votes))
-            .find(d => getVoteValue(d.votes) > 0) || data.definitions[0]
-        : null;
  
     onMount(async () => {
-    if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
-        wordCreatorDetails = await getUserDetails(data.createdBy);
-    }
-    
-    if (liveDefinition?.createdBy && liveDefinition.createdBy !== 'FreeDictionaryAPI') {
-        definitionCreatorDetails = await getUserDetails(liveDefinition.createdBy);
+        if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
+            wordCreatorDetails = await getUserDetails(data.createdBy);
+        }
 
-        // Fetch current vote status
-        if (liveDefinition && $userStore) {
+        if ($userStore) {
             try {
-                const response = await fetchWithAuth(
-                    `/definitions/${liveDefinition.id}/vote`
-                );
-                // If this is a newly created definition by this user, it should already have a vote
-                voteStatus = response.hasVoted ? 'agree' : 'none';
-                console.log('Initial vote status:', voteStatus); // Debug log
+                const response = await fetchWithAuth(`/nodes/word/${data.word}/vote`);
+                userVoteStatus = response.voteType || 'none';
             } catch (error) {
                 console.error('Error fetching vote status:', error);
             }
         }
-    }
-});
+    });
 
-    async function handleAgreeVote() {
-        if (!$userStore || isVoting || !liveDefinition) return;
-        isVoting = true;
-        showDisagreeMessage = false;
-
-        try {
-            const result = await fetchWithAuth(
-                `/definitions/${liveDefinition.id}/vote`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({ vote: 'agree' })
-                }
-            );
-
-            voteStatus = result.hasVoted ? 'agree' : 'none';
-            liveDefinition.votes = getVoteValue(result.definition.votes);
-            
-            // Refresh the definition list as other definitions' votes might have changed
-            data = { ...data };
-        } catch (error) {
-            console.error('Error voting:', error);
-        } finally {
-            isVoting = false;
-        }
-    }
-
-    async function handleDisagreeVote() {
-        if (!$userStore || isVoting || !liveDefinition) return;
+    async function handleVote(voteType: 'agree' | 'disagree' | 'none') {
+        if (!$userStore || isVoting) return;
         isVoting = true;
 
         try {
-            const result = await fetchWithAuth(
-                `/definitions/${liveDefinition.id}/vote`,
-                {
-                    method: 'POST',
-                    body: JSON.stringify({ vote: 'disagree' })
-                }
-            );
-
-            voteStatus = 'none';
-            showDisagreeMessage = true;  // Show the message
-            liveDefinition.votes = getVoteValue(result.definition.votes);
-            
-            // Refresh the definition list as other definitions' votes might have changed
-            data = { ...data };
-        } catch (error) {
-            console.error('Error voting:', error);
-        } finally {
-            isVoting = false;
-        }
-    }
- 
-    function wrapText(text: string): string[] {
-        const words = text.split(' ');
-        const lines: string[] = [];
-        let currentLine = '';
-
-        words.forEach(word => {
-            const testLine = currentLine + (currentLine ? ' ' : '') + word;
-            if (testLine.length * 8 > CONTENT_WIDTH && currentLine) {
-                lines.push(currentLine);
-                currentLine = word;
+            if (voteType === 'none') {
+                await fetchWithAuth(
+                    `/nodes/word/${data.word}/vote/remove`,
+                    { method: 'POST' }
+                );
+                userVoteStatus = 'none';
             } else {
-                currentLine = testLine;
+                const result = await fetchWithAuth(
+                    `/nodes/word/${data.word}/vote`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            userId: $userStore.sub,
+                            isPositive: voteType === 'agree'
+                        })
+                    }
+                );
+
+                data.positiveVotes = result.positiveVotes;
+                data.negativeVotes = result.negativeVotes;
+                userVoteStatus = voteType;
             }
-        });
-
-        if (currentLine) {
-            lines.push(currentLine);
+        } catch (error) {
+            console.error('Error voting:', error);
+        } finally {
+            isVoting = false;
         }
-
-        return lines;
     }
 
     function handleCollapse() {
+        console.log('WordDetail: Dispatching modeChange event');
         dispatch('modeChange', { mode: 'preview' });
     }
- 
-    $: definitionLines = liveDefinition ? wrapText(liveDefinition.text) : [];
+
+    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    $: netVotes = data.positiveVotes - data.negativeVotes;
+    $: wordStatus = netVotes >= 0 ? 'agreed' : 'disagreed';
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
 <BaseDetailNode {style}>
-    <svelte:fragment let:radius let:isHovered>
-        <!-- Clickable header area -->
-        <g class="header-area">
-            <rect
-                x={-200}
-                y={-radius + 100}
-                width="400"
-                height="60"
-                class="click-target"
-                on:click={handleCollapse}
-            />
-            <text dy={-radius + 120} class="title">
-                Word Node
-                <tspan class="collapse-hint" dy="-20" dx="10" font-size="12">
-                    (click to collapse)
-                </tspan>
-            </text>
-        </g>
+    <svelte:fragment slot="default" let:radius let:isHovered>
+        <!-- Title -->
+        <text
+            y={-radius + 40}
+            class="title"
+            style:font-family={NODE_CONSTANTS.FONTS.title.family}
+            style:font-size={NODE_CONSTANTS.FONTS.title.size}
+            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+        >
+            word
+        </text>
 
-        <!-- Word -->
-        <g transform="translate(0, {-radius + 150})">
-            <text x={METRICS_SPACING.labelX} class="label left-align">
-                word:
-            </text>
-            <text x={METRICS_SPACING.labelX} dy="25" class="value left-align word-value">
+        <!-- Main Word Display -->
+        <g class="word-display" transform="translate(0, {-radius/2})">
+            <text
+                class="word main-word"
+                style:font-family={NODE_CONSTANTS.FONTS.word.family}
+                style:font-weight={NODE_CONSTANTS.FONTS.word.weight}
+            >
                 {data.word}
             </text>
         </g>
 
-        <!-- Definition -->
-        {#if liveDefinition}
-            <g transform="translate(0, {-radius + 210})">
-                <text x={METRICS_SPACING.labelX} class="label left-align">
-                    live definition:
+        <!-- User Context -->
+        <g transform="translate(0, -100)">
+            <text 
+                x={METRICS_SPACING.labelX} 
+                class="context-text left-align"
+            >
+                Please vote on whether to include this keyword in 
+            </text>
+            <text 
+                x={METRICS_SPACING.labelX} 
+                y="25" 
+                class="context-text left-align"
+            >
+                ProjectZer0 or not.
+            </text>
+            <text 
+                x={METRICS_SPACING.labelX} 
+                y="60" 
+                class="context-text left-align"
+            >
+                You can always change your vote using the buttons below.
+            </text>
+        </g>
+
+        <!-- Vote Buttons -->
+        <g transform="translate(0, -10)">
+            <foreignObject x={-160} width="100" height="40">
+                <div class="button-wrapper">
+                    <button 
+                        class="vote-button agree"
+                        class:active={userVoteStatus === 'agree'}
+                        on:click={() => handleVote('agree')}
+                        disabled={isVoting}
+                    >
+                        Agree
+                    </button>
+                </div>
+            </foreignObject>
+
+            <foreignObject x={-50} width="100" height="40">
+                <div class="button-wrapper">
+                    <button 
+                        class="vote-button no-vote"
+                        class:active={userVoteStatus === 'none'}
+                        on:click={() => handleVote('none')}
+                        disabled={isVoting}
+                    >
+                        No Vote
+                    </button>
+                </div>
+            </foreignObject>
+
+            <foreignObject x={60} width="100" height="40">
+                <div class="button-wrapper">
+                    <button 
+                        class="vote-button disagree"
+                        class:active={userVoteStatus === 'disagree'}
+                        on:click={() => handleVote('disagree')}
+                        disabled={isVoting}
+                    >
+                        Disagree
+                    </button>
+                </div>
+            </foreignObject>
+        </g>
+
+        <!-- Vote Stats -->
+        <g transform="translate(0, 60)">
+            <text x={METRICS_SPACING.labelX} class="stats-label left-align">
+                Vote Data:
+            </text>
+            
+            <!-- User's current vote -->
+            <g transform="translate(0, 30)">
+                <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+                    {userName}
                 </text>
-                
-                <!-- Definition text -->
-                {#each definitionLines as line, i}
-                    <text x={METRICS_SPACING.labelX} dy={25 + i * 20} class="value left-align definition-text">
-                        {line}
-                    </text>
-                {/each}
-                {#if liveDefinition.createdBy !== 'FreeDictionaryAPI'}
-                    <!-- Vote Buttons and Information -->
-                    <g transform="translate(0, {20 + definitionLines.length * 20})">
-                        <!-- Vote Buttons -->
-                        <foreignObject x={-160} width="100" height="50">
-                            <div class="button-wrapper">
-                                <button 
-                                    class="vote-button agree"
-                                    class:active={voteStatus === 'agree'}
-                                    on:click={handleAgreeVote}
-                                    disabled={isVoting}
-                                >
-                                    Agree
-                                </button>
-                            </div>
-                        </foreignObject>
-
-                        <foreignObject x={40} width="100" height="50">
-                            <div class="button-wrapper">
-                                <button 
-                                    class="vote-button disagree"
-                                    class:active={voteStatus === 'none'}
-                                    on:click={handleDisagreeVote}
-                                    disabled={isVoting}
-                                >
-                                    Disagree
-                                </button>
-                            </div>
-                        </foreignObject>
-
-                        <!-- Vote Information -->
-                        <text x={-160} dy="80" class="vote-info left-align">
-                            total agree votes:
-                        </text>
-                        <text x={40} dy="80" class="vote-info-value left-align">
-                            {getVoteValue(liveDefinition.votes)}
-                        </text>
-
-                        <text x={-160} dy="100" class="vote-info left-align">
-                            your vote:
-                        </text>
-                        <text x={40} dy="100" class="vote-info-value left-align">
-                            {voteStatus}
-                        </text>
-
-                <!-- Disagree Message -->
-{#if showDisagreeMessage}
-<g transform="translate(0, 0)">
-    <foreignObject 
-        x="-125" 
-        y="-175"
-        width="250" 
-        height="250"  
-    >
-        <div class="message-container">
-            <button 
-                class="close-button"
-                on:click={() => showDisagreeMessage = false}
-                aria-label="Close message"
-            >×</button>
-            <div class="message-content">
-                <p>If you disagree with this definition, you can:</p>
-                <ul>
-                    <li>View alternative definitions</li>
-                    <li>Suggest your own definition</li>
-                </ul>
-                <p class="small-note">The definition with the most votes becomes the live definition.</p>
-            </div>
-        </div>
-    </foreignObject>
-</g>
-{/if}
-                    </g>
-                {/if}
+                <text x={METRICS_SPACING.equalsX} class="stats-text">
+                    =
+                </text>
+                <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+                    {userVoteStatus}
+                </text>
             </g>
-        {/if}
-        
-        <!-- Creator credits -->
-        <g transform="translate(0, {CIRCLE_RADIUS - 90})">
-            <g transform="translate(0, 0)">
-                <text x={-160} class="small-text secondary left-align">
-                    Word created by:
-                    <tspan x={-160} dy="20" class="small-text primary left-align">
-                        {getDisplayName(data.createdBy, wordCreatorDetails, !data.publicCredit)}
-                    </tspan>
-                </text>
 
-                {#if liveDefinition}
-                    <text x={40} class="small-text secondary left-align">
-                        Definition created by:
-                        <tspan x={40} dy="20" class="small-text primary left-align">
-                            {getDisplayName(liveDefinition.createdBy, definitionCreatorDetails, false)}
-                        </tspan>
-                    </text>
-                {/if}
+            <!-- Total agree votes -->
+            <g transform="translate(0, 55)">
+                <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+                    Total Agree
+                </text>
+                <text x={METRICS_SPACING.equalsX} class="stats-text">
+                    =
+                </text>
+                <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+                    {data.positiveVotes}
+                </text>
+            </g>
+
+            <!-- Total disagree votes -->
+            <g transform="translate(0, 80)">
+                <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+                    Total Disagree
+                </text>
+                <text x={METRICS_SPACING.equalsX} class="stats-text">
+                    =
+                </text>
+                <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+                    {data.negativeVotes}
+                </text>
+            </g>
+
+            <!-- Net votes -->
+            <g transform="translate(0, 105)">
+                <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+                    Net 
+                </text>
+                <text x={METRICS_SPACING.equalsX} class="stats-text">
+                    =
+                </text>
+                <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+                    {netVotes}
+                </text>
+            </g>
+
+            <!-- Word status -->
+            <g transform="translate(0, 130)">
+                <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+                    Word Status
+                </text>
+                <text x={METRICS_SPACING.equalsX} class="stats-text">
+                    =
+                </text>
+                <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+                    {wordStatus}
+                </text>
             </g>
         </g>
+        
+        <!-- Creator credits -->
+        <g transform="translate(0, {radius - 55})">
+            <text class="creator-label">
+                created by: {getDisplayName(data.createdBy, wordCreatorDetails, !data.publicCredit)}
+            </text>
+        </g>
+
+        <!-- Contract button -->
+        <ExpandCollapseButton 
+            mode="collapse"
+            y={radius - 500}
+            on:click={handleCollapse}
+        />
     </svelte:fragment>
 </BaseDetailNode>
 
 <style>
-     .header-area {
-        cursor: pointer;
-    }
-
-    .click-target {
-        fill: transparent;
-    }
-
-    .click-target:hover + .title {
-        fill: rgba(255, 255, 255, 0.9);
-    }
-
-    .collapse-hint {
-        fill: rgba(255, 255, 255, 0.5);
-        font-style: italic;
-    }
-
     text {
+        text-anchor: middle;
         font-family: 'Orbitron', sans-serif;
-        fill: white;
     }
 
     .title {
-        font-size: 30px;
-        text-anchor: middle;
-    }
-
-    .label {
-        font-size: 14px;
         fill: rgba(255, 255, 255, 0.7);
     }
 
-    .value {
+    .main-word {
+        font-size: 30px;
+        fill: white;
+        filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
+    }
+
+    .context-text {
         font-size: 14px;
+        fill: rgba(255, 255, 255, 0.9);
     }
 
-    .word-value {
-        font-size: 16px;
-    }
-
-    .definition-text {
-        inline-size: 550px;
-        text-overflow: ellipsis;
-        overflow: hidden;
-    }
-
-    .small-text {
-        font-size: 10px;
-    }
-
-    .primary {
+    .stats-label {
+        font-size: 14px;
         fill: white;
     }
 
-    .secondary {
+    .stats-text {
+        font-size: 14px;
         fill: rgba(255, 255, 255, 0.7);
+    }
+
+    .stats-value {
+        font-size: 14px;
+        fill: white;
+    }
+
+    .creator-label {
+        font-size: 10px;
+        fill: rgba(255, 255, 255, 0.5);
     }
 
     .left-align {
         text-anchor: start;
     }
 
-    .button-wrapper {
-    padding-top: 8px;
-    height: 100%;
-}
+    :global(.button-wrapper) {
+        padding-top: 4px;
+        height: 100%;
+    }
 
-:global(.vote-button) {
-    width: 100%;
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-family: 'Orbitron', sans-serif;
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 100px;
-    box-sizing: border-box;
-    margin: 0;
-    color: white;
-}
-
-:global(.vote-button.agree) {
-    background: rgba(46, 204, 113, 0.3);
-    border: 1px solid rgba(46, 204, 113, 0.4);
-}
-
-:global(.vote-button.disagree) {
-    background: rgba(231, 76, 60, 0.3);
-    border: 1px solid rgba(231, 76, 60, 0.4);
-}
-
-:global(.vote-button:hover:not(:disabled)) {
-    transform: translateY(-1px);
-}
-
-:global(.vote-button.agree:hover:not(:disabled)) {
-    background: rgba(46, 204, 113, 0.4);
-    border: 1px solid rgba(46, 204, 113, 0.4);
-}
-
-:global(.vote-button.disagree:hover:not(:disabled)) {
-    background: rgba(231, 76, 60, 0.4);
-    border: 1px solid rgba(231, 76, 60, 0.4);
-}
-
-:global(.vote-button:active:not(:disabled)) {
-    transform: translateY(0);
-}
-
-:global(.vote-button.active.agree) {
-    background: rgba(46, 204, 113, 0.4);
-    border-color: rgba(46, 204, 113, 0.6);
-}
-
-:global(.vote-button.active.disagree) {
-    background: rgba(231, 76, 60, 0.4);
-    border-color: rgba(231, 76, 60, 0.6);
-}
-
-:global(.vote-button:disabled) {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-.vote-info {
-    font-size: 13px;
-    fill: rgba(255, 255, 255, 0.7);
-}
-
-.vote-info-value {
-    font-size: 13px;
-    fill: white;
-}
-
-    :global(.message-container) {
-            position: relative;
-            width: 200px;
-            height: 200px;
-            background: rgb(0, 0, 0);  /* Fully opaque black */
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 50%;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
-            pointer-events: auto;  /* Ensure clickable */
-        }
-
-    :global(.close-button) {
-        position: absolute;
-        top: 15px;
-        right: 15px;
-        width: 24px;
-        height: 24px;
-        border-radius: 50%;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        background: rgba(255, 255, 255, 0.1);
-        color: white;
-        font-size: 18px;
+    :global(.vote-button) {
+        width: 100%;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
         display: flex;
         align-items: center;
         justify-content: center;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        padding: 0;
-        line-height: 1;
-    }
-
-    :global(.close-button:hover) {
-        background: rgba(255, 255, 255, 0.2);
-        border-color: rgba(255, 255, 255, 0.4);
-    }
-
-    :global(.message-content) {
+        min-width: 100px;
+        box-sizing: border-box;
+        margin: 0;
         color: white;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 11px;
-        text-align: center;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        white-space: nowrap;
     }
 
-    :global(.message-content p) {
-        margin: 0 0 10px 0;
+    :global(.vote-button.agree) {
+        background: rgba(46, 204, 113, 0.1);
+        border: 1px solid rgba(46, 204, 113, 0.2);
     }
 
-    :global(.message-content ul) {
-        list-style: none;
-        padding: 0;
-        margin: 0 0 10px 0;
+    :global(.vote-button.disagree) {
+        background: rgba(231, 76, 60, 0.1);
+        border: 1px solid rgba(231, 76, 60, 0.2);
     }
 
-    :global(.message-content li) {
-        margin: 5px 0;
-        color: rgba(255, 255, 255, 0.8);
+    :global(.vote-button.no-vote) {
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.1);
     }
 
-    :global(.message-content .small-note) {
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.6);
-        margin-top: 10px;
+    :global(.vote-button:hover:not(:disabled)) {
+        transform: translateY(-1px);
+    }
+
+    :global(.vote-button.agree:hover:not(:disabled)) {
+        background: rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+    }
+
+    :global(.vote-button.disagree:hover:not(:disabled)) {
+        background: rgba(231, 76, 60, 0.2);
+        border: 1px solid rgba(231, 76, 60, 0.3);
+    }
+
+    :global(.vote-button.no-vote:hover:not(:disabled)) {
+        background: rgba(255, 255, 255, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    :global(.vote-button:active:not(:disabled)) {
+        transform: translateY(0);
+    }
+
+    :global(.vote-button.agree.active) {
+        background: rgba(46, 204, 113, 0.3);
+        border-color: rgba(46, 204, 113, 0.4);
+    }
+
+    :global(.vote-button.disagree.active) {
+        background: rgba(231, 76, 60, 0.3);
+        border-color: rgba(231, 76, 60, 0.4);
+    }
+
+    :global(.vote-button.no-vote.active) {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
+    }
+
+    :global(.vote-button:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
 </style>

@@ -56,7 +56,6 @@ export class GraphLayout {
             return;
         }
     
-        // Center node positioning
         centerNode.fx = 0;
         centerNode.fy = 0;
         centerNode.x = 0;
@@ -69,7 +68,6 @@ export class GraphLayout {
             y: centerNode.y
         });
     
-        // Clear existing forces
         this.simulation.force("center", null);
         this.simulation.force("charge", null);
         this.simulation.force("collision", null);
@@ -85,26 +83,11 @@ export class GraphLayout {
             LAYOUT_CONSTANTS.NAVIGATION.SPACING.PREVIEW : 
             LAYOUT_CONSTANTS.NAVIGATION.SPACING.DETAIL;
     
-        console.log('Calculated layout parameters:', {
-            radius,
-            spacing,
-            isPreviewMode: this.isPreviewMode,
-            previewRadius: LAYOUT_CONSTANTS.NAVIGATION.RADIUS.PREVIEW,
-            detailRadius: LAYOUT_CONSTANTS.NAVIGATION.RADIUS.DETAIL
-        });
-    
         navigationNodes.forEach((node, i) => {
             const angle = (i / navigationNodes.length) * 2 * Math.PI - Math.PI / 2;
             const x = Math.cos(angle) * radius;
             const y = Math.sin(angle) * radius;
             
-            const oldPosition = {
-                x: node.x,
-                y: node.y,
-                fx: node.fx,
-                fy: node.fy
-            };
-    
             node.fx = x;
             node.fy = y;
             node.x = x;
@@ -112,14 +95,12 @@ export class GraphLayout {
     
             console.log(`Navigation node ${i} position update:`, {
                 nodeId: node.id,
-                oldPosition,
                 newPosition: { x, y, fx: x, fy: y },
                 angle,
                 radius
             });
         });
     
-        // Configure new forces
         const collisionForce = d3.forceCollide<SimulationNode>()
             .radius(spacing)
             .strength(LAYOUT_CONSTANTS.NAVIGATION.STRENGTH.COLLISION);
@@ -129,18 +110,6 @@ export class GraphLayout {
         this.simulation
             .force("collision", collisionForce)
             .force("center", centerForce);
-    
-        console.log('Configured new forces:', {
-            collisionRadius: spacing,
-            collisionStrength: LAYOUT_CONSTANTS.NAVIGATION.STRENGTH.COLLISION
-        });
-    
-        // Log final simulation state
-        console.log('Final simulation state:', {
-            alpha: this.simulation.alpha(),
-            alphaTarget: this.simulation.alphaTarget(),
-            velocityDecay: this.simulation.velocityDecay()
-        });
     }
 
     private configureAlternativeDefinitionsLayout(nodes: SimulationNode[]): void {
@@ -161,52 +130,44 @@ export class GraphLayout {
         wordNode.x = 0;
         wordNode.y = 0;
     
-        // Maintain live definition angle but adjust radius based on mode
         const liveAngle = LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.ANGLE;
         const baseLiveRadius = this.isPreviewMode ?
             LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING.PREVIEW :
             LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING.DETAIL;
         
-        // Calculate live definition position with smooth transition radius
         const liveRadius = baseLiveRadius + wordRadius;
         liveDefNode.fx = Math.cos(liveAngle) * liveRadius;
         liveDefNode.fy = Math.sin(liveAngle) * liveRadius;
         liveDefNode.x = liveDefNode.fx;
         liveDefNode.y = liveDefNode.fy;
     
-        // 2. Reset and position alternative nodes
+        // 2. Reset alternative nodes
         alternativeNodes.forEach(node => {
             node.fx = undefined;
             node.fy = undefined;
         });
     
-        // 3. Configure forces with mode-aware scaling
+        // 3. Configure forces with simplified calculations
         const config = this.isPreviewMode ?
             LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.PREVIEW :
             LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.DETAIL;
     
-        // 3a. Enhanced repulsion for better spacing in detail mode
+        // 3a. Charge force
         this.simulation.force('charge', d3.forceManyBody<SimulationNode>()
             .strength(d => {
                 if (d.group === 'alternative-definition') {
-                    const baseStrength = this.isPreviewMode ? 
+                    return this.isPreviewMode ? 
                         LAYOUT_CONSTANTS.FORCES.CHARGE.DEFINITION.PREVIEW :
                         LAYOUT_CONSTANTS.FORCES.CHARGE.DEFINITION.ALTERNATIVE;
-                    // Scale strength based on word size
-                    return baseStrength * (this.isPreviewMode ? 1 : 1.5);
                 }
                 return 0;
             }));
     
-        // 3b. Improved collision detection with dynamic padding
-        const collisionPadding = this.isPreviewMode ?
-            LAYOUT_CONSTANTS.FORCES.COLLISION.PADDING.PREVIEW :
-            LAYOUT_CONSTANTS.FORCES.COLLISION.PADDING.NORMAL + wordRadius * 0.5;
-    
+        // 3b. Collision detection
         this.simulation.force('collision', d3.forceCollide<SimulationNode>()
             .radius(d => {
                 if (d.group === 'alternative-definition') {
-                    return config.SPACING + collisionPadding;
+                    return config.SPACING;
                 }
                 return wordRadius;
             })
@@ -214,27 +175,23 @@ export class GraphLayout {
                 this.isPreviewMode ? 'PREVIEW' : 'NORMAL'
             ]));
     
-        // 3c. Enhanced radial force with dynamic radius calculation
-        const baseMinRadius = this.isPreviewMode ? 
-            config.MIN_RADIUS : 
-            config.MIN_RADIUS + wordRadius;
-        
-        const baseMaxRadius = this.isPreviewMode ? 
-            config.MAX_RADIUS : 
-            config.MAX_RADIUS + wordRadius * 1.5;
-    
+        // 3c. Simplified radial force
         this.simulation.force('radial', d3.forceRadial<SimulationNode>(
             d => {
                 if (d.group === 'alternative-definition' && 'votes' in d.data) {
                     const voteValue = getVoteValue(d.data.votes);
-                    const normalizedVotes = Math.min(voteValue, 10);
-                    const radiusRange = baseMaxRadius - baseMinRadius;
+                    const normalizedVotes = Math.min(Math.max(voteValue, 0), 10);
                     
-                    const radius = baseMinRadius + 
-                        (radiusRange * (normalizedVotes / 10)) +
-                        (voteValue * LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.VOTE_SCALE_FACTOR);
+                    console.log('Alternative definition position calculation:', {
+                        nodeId: d.id,
+                        voteValue,
+                        normalizedVotes,
+                        baseRadius: config.MIN_RADIUS,
+                        voteScale: config.VOTE_SCALE,
+                        finalRadius: config.MIN_RADIUS + (normalizedVotes * config.VOTE_SCALE)
+                    });
                     
-                    return Math.min(radius, baseMaxRadius);
+                    return config.MIN_RADIUS + (normalizedVotes * config.VOTE_SCALE);
                 }
                 return 0;
             },
@@ -242,18 +199,15 @@ export class GraphLayout {
             0
         ).strength(LAYOUT_CONSTANTS.FORCES.RADIAL.STRENGTH[
             this.isPreviewMode ? 'PREVIEW' : 'NORMAL'
-        ] * (this.isPreviewMode ? 1 : 1.2)));
+        ]));
     
-        // 4. Maintain angular distribution with enhanced spacing
-        const angularSeparation = this.isPreviewMode ?
-            LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.ANGULAR_SEPARATION :
-            LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.ANGULAR_SEPARATION * 1.2;
-    
+        // 4. Angular distribution
+        const angularSeparation = LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.ANGULAR_SEPARATION;
         alternativeNodes.forEach((node, i) => {
             const targetAngle = (i / alternativeNodes.length) * 2 * Math.PI;
             const currentAngle = Math.atan2(node.y ?? 0, node.x ?? 0);
-            const angleForce = (targetAngle - currentAngle) * (this.isPreviewMode ? 0.1 : 0.15);
-            
+            const angleForce = (targetAngle - currentAngle) * 0.1;
+                
             if (node.x !== undefined && node.y !== undefined) {
                 const distance = Math.sqrt((node.x * node.x) + (node.y * node.y));
                 node.vx = (node.vx ?? 0) + Math.cos(angleForce) * distance * 0.02;
@@ -275,15 +229,18 @@ export class GraphLayout {
         if (this.simulation.nodes().length > 0) {
             // Reset simulation parameters
             this.simulation
-                .alpha(1)                      // Reset alpha to full strength
-                .alphaTarget(0)                // Ensure simulation will eventually settle
-                .velocityDecay(0.4)            // Reduce velocity decay for smoother transition
+                .alpha(1)
+                .alphaTarget(0)
+                .velocityDecay(0.4)
                 .restart();
     
             // Configure new layout
             this.configureDashboardAndNavigationLayout(this.simulation.nodes());
+            if (this.simulation.nodes().some(n => n.group === 'live-definition')) {
+                this.configureAlternativeDefinitionsLayout(this.simulation.nodes());
+            }
             
-            // After a short delay, restore normal simulation parameters
+            // Restore normal simulation parameters after transition
             setTimeout(() => {
                 this.simulation
                     .velocityDecay(LAYOUT_CONSTANTS.SIMULATION.VELOCITY_DECAY)
@@ -294,7 +251,6 @@ export class GraphLayout {
     }
 
     public updateLayout(data: GraphData): Map<string, NodePosition> {
-        // First, clear ALL forces
         this.simulation.force('charge', null);
         this.simulation.force('collision', null);
         this.simulation.force('radial', null);
@@ -304,7 +260,6 @@ export class GraphLayout {
         const nodes = data.nodes as SimulationNode[];
         const links = (data.links || []) as SimulationLink[];
     
-        // Reset any previous fixed positions
         nodes.forEach(node => {
             node.fx = undefined;
             node.fy = undefined;
@@ -313,12 +268,6 @@ export class GraphLayout {
         });
     
         this.simulation.nodes(nodes);
-    
-        console.log('Configuring layout for nodes:', nodes.map(n => ({
-            id: n.id,
-            group: n.group,
-            type: n.type
-        })));
     
         if (nodes.length === 1) {
             this.configureSingleNodeLayout(nodes[0]);
@@ -329,7 +278,6 @@ export class GraphLayout {
             }
         }
     
-        // Configure links after node positioning
         if (links.length > 0) {
             const linkForce = d3.forceLink<SimulationNode, SimulationLink>()
                 .id(d => d.id)
@@ -337,7 +285,6 @@ export class GraphLayout {
             this.simulation.force('link', linkForce);
         }
     
-        // Run simulation
         this.simulation.alpha(1).restart();
         for (let i = 0; i < LAYOUT_CONSTANTS.SIMULATION.ITERATIONS; ++i) {
             this.simulation.tick();

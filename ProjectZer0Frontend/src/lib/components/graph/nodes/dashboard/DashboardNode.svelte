@@ -4,76 +4,61 @@
     import type { UserProfile } from '$lib/types/user';
     import type { UserActivity } from '$lib/services/userActivity';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
-    import { COLORS } from '$lib/constants/colors';
 
     export let node: UserProfile;
     export let userActivity: UserActivity | undefined;
 
-    const highlightColor = COLORS.UI.TEXT.PRIMARY;
-    const CONTENT_WIDTH = 350;
     const METRICS_SPACING = {
-        labelX: -200,  // Moved further left
+        labelX: -200,
         equalsX: 0,
         valueX: 30
     };
 
     function getWrappedText(text: string, maxWidth: number, x: number) {
-    const words = text.split(' ');
-    const lines: { text: string; x: number; dy: number }[] = [];
-    let currentLine = '';
-    let lineCount = 0;
+        const words = text.split(' ');
+        const lines: { text: string; x: number; dy: number }[] = [];
+        let currentLine = '';
+        let lineCount = 0;
 
-    // Create and set up temporary text element
-    const tempText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    tempText.setAttribute('font-family', 'Orbitron');
-    tempText.setAttribute('font-size', '14px');
-    // Set position off-screen but still rendered
-    tempText.setAttribute('x', '-1000');
-    tempText.setAttribute('y', '-1000');
-    
-    // Add to SVG temporarily to get accurate measurements
-    const svg = document.querySelector('svg');
-    if (!svg) return lines;
-    svg.appendChild(tempText);
-
-    words.forEach(word => {
-        const testLine = currentLine + (currentLine ? ' ' : '') + word;
-        tempText.textContent = testLine;
-        const testWidth = tempText.getComputedTextLength();
+        const tempText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        tempText.setAttribute('font-family', 'Orbitron');
+        tempText.setAttribute('font-size', '14px');
+        tempText.setAttribute('x', '-1000');
+        tempText.setAttribute('y', '-1000');
         
-        console.log('Testing line:', { 
-            testLine, 
-            testWidth, 
-            maxWidth, 
-            wouldWrap: testWidth > maxWidth 
+        const svg = document.querySelector('svg');
+        if (!svg) return lines;
+        svg.appendChild(tempText);
+
+        words.forEach(word => {
+            const testLine = currentLine + (currentLine ? ' ' : '') + word;
+            tempText.textContent = testLine;
+            const testWidth = tempText.getComputedTextLength();
+
+            if (testWidth > maxWidth && currentLine !== '') {
+                lines.push({
+                    text: currentLine,
+                    x,
+                    dy: lineCount * 20
+                });
+                currentLine = word;
+                lineCount++;
+            } else {
+                currentLine = testLine;
+            }
         });
 
-        if (testWidth > maxWidth && currentLine !== '') {
+        if (currentLine) {
             lines.push({
                 text: currentLine,
                 x,
                 dy: lineCount * 20
             });
-            currentLine = word;
-            lineCount++;
-        } else {
-            currentLine = testLine;
         }
-    });
 
-    if (currentLine) {
-        lines.push({
-            text: currentLine,
-            x,
-            dy: lineCount * 20
-        });
+        svg.removeChild(tempText);
+        return lines;
     }
-
-    // Clean up
-    svg.removeChild(tempText);
-    
-    return lines;
-}
 
     $: missionStatementLines = getWrappedText(
         node.mission_statement || "no mission statement set.",
@@ -82,21 +67,12 @@
     );
 
     const style = {
-        previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
-        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
-        colors: {
-            background: NODE_CONSTANTS.COLORS.WORD.background,
-            border: NODE_CONSTANTS.COLORS.WORD.border,
-            text: NODE_CONSTANTS.COLORS.WORD.text,
-            hover: NODE_CONSTANTS.COLORS.WORD.hover,
-            gradient: NODE_CONSTANTS.COLORS.WORD.gradient
-        },
+        previewSize: NODE_CONSTANTS.SIZES.DASHBOARD.size,
+        detailSize: NODE_CONSTANTS.SIZES.DASHBOARD.size,
+        colors: NODE_CONSTANTS.COLORS.DASHBOARD,
         padding: NODE_CONSTANTS.PADDING,
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: {
-            preview: NODE_CONSTANTS.STROKE.preview,
-            detail: NODE_CONSTANTS.STROKE.detail
-        }
+        stroke: NODE_CONSTANTS.STROKE
     };
 </script>
 

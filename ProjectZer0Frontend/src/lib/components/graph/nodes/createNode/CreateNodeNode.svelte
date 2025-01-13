@@ -13,7 +13,7 @@
     import DiscussionInput from '$lib/components/forms/createNode/shared/DiscussionInput.svelte';
     import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
-    
+
     export let node: UserProfile;
     
     let currentStep = 1;
