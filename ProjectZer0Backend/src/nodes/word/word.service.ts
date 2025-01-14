@@ -251,6 +251,55 @@ export class WordService {
     }
   }
 
+  async getWordVoteStatus(word: string, userId: string) {
+    this.logger.log(
+      `Getting vote status for word: ${word} and user: ${userId}`,
+    );
+    try {
+      const status = await this.wordSchema.getWordVoteStatus(word, userId);
+      this.logger.log(
+        `Vote status for word ${word} and user ${userId}: ${JSON.stringify(status, null, 2)}`,
+      );
+      return {
+        hasVoted: status !== null,
+        voteType: status,
+      };
+    } catch (error) {
+      this.logger.error(`Error in getWordVoteStatus: ${error.message}`);
+      this.logger.error(error.stack);
+      throw new HttpException(
+        'Failed to get word vote status',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async removeWordVote(word: string, userId: string) {
+    this.logger.log(`Removing vote on word: ${word} by user: ${userId}`);
+    try {
+      const result = await this.wordSchema.removeWordVote(word, userId);
+      // After removing the vote, fetch updated vote counts
+      const updatedVotes = await this.wordSchema.getWordVotes(word);
+      this.logger.log(
+        `Vote removal result: ${JSON.stringify(result, null, 2)}`,
+      );
+      this.logger.log(
+        `Updated vote counts: ${JSON.stringify(updatedVotes, null, 2)}`,
+      );
+      return {
+        success: true,
+        ...updatedVotes,
+      };
+    } catch (error) {
+      this.logger.error(`Error in removeWordVote: ${error.message}`);
+      this.logger.error(error.stack);
+      throw new HttpException(
+        'Failed to remove word vote',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   async setWordVisibilityStatus(wordId: string, isVisible: boolean) {
     this.logger.log(
       `Setting visibility status for word ${wordId}: ${isVisible}`,

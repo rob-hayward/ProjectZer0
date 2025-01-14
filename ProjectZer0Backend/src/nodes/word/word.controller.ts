@@ -8,6 +8,7 @@ import {
   Param,
   UseGuards,
   Logger,
+  Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
@@ -82,6 +83,28 @@ export class WordController {
       voteData.isPositive,
     );
     this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
+    return result;
+  }
+
+  @Get(':word/vote')
+  async getWordVoteStatus(@Param('word') word: string, @Request() req: any) {
+    this.logger.log(
+      `Received request to get vote status for word: ${word} from user: ${req.user.sub}`,
+    );
+    const status = await this.wordService.getWordVoteStatus(word, req.user.sub);
+    this.logger.log(
+      `Vote status for word ${word}: ${JSON.stringify(status, null, 2)}`,
+    );
+    return status;
+  }
+
+  @Post(':word/vote/remove')
+  async removeWordVote(@Param('word') word: string, @Request() req: any) {
+    this.logger.log(
+      `Received request to remove vote for word: ${word} from user: ${req.user.sub}`,
+    );
+    const result = await this.wordService.removeWordVote(word, req.user.sub);
+    this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
     return result;
   }
 

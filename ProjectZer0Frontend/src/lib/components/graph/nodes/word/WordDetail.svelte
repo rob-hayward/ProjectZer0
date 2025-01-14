@@ -1,4 +1,3 @@
-<!-- src/lib/components/graph/nodes/word/WordDetail.svelte -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';
@@ -23,15 +22,33 @@
         equalsX: 0,
         valueX: 30
     };
- 
+
     let wordCreatorDetails: UserProfile | null = null;
     let userVoteStatus: 'agree' | 'disagree' | 'none' = 'none';
     let isVoting = false;
+    let userName: string;
+    let netVotes: number;
+    let wordStatus: string;
+
+    function getNeo4jNumber(value: any): number {
+        if (value && typeof value === 'object' && 'low' in value) {
+            return Number(value.low);
+        }
+        return Number(value || 0);
+    }
+
+    function handleCollapse() {
+        dispatch('modeChange', { mode: 'preview' });
+    }
  
     onMount(async () => {
         if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
             wordCreatorDetails = await getUserDetails(data.createdBy);
         }
+
+        // Initialize vote counts
+        data.positiveVotes = getNeo4jNumber(data.positiveVotes);
+        data.negativeVotes = getNeo4jNumber(data.negativeVotes);
 
         if ($userStore) {
             try {
@@ -49,11 +66,13 @@
 
         try {
             if (voteType === 'none') {
-                await fetchWithAuth(
+                const result = await fetchWithAuth(
                     `/nodes/word/${data.word}/vote/remove`,
                     { method: 'POST' }
                 );
                 userVoteStatus = 'none';
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
             } else {
                 const result = await fetchWithAuth(
                     `/nodes/word/${data.word}/vote`,
@@ -66,10 +85,16 @@
                     }
                 );
 
-                data.positiveVotes = result.positiveVotes;
-                data.negativeVotes = result.negativeVotes;
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
                 userVoteStatus = voteType;
             }
+
+            console.log('Updated vote counts:', {
+                positiveVotes: data.positiveVotes,
+                negativeVotes: data.negativeVotes
+            });
+
         } catch (error) {
             console.error('Error voting:', error);
         } finally {
@@ -77,17 +102,13 @@
         }
     }
 
-    function handleCollapse() {
-        console.log('WordDetail: Dispatching modeChange event');
-        dispatch('modeChange', { mode: 'preview' });
-    }
-
+    // Reactive declarations
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    $: netVotes = data.positiveVotes - data.negativeVotes;
-    $: wordStatus = netVotes >= 0 ? 'agreed' : 'disagreed';
+    $: netVotes = getNeo4jNumber(data.positiveVotes) - getNeo4jNumber(data.negativeVotes);
+    $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
 </script>
-
-<BaseDetailNode {style}>
+ 
+ <BaseDetailNode {style}>
     <svelte:fragment slot="default" let:radius let:isHovered>
         <!-- Title -->
         <text
@@ -99,7 +120,7 @@
         >
             word
         </text>
-
+ 
         <!-- Main Word Display -->
         <g class="word-display" transform="translate(0, {-radius/2})">
             <text
@@ -110,7 +131,7 @@
                 {data.word}
             </text>
         </g>
-
+ 
         <!-- User Context -->
         <g transform="translate(0, -100)">
             <text 
@@ -134,7 +155,7 @@
                 You can always change your vote using the buttons below.
             </text>
         </g>
-
+ 
         <!-- Vote Buttons -->
         <g transform="translate(0, -10)">
             <foreignObject x={-160} width="100" height="40">
@@ -149,7 +170,7 @@
                     </button>
                 </div>
             </foreignObject>
-
+ 
             <foreignObject x={-50} width="100" height="40">
                 <div class="button-wrapper">
                     <button 
@@ -162,7 +183,7 @@
                     </button>
                 </div>
             </foreignObject>
-
+ 
             <foreignObject x={60} width="100" height="40">
                 <div class="button-wrapper">
                     <button 
@@ -176,7 +197,7 @@
                 </div>
             </foreignObject>
         </g>
-
+ 
         <!-- Vote Stats -->
         <g transform="translate(0, 60)">
             <text x={METRICS_SPACING.labelX} class="stats-label left-align">
@@ -195,7 +216,7 @@
                     {userVoteStatus}
                 </text>
             </g>
-
+ 
             <!-- Total agree votes -->
             <g transform="translate(0, 55)">
                 <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -208,7 +229,7 @@
                     {data.positiveVotes}
                 </text>
             </g>
-
+ 
             <!-- Total disagree votes -->
             <g transform="translate(0, 80)">
                 <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -221,7 +242,7 @@
                     {data.negativeVotes}
                 </text>
             </g>
-
+ 
             <!-- Net votes -->
             <g transform="translate(0, 105)">
                 <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -234,7 +255,7 @@
                     {netVotes}
                 </text>
             </g>
-
+ 
             <!-- Word status -->
             <g transform="translate(0, 130)">
                 <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -255,7 +276,7 @@
                 created by: {getDisplayName(data.createdBy, wordCreatorDetails, !data.publicCredit)}
             </text>
         </g>
-
+ 
         <!-- Contract button -->
         <ExpandCollapseButton 
             mode="collapse"
@@ -263,58 +284,58 @@
             on:click={handleCollapse}
         />
     </svelte:fragment>
-</BaseDetailNode>
-
-<style>
+ </BaseDetailNode>
+ 
+ <style>
     text {
         text-anchor: middle;
         font-family: 'Orbitron', sans-serif;
     }
-
+ 
     .title {
         fill: rgba(255, 255, 255, 0.7);
     }
-
+ 
     .main-word {
         font-size: 30px;
         fill: white;
         filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
     }
-
+ 
     .context-text {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.9);
     }
-
+ 
     .stats-label {
         font-size: 14px;
         fill: white;
     }
-
+ 
     .stats-text {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.7);
     }
-
+ 
     .stats-value {
         font-size: 14px;
         fill: white;
     }
-
+ 
     .creator-label {
         font-size: 10px;
         fill: rgba(255, 255, 255, 0.5);
     }
-
+ 
     .left-align {
         text-anchor: start;
     }
-
+ 
     :global(.button-wrapper) {
         padding-top: 4px;
         height: 100%;
     }
-
+ 
     :global(.vote-button) {
         width: 100%;
         padding: 8px 12px;
@@ -334,62 +355,62 @@
         border: 1px solid rgba(255, 255, 255, 0.1);
         white-space: nowrap;
     }
-
+ 
     :global(.vote-button.agree) {
         background: rgba(46, 204, 113, 0.1);
         border: 1px solid rgba(46, 204, 113, 0.2);
     }
-
+ 
     :global(.vote-button.disagree) {
         background: rgba(231, 76, 60, 0.1);
         border: 1px solid rgba(231, 76, 60, 0.2);
     }
-
+ 
     :global(.vote-button.no-vote) {
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.1);
     }
-
+ 
     :global(.vote-button:hover:not(:disabled)) {
         transform: translateY(-1px);
     }
-
+ 
     :global(.vote-button.agree:hover:not(:disabled)) {
         background: rgba(46, 204, 113, 0.2);
         border: 1px solid rgba(46, 204, 113, 0.3);
     }
-
+ 
     :global(.vote-button.disagree:hover:not(:disabled)) {
         background: rgba(231, 76, 60, 0.2);
         border: 1px solid rgba(231, 76, 60, 0.3);
     }
-
+ 
     :global(.vote-button.no-vote:hover:not(:disabled)) {
         background: rgba(255, 255, 255, 0.1);
         border: 1px solid rgba(255, 255, 255, 0.2);
     }
-
+ 
     :global(.vote-button:active:not(:disabled)) {
         transform: translateY(0);
     }
-
+ 
     :global(.vote-button.agree.active) {
         background: rgba(46, 204, 113, 0.3);
         border-color: rgba(46, 204, 113, 0.4);
     }
-
+ 
     :global(.vote-button.disagree.active) {
         background: rgba(231, 76, 60, 0.3);
         border-color: rgba(231, 76, 60, 0.4);
     }
-
+ 
     :global(.vote-button.no-vote.active) {
         background: rgba(255, 255, 255, 0.15);
         border-color: rgba(255, 255, 255, 0.3);
     }
-
+ 
     :global(.vote-button:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
     }
-</style>
+ </style>
