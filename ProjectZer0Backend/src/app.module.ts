@@ -1,3 +1,4 @@
+// ProjectZer0Backend/src/app.module.ts
 import { Module, OnModuleInit } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Neo4jModule } from './neo4j/neo4j.module';
@@ -7,6 +8,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { NodesModule } from './nodes/nodes.module';
 import { WordSchema } from './neo4j/schemas/word.schema';
+import { VoteModule } from './neo4j/vote/vote.module';
 
 @Module({
   imports: [
@@ -25,6 +27,7 @@ import { WordSchema } from './neo4j/schemas/word.schema';
     UsersModule,
     AuthModule,
     NodesModule,
+    VoteModule,
   ],
   controllers: [AppController],
   providers: [AppService, WordSchema],

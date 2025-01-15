@@ -9,7 +9,7 @@
     import { userStore } from '$lib/stores/userStore';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
- 
+
     export let data: WordNode;
     export let style: NodeStyle;
 
@@ -30,6 +30,9 @@
     let netVotes: number;
     let wordStatus: string;
 
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000;
+
     function getNeo4jNumber(value: any): number {
         if (value && typeof value === 'object' && 'low' in value) {
             return Number(value.low);
@@ -37,10 +40,75 @@
         return Number(value || 0);
     }
 
+    async function initializeVoteStatus(retryCount = 0) {
+        if (!$userStore) return;
+        
+        try {
+            const response = await fetchWithAuth(`/nodes/word/${data.word}/vote`);
+            if (!response) {
+                throw new Error('No response from vote status endpoint');
+            }
+            
+            userVoteStatus = response.status || 'none';
+            data.positiveVotes = getNeo4jNumber(response.positiveVotes);
+            data.negativeVotes = getNeo4jNumber(response.negativeVotes);
+        } catch (error) {
+            console.error('Error fetching vote status:', error);
+            
+            if (retryCount < MAX_RETRIES) {
+                console.log(`Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                await initializeVoteStatus(retryCount + 1);
+            }
+        }
+    }
+
     function handleCollapse() {
         dispatch('modeChange', { mode: 'preview' });
     }
- 
+
+    async function handleVote(voteType: 'agree' | 'disagree' | 'none') {
+        if (!$userStore || isVoting) return;
+        isVoting = true;
+        const oldVoteStatus = userVoteStatus;
+
+        try {
+            // Optimistic update
+            userVoteStatus = voteType;
+            
+            if (voteType === 'none') {
+                const result = await fetchWithAuth(
+                    `/nodes/word/${data.word}/vote/remove`,
+                    { method: 'POST' }
+                );
+                
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
+            } else {
+                const result = await fetchWithAuth(
+                    `/nodes/word/${data.word}/vote`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            isPositive: voteType === 'agree'
+                        })
+                    }
+                );
+
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
+            }
+        } catch (error) {
+            console.error('Error voting:', error);
+            // Revert on error
+            userVoteStatus = oldVoteStatus;
+            // Retry vote status fetch to ensure consistency
+            await initializeVoteStatus();
+        } finally {
+            isVoting = false;
+        }
+    }
+
     onMount(async () => {
         if (data.createdBy && data.createdBy !== 'FreeDictionaryAPI') {
             wordCreatorDetails = await getUserDetails(data.createdBy);
@@ -50,63 +118,14 @@
         data.positiveVotes = getNeo4jNumber(data.positiveVotes);
         data.negativeVotes = getNeo4jNumber(data.negativeVotes);
 
-        if ($userStore) {
-            try {
-                const response = await fetchWithAuth(`/nodes/word/${data.word}/vote`);
-                userVoteStatus = response.voteType || 'none';
-            } catch (error) {
-                console.error('Error fetching vote status:', error);
-            }
-        }
+        await initializeVoteStatus();
     });
-
-    async function handleVote(voteType: 'agree' | 'disagree' | 'none') {
-        if (!$userStore || isVoting) return;
-        isVoting = true;
-
-        try {
-            if (voteType === 'none') {
-                const result = await fetchWithAuth(
-                    `/nodes/word/${data.word}/vote/remove`,
-                    { method: 'POST' }
-                );
-                userVoteStatus = 'none';
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-            } else {
-                const result = await fetchWithAuth(
-                    `/nodes/word/${data.word}/vote`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify({ 
-                            userId: $userStore.sub,
-                            isPositive: voteType === 'agree'
-                        })
-                    }
-                );
-
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                userVoteStatus = voteType;
-            }
-
-            console.log('Updated vote counts:', {
-                positiveVotes: data.positiveVotes,
-                negativeVotes: data.negativeVotes
-            });
-
-        } catch (error) {
-            console.error('Error voting:', error);
-        } finally {
-            isVoting = false;
-        }
-    }
 
     // Reactive declarations
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
     $: netVotes = getNeo4jNumber(data.positiveVotes) - getNeo4jNumber(data.negativeVotes);
     $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
-</script>
+ </script>
  
  <BaseDetailNode {style}>
     <svelte:fragment slot="default" let:radius let:isHovered>

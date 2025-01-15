@@ -1,3 +1,4 @@
+// src/nodes/word/word.controller.ts
 import {
   Controller,
   Get,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 @Controller('nodes/word')
 @UseGuards(JwtAuthGuard)
@@ -72,14 +74,15 @@ export class WordController {
   @Post(':word/vote')
   async voteWord(
     @Param('word') word: string,
-    @Body() voteData: { userId: string; isPositive: boolean },
-  ) {
+    @Body() voteData: { isPositive: boolean },
+    @Request() req: any,
+  ): Promise<VoteResult> {
     this.logger.log(
       `Received request to vote on word: ${word} with data: ${JSON.stringify(voteData, null, 2)}`,
     );
     const result = await this.wordService.voteWord(
       word,
-      voteData.userId,
+      req.user.sub,
       voteData.isPositive,
     );
     this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
@@ -87,7 +90,10 @@ export class WordController {
   }
 
   @Get(':word/vote')
-  async getWordVoteStatus(@Param('word') word: string, @Request() req: any) {
+  async getWordVoteStatus(
+    @Param('word') word: string,
+    @Request() req: any,
+  ): Promise<VoteStatus | null> {
     this.logger.log(
       `Received request to get vote status for word: ${word} from user: ${req.user.sub}`,
     );
@@ -99,7 +105,10 @@ export class WordController {
   }
 
   @Post(':word/vote/remove')
-  async removeWordVote(@Param('word') word: string, @Request() req: any) {
+  async removeWordVote(
+    @Param('word') word: string,
+    @Request() req: any,
+  ): Promise<VoteResult> {
     this.logger.log(
       `Received request to remove vote for word: ${word} from user: ${req.user.sub}`,
     );
@@ -109,7 +118,7 @@ export class WordController {
   }
 
   @Get(':word/votes')
-  async getWordVotes(@Param('word') word: string) {
+  async getWordVotes(@Param('word') word: string): Promise<VoteResult | null> {
     this.logger.log(`Received request to get votes for word: ${word}`);
     const votes = await this.wordService.getWordVotes(word);
     this.logger.log(

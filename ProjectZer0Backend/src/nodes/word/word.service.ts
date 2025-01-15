@@ -3,6 +3,7 @@ import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { WordSchema } from '../../neo4j/schemas/word.schema';
 import { DictionaryService } from '../../dictionary/dictionary.service';
 import { DiscussionService } from '../discussion/discussion.service';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 @Injectable()
 export class WordService {
@@ -73,32 +74,6 @@ export class WordService {
           );
         } catch (error) {
           this.logger.warn(`Failed to add API definition: ${error.message}`);
-        }
-      }
-
-      // Fix for the discussion block
-      if (wordData.discussion) {
-        try {
-          this.logger.log(`Creating discussion for word: ${wordData.word}`);
-          const discussion = await this.discussionService.createDiscussion({
-            createdBy: wordData.createdBy,
-            associatedNodeId: wordNode.id,
-            associatedNodeType: 'WordNode',
-            initialComment: wordData.discussion,
-          });
-          this.logger.log(
-            `Created discussion: ${JSON.stringify(discussion, null, 2)}`,
-          );
-
-          await this.wordSchema.updateWordWithDiscussionId(
-            wordNode.id,
-            discussion.id,
-          );
-          this.logger.log(
-            `Updated word node with discussion ID: ${discussion.id}`,
-          );
-        } catch (error) {
-          this.logger.warn(`Failed to create discussion: ${error.message}`);
         }
       }
 
@@ -215,12 +190,16 @@ export class WordService {
     }
   }
 
-  async voteWord(word: string, userId: string, isPositive: boolean) {
+  async voteWord(
+    word: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
     this.logger.log(
-      `Voting on word: ${word} by user: ${userId}, isPositive: ${isPositive}`,
+      `Voting on word: ${word} by user: ${sub}, isPositive: ${isPositive}`,
     );
     try {
-      const result = await this.wordSchema.voteWord(word, userId, isPositive);
+      const result = await this.wordSchema.voteWord(word, sub, isPositive);
       this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
       return result;
     } catch (error) {
@@ -233,7 +212,7 @@ export class WordService {
     }
   }
 
-  async getWordVotes(word: string) {
+  async getWordVotes(word: string): Promise<VoteResult | null> {
     this.logger.log(`Getting votes for word: ${word}`);
     try {
       const votes = await this.wordSchema.getWordVotes(word);
@@ -251,19 +230,17 @@ export class WordService {
     }
   }
 
-  async getWordVoteStatus(word: string, userId: string) {
-    this.logger.log(
-      `Getting vote status for word: ${word} and user: ${userId}`,
-    );
+  async getWordVoteStatus(
+    word: string,
+    sub: string,
+  ): Promise<VoteStatus | null> {
+    this.logger.log(`Getting vote status for word: ${word} and user: ${sub}`);
     try {
-      const status = await this.wordSchema.getWordVoteStatus(word, userId);
+      const status = await this.wordSchema.getWordVoteStatus(word, sub);
       this.logger.log(
-        `Vote status for word ${word} and user ${userId}: ${JSON.stringify(status, null, 2)}`,
+        `Vote status for word ${word} and user ${sub}: ${JSON.stringify(status, null, 2)}`,
       );
-      return {
-        hasVoted: status !== null,
-        voteType: status,
-      };
+      return status;
     } catch (error) {
       this.logger.error(`Error in getWordVoteStatus: ${error.message}`);
       this.logger.error(error.stack);
@@ -274,22 +251,12 @@ export class WordService {
     }
   }
 
-  async removeWordVote(word: string, userId: string) {
-    this.logger.log(`Removing vote on word: ${word} by user: ${userId}`);
+  async removeWordVote(word: string, sub: string): Promise<VoteResult> {
+    this.logger.log(`Removing vote on word: ${word} by user: ${sub}`);
     try {
-      const result = await this.wordSchema.removeWordVote(word, userId);
-      // After removing the vote, fetch updated vote counts
-      const updatedVotes = await this.wordSchema.getWordVotes(word);
-      this.logger.log(
-        `Vote removal result: ${JSON.stringify(result, null, 2)}`,
-      );
-      this.logger.log(
-        `Updated vote counts: ${JSON.stringify(updatedVotes, null, 2)}`,
-      );
-      return {
-        success: true,
-        ...updatedVotes,
-      };
+      const result = await this.wordSchema.removeWordVote(word, sub);
+      this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
+      return result;
     } catch (error) {
       this.logger.error(`Error in removeWordVote: ${error.message}`);
       this.logger.error(error.stack);

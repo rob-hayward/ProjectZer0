@@ -2,6 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { UserSchema } from './user.schema';
+import { VoteSchema } from './vote.schema';
 
 @Injectable()
 export class WordSchema {
@@ -10,6 +11,7 @@ export class WordSchema {
   constructor(
     private readonly neo4jService: Neo4jService,
     private readonly userSchema: UserSchema,
+    private readonly voteSchema: VoteSchema,
   ) {}
 
   private standardizeWord(word: string): string {
@@ -130,16 +132,19 @@ export class WordSchema {
     return createdWord;
   }
 
-  async addDefinitionVote(definitionId: string, userId: string) {
+  async addDefinitionVote(definitionId: string, sub: string) {
     return this.neo4jService.write(
       `
      MATCH (d:DefinitionNode {id: $definitionId})
-     MERGE (u:User {sub: $userId})
-     CREATE (u)-[:VOTED_ON {createdAt: datetime(), value: 1}]->(d)
+     MERGE (u:User {sub: $sub})
+     CREATE (u)-[:VOTED_ON {
+       createdAt: datetime(),
+       status: 'agree'
+     }]->(d)
      SET d.votes = 1
      RETURN d
      `,
-      { definitionId, userId },
+      { definitionId, sub },
     );
   }
 
@@ -161,7 +166,9 @@ export class WordSchema {
          text: $definitionText,
          createdBy: $createdBy,
          createdAt: datetime(),
-         votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END
+         votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END,
+         positiveVotes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END,
+         negativeVotes: 0
      })
      CREATE (w)-[:HAS_DEFINITION]->(d)
 
@@ -171,6 +178,10 @@ export class WordSchema {
      CREATE (u)-[:CREATED {
          createdAt: datetime(),
          type: 'definition'
+     }]->(d)
+     CREATE (u)-[:VOTED_ON {
+         createdAt: datetime(),
+         status: 'agree'
      }]->(d)
 
      RETURN d
@@ -272,108 +283,52 @@ export class WordSchema {
     this.logger.log(`Deleted word: ${standardizedWord}`);
   }
 
-  async getWordVoteStatus(
-    word: string,
-    userId: string,
-  ): Promise<'agree' | 'disagree' | null> {
+  async getWordVoteStatus(word: string, sub: string) {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.log(
-      `Getting vote status for word: ${standardizedWord} and user: ${userId}`,
+    return this.voteSchema.getVoteStatus(
+      'WordNode',
+      { word: standardizedWord },
+      sub,
     );
-
-    const result = await this.neo4jService.read(
-      `
-     MATCH (w:WordNode {word: $word})
-     MATCH (u:User {sub: $userId})
-     OPTIONAL MATCH (u)-[v:VOTED_ON]->(w)
-     RETURN v.vote as vote
-     `,
-      { word: standardizedWord, userId },
-    );
-
-    if (!result.records.length || result.records[0].get('vote') === null) {
-      return null;
-    }
-
-    return result.records[0].get('vote') ? 'agree' : 'disagree';
   }
 
-  async voteWord(word: string, userId: string, isPositive: boolean) {
+  async voteWord(word: string, sub: string, isPositive: boolean) {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.log(
-      `Voting on word: ${standardizedWord} by user: ${userId}, isPositive: ${isPositive}`,
+    return this.voteSchema.vote(
+      'WordNode',
+      { word: standardizedWord },
+      sub,
+      isPositive,
     );
-
-    const result = await this.neo4jService.write(
-      `
-     MATCH (w:WordNode {word: $word})
-     MATCH (u:User {sub: $userId})
-     OPTIONAL MATCH (u)-[oldVote:VOTED_ON]->(w)
-     WITH w, u, oldVote,
-          CASE WHEN oldVote IS NOT NULL AND oldVote.vote = true THEN -1 ELSE 0 END as oldPosAdjust,
-          CASE WHEN oldVote IS NOT NULL AND oldVote.vote = false THEN -1 ELSE 0 END as oldNegAdjust
-     DELETE oldVote
-     CREATE (u)-[v:VOTED_ON]->(w)
-     SET v.vote = $isPositive,
-         v.updatedAt = datetime(),
-         w.positiveVotes = COALESCE(w.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END,
-         w.negativeVotes = COALESCE(w.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END
-     RETURN w
-     `,
-      { word: standardizedWord, userId, isPositive },
-    );
-
-    const votedWord = result.records[0].get('w').properties;
-    this.logger.log(`Vote result: ${JSON.stringify(votedWord)}`);
-    return votedWord;
   }
 
-  async removeWordVote(word: string, userId: string) {
+  async removeWordVote(word: string, sub: string) {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.log(
-      `Removing vote on word: ${standardizedWord} by user: ${userId}`,
+    return this.voteSchema.removeVote(
+      'WordNode',
+      { word: standardizedWord },
+      sub,
     );
-
-    const result = await this.neo4jService.write(
-      `
-     MATCH (w:WordNode {word: $word})
-     MATCH (u:User {sub: $userId})
-     MATCH (u)-[v:VOTED_ON]->(w)
-     WITH w, v, 
-          CASE WHEN v.vote = true THEN -1 ELSE 0 END as posAdjust,
-          CASE WHEN v.vote = false THEN -1 ELSE 0 END as negAdjust
-     DELETE v
-     SET w.positiveVotes = COALESCE(w.positiveVotes, 0) + posAdjust,
-         w.negativeVotes = COALESCE(w.negativeVotes, 0) + negAdjust
-     RETURN w
-     `,
-      { word: standardizedWord, userId },
-    );
-
-    const updatedWord = result.records[0]?.get('w').properties;
-    this.logger.log(`Remove vote result: ${JSON.stringify(updatedWord)}`);
-    return updatedWord;
   }
 
   async getWordVotes(word: string) {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.log(`Getting votes for word: ${standardizedWord}`);
-    const result = await this.neo4jService.read(
-      `
-     MATCH (w:WordNode {word: $word})
-     RETURN COALESCE(w.positiveVotes, 0) as positiveVotes, 
-            COALESCE(w.negativeVotes, 0) as negativeVotes
-     `,
+    const voteStatus = await this.voteSchema.getVoteStatus(
+      'WordNode',
       { word: standardizedWord },
+      '', // Empty string as we don't need user-specific status
     );
-    if (result.records.length === 0) {
+
+    if (!voteStatus) {
       this.logger.log(`No votes found for word: ${standardizedWord}`);
       return null;
     }
+
     const votes = {
-      positiveVotes: result.records[0].get('positiveVotes'),
-      negativeVotes: result.records[0].get('negativeVotes'),
+      positiveVotes: voteStatus.positiveVotes,
+      negativeVotes: voteStatus.negativeVotes,
     };
+
     this.logger.log(
       `Votes for word ${standardizedWord}: ${JSON.stringify(votes)}`,
     );
@@ -403,9 +358,9 @@ export class WordSchema {
     this.logger.log(`Getting visibility status for word ${wordId}`);
     const result = await this.neo4jService.read(
       `
-      MATCH (w:WordNode {id: $wordId})
-      RETURN w.visibilityStatus
-      `,
+     MATCH (w:WordNode {id: $wordId})
+     RETURN w.visibilityStatus
+     `,
       { wordId },
     );
     const visibilityStatus =
