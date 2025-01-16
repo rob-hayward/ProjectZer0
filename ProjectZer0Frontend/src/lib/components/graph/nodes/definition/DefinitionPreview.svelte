@@ -4,107 +4,133 @@
     import type { Definition, NodeStyle } from '$lib/types/nodes';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
-    import { goto } from '$app/navigation';
+    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import { getVoteValue } from '../utils/nodeUtils';
 
-    export let word: string;
     export let definition: Definition;
     export let type: 'live' | 'alternative';
     export let style: NodeStyle;
     export let transform: string = "";
+    export let word: string;
 
     const dispatch = createEventDispatcher<{
-        click: { data: Definition };
         hover: { data: Definition; isHovered: boolean };
         modeChange: { mode: 'preview' | 'detail' };
     }>();
-
-    function handleDetailView() {
-        if (type === 'live') {
-            goto(`/graph/word?word=${word}`);
-        } else {
-            dispatch('click', { data: definition });
-        }
-    }
 
     function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
         dispatch('hover', { data: definition, isHovered: event.detail.isHovered });
     }
 
-    // Size calculations for definition text container
-    $: textContainerWidth = style.previewSize - (style.padding.preview * 2);
-    $: textContainerHeight = style.previewSize * 0.4;  // 40% of preview size for text
+    function handleExpandClick() {
+        dispatch('modeChange', { mode: 'detail' });
+    }
+
+    // Size calculations
+    $: votes = getVoteValue(definition.votes);
+    $: textWidth = style.previewSize - (style.padding.preview * 2) - 45; // Added extra padding
+    $: maxCharsPerLine = Math.floor(textWidth / 8); // Approximate character width
+
+    // Text wrapping
+    $: content = `${word}: ${definition.text}`;
+    $: lines = content.split(' ').reduce((acc, word) => {
+        const currentLine = acc[acc.length - 1] || '';
+        const testLine = currentLine + (currentLine ? ' ' : '') + word;
+        
+        if (!currentLine || testLine.length <= maxCharsPerLine) {
+            acc[acc.length - 1] = testLine;
+        } else {
+            acc.push(word);
+        }
+        return acc;
+    }, ['']);
+
+    // Score display
+    $: score = votes;
+    $: scoreDisplay = score > 0 ? `+${score}` : score.toString();
 </script>
 
 <BasePreviewNode 
     {style}
     {transform}
-    on:detail={handleDetailView}
 >
-    <svelte:fragment>
-        <!-- Title -->
+    <svelte:fragment slot="title">
         <text
-            y={-style.previewSize/4}
-            class="title"
+            y={-style.previewSize/4 - 55}
+            class="title centered"
             style:font-family={NODE_CONSTANTS.FONTS.title.family}
-            style:font-size={NODE_CONSTANTS.FONTS.title.size}
+            style:font-size="12px"
             style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
         >
             {type === 'live' ? 'Live Definition' : 'Alternative Definition'}
         </text>
+    </svelte:fragment>
 
-        <!-- Definition text -->
-        <foreignObject
-            x={-textContainerWidth/2}
-            y={-textContainerHeight/2}
-            width={textContainerWidth}
-            height={textContainerHeight}
+    <svelte:fragment slot="content">
+        <text
+            y={-style.previewSize/4 + 20}
+            x={-style.previewSize/2 + 35}
+            class="content left-aligned"
+            style:font-family={NODE_CONSTANTS.FONTS.word.family}
+            style:font-size={NODE_CONSTANTS.FONTS.word.size}
+            style:font-weight={NODE_CONSTANTS.FONTS.word.weight}
         >
-            <div class="definition-text">
-                {definition.text}
-            </div>
-        </foreignObject>
+            {#each lines as line, i}
+                <tspan 
+                    x={-style.previewSize/2 + 40}
+                    dy={i === 0 ? 0 : "1.2em"}
+                >
+                    {line}
+                </tspan>
+            {/each}
+        </text>
+    </svelte:fragment>
 
-        <!-- Votes (if not API definition) -->
-        {#if definition.createdBy !== 'FreeDictionaryAPI'}
-            <text
-                y={style.previewSize/3 - style.lineHeight.preview}
-                class="votes"
-                style:font-family={NODE_CONSTANTS.FONTS.value.family}
-                style:font-size={NODE_CONSTANTS.FONTS.value.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
-            >
-                Votes: {definition.votes}
-            </text>
-        {/if}
+    <svelte:fragment slot="score">
+        <text
+            y={-style.previewSize/4 + 210}
+            class="score"
+            style:font-family={NODE_CONSTANTS.FONTS.word.family}
+            style:font-size="14px"
+            style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+        >
+            {scoreDisplay}
+        </text>
+    </svelte:fragment>
+
+    <svelte:fragment slot="button">
+        <g transform="translate(0, {style.previewSize/4 - 190})">
+            <ExpandCollapseButton 
+                mode="expand"
+                on:click={handleExpandClick}
+            />
+        </g>
     </svelte:fragment>
 </BasePreviewNode>
 
 <style>
     text {
-        text-anchor: middle;
-        fill: var(--text-color, white);
+        dominant-baseline: middle;
         user-select: none;
     }
 
+    .centered {
+        text-anchor: middle;
+    }
+
+    .left-aligned {
+        text-anchor: start;
+    }
+
     .title {
-        --text-color: rgba(255, 255, 255, 0.7);
+        fill: rgba(255, 255, 255, 0.7);
     }
 
-    .definition-text {
-        color: rgba(255, 255, 255, 0.9);
-        font-family: 'Orbitron', sans-serif;
-        font-size: 14px;
-        line-height: 1.4;
-        text-align: center;
-        overflow-wrap: break-word;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0 10px;
+    .content {
+        fill: white;
     }
 
-    .votes {
-        --text-color: rgba(255, 255, 255, 0.7);
+    .score {
+        fill: rgba(255, 255, 255, 0.7);
     }
 </style>

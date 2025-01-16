@@ -13,7 +13,7 @@
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
-    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
+    import WordPreview from '$lib/components/graph/nodes/word/WordPreview.svelte';
     import WordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
     import DefinitionPreview from '$lib/components/graph/nodes/definition/DefinitionPreview.svelte';
     import { getNavigationOptions, handleNavigation } from '$lib/services/navigation';
@@ -23,7 +23,7 @@
     import { wordStore } from '$lib/stores/wordStore';
     import { COLORS } from '$lib/constants/colors';
     import { getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
- 
+
     export let data: GraphPageData;
     
     let userActivity: UserActivity | undefined;
@@ -222,68 +222,66 @@
  </script>
  
  {#if !isLoadingComplete}
-    <div class="loading-container">
-        <div class="loading-spinner" />
-        <span class="loading-text">Loading...</span>
-    </div>
- {:else if centralNode}
-    <Graph 
-        nodes={graphData.nodes}
-        links={graphData.links ?? []}
-        {isPreviewMode}
-        on:modeChange
-    >
-        <svelte:fragment slot="node" let:node>
-            {#if isDashboardNode(node)}
-                <DashboardNode 
-                    node={node.data} 
-                    {userActivity}
-                />
-            {:else if isEditProfileNode(node)}
-                <EditProfileNode 
-                    node={node.data}
-                />
-            {:else if isCreateNodeNode(node)}
-                <CreateNodeNode 
-                    node={node.data}
-                />
-            {:else if isWordNode(node)}
-                {#if node.group === 'central'}
-                    {#if wordNodeMode === 'preview'}
-                        <WordNode
-                            data={node.data}
-                            mode="preview"
-                            transform=""
-                            style={wordStyle}
-                            on:modeChange={handleWordNodeModeChange}
-                        />
+        <div class="loading-container">
+            <div class="loading-spinner" />
+            <span class="loading-text">Loading...</span>
+        </div>
+    {:else if centralNode}
+        <Graph 
+            nodes={graphData.nodes}
+            links={graphData.links ?? []}
+            {isPreviewMode}
+            on:modeChange
+        >
+            <svelte:fragment slot="node" let:node>
+                {#if isDashboardNode(node)}
+                    <DashboardNode 
+                        node={node.data} 
+                        {userActivity}
+                    />
+                {:else if isEditProfileNode(node)}
+                    <EditProfileNode 
+                        node={node.data}
+                    />
+                {:else if isCreateNodeNode(node)}
+                    <CreateNodeNode 
+                        node={node.data}
+                    />
+                {:else if isWordNode(node)}
+                    {#if node.group === 'central'}
+                        {#if wordNodeMode === 'preview'}
+                            <WordPreview
+                                data={node.data}
+                                style={wordStyle}
+                                transform=""
+                                on:modeChange={handleWordNodeModeChange}
+                            />
+                        {:else}
+                            <WordDetail
+                                data={node.data}
+                                style={wordStyle}
+                                on:modeChange={handleWordNodeModeChange}
+                            />
+                        {/if}
                     {:else}
-                        <WordDetail
+                        <WordPreview
                             data={node.data}
                             style={wordStyle}
-                            on:modeChange={handleWordNodeModeChange}
+                            transform=""
                         />
                     {/if}
-                {:else}
-                    <WordNode
-                        data={node.data}
-                        mode="preview"
+                {:else if isDefinitionNode(node) && wordData}
+                    <DefinitionPreview
+                        word={wordData.word}
+                        definition={node.data}
+                        type={node.group === 'live-definition' ? 'live' : 'alternative'}
+                        style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
                         transform=""
-                        style={wordStyle}
                     />
                 {/if}
-            {:else if isDefinitionNode(node) && wordData}
-                <DefinitionPreview
-                    word={wordData.word}
-                    definition={node.data}
-                    type={node.group === 'live-definition' ? 'live' : 'alternative'}
-                    style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
-                    transform=""
-                />
-            {/if}
-        </svelte:fragment>
-    </Graph>
- {/if}
+            </svelte:fragment>
+        </Graph>
+    {/if}
 
 <style>
     :global(html, body) {

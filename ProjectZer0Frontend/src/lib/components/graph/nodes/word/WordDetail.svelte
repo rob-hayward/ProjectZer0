@@ -126,7 +126,7 @@
     $: netVotes = getNeo4jNumber(data.positiveVotes) - getNeo4jNumber(data.negativeVotes);
     $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
  </script>
- 
+
  <BaseDetailNode {style}>
     <svelte:fragment slot="default" let:radius let:isHovered>
         <!-- Title -->
@@ -137,7 +137,7 @@
             style:font-size={NODE_CONSTANTS.FONTS.title.size}
             style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
         >
-            word
+            Word
         </text>
  
         <!-- Main Word Display -->

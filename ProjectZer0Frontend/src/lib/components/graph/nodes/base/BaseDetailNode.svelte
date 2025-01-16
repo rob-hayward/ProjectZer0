@@ -20,23 +20,22 @@
     };
  
     $: radius = CIRCLE_RADIUS;
- </script>
+</script>
  
- <g 
+<g 
     class="detail-node"
     style:opacity={$baseOpacity}
     style:transform-origin="center"
- >
+>
     <BaseSvgNode 
         transform="" 
         style={detailStyle}
-        isHovered={false}
     >
-        <slot isHovered={false} {radius} />
+        <slot {radius} />
     </BaseSvgNode>
- </g>
+</g>
  
- <style>
+<style>
     .detail-node {
         will-change: transform;
     }
@@ -46,4 +45,4 @@
         font-family: 'Orbitron', sans-serif;
         text-anchor: middle;
     }
- </style>
+</style>

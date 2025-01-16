@@ -7,7 +7,7 @@
     import ExpandContractButton from '../common/ExpandCollapseButton.svelte';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
-	import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
     
     export let data: WordNode;
     export let mode: NodeMode = 'preview';
@@ -15,7 +15,6 @@
     export let style: NodeStyle;
  
     const dispatch = createEventDispatcher<{
-        hover: { data: WordNode; isHovered: boolean };
         modeChange: { mode: NodeMode };
     }>();
  
@@ -27,20 +26,15 @@
             goto(`/graph/word?word=${data.word}`);
         }
     }
- 
-    function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
-        dispatch('hover', { data, isHovered: event.detail.isHovered });
-    }
 </script>
 
 {#if mode === 'preview'}
     <BasePreviewNode 
         {style}
         {transform}
-        on:hover={handleHover}
     >
         <svelte:fragment slot="title">
-            word
+            Word
         </svelte:fragment>
 
         <svelte:fragment slot="content">
@@ -55,11 +49,9 @@
         </svelte:fragment>
     </BasePreviewNode>
 {:else}
-    <!-- Detail mode content remains unchanged for now -->
     <BaseNode 
         {style}
         {transform}
-        on:hover={handleHover}
     >
         <text
             y={-10}
