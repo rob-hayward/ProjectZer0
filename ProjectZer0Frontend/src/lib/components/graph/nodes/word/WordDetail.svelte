@@ -127,8 +127,8 @@
     $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
  </script>
 
- <BaseDetailNode {style}>
-    <svelte:fragment slot="default" let:radius let:isHovered>
+<BaseDetailNode {style}>
+    <svelte:fragment slot="default" let:radius>
         <!-- Title -->
         <text
             y={-radius + 40}
@@ -177,7 +177,7 @@
  
         <!-- Vote Buttons -->
         <g transform="translate(0, -10)">
-            <foreignObject x={-160} width="100" height="40">
+            <foreignObject x={-160} width="100" height="45">
                 <div class="button-wrapper">
                     <button 
                         class="vote-button agree"
@@ -190,7 +190,7 @@
                 </div>
             </foreignObject>
  
-            <foreignObject x={-50} width="100" height="40">
+            <foreignObject x={-50} width="100" height="45">
                 <div class="button-wrapper">
                     <button 
                         class="vote-button no-vote"
@@ -203,7 +203,7 @@
                 </div>
             </foreignObject>
  
-            <foreignObject x={60} width="100" height="40">
+            <foreignObject x={60} width="100" height="45">
                 <div class="button-wrapper">
                     <button 
                         class="vote-button disagree"
