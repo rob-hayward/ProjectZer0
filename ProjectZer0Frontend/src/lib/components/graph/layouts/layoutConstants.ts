@@ -7,8 +7,8 @@ export const LAYOUT_CONSTANTS = {
        LIVE_DEFINITION: {
            ANGLE: -Math.PI / 360,
            PADDING: {
-               PREVIEW: 275,
-               DETAIL: 275
+               PREVIEW: 100,
+               DETAIL: 100
            }
        },
        ALTERNATIVE_DEFINITIONS: {

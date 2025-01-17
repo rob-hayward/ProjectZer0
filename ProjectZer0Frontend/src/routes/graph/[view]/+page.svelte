@@ -30,6 +30,7 @@
     let userActivity: UserActivity | undefined;
     let isLoading = true;
     let definitionNodeModes: Map<string, 'preview' | 'detail'> = new Map();
+    let graphLayout: Graph;
  
     // Separate word node mode handling
     $: wordNodeMode = $page ? 
@@ -86,9 +87,17 @@
     }
 
     function handleDefinitionModeChange(event: CustomEvent<{ mode: 'preview' | 'detail' }>, nodeId: string) {
-    console.log('Definition mode change:', { nodeId, newMode: event.detail.mode });
+    console.log('Definition mode change triggered:', { 
+        nodeId, 
+        newMode: event.detail.mode,
+        currentLayout: graphLayout ? 'exists' : 'null'
+    });
     definitionNodeModes.set(nodeId, event.detail.mode);
-    definitionNodeModes = definitionNodeModes; // Trigger reactivity
+    // Force reactivity by reassigning the Map
+    definitionNodeModes = new Map(definitionNodeModes);
+
+    // The layout should update automatically through reactivity
+    // since nodes and links are derived values that depend on the modes
 }
  
     async function initializeData() {
@@ -236,6 +245,7 @@
         </div>
     {:else if centralNode}
         <Graph 
+            bind:this={graphLayout}
             nodes={graphData.nodes}
             links={graphData.links ?? []}
             {isPreviewMode}

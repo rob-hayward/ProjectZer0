@@ -116,43 +116,107 @@ export class GraphLayout {
         const wordNode = nodes.find(n => n.group === 'central');
         const liveDefNode = nodes.find(n => n.group === 'live-definition');
         const alternativeNodes = nodes.filter(n => n.group === 'alternative-definition');
-    
+     
         if (!wordNode || !liveDefNode) return;
-    
-        // Calculate word node radius based on preview/detail mode
-        const wordRadius = this.isPreviewMode ?
-            NODE_CONSTANTS.SIZES.WORD.preview / 2 :
-            NODE_CONSTANTS.SIZES.WORD.detail / 2;
-    
-        // 1. Fix positions for word and live definition nodes
+     
+        // Fix word node at center
         wordNode.fx = 0;
         wordNode.fy = 0;
         wordNode.x = 0;
         wordNode.y = 0;
-    
+     
+        // Inside configureAlternativeDefinitionsLayout
+        console.log('Starting definition node positioning with modes:', {
+            isPreviewMode: this.isPreviewMode,
+            currentDefinitionMode: this.isPreviewMode ? 'preview' : 'detail'
+        });
+
+        // Calculate node radii
+        const wordPreviewRadius = NODE_CONSTANTS.SIZES.WORD.preview / 2;
+        const wordDetailRadius = NODE_CONSTANTS.SIZES.WORD.detail / 2;
+        const liveDefPreviewRadius = NODE_CONSTANTS.SIZES.DEFINITION.live.preview / 2;
+        const liveDefDetailRadius = NODE_CONSTANTS.SIZES.DEFINITION.live.detail / 2;
+
+        console.log('Node radii:', {
+            wordPreviewRadius,
+            wordDetailRadius,
+            liveDefPreviewRadius,
+            liveDefDetailRadius
+        });
+
+        // Get current word radius based on mode
+        const currentWordRadius = this.isPreviewMode ? wordPreviewRadius : wordDetailRadius;
+
+        // Calculate base edge distance 
+        const edgeDistance = LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING.PREVIEW;
+
+        // Calculate total distance between centers for preview state
+        const previewCenterDistance = edgeDistance + currentWordRadius + liveDefPreviewRadius;
+
+        // Add a forced large offset for testing
+        const FORCED_OFFSET = 500; // Large value for testing
+        const defRadiusDifference = liveDefDetailRadius - liveDefPreviewRadius;
+        const extraOffset = this.isPreviewMode ? 0 : (defRadiusDifference + FORCED_OFFSET);
+
+        // Calculate final center distance including expansion offset
+        const finalCenterDistance = previewCenterDistance + extraOffset;
+
+        console.log('Distance calculations:', {
+            edgeDistance,
+            previewCenterDistance,
+            defRadiusDifference,
+            extraOffset,
+            finalCenterDistance
+        });
+
+        // Position live definition node
         const liveAngle = LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.ANGLE;
-        const baseLiveRadius = this.isPreviewMode ?
-            LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING.PREVIEW :
-            LAYOUT_CONSTANTS.RADIUS.LIVE_DEFINITION.PADDING.DETAIL;
-        
-        const liveRadius = baseLiveRadius + wordRadius;
-        liveDefNode.fx = Math.cos(liveAngle) * liveRadius;
-        liveDefNode.fy = Math.sin(liveAngle) * liveRadius;
-        liveDefNode.x = liveDefNode.fx;
-        liveDefNode.y = liveDefNode.fy;
-    
-        // 2. Reset alternative nodes
+        const newX = Math.cos(liveAngle) * finalCenterDistance;
+        const newY = Math.sin(liveAngle) * finalCenterDistance;
+
+        // Log current and new positions
+        console.log('Position update:', {
+            before: {
+                x: liveDefNode.x,
+                y: liveDefNode.y,
+                fx: liveDefNode.fx,
+                fy: liveDefNode.fy
+            },
+            after: {
+                x: newX,
+                y: newY
+            },
+            angle: liveAngle,
+            distance: finalCenterDistance
+        });
+
+        liveDefNode.fx = newX;
+        liveDefNode.fy = newY;
+        liveDefNode.x = newX;
+        liveDefNode.y = newY;
+
+        // Log final node state
+        console.log('Final node state:', {
+            wordNode: {
+                position: { x: wordNode.x, y: wordNode.y },
+                fixed: { fx: wordNode.fx, fy: wordNode.fy }
+            },
+            liveDefNode: {
+                position: { x: liveDefNode.x, y: liveDefNode.y },
+                fixed: { fx: liveDefNode.fx, fy: liveDefNode.fy }
+            }
+        });
+     
+        // Rest of the function remains unchanged for alternative nodes
         alternativeNodes.forEach(node => {
             node.fx = undefined;
             node.fy = undefined;
         });
-    
-        // 3. Configure forces with simplified calculations
+     
         const config = this.isPreviewMode ?
             LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.PREVIEW :
             LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.DETAIL;
-    
-        // 3a. Charge force
+     
         this.simulation.force('charge', d3.forceManyBody<SimulationNode>()
             .strength(d => {
                 if (d.group === 'alternative-definition') {
@@ -162,35 +226,23 @@ export class GraphLayout {
                 }
                 return 0;
             }));
-    
-        // 3b. Collision detection
+     
         this.simulation.force('collision', d3.forceCollide<SimulationNode>()
             .radius(d => {
                 if (d.group === 'alternative-definition') {
                     return config.SPACING;
                 }
-                return wordRadius;
+                return currentWordRadius;
             })
             .strength(LAYOUT_CONSTANTS.FORCES.COLLISION.STRENGTH[
                 this.isPreviewMode ? 'PREVIEW' : 'NORMAL'
             ]));
-    
-        // 3c. Simplified radial force
+     
         this.simulation.force('radial', d3.forceRadial<SimulationNode>(
             d => {
                 if (d.group === 'alternative-definition' && 'votes' in d.data) {
                     const voteValue = getVoteValue(d.data.votes);
                     const normalizedVotes = Math.min(Math.max(voteValue, 0), 10);
-                    
-                    console.log('Alternative definition position calculation:', {
-                        nodeId: d.id,
-                        voteValue,
-                        normalizedVotes,
-                        baseRadius: config.MIN_RADIUS,
-                        voteScale: config.VOTE_SCALE,
-                        finalRadius: config.MIN_RADIUS + (normalizedVotes * config.VOTE_SCALE)
-                    });
-                    
                     return config.MIN_RADIUS + (normalizedVotes * config.VOTE_SCALE);
                 }
                 return 0;
@@ -200,8 +252,7 @@ export class GraphLayout {
         ).strength(LAYOUT_CONSTANTS.FORCES.RADIAL.STRENGTH[
             this.isPreviewMode ? 'PREVIEW' : 'NORMAL'
         ]));
-    
-        // 4. Angular distribution
+     
         const angularSeparation = LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.ANGULAR_SEPARATION;
         alternativeNodes.forEach((node, i) => {
             const targetAngle = (i / alternativeNodes.length) * 2 * Math.PI;
@@ -214,12 +265,17 @@ export class GraphLayout {
                 node.vy = (node.vy ?? 0) + Math.sin(angleForce) * distance * 0.02;
             }
         });
-    }
+     }
 
-    public updatePreviewMode(isPreview: boolean): void {
-        console.log('updatePreviewMode called:', { 
+     public updatePreviewMode(isPreview: boolean): void {
+        console.log('updatePreviewMode called with:', { 
             currentMode: this.isPreviewMode, 
-            newMode: isPreview 
+            newMode: isPreview,
+            existingNodes: this.simulation.nodes().map(n => ({
+                id: n.id,
+                group: n.group,
+                position: { x: n.x, y: n.y }
+            }))
         });
         
         if (this.isPreviewMode === isPreview) return;
@@ -251,6 +307,15 @@ export class GraphLayout {
     }
 
     public updateLayout(data: GraphData): Map<string, NodePosition> {
+        console.log('updateLayout called with:', {
+            nodeCount: data.nodes.length,
+            nodeTypes: data.nodes.map(n => ({
+                id: n.id,
+                group: n.group,
+                type: n.type
+            })),
+            hasLiveDefinition: data.nodes.some(n => n.group === 'live-definition')
+        });
         this.simulation.force('charge', null);
         this.simulation.force('collision', null);
         this.simulation.force('radial', null);

@@ -56,7 +56,7 @@
 >
     <svelte:fragment slot="title">
         <text
-            y={-style.previewSize/4 - 55}
+            y={-style.previewSize/4 - 50}
             class="title centered"
             style:font-family={NODE_CONSTANTS.FONTS.title.family}
             style:font-size="12px"
