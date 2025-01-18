@@ -1,7 +1,7 @@
-// src/neo4j/schemas/definition.schema.ts
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { UserSchema } from './user.schema';
+import { VoteSchema } from './vote.schema';
 import { TEXT_LIMITS } from '../../constants/validation';
 
 @Injectable()
@@ -11,6 +11,7 @@ export class DefinitionSchema {
   constructor(
     private readonly neo4jService: Neo4jService,
     private readonly userSchema: UserSchema,
+    private readonly voteSchema: VoteSchema,
   ) {}
 
   async createDefinition(definitionData: {
@@ -49,12 +50,13 @@ export class DefinitionSchema {
           createdBy: $createdBy,
           createdAt: datetime(),
           updatedAt: datetime(),
-          votes: 0,
+          positiveVotes: 0,
+          negativeVotes: 0,
           visibilityStatus: true
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
 
-      // Create CREATED relationship and handle voting for user-created content
+      // Create CREATED relationship only (no initial vote)
       WITH d, $createdBy as userId
       WHERE NOT $isApiDefinition AND NOT $isAICreated
       MATCH (u:User {sub: userId})
@@ -62,14 +64,8 @@ export class DefinitionSchema {
           createdAt: datetime(),
           type: 'definition'
       }]->(d)
-      CREATE (u)-[:VOTED_ON {
-          createdAt: datetime(),
-          value: 1
-      }]->(d)
-      SET d.votes = 1
 
-      RETURN d, 
-        CASE WHEN $isApiDefinition OR $isAICreated THEN false ELSE true END as hasVoted
+      RETURN d
       `,
       {
         ...definitionData,
@@ -82,10 +78,7 @@ export class DefinitionSchema {
       `Created definition: ${JSON.stringify(result.records[0].get('d').properties)}`,
     );
 
-    return {
-      definition: result.records[0].get('d').properties,
-      hasVoted: result.records[0].get('hasVoted'),
-    };
+    return result.records[0].get('d').properties;
   }
 
   async getDefinition(id: string) {
@@ -137,100 +130,41 @@ export class DefinitionSchema {
     await this.neo4jService.write(
       `
       MATCH (d:DefinitionNode {id: $id})
-      OPTIONAL MATCH (u)-[r:CREATED]->(d)
-      OPTIONAL MATCH (u)-[v:VOTED_ON]->(d)
-      DELETE r, v, d
+      DETACH DELETE d
       `,
       { id },
     );
     this.logger.log(`Deleted definition: ${id}`);
   }
 
-  async voteDefinition(
-    definitionId: string,
-    userId: string,
-    vote: 'agree' | 'disagree',
-  ) {
-    this.logger.log(
-      `Processing vote for definition ${definitionId} by user ${userId}: ${vote}`,
-    );
-
-    const result = await this.neo4jService.write(
-      `
-      MATCH (d:DefinitionNode {id: $definitionId})
-      MATCH (u:User {sub: $userId})
-      WITH d, u
-      
-      OPTIONAL MATCH (u)-[currentVote:VOTED_ON]->(d)
-      WITH d, u, currentVote
-      
-      // If agreeing and no current vote exists
-      FOREACH (x IN CASE 
-          WHEN $vote = 'agree' AND currentVote IS NULL 
-          THEN [1] ELSE [] END |
-          CREATE (u)-[:VOTED_ON {
-              createdAt: datetime(),
-              value: 1
-          }]->(d)
-          SET d.votes = d.votes + 1
-      )
-      
-      // If disagreeing and a vote exists
-      FOREACH (x IN CASE 
-          WHEN $vote = 'disagree' AND currentVote IS NOT NULL 
-          THEN [1] ELSE [] END |
-          DELETE currentVote
-          SET d.votes = d.votes - 1
-      )
-      
-      // Add participation relationship if not already exists
-      MERGE (u)-[p:PARTICIPATED_IN {type: 'voted'}]->(d)
-      ON CREATE SET p.createdAt = datetime()
-      ON MATCH SET p.updatedAt = datetime()
-      
-      RETURN d, 
-          EXISTS((u)-[:VOTED_ON]->(d)) as hasVoted
-      `,
-      { definitionId, userId, vote },
-    );
-
-    if (!result.records.length) {
-      throw new Error('Definition not found');
-    }
-
-    const voteResult = {
-      definition: result.records[0].get('d').properties,
-      hasVoted: result.records[0].get('hasVoted'),
-    };
-
-    this.logger.log(`Vote result: ${JSON.stringify(voteResult)}`);
-    return voteResult;
+  async getDefinitionVoteStatus(id: string, sub: string) {
+    return this.voteSchema.getVoteStatus('DefinitionNode', { id }, sub);
   }
 
-  async getDefinitionVote(definitionId: string, userId: string) {
-    this.logger.log(
-      `Getting vote status for definition ${definitionId} by user ${userId}`,
+  async voteDefinition(id: string, sub: string, isPositive: boolean) {
+    return this.voteSchema.vote('DefinitionNode', { id }, sub, isPositive);
+  }
+
+  async removeDefinitionVote(id: string, sub: string) {
+    return this.voteSchema.removeVote('DefinitionNode', { id }, sub);
+  }
+
+  async getDefinitionVotes(id: string) {
+    const voteStatus = await this.voteSchema.getVoteStatus(
+      'DefinitionNode',
+      { id },
+      '', // Empty string as we don't need user-specific status
     );
 
-    const result = await this.neo4jService.read(
-      `
-      MATCH (d:DefinitionNode {id: $definitionId})
-      MATCH (u:User {sub: $userId})
-      OPTIONAL MATCH (u)-[v:VOTED_ON]->(d)
-      RETURN d, v.value IS NOT NULL as hasVoted
-      `,
-      { definitionId, userId },
-    );
+    if (!voteStatus) {
+      this.logger.log(`No votes found for definition: ${id}`);
+      return null;
+    }
 
-    if (result.records.length === 0) return null;
-
-    const voteStatus = {
-      definition: result.records[0].get('d').properties,
-      hasVoted: result.records[0].get('hasVoted'),
+    return {
+      positiveVotes: voteStatus.positiveVotes,
+      negativeVotes: voteStatus.negativeVotes,
     };
-
-    this.logger.log(`Vote status: ${JSON.stringify(voteStatus)}`);
-    return voteStatus;
   }
 
   async setVisibilityStatus(definitionId: string, isVisible: boolean) {

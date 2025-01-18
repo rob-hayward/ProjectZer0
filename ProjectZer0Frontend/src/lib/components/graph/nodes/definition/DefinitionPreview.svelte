@@ -1,17 +1,23 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionPreview.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { Definition, NodeStyle } from '$lib/types/nodes';
     import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
-    import { getVoteValue } from '../utils/nodeUtils';
+    import { userStore } from '$lib/stores/userStore';
+    import { fetchWithAuth } from '$lib/services/api';
 
     export let definition: Definition;
     export let type: 'live' | 'alternative';
     export let style: NodeStyle;
     export let transform: string = "";
     export let word: string;
+
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000;
+    let netVotes: number = 0;
+    let scoreDisplay: string = "0";
 
     const dispatch = createEventDispatcher<{
         hover: { data: Definition; isHovered: boolean };
@@ -26,10 +32,56 @@
         dispatch('modeChange', { mode: 'detail' });
     }
 
+    function getNeo4jNumber(value: any): number {
+        if (value && typeof value === 'object' && 'low' in value) {
+            return Number(value.low);
+        }
+        return Number(value || 0);
+    }
+
+    async function initializeVoteStatus(retryCount = 0) {
+        if (!$userStore) return;
+        
+        try {
+            const response = await fetchWithAuth(`/definitions/${definition.id}/vote`);
+            if (!response) {
+                throw new Error('No response from vote status endpoint');
+            }
+            
+            console.log('[DefinitionPreview] Vote status response:', response);
+            
+            // Ensure we handle the neo4j number format
+            const posVotes = getNeo4jNumber(response.positiveVotes);
+            const negVotes = getNeo4jNumber(response.negativeVotes);
+            
+            console.log('[DefinitionPreview] Parsed vote numbers:', { posVotes, negVotes });
+            
+            definition.positiveVotes = posVotes;
+            definition.negativeVotes = negVotes;
+            
+            // Update net votes directly
+            netVotes = posVotes - negVotes;
+            
+            console.log('[DefinitionPreview] Updated state:', {
+                positiveVotes: definition.positiveVotes,
+                negativeVotes: definition.negativeVotes,
+                netVotes,
+                currentScoreDisplay: scoreDisplay
+            });
+        } catch (error) {
+            console.error('[DefinitionPreview] Error fetching vote status:', error);
+            
+            if (retryCount < MAX_RETRIES) {
+                console.log(`[DefinitionPreview] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                await initializeVoteStatus(retryCount + 1);
+            }
+        }
+    }
+
     // Size calculations
-    $: votes = getVoteValue(definition.votes);
-    $: textWidth = style.previewSize - (style.padding.preview * 2) - 45; // Added extra padding
-    $: maxCharsPerLine = Math.floor(textWidth / 8); // Approximate character width
+    $: textWidth = style.previewSize - (style.padding.preview * 2) - 45;
+    $: maxCharsPerLine = Math.floor(textWidth / 8);
 
     // Text wrapping
     $: content = `${word}: ${definition.text}`;
@@ -45,9 +97,38 @@
         return acc;
     }, ['']);
 
-    // Score display
-    $: score = votes;
-    $: scoreDisplay = score > 0 ? `+${score}` : score.toString();
+    onMount(async () => {
+        console.warn('🎯 [DefinitionPreview] MOUNT:', {
+            id: definition.id,
+            initialPositiveVotes: definition.positiveVotes,
+            initialNegativeVotes: definition.negativeVotes
+        });
+        
+        // Initialize vote counts
+        const initialPos = getNeo4jNumber(definition.positiveVotes);
+        const initialNeg = getNeo4jNumber(definition.negativeVotes);
+        netVotes = initialPos - initialNeg;
+
+        console.warn('🎯 [DefinitionPreview] INITIAL CALCS:', {
+            initialPos,
+            initialNeg,
+            netVotes,
+            scoreDisplay
+        });
+
+        await initializeVoteStatus();
+    });
+
+    // Update score display whenever net votes changes
+    $: {
+        const oldScoreDisplay = scoreDisplay;
+        scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
+        console.warn('🎯 [DefinitionPreview] SCORE UPDATE:', {
+            netVotes,
+            oldScoreDisplay,
+            newScoreDisplay: scoreDisplay
+        });
+    }
 </script>
 
 <BasePreviewNode 
@@ -88,23 +169,22 @@
 
     <svelte:fragment slot="score">
         <text
-            y={-style.previewSize/4 + 210}
+            y={style.previewSize/4 + 10}
             class="score"
             style:font-family={NODE_CONSTANTS.FONTS.word.family}
-            style:font-size="14px"
+            style:font-size={NODE_CONSTANTS.FONTS.value.size}
             style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
         >
             {scoreDisplay}
         </text>
     </svelte:fragment>
 
-    <svelte:fragment slot="button">
-        <g transform="translate(0, {style.previewSize/4 - 190})">
-            <ExpandCollapseButton 
-                mode="expand"
-                on:click={handleExpandClick}
-            />
-        </g>
+    <svelte:fragment slot="button" let:radius>
+        <ExpandCollapseButton 
+            mode="expand"
+            y={radius}
+            on:click={handleExpandClick}
+        />
     </svelte:fragment>
 </BasePreviewNode>
 
@@ -132,5 +212,6 @@
 
     .score {
         fill: rgba(255, 255, 255, 0.7);
+        text-anchor: middle;
     }
 </style>

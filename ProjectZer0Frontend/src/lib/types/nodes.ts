@@ -4,7 +4,9 @@ export interface Definition {
     text: string;
     createdBy: string;
     createdAt: string;
-    votes: number;
+    votes?: number; // Keep for backwards compatibility
+    positiveVotes: number;
+    negativeVotes: number;
     isLive?: boolean;
 }
 
@@ -26,6 +28,7 @@ export interface WordNode {
 
 export type NodeMode = 'preview' | 'detail';
 export type NodeType = 'word' | 'definition' | 'belief';
+export type VoteStatus = 'agree' | 'disagree' | 'none';
 
 export interface NodeStyle {
     previewSize: number;

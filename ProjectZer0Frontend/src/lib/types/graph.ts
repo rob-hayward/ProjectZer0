@@ -1,10 +1,9 @@
 // src/lib/types/graph.ts
-
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
 import type { Definition } from './nodes';
-import type { WordNode as WordNodeData } from './nodes';  // Renamed to avoid conflict
+import type { WordNode as WordNodeData } from './nodes';  
 
 // Node types and groups
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition';

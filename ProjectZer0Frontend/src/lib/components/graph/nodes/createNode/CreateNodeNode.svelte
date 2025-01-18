@@ -161,7 +161,7 @@
 </script>
 
 <BaseSvgDetailNode {style}>
-    <svelte:fragment let:radius let:isHovered>
+    <svelte:fragment let:radius>
         <g transform="translate(0, {-radius + (currentStep === 5 ? 100 : 120)})">
             <!-- Title -->
             <text 

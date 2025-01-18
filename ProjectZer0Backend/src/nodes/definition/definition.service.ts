@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DefinitionSchema } from '../../neo4j/schemas/definition.schema';
 import { UserSchema } from '../../neo4j/schemas/user.schema';
 import { v4 as uuidv4 } from 'uuid';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 @Injectable()
 export class DefinitionService {
@@ -33,7 +34,7 @@ export class DefinitionService {
     ) {
       await this.userSchema.addCreatedNode(
         definitionData.createdBy,
-        result.definition.id,
+        result.id,
         'definition',
       );
     }
@@ -57,33 +58,42 @@ export class DefinitionService {
   }
 
   async voteDefinition(
-    definitionId: string,
-    userId: string,
-    vote: 'agree' | 'disagree',
-  ) {
+    id: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
     this.logger.log(
-      `Processing vote on definition ${definitionId} by user ${userId}: ${vote}`,
+      `Processing vote on definition ${id} by user ${sub}: ${isPositive}`,
     );
 
     const result = await this.definitionSchema.voteDefinition(
-      definitionId,
-      userId,
-      vote,
+      id,
+      sub,
+      isPositive,
     );
 
     // Track participation for voting
-    if (vote === 'agree') {
-      await this.userSchema.addParticipation(userId, definitionId, 'voted');
-    }
+    await this.userSchema.addParticipation(sub, id, 'voted');
 
     return result;
   }
 
-  async getDefinitionVote(definitionId: string, userId: string) {
-    this.logger.log(
-      `Getting vote status for definition ${definitionId} by user ${userId}`,
-    );
-    return this.definitionSchema.getDefinitionVote(definitionId, userId);
+  async getDefinitionVoteStatus(
+    id: string,
+    sub: string,
+  ): Promise<VoteStatus | null> {
+    this.logger.log(`Getting vote status for definition ${id} by user ${sub}`);
+    return this.definitionSchema.getDefinitionVoteStatus(id, sub);
+  }
+
+  async removeDefinitionVote(id: string, sub: string): Promise<VoteResult> {
+    this.logger.log(`Removing vote from definition ${id} by user ${sub}`);
+    return this.definitionSchema.removeDefinitionVote(id, sub);
+  }
+
+  async getDefinitionVotes(id: string): Promise<VoteResult | null> {
+    this.logger.log(`Getting votes for definition ${id}`);
+    return this.definitionSchema.getDefinitionVotes(id);
   }
 
   async setVisibilityStatus(id: string, isVisible: boolean) {

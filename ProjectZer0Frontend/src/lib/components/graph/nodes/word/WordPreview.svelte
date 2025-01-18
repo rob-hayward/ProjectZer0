@@ -146,13 +146,12 @@
         </text>
     </svelte:fragment>
 
-    <svelte:fragment slot="button">
-        <g transform="translate(0, {style.previewSize/4 - 60})">
-            <ExpandCollapseButton 
-                mode="expand"
-                on:click={handleExpandClick}
-            />
-        </g>
+    <svelte:fragment slot="button" let:radius>
+        <ExpandCollapseButton 
+            mode="expand"
+            y={radius}
+            on:click={handleExpandClick}
+        />
     </svelte:fragment>
 </BasePreviewNode>
 

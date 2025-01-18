@@ -1,4 +1,3 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/navigation/NavigationNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { NavigationOption } from '$lib/types/navigation';
@@ -37,14 +36,8 @@
             transformValues = [0, 0];
             [translateX, translateY] = transformValues;
         }
-        console.log(`Node ${option.id}:`, {
-            transform,
-            transformValues,
-            translateX,
-            translateY,
-            isHovered
-        });
     }
+
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -82,15 +75,28 @@
         />
     {/if}
 
-    <!-- Icon -->
-    <text
-        class="icon"
-        class:hovered={isHovered}
-        style:fill={isHovered ? color : 'white'}
+    <!-- Icon Container -->
+    <foreignObject 
+        x="-16" 
+        y="-16" 
+        width="32" 
+        height="32" 
+        class="icon-container"
         style:filter={isHovered ? `url(#${filterId})` : 'none'}
     >
-        {option.icon}
-    </text>
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div 
+            class="icon-wrapper"
+            {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+        >
+            <span 
+                class="material-symbols-outlined"
+                style:color={isHovered ? color : 'white'}
+            >
+                {option.icon}
+            </span>
+        </div>
+    </foreignObject>
 
     <!-- Label -->
     {#if isHovered}
@@ -109,15 +115,25 @@
         cursor: pointer;
     }
 
-    .icon {
-        font-family: 'Orbitron', sans-serif;
-        font-size: 24px;
-        text-anchor: middle;
-        dominant-baseline: middle;
-        transition: font-size 0.2s ease-out;
+    .icon-container {
+        overflow: visible;
+        transition: transform 0.2s ease-out;
     }
 
-    .icon.hovered {
+    .icon-wrapper {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    :global(.navigation-node .material-symbols-outlined) {
+        font-size: 24px;
+        transition: font-size 0.2s ease-out, color 0.3s ease;
+    }
+
+    :global(.navigation-node:hover .material-symbols-outlined) {
         font-size: 32px;
     }
 

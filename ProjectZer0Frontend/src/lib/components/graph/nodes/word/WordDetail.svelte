@@ -299,7 +299,7 @@
         <!-- Contract button -->
         <ExpandCollapseButton 
             mode="collapse"
-            y={radius - 500}
+            y={radius}
             on:click={handleCollapse}
         />
     </svelte:fragment>

@@ -5,6 +5,12 @@ interface VoteWithLow {
     low: number;
 }
 
+interface NodeWithVotes {
+    positiveVotes?: number | VoteWithLow;
+    negativeVotes?: number | VoteWithLow;
+    votes?: number | VoteWithLow;
+}
+
 export function drawWrappedText(
     ctx: CanvasRenderingContext2D,
     text: string,
@@ -44,6 +50,17 @@ export function getVoteValue(votes: number | VoteWithLow | unknown): number {
         return votes.low;
     }
     return 0;
+}
+
+export function getNetVotes(node: NodeWithVotes): number {
+    // If using new voting system
+    if ('positiveVotes' in node && 'negativeVotes' in node) {
+        const pos = getVoteValue(node.positiveVotes);
+        const neg = getVoteValue(node.negativeVotes);
+        return pos - neg;
+    }
+    // Fallback for old voting system
+    return getVoteValue(node.votes);
 }
 
 export function getDisplayName(

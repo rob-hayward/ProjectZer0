@@ -22,7 +22,7 @@
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
     import { COLORS } from '$lib/constants/colors';
-    import { getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
+    import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
     import DefinitionDetail from '$lib/components/graph/nodes/definition/DefinitionDetail.svelte';
 
     export let data: GraphPageData;
@@ -87,18 +87,15 @@
     }
 
     function handleDefinitionModeChange(event: CustomEvent<{ mode: 'preview' | 'detail' }>, nodeId: string) {
-    console.log('Definition mode change triggered:', { 
-        nodeId, 
-        newMode: event.detail.mode,
-        currentLayout: graphLayout ? 'exists' : 'null'
-    });
-    definitionNodeModes.set(nodeId, event.detail.mode);
-    // Force reactivity by reassigning the Map
-    definitionNodeModes = new Map(definitionNodeModes);
-
-    // The layout should update automatically through reactivity
-    // since nodes and links are derived values that depend on the modes
-}
+        console.log('Definition mode change triggered:', { 
+            nodeId, 
+            newMode: event.detail.mode,
+            currentLayout: graphLayout ? 'exists' : 'null'
+        });
+        definitionNodeModes.set(nodeId, event.detail.mode);
+        // Force reactivity by reassigning the Map
+        definitionNodeModes = new Map(definitionNodeModes);
+    }
  
     async function initializeData() {
         console.log('Starting initializeData:', { 
@@ -186,7 +183,7 @@
         
         if (wordData && wordData.definitions.length > 0) {
             const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
-                getVoteValue(b.votes) - getVoteValue(a.votes)
+                getNetVotes(b) - getNetVotes(a)
             );
  
             if (view === 'alternative-definitions') {
@@ -201,7 +198,7 @@
                     source: centralNode.id,
                     target: definition.id,
                     type: (index === 0 ? 'live' : 'alternative') as EdgeType,
-                    value: 1 + getVoteValue(definition.votes)
+                    value: 1 + Math.abs(getNetVotes(definition))
                 }));
  
                 return {
@@ -221,7 +218,7 @@
                     source: centralNode.id,
                     target: liveDefinition.id,
                     type: 'live' as EdgeType,
-                    value: 1 + getVoteValue(liveDefinition.votes)
+                    value: 1 + Math.abs(getNetVotes(liveDefinition))
                 };
  
                 return {
@@ -238,79 +235,79 @@
     $: links = graphData.links;
  </script>
  
- {#if !isLoadingComplete}
-        <div class="loading-container">
-            <div class="loading-spinner" />
-            <span class="loading-text">Loading...</span>
-        </div>
-    {:else if centralNode}
-        <Graph 
-            bind:this={graphLayout}
-            nodes={graphData.nodes}
-            links={graphData.links ?? []}
-            {isPreviewMode}
-            on:modeChange
-        >
-            <svelte:fragment slot="node" let:node>
-                {#if isDashboardNode(node)}
-                    <DashboardNode 
-                        node={node.data} 
-                        {userActivity}
-                    />
-                {:else if isEditProfileNode(node)}
-                    <EditProfileNode 
-                        node={node.data}
-                    />
-                {:else if isCreateNodeNode(node)}
-                    <CreateNodeNode 
-                        node={node.data}
-                    />
-                {:else if isWordNode(node)}
-                    {#if node.group === 'central'}
-                        {#if wordNodeMode === 'preview'}
-                            <WordPreview
-                                data={node.data}
-                                style={wordStyle}
-                                transform=""
-                                on:modeChange={handleWordNodeModeChange}
-                            />
-                        {:else}
-                            <WordDetail
-                                data={node.data}
-                                style={wordStyle}
-                                on:modeChange={handleWordNodeModeChange}
-                            />
-                        {/if}
-                    {:else}
+{#if !isLoadingComplete}
+    <div class="loading-container">
+        <div class="loading-spinner" />
+        <span class="loading-text">Loading...</span>
+    </div>
+{:else if centralNode}
+    <Graph 
+        bind:this={graphLayout}
+        nodes={graphData.nodes}
+        links={graphData.links ?? []}
+        {isPreviewMode}
+        on:modeChange
+    >
+        <svelte:fragment slot="node" let:node>
+            {#if isDashboardNode(node)}
+                <DashboardNode 
+                    node={node.data} 
+                    {userActivity}
+                />
+            {:else if isEditProfileNode(node)}
+                <EditProfileNode 
+                    node={node.data}
+                />
+            {:else if isCreateNodeNode(node)}
+                <CreateNodeNode 
+                    node={node.data}
+                />
+            {:else if isWordNode(node)}
+                {#if node.group === 'central'}
+                    {#if wordNodeMode === 'preview'}
                         <WordPreview
                             data={node.data}
                             style={wordStyle}
                             transform=""
-                        />
-                    {/if}
-                    {:else if isDefinitionNode(node) && wordData}
-                    {#if definitionNodeModes.get(node.id) === 'detail'}
-                        <DefinitionDetail
-                            word={wordData.word}
-                            data={node.data}
-                            type={node.group === 'live-definition' ? 'live' : 'alternative'}
-                            style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
-                            on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
+                            on:modeChange={handleWordNodeModeChange}
                         />
                     {:else}
-                        <DefinitionPreview
-                            word={wordData.word}
-                            definition={node.data}
-                            type={node.group === 'live-definition' ? 'live' : 'alternative'}
-                            style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
-                            transform=""
-                            on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
+                        <WordDetail
+                            data={node.data}
+                            style={wordStyle}
+                            on:modeChange={handleWordNodeModeChange}
                         />
                     {/if}
+                {:else}
+                    <WordPreview
+                        data={node.data}
+                        style={wordStyle}
+                        transform=""
+                    />
                 {/if}
-            </svelte:fragment>
-        </Graph>
-    {/if}
+            {:else if isDefinitionNode(node) && wordData}
+                {#if definitionNodeModes.get(node.id) === 'detail'}
+                    <DefinitionDetail
+                        word={wordData.word}
+                        data={node.data}
+                        type={node.group === 'live-definition' ? 'live' : 'alternative'}
+                        style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
+                        on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
+                    />
+                {:else}
+                    <DefinitionPreview
+                        word={wordData.word}
+                        definition={node.data}
+                        type={node.group === 'live-definition' ? 'live' : 'alternative'}
+                        style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
+                        transform=""
+                        on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
+                    />
+                {/if}
+            {/if}
+        </svelte:fragment>
+    </Graph>
+{/if}
 
 <style>
     :global(html, body) {

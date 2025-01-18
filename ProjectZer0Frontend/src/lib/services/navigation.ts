@@ -60,17 +60,17 @@ export type NavigationContext = typeof NavigationContext[keyof typeof Navigation
 
 // Icons mapping
 const navigationIcons: Record<NavigationOptionId, string> = {
-    [NavigationOptionId.EXPLORE]: '◯',
-    [NavigationOptionId.CREATE_NODE]: '+',
-    [NavigationOptionId.NETWORK]: '◎',
-    [NavigationOptionId.LOGOUT]: '↪',
+    [NavigationOptionId.EXPLORE]: 'Language',
+    [NavigationOptionId.CREATE_NODE]: 'add_circle',
+    [NavigationOptionId.NETWORK]: 'network_node',
+    [NavigationOptionId.LOGOUT]: 'logout',
     [NavigationOptionId.EDIT_PROFILE]: '⚙',
-    [NavigationOptionId.INTERACTIONS]: '⟷',
-    [NavigationOptionId.CREATIONS]: '✦',
-    [NavigationOptionId.DASHBOARD]: '⌂',
-    [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: '≣',
-    [NavigationOptionId.CREATE_ALTERNATIVE]: '+ ≣',
-    [NavigationOptionId.DISCUSS]: '⌬'
+    [NavigationOptionId.INTERACTIONS]: 'compare_arrows',
+    [NavigationOptionId.CREATIONS]: 'stars',
+    [NavigationOptionId.DASHBOARD]: 'home',
+    [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: 'format_list_bulleted',
+    [NavigationOptionId.CREATE_ALTERNATIVE]: 'playlist_add_circle',
+    [NavigationOptionId.DISCUSS]: 'forum'
 };
 
 // Navigation option configurations per context

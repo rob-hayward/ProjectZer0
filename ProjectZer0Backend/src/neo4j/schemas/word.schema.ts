@@ -86,7 +86,8 @@ export class WordSchema {
          text: $initialDefinition,
          createdBy: $createdBy,
          createdAt: datetime(),
-         votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END
+         positiveVotes: 0,
+         negativeVotes: 0
      })
 
      // Create HAS_DEFINITION relationship
@@ -121,31 +122,9 @@ export class WordSchema {
     }
 
     const createdWord = result.records[0].get('w').properties;
-    const initialDefinition = result.records[0].get('d').properties;
-
-    // If this is a user-created definition, add the vote
-    if (!isApiDefinition && !isAICreated) {
-      await this.addDefinitionVote(initialDefinition.id, wordData.createdBy);
-    }
 
     this.logger.log(`Created word node: ${JSON.stringify(createdWord)}`);
     return createdWord;
-  }
-
-  async addDefinitionVote(definitionId: string, sub: string) {
-    return this.neo4jService.write(
-      `
-     MATCH (d:DefinitionNode {id: $definitionId})
-     MERGE (u:User {sub: $sub})
-     CREATE (u)-[:VOTED_ON {
-       createdAt: datetime(),
-       status: 'agree'
-     }]->(d)
-     SET d.votes = 1
-     RETURN d
-     `,
-      { definitionId, sub },
-    );
   }
 
   async addDefinition(wordData: {
@@ -166,8 +145,7 @@ export class WordSchema {
          text: $definitionText,
          createdBy: $createdBy,
          createdAt: datetime(),
-         votes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END,
-         positiveVotes: CASE WHEN $isApiDefinition OR $isAICreated THEN 0 ELSE 1 END,
+         positiveVotes: 0,
          negativeVotes: 0
      })
      CREATE (w)-[:HAS_DEFINITION]->(d)
@@ -178,10 +156,6 @@ export class WordSchema {
      CREATE (u)-[:CREATED {
          createdAt: datetime(),
          type: 'definition'
-     }]->(d)
-     CREATE (u)-[:VOTED_ON {
-         createdAt: datetime(),
-         status: 'agree'
      }]->(d)
 
      RETURN d
