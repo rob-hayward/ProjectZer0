@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as d3 from 'd3';
-    import type { GraphNode, NodePosition, GraphData, GraphEdge } from '$lib/types/graph';
+    import type { GraphNode, NodePosition, GraphData, GraphEdge, ViewType } from '$lib/types/graph';
     import { GraphLayout } from './GraphLayout';
     import NavigationNode from '../nodes/navigation/NavigationNode.svelte';
     import { isNavigationNode } from '$lib/types/graph';
@@ -14,6 +14,7 @@
     export let width: number;
     export let height: number;
     export let isPreviewMode: boolean = false;
+    export let viewType: ViewType = 'word'; // Add viewType prop with default
  
     let svg: SVGSVGElement;
     let container: SVGGElement;
@@ -43,7 +44,7 @@
     }
  
     function initializeLayout() {
-        layout = new GraphLayout(width, height, isPreviewMode);
+        layout = new GraphLayout(width, height, viewType, isPreviewMode);
         updateLayout();
     }
  

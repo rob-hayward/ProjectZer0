@@ -189,3 +189,129 @@ Add expand and contract between detail and preview node views for all nodes
 colour code nodes
 Update dashboard and word page (and forms?) to exist on our graph.
 
+Core Graph Layout System Brief
+Current Purpose
+
+Visualize word nodes with their related definition nodes
+Handle smooth transitions between preview and detail modes for nodes
+Maintain proper spacing and prevent overlaps during size changes
+Organize definitions based on vote counts (highest votes closest to word)
+
+Future Scale & Requirements
+
+Node Types & Growth
+
+Statement nodes from user submissions
+Category nodes from AI categorization
+Keyword-based connections from AI analysis
+Growing, dynamic graph with potentially thousands of nodes
+Multiple visualization modes for different node types
+
+
+Connection Types
+
+Keyword-based links (nodes sharing common tags)
+Category links (AI-assigned categories)
+Direct links (user-created explicit connections)
+Vote-weighted connections (affecting layout)
+Hierarchical relationships
+
+
+Performance Considerations
+
+Efficient node lookup system needed
+Graph partitioning for large networks
+Lazy loading for distant nodes
+Memory optimization for large datasets
+Smooth transitions at scale
+
+
+
+Technical Requirements
+Layout Engine
+
+D3 Force Simulation for dynamic positioning
+Custom forces for specific layout requirements
+Efficient node collision detection
+Dynamic link distance calculations
+Smooth transitions between node states
+
+Data Structure
+
+ID-based node reference system
+Efficient node lookup mechanism
+Flexible link type handling
+State management for node modes
+Cache system for partial graph loading
+
+Visual Considerations
+
+Preview vs Detail node modes
+Dynamic spacing based on node sizes
+Force adjustments for different node types
+Visual hierarchy in complex networks
+Transition animations
+
+Key Challenges to Address
+
+Scale Management
+
+Efficient handling of large node counts
+Performance optimization for force calculations
+Memory management for large datasets
+Partial graph loading/unloading
+
+
+Visual Clarity
+
+Prevent node overlaps during transitions
+Maintain readability in dense areas
+Clear visual hierarchy
+Smooth transitions between states
+
+
+Technical Implementation
+
+Type-safe force simulation integration
+Efficient node lookup system
+Flexible link type handling
+State management for node modes
+
+
+
+Future Development Priorities
+
+Immediate Needs
+
+Perfect current word/definition layout
+Optimize node size transition handling
+Implement efficient node lookup system
+Improve force calculation efficiency
+
+
+Near-term Additions
+
+Support for statement nodes
+Keyword-based linking system
+Category node implementation
+Enhanced force calculations for new node types
+
+
+Long-term Goals
+
+Advanced graph partitioning
+Lazy loading system
+Performance optimization for scale
+Complex relationship visualization
+
+
+
+Technical Debt Considerations
+
+Current force simulation might need optimization for scale
+Node lookup system needs efficiency improvements
+Link type system needs expansion
+State management might need restructuring for complexity
+Type system needs enhancement for future features
+
+This layout system is a fundamental component that will grow with the platform, requiring careful attention to scalability, performance, and maintainability in future iterations.

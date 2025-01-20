@@ -59,7 +59,6 @@
     {transform}
     on:click={handleClick}
     on:hover={handleHover}
-    let:isHovered
 >
     <defs>
         <radialGradient id="definition-gradient-{type}" cx="50%" cy="50%" r="50%">

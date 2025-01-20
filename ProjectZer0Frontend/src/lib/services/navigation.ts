@@ -64,7 +64,7 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.CREATE_NODE]: 'add_circle',
     [NavigationOptionId.NETWORK]: 'network_node',
     [NavigationOptionId.LOGOUT]: 'logout',
-    [NavigationOptionId.EDIT_PROFILE]: '⚙',
+    [NavigationOptionId.EDIT_PROFILE]: 'settings',
     [NavigationOptionId.INTERACTIONS]: 'compare_arrows',
     [NavigationOptionId.CREATIONS]: 'stars',
     [NavigationOptionId.DASHBOARD]: 'home',

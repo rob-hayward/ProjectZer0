@@ -1,265 +1,274 @@
-// Nav nodes are placed in a circle around the central node correctly
+// ProjectZer0Frontend/src/lib/components/graph/layouts/GraphLayout.ts
 import * as d3 from 'd3';
-import type { SimulationNodeDatum } from 'd3-force';
-import type { GraphNode, NodePosition, GraphData, GraphEdge } from '$lib/types/graph';
-import { LAYOUT_CONSTANTS } from './layoutConstants';
-import { getVoteValue } from '../nodes/utils/nodeUtils';
-import { NODE_CONSTANTS } from '../nodes/base/BaseNodeConstants';
-
-interface SimulationNode extends SimulationNodeDatum {
-    id: string;
-    group: 'central' | 'live-definition' | 'alternative-definition' | 'navigation';
-    type: string;
-    data: any;
-}
-
-type SimulationLink = Omit<d3.SimulationLinkDatum<SimulationNode>, 'source' | 'target'> & {
-    source: string;
-    target: string;
-    type: 'live' | 'alternative';
-    value: number;
-};
+import type { 
+  GraphNode, 
+  GraphEdge,
+  GraphData, 
+  NodePosition, 
+  ViewType, 
+  LayoutConfig 
+} from '$lib/types/graph';
+import { VIEW_CONFIGS } from './viewConfigs';
 
 export class GraphLayout {
-    private simulation: d3.Simulation<SimulationNode, SimulationLink>;
-    private width: number;
-    private height: number;
+    private simulation: d3.Simulation<GraphNode, GraphEdge>;
+    private readonly viewType: ViewType;
+    private readonly config: LayoutConfig;
+    private _width: number;
+    private _height: number;
     private isPreviewMode: boolean;
     private definitionNodeModes: Map<string, 'preview' | 'detail'>;
+    private readonly logger = console;
 
     constructor(
-        width: number, 
-        height: number, 
-        isPreviewMode: boolean = false,
-        definitionNodeModes?: Map<string, 'preview' | 'detail'>
+        width: number,
+        height: number,
+        viewType: ViewType,
+        isPreviewMode = false
     ) {
-        this.width = width;
-        this.height = height;
+        this._width = width;
+        this._height = height;
+        this.viewType = viewType;
+        this.config = VIEW_CONFIGS[viewType];
         this.isPreviewMode = isPreviewMode;
-        this.definitionNodeModes = definitionNodeModes || new Map();
+        this.definitionNodeModes = new Map();
         this.simulation = this.initializeSimulation();
+        this.logger.debug('GraphLayout initialized', { width, height, viewType, isPreviewMode });
     }
 
-    private initializeSimulation(): d3.Simulation<SimulationNode, SimulationLink> {
-        return d3.forceSimulation<SimulationNode>()
-            .velocityDecay(LAYOUT_CONSTANTS.SIMULATION.VELOCITY_DECAY)
-            .alphaDecay(LAYOUT_CONSTANTS.SIMULATION.ALPHA_DECAY)
-            .nodes([]) as d3.Simulation<SimulationNode, SimulationLink>;
+    public get width(): number {
+        return this._width;
     }
-    
-    private configureDashboardAndNavigationLayout(nodes: SimulationNode[]): void {
-        const navigationNodes = nodes.filter(n => n.group === 'navigation');
+
+    public get height(): number {
+        return this._height;
+    }
+
+    private initializeSimulation(): d3.Simulation<GraphNode, GraphEdge> {
+        return d3.forceSimulation<GraphNode>()
+            .velocityDecay(0.4)
+            .alphaDecay(0.01);
+    }
+
+    // Helper method to safely get link force
+    private getLinkForce(): d3.ForceLink<GraphNode, GraphEdge> | null {
+        return this.simulation.force("link") as d3.ForceLink<GraphNode, GraphEdge> | null;
+    }
+
+    // Use this when accessing links
+    private getLinks(): GraphEdge[] {
+        const linkForce = this.getLinkForce();
+        return (linkForce?.links?.() as GraphEdge[]) || [];
+    }
+
+    private configureDashboardLayout(nodes: GraphNode[]): void {
         const centerNode = nodes.find(n => n.group === 'central');
+        const navigationNodes = nodes.filter(n => n.group === 'navigation');
     
-        if (!centerNode) return;
-    
-        centerNode.fx = 0;
-        centerNode.fy = 0;
-        centerNode.x = 0;
-        centerNode.y = 0;
-    
-        const radius = this.isPreviewMode ? 
-            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.PREVIEW : 
-            LAYOUT_CONSTANTS.NAVIGATION.RADIUS.DETAIL;
-        
-        const spacing = this.isPreviewMode ? 
-            LAYOUT_CONSTANTS.NAVIGATION.SPACING.PREVIEW : 
-            LAYOUT_CONSTANTS.NAVIGATION.SPACING.DETAIL;
-    
-        navigationNodes.forEach((node, i) => {
-            const angle = (i / navigationNodes.length) * 2 * Math.PI - Math.PI / 2;
-            const x = Math.cos(angle) * radius;
-            const y = Math.sin(angle) * radius;
-            
-            node.fx = x;
-            node.fy = y;
-            node.x = x;
-            node.y = y;
-        });
-    
-        this.simulation
-            .force('collision', d3.forceCollide<SimulationNode>()
-                .radius(spacing)
-                .strength(LAYOUT_CONSTANTS.NAVIGATION.STRENGTH.COLLISION))
-            .force('center', d3.forceCenter(0, 0));
-    }
-
-    private getNodeSize(node: SimulationNode): number {
-        const isDetailMode = this.definitionNodeModes.get(node.id) === 'detail';
-        
-        switch (node.group) {
-            case 'central':
-                return NODE_CONSTANTS.SIZES.WORD.detail / 2;
-            case 'live-definition':
-                return isDetailMode ? 
-                    NODE_CONSTANTS.SIZES.DEFINITION.live.detail / 2 :
-                    NODE_CONSTANTS.SIZES.DEFINITION.live.preview / 2;
-            case 'alternative-definition':
-                return isDetailMode ? 
-                    NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail / 2 :
-                    NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview / 2;
-            default:
-                return 0;
+        // Fix center node at exact center, matching the word node logic
+        if (centerNode) {
+            centerNode.fx = 0;
+            centerNode.fy = 0;
+            centerNode.x = 0;  // Add this
+            centerNode.y = 0;  // Add this
         }
-    }
-
-    private configureAlternativeDefinitionsLayout(nodes: SimulationNode[], links: SimulationLink[]): void {
-        const wordNode = nodes.find(n => n.group === 'central');
-        if (!wordNode) return;
     
-        // Fix central word node position
-        wordNode.fx = 0;
-        wordNode.fy = 0;
-        wordNode.x = 0;
-        wordNode.y = 0;
+        // Configure navigation nodes with precise positioning
+        if (navigationNodes.length > 0) {
+            const radius = this.isPreviewMode ? 
+                this.config.navigationRadius.preview : 
+                this.config.navigationRadius.detail;
     
+            navigationNodes.forEach((node, i) => {
+                const angle = (i / navigationNodes.length) * 2 * Math.PI - Math.PI / 2;
+                node.fx = Math.cos(angle) * radius;
+                node.fy = Math.sin(angle) * radius;
+                node.x = node.fx;  // Ensure current position matches fixed position
+                node.y = node.fy;  // Ensure current position matches fixed position
+            });
+        }
+    
+        // Minimal forces just for stability
         this.simulation
-            .nodes(nodes)
-            .force('link', d3.forceLink<SimulationNode, SimulationLink>()
-                .id(d => d.id)
-                .links(links)
+            .force("collision", d3.forceCollide<GraphNode>()
+                .radius(60)
+                .strength(1.0)
+                .iterations(4));
+        
+        // Remove center force as we're handling positioning explicitly
+        // .force("center", d3.forceCenter(0, 0));
+    }
+    
+    private configureWordDefinitionLayout(nodes: GraphNode[], links: GraphEdge[]) {
+        const wordNode = nodes.find(n => n.type === 'word');
+        const definitionNodes = nodes.filter(n => n.type === 'definition');
+    
+        // Fix word node at exact center
+        if (wordNode) {
+            wordNode.fx = 0;
+            wordNode.fy = 0;
+            wordNode.x = 0;
+            wordNode.y = 0;
+        }
+    
+        // Configure forces for definitions with more space
+        this.simulation
+            .force("link", d3.forceLink<GraphNode, GraphEdge>(links)
+                .id(d => (d as GraphNode).id)
                 .distance(link => {
-                    const source = nodes.find(n => n.id === link.source);
-                    const target = nodes.find(n => n.id === link.target);
-                    if (!source || !target) return 0;
-    
-                    const sourceSize = this.getNodeSize(source);
-                    const targetSize = this.getNodeSize(target);
+                    const targetNode = typeof link.target === 'string' ? 
+                        nodes.find(n => n.id === link.target) : 
+                        link.target as GraphNode;
                     
-                    // Base distance varies by link type and node state
-                    const baseDistance = link.type === 'live' ? 
-                        LAYOUT_CONSTANTS.FORCES.LINK.DISTANCE.LIVE.PREVIEW : 
-                        LAYOUT_CONSTANTS.FORCES.LINK.DISTANCE.ALTERNATIVE.PREVIEW;
-                    
-                    // Add additional distance for detail mode
-                    const detailModeBonus = (
-                        this.definitionNodeModes.get(source.id) === 'detail' || 
-                        this.definitionNodeModes.get(target.id) === 'detail'
-                    ) ? 200 : 0;
-    
-                    return baseDistance + sourceSize + targetSize + detailModeBonus;
+                    const isDetail = targetNode && 
+                        this.definitionNodeModes.get((targetNode as GraphNode).id) === 'detail';
+                    return isDetail ? 800 : 600; // Much larger distances
                 })
-                .strength(link => link.type === 'live' ? 
-                    LAYOUT_CONSTANTS.FORCES.LINK.STRENGTH.LIVE : 
-                    LAYOUT_CONSTANTS.FORCES.LINK.STRENGTH.ALTERNATIVE
-                ))
-            .force('collision', d3.forceCollide<SimulationNode>()
+                .strength(0.3)) // Reduced strength for more flexibility
+            .force("charge", d3.forceManyBody()
+                .strength(d => {
+                    const node = d as GraphNode;
+                    return node.type === 'word' ? -1000 : -800;
+                }))
+            .force("collision", d3.forceCollide<GraphNode>()
                 .radius(d => {
-                    const baseRadius = this.getNodeSize(d);
-                    const padding = this.definitionNodeModes.get(d.id) === 'detail' ? 
-                        LAYOUT_CONSTANTS.FORCES.COLLISION.PADDING.DETAIL : 
-                        LAYOUT_CONSTANTS.FORCES.COLLISION.PADDING.NORMAL;
-                    return baseRadius + padding;
+                    const node = d as GraphNode;
+                    if (node.type === 'word') return 200;
+                    return this.definitionNodeModes.get(node.id) === 'detail' ? 300 : 150;
                 })
                 .strength(1)
-                .iterations(4))
-            .force('charge', d3.forceManyBody()
-                .strength(d => {
-                    const isDetail = this.definitionNodeModes.get(d.id) === 'detail';
-                    return isDetail ? -2000 : -1000;
-                }));
-    }
-
-    public updatePreviewMode(isPreview: boolean): void {
-        if (this.isPreviewMode === isPreview) return;
-        this.isPreviewMode = isPreview;
-        
-        if (this.simulation.nodes().length > 0) {
-            this.simulation
-                .alpha(1)
-                .alphaTarget(0)
-                .velocityDecay(0.4)
-                .restart();
+                .iterations(10))
+            .force("radial", d3.forceRadial<GraphNode>(
+                d => {
+                    const node = d as GraphNode;
+                    if (node.type === 'word') return 0;
+                    
+                    const votes = this.getNodeVotes(node);
+                    const baseRadius = this.isPreviewMode ? 400 : 600;
+                    const voteScale = 40;
+                    
+                    return baseRadius - (Math.max(0, votes) * voteScale);
+                },
+                0,
+                0
+            ).strength(1)); // Increased strength
+    
+        // Handle navigation nodes if present
+        const navigationNodes = nodes.filter(n => n.group === 'navigation');
+        if (navigationNodes.length > 0) {
+            this.configureNavigationNodes(navigationNodes);
         }
     }
 
-    public updateDefinitionModes(modes: Map<string, 'preview' | 'detail'>) {
-        this.definitionNodeModes = modes;
-        if (this.simulation.nodes().length > 0) {
-            this.simulation.alpha(1).restart();
-        }
+    private configureNavigationNodes(navNodes: GraphNode[]): void {
+        const radius = this.isPreviewMode ? 
+            this.config.navigationRadius.preview : 
+            this.config.navigationRadius.detail;
+
+        navNodes.forEach((node, i) => {
+            const angle = (i / navNodes.length) * 2 * Math.PI - Math.PI / 2;
+            node.fx = Math.cos(angle) * radius;
+            node.fy = Math.sin(angle) * radius;
+        });
+    }
+
+    private getNodeVotes(node: GraphNode): number {
+        if (!node.data || !('positiveVotes' in node.data)) return 0;
+        const data = node.data as { positiveVotes?: number; negativeVotes?: number };
+        return (data.positiveVotes || 0) - (data.negativeVotes || 0);
     }
 
     public updateLayout(data: GraphData): Map<string, NodePosition> {
-        // Clear all forces
-        this.simulation.force('link', null);
-        this.simulation.force('charge', null);
-        this.simulation.force('collision', null);
-        this.simulation.force('radial', null);
-        this.simulation.force('center', null);
+        // Create copies to avoid mutation
+        const nodes = data.nodes.map(n => ({...n}));
+        const links = data.links?.map(l => ({...l})) || [];
 
-        const nodes = data.nodes as SimulationNode[];
-        const links = (data.links || []) as SimulationLink[];
-
-        // Reset node positions
-        nodes.forEach(node => {
-            node.fx = undefined;
-            node.fy = undefined;
-            node.x = undefined;
-            node.y = undefined;
-        });
-
+        // Reset forces
         this.simulation.nodes(nodes);
+        this.simulation.force("link", null);
+        this.simulation.force("charge", null);
+        this.simulation.force("collision", null);
+        this.simulation.force("radial", null);
+        this.simulation.force("center", null);
 
-        // Configure layout based on node types
-        if (nodes.length === 1) {
-            this.configureSingleNodeLayout(nodes[0]);
-        } else if (nodes.some(n => n.group === 'navigation')) {
-            this.configureDashboardAndNavigationLayout(nodes);
-            if (nodes.some(n => n.group === 'live-definition')) {
-                this.configureAlternativeDefinitionsLayout(nodes, links);
-            }
+        // Apply view-specific configuration
+        if (this.viewType === 'word') {
+            this.configureWordDefinitionLayout(nodes, links);
+        } else {
+            this.configureDashboardLayout(nodes);
         }
 
         // Run simulation
         this.simulation.alpha(1).restart();
-        for (let i = 0; i < LAYOUT_CONSTANTS.SIMULATION.ITERATIONS; ++i) {
+        for (let i = 0; i < 300; ++i) {
             this.simulation.tick();
         }
 
         return this.getNodePositions(nodes);
     }
 
-    private configureSingleNodeLayout(node: SimulationNode): void {
-        node.fx = 0;
-        node.fy = 0;
-        node.x = 0;
-        node.y = 0;
+    private getNodePositions(nodes: GraphNode[]): Map<string, NodePosition> {
+        return new Map(nodes.map(node => [
+            node.id,
+            {
+                x: node.x ?? 0,
+                y: node.y ?? 0,
+                scale: this.isPreviewMode ? 
+                    0.6 : // Preview mode scale
+                    this.definitionNodeModes.get(node.id) === 'detail' ? 1.5 : 1,
+                svgTransform: `translate(${node.x ?? 0}, ${node.y ?? 0})`,
+                angle: node.group === 'navigation' ? 
+                    Math.atan2(node.y ?? 0, node.x ?? 0) : undefined,
+                distanceFromCenter: node.group === 'navigation' ?
+                    Math.sqrt(Math.pow(node.x ?? 0, 2) + Math.pow(node.y ?? 0, 2)) : undefined
+            }
+        ]));
     }
 
-    private getNodePositions(nodes: SimulationNode[]): Map<string, NodePosition> {
-        return new Map(
-            nodes.map(node => {
-                const position = {
-                    x: node.x ?? 0,
-                    y: node.y ?? 0,
-                    scale: this.calculateNodeScale(node),
-                    svgTransform: `translate(${node.x ?? 0}, ${node.y ?? 0})`,
-                    angle: node.group === 'navigation' ? 
-                        Math.atan2(node.y ?? 0, node.x ?? 0) : undefined,
-                    distanceFromCenter: node.group === 'navigation' ?
-                        Math.sqrt(Math.pow(node.x ?? 0, 2) + Math.pow(node.y ?? 0, 2)) : undefined
-                };
-                return [node.id, position];
-            })
-        );
-    }
-
-    private calculateNodeScale(node: SimulationNode): number {
-        if (node.group === 'central') return 1;
-        if (this.isPreviewMode) {
-            return LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.PREVIEW.SCALE;
+    public setNodeDetail(nodeId: string, isDetail: boolean): void {
+        if (isDetail) {
+            this.definitionNodeModes.set(nodeId, 'detail');
+        } else {
+            this.definitionNodeModes.delete(nodeId);
         }
-        return LAYOUT_CONSTANTS.RADIUS.ALTERNATIVE_DEFINITIONS.DETAIL.SCALE;
+
+        const nodes = this.simulation.nodes();
+        const links = this.getLinks();
+        
+        if (this.viewType === 'word') {
+            this.configureWordDefinitionLayout(nodes, links);
+        }
+        
+        this.simulation.alpha(0.3).restart();
+    }
+
+    public updatePreviewMode(isPreview: boolean): void {
+        if (this.isPreviewMode === isPreview) return;
+        this.isPreviewMode = isPreview;
+        
+        const nodes = this.simulation.nodes();
+        const links = this.getLinks();
+        
+        if (this.viewType === 'word') {
+            this.configureWordDefinitionLayout(nodes, links);
+        } else {
+            this.configureDashboardLayout(nodes);
+        }
+        
+        this.simulation.alpha(0.3).restart();
+    }
+
+    public updateDefinitionModes(modes: Map<string, 'preview' | 'detail'>): void {
+        this.definitionNodeModes = new Map(modes);
+        if (this.simulation.nodes().length > 0) {
+            this.simulation.alpha(1).restart();
+        }
     }
 
     public resize(width: number, height: number): void {
-        this.width = width;
-        this.height = height;
-        const centerForce = this.simulation.force("center") as d3.ForceCenter<SimulationNode>;
-        if (centerForce) {
-            centerForce.x(0).y(0);
-        }
+        this._width = width;
+        this._height = height;
+        this.simulation.alpha(0.3).restart();
     }
 
     public stop(): void {

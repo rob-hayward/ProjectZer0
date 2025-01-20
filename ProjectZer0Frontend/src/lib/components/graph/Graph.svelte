@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
-    import type { GraphNode, GraphEdge } from '$lib/types/graph';
+    import type { GraphNode, GraphEdge, ViewType } from '$lib/types/graph';
     import GraphLayout from '../graph/layouts/GraphLayout.svelte';
     import Edge from './edges/Edge.svelte';
     import { SvgBackground } from './backgrounds/SvgBackground';
@@ -15,6 +15,7 @@
     export let height = window.innerHeight;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
     export let isPreviewMode: boolean = false;
+    export let viewType: ViewType;
  
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
     const dispatch = createEventDispatcher();
@@ -116,6 +117,7 @@
         {width} 
         {height}
         {isPreviewMode}
+        {viewType} 
         on:modeChange
     >
         <svelte:fragment slot="edge" let:link let:source let:target>

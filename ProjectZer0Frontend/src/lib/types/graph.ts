@@ -1,11 +1,22 @@
-// src/lib/types/graph.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { UserProfile } from './user';
 import type { NavigationOption } from './navigation';
 import type { Definition } from './nodes';
 import type { WordNode as WordNodeData } from './nodes';  
 
-// Node types and groups
+// View types and configurations
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network';
+
+export interface LayoutConfig {
+  centerNode: boolean;
+  navigationRadius: {
+    preview: number;
+    detail: number;
+  };
+  forceConfig: Record<string, any>;
+}
+
+// Node types and groups (maintaining existing types)
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition';
 export type EdgeType = 'live' | 'alternative';
@@ -16,14 +27,7 @@ export interface GraphPageData {
     wordData: WordNodeData | null;
 }
 
-// Node interfaces
-export interface GraphNode extends SimulationNodeDatum {
-    id: string;
-    type: NodeType;
-    data: UserProfile | NavigationOption | WordNodeData | Definition;
-    group: NodeGroup;
-}
-
+// Position interface for rendering
 export interface NodePosition {
     x: number;
     y: number;
@@ -34,23 +38,47 @@ export interface NodePosition {
     renderOrder?: number;
 }
 
-// Modified Edge interfaces to handle D3 force simulation transformations
+// In graph.ts, update the GraphNode interface:
+export interface GraphNode extends SimulationNodeDatum {
+    id: string;
+    type: NodeType;
+    data: UserProfile | NavigationOption | WordNodeData | Definition;
+    group: NodeGroup;
+    // D3 force simulation properties from SimulationNodeDatum
+    x?: number;
+    y?: number;
+    vx?: number;
+    vy?: number;
+    fx?: number | null;
+    fy?: number | null;
+    index?: number;
+}
+
+// Edge interfaces
 export interface GraphEdge {
-    source: string | GraphNode;  // Can be either ID or node reference
-    target: string | GraphNode;  // Can be either ID or node reference
+    source: string | GraphNode;
+    target: string | GraphNode;
     type: EdgeType;
     value: number;
 }
 
-// Helper type for D3 force simulation
-export type SimulationLink = Omit<SimulationLinkDatum<GraphNode>, 'source' | 'target'> & GraphEdge;
+// Simulation-specific edge interface
+export type SimulationLink = Omit<SimulationLinkDatum<GraphNode>, 'source' | 'target'> & {
+    source: string | GraphNode;
+    target: string | GraphNode;
+    type: EdgeType;
+    value: number;
+    distance?: number;
+    strength?: number;
+};
 
+// Main graph data interface
 export interface GraphData {
     nodes: GraphNode[];
     links?: GraphEdge[];
 }
 
-// Type guards
+// Type guards for nodes (maintaining existing guards)
 export function isDashboardNode(node: GraphNode): node is GraphNode & {
     type: 'dashboard';
     data: UserProfile;
@@ -93,11 +121,28 @@ export function isDefinitionNode(node: GraphNode): node is GraphNode & {
     return node.type === 'definition';
 }
 
-// Additional type guard for edge source/target
+export function isLiveDefinitionNode(node: GraphNode): boolean {
+    return node.type === 'definition' && node.group === 'live-definition';
+}
+
+export function isAlternativeDefinitionNode(node: GraphNode): boolean {
+    return node.type === 'definition' && node.group === 'alternative-definition';
+}
+
+// Type guards for edges
 export function isGraphNodeReference(value: string | GraphNode): value is GraphNode {
     return typeof value === 'object' && value !== null && 'id' in value;
 }
 
+export function isLiveEdge(edge: GraphEdge): boolean {
+    return edge.type === 'live';
+}
+
+export function isAlternativeEdge(edge: GraphEdge): boolean {
+    return edge.type === 'alternative';
+}
+
+// Data preparation utility
 export function prepareGraphData(wordNode: WordNodeData): GraphData {
     const nodes: GraphNode[] = [
         {
