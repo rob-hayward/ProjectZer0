@@ -1,8 +1,10 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/edges/base/BaseEdge.svelte -->
+<!-- src/lib/components/graph/edges/base/BaseEdge.svelte -->
 <script lang="ts">
-    import { calculateEdgePath, adjustEdgeLength, getNodeRadius } from '../utils/edgeUtils';
-    import { EDGE_CONSTANTS } from './BaseEdgeConstants';
-    import type { GraphNode } from '$lib/types/graph';
+    import type { GraphNode } from '$lib/types/graph/core';
+    import type { EdgePath } from '../../../../services/graph/simulation/ForceSimulation';
+    import type { ForceSimulation } from '../../../../services/graph/simulation/ForceSimulation';
+    import { EDGE_CONSTANTS } from '../../../../constants/graph/edges';
+    import { getContext } from 'svelte';
  
     export let sourceNode: GraphNode;
     export let targetNode: GraphNode;
@@ -14,55 +16,50 @@
     const edgeId = `edge-${Math.random().toString(36).slice(2)}`;
     const gradientId = `gradient-${edgeId}`;
     const filterGlowId = `glow-${edgeId}`;
- 
-    let path: string;
+
+    // Get the force simulation from context with proper typing
+    const simulation = getContext<ForceSimulation>('forceSimulation');
+
+    let path = '';
+    let gradientStart = { x: sourceX, y: sourceY };
+    let gradientEnd = { x: targetX, y: targetY };
+
     $: {
-        const sourceRadius = getNodeRadius(sourceNode);
-        const targetRadius = getNodeRadius(targetNode);
-        
-        // Adjust coordinates to account for node sizes
-        const adjusted = adjustEdgeLength(
-            sourceX,
-            sourceY,
-            targetX,
-            targetY,
-            sourceRadius,
-            targetRadius
-        );
-        
-        path = calculateEdgePath(
-            adjusted.x1,
-            adjusted.y1,
-            adjusted.x2,
-            adjusted.y2
-        );
+        if (simulation) {
+            const edgePath = simulation.getEdgePath(sourceNode.id, targetNode.id);
+            if (edgePath) {
+                path = edgePath.path;
+                gradientStart = edgePath.sourcePoint;
+                gradientEnd = edgePath.targetPoint;
+            } else {
+                // Fallback to direct line if no path from simulation
+                path = `M${sourceX},${sourceY}L${targetX},${targetY}`;
+                gradientStart = { x: sourceX, y: sourceY };
+                gradientEnd = { x: targetX, y: targetY };
+            }
+        } else {
+            // Fallback if no simulation context
+            path = `M${sourceX},${sourceY}L${targetX},${targetY}`;
+            gradientStart = { x: sourceX, y: sourceY };
+            gradientEnd = { x: targetX, y: targetY };
+        }
     }
- </script>
+</script>
  
- <g 
+<g 
     class="edge" 
     data-edge-id={edgeId}
     data-source-id={sourceNode.id}
     data-target-id={targetNode.id}
- >
+>
     <defs>
-        <!-- Add glow filter -->
-        <filter id={filterGlowId} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
-            <feColorMatrix
-                type="matrix"
-                values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1  0 0 0 0.5 0"
-            />
-            <feComposite in="SourceGraphic" operator="over" />
-        </filter>
- 
         <linearGradient
             id={gradientId}
             gradientUnits="userSpaceOnUse"
-            x1={sourceX}
-            y1={sourceY}
-            x2={targetX}
-            y2={targetY}
+            x1={gradientStart.x}
+            y1={gradientStart.y}
+            x2={gradientEnd.x}
+            y2={gradientEnd.y}
         >
             <slot name="gradient">
                 <stop
@@ -77,6 +74,15 @@
                 />
             </slot>
         </linearGradient>
+
+        <filter id={filterGlowId} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
+            <feColorMatrix
+                type="matrix"
+                values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1  0 0 0 0.5 0"
+            />
+            <feComposite in="SourceGraphic" operator="over" />
+        </filter>
     </defs>
  
     <!-- Background glow -->
@@ -94,9 +100,9 @@
         data-source-type={sourceNode.type}
         data-target-type={targetNode.type}
     />
- </g>
+</g>
  
- <style>
+<style>
     .edge {
         pointer-events: none;
     }
@@ -113,4 +119,4 @@
         stroke-width: 4px;
         vector-effect: non-scaling-stroke;
     }
- </style>
+</style>

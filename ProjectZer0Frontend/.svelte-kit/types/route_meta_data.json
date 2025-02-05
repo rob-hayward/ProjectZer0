@@ -1,7 +1,6 @@
 {
 	"/": [],
-	"/graph": [
-		"src/routes/graph/+page.ts"
-	],
-	"/graph/[view]": []
+	"/graph/[view]": [
+		"src/routes/graph/[view]/+page.ts"
+	]
 }

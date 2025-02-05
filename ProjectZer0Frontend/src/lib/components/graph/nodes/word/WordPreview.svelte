@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     import { userStore } from '$lib/stores/userStore';

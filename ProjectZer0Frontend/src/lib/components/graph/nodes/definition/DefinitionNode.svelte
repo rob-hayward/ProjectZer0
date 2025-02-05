@@ -5,7 +5,7 @@
     import type { UserProfile } from '$lib/types/user';
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BaseSvgNode from '../base/BaseNode.svelte';
 
     export let data: Definition;

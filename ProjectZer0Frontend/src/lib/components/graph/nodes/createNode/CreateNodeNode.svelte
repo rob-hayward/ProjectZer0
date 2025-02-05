@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { COLORS } from '$lib/constants/colors';
     import { FORM_STYLES } from '$lib/styles/forms';
     import type { UserProfile } from '$lib/types/user';

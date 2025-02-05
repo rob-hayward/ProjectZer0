@@ -105,12 +105,12 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.EXPLORE]: [],
     [NavigationContext.WORD]: [
         NavigationOptionId.EXPLORE,
-        NavigationOptionId.DASHBOARD,
-        NavigationOptionId.LOGOUT,
         NavigationOptionId.CREATE_NODE,
         NavigationOptionId.ALTERNATIVE_DEFINITIONS,
+        NavigationOptionId.LOGOUT,
         NavigationOptionId.CREATE_ALTERNATIVE,
-        NavigationOptionId.DISCUSS
+        NavigationOptionId.DISCUSS,
+        NavigationOptionId.DASHBOARD
     ],
 } as const;
 

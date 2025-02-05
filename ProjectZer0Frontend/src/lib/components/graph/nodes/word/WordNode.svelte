@@ -7,7 +7,7 @@
     import ExpandContractButton from '../common/ExpandCollapseButton.svelte';
     import { goto } from '$app/navigation';
     import { page } from '$app/stores';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     
     export let data: WordNode;
     export let mode: NodeMode = 'preview';

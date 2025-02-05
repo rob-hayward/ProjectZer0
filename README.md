@@ -1,81 +1,95 @@
 # ProjectZer0
 
-ProjectZer0 is an interactive knowledge-sharing and visualization platform that enables users to explore and contribute to a collective understanding of concepts, beliefs, and their interconnections.
+ProjectZer0 is an innovative knowledge-sharing platform that enables collaborative exploration and visualization of interconnected concepts, beliefs, and ideas. The platform uses advanced graph visualization techniques to create an intuitive and interactive user experience.
 
 ## 🌟 Key Features
 
-### Interactive Graph Visualization
-- Dynamic force-directed and concentric graph layouts
-- Real-time node interactions and animations
-- Custom Three.js-powered welcome scene
-- Smooth transitions and zooming capabilities
+### Advanced Graph Visualization
+- Dual-layer force simulation for content and navigation
+- Dynamic node size transitions with state management
+- Smart force-directed and concentric graph layouts
+- Context-aware navigation system
+- Smooth transitions and custom animations
+- Vote-weighted node positioning
+- Efficient collision detection and prevention
 
-### Node Types and Interactions
+### Node System
 - Word Nodes: Explore definitions and relationships
-- Belief Nodes: Share and discuss personal beliefs
-- Discussion System: Engage in meaningful conversations
-- Voting System: Community-driven content curation
+- Belief Nodes: Share and discuss personal perspectives
+- Definition Nodes: Multiple interpretations with voting
+- Navigation Nodes: Context-aware circular menu system
+- Future: Statement nodes and AI-categorized connections
+
+### Interactive Features
+- Preview/Detail node state transitions
+- Dynamic force scaling based on node states
+- Real-time voting and repositioning
+- Smooth zoom and pan capabilities
+- Intuitive node expansion/collapse
 
 ### User Experience
-- Seamless Auth0 Authentication
-- Customizable user profiles
-- Interactive node creation wizards
+- Auth0-powered authentication
+- Dynamic user profiles
+- Interactive node creation
 - Real-time activity tracking
-- Responsive design with custom animations
-
-### Technical Features
-- SVG and Canvas-based rendering
-- WebGL-powered 3D visualizations
-- Custom background animations
-- Advanced state management
-- Optimized performance with virtual scrolling
+- Responsive layout adaptation
 
 ## 🛠 Technology Stack
 
-### Frontend
-- **Framework**: SvelteKit with TypeScript
-- **Styling**: Custom CSS with dynamic theming
-- **Visualization**: 
-  - D3.js for graph layouts
-  - Three.js for 3D scenes
-  - Custom Canvas animations
-- **State Management**: Svelte stores
-- **Authentication**: Auth0 integration
+### Frontend Architecture
+- **Core Framework**: SvelteKit with TypeScript
+- **Graph System**:
+  - D3.js force simulation
+  - Custom force calculations
+  - SVG-based rendering
+  - WebGL acceleration
+- **State Management**: 
+  - Svelte stores
+  - Custom node state handling
+  - Position caching system
+- **Styling**: Dynamic theming with custom animations
 
-### Backend
+### Backend Systems
 - **Framework**: NestJS with TypeScript
 - **Database**: Neo4j graph database
 - **Authentication**: JWT with Auth0
 - **API**: RESTful endpoints with TypeScript types
 
-### AI Component
+### AI Integration
 - **Framework**: FastAPI
-- **Models**: Integration with Hugging Face transformers
-- **Features**: Automated tag generation and content analysis
+- **Models**: Hugging Face transformers
+- **Features**: 
+  - Automated tag generation
+  - Content analysis
+  - Future: Category suggestion
 
-## 🚀 Getting Started
+## 🚀 Development Setup
 
 ### Prerequisites
-- Node.js (v16 or higher)
+- Node.js (v16+)
 - npm or pnpm
 - Neo4j Database
-- Python 3.8+ (for AI component)
+- Python 3.8+ (AI component)
 
-### Frontend Setup
-bash
+### Quick Start
+```bash
+# Frontend
 cd ProjectZer0Frontend
 npm install
 npm run dev
 
-### Backend Setup
-```bash
+# Backend
 cd ProjectZer0Backend
 npm install
 npm run start:dev
+
+# AI Component
+cd ProjectZer0AI
+python -m pip install -r requirements.txt
+python main.py
 ```
 
-### Environment Variables
-Create `.env` files in both frontend and backend directories:
+### Environment Configuration
 
 #### Frontend (.env)
 ```env
@@ -92,260 +106,117 @@ NEO4J_PASSWORD=your-password
 JWT_SECRET=your-jwt-secret
 ```
 
-## 🧪 Testing
+## ⚙️ Technical Architecture
 
-### Frontend Tests
-```bash
-# Unit tests
-npm run test:unit
+### Graph System
 
-# Integration tests
-npm run test:integration
+#### Force Configuration
+```typescript
+// Navigation System
+{
+  radialForce: {
+    strength: 0.8,
+    radius: 180
+  },
+  collisionForce: {
+    strength: 1.5,
+    padding: 80
+  }
+}
 
-# Coverage report
-npm run test:coverage
+// Content System
+{
+  charge: scaledBySize(),
+  collision: dynamicPadding(),
+  radial: voteWeighted()
+}
 ```
 
-### Backend Tests
-```bash
-# Unit tests
-npm run test
+#### Layout Management
+- Separate force systems for navigation and content
+- Dynamic force scaling based on node states
+- Smart collision detection and prevention
+- Position caching and smooth transitions
+- Vote-weighted positioning for definitions
 
-# E2E tests
-npm run test:e2e
-```
-
-## 📦 Project Structure
-
-### Frontend Structure
+### Component Architecture
 ```
 ProjectZer0Frontend/
 ├── src/
 │   ├── lib/
 │   │   ├── components/
 │   │   │   ├── graph/
+│   │   │   │   ├── layouts/
+│   │   │   │   ├── nodes/
+│   │   │   │   └── forces/
 │   │   │   ├── forms/
-│   │   │   └── welcome/
+│   │   │   └── ui/
 │   │   ├── services/
 │   │   ├── stores/
-│   │   ├── types/
 │   │   └── utils/
-│   ├── routes/
-│   └── app.html
+│   └── routes/
 ```
 
-### Backend Structure
-```
-ProjectZer0Backend/
-├── src/
-│   ├── nodes/
-│   ├── users/
-│   ├── auth/
-│   ├── neo4j/
-│   └── main.ts
-```
+## 🧪 Testing
 
-## 📚 API Documentation
-
-### Authentication Endpoints
-typescript
-POST /auth/login // Authenticate user
-POST /auth/refresh-token // Refresh JWT token
-GET /auth/profile // Get user profile
-
-### Node Endpoints
-```typescript
-// Word Nodes
-GET    /nodes/word/:id          // Get word node
-POST   /nodes/word              // Create word node
-PUT    /nodes/word/:id          // Update word node
-DELETE /nodes/word/:id          // Delete word node
-
-// Belief Nodes
-GET    /nodes/belief/:id        // Get belief node
-POST   /nodes/belief            // Create belief node
-PUT    /nodes/belief/:id        // Update belief node
-DELETE /nodes/belief/:id        // Delete belief node
-
-// Discussion
-GET    /discussions/:id         // Get discussion
-POST   /discussions            // Create discussion
-PUT    /discussions/:id        // Update discussion
-DELETE /discussions/:id        // Delete discussion
-```
-
-### User Endpoints
-```typescript
-GET    /users/activity         // Get user activity
-PUT    /users/profile         // Update user profile
-GET    /users/interactions    // Get user interactions
-POST   /users/vote           // Cast vote on node
-```
-
-## 🚀 Deployment Guidelines
-
-### Frontend Deployment
-
-1. **Build the Application**
+### Graph System Tests
 ```bash
-cd ProjectZer0Frontend
-npm run build
+# Force calculation tests
+npm run test:forces
+
+# Layout tests
+npm run test:layout
+
+# Integration tests
+npm run test:integration
+
+# Performance tests
+npm run test:performance
 ```
 
-2. **Environment Configuration**
-- Update `.env` with production values
-- Configure Auth0 callback URLs
-- Set API base URL
-
-3. **Deployment Options**
-- Vercel (recommended)
-- Netlify
-- Custom server
-
-### Backend Deployment
-
-1. **Build the Application**
+### Component Tests
 ```bash
-cd ProjectZer0Backend
-npm run build
+# Unit tests
+npm run test:unit
+
+# E2E tests
+npm run test:e2e
 ```
 
-2. **Environment Setup**
-- Configure production environment variables
-- Set up Neo4j database connection
-- Configure JWT secrets
+## 🔧 Performance Optimization
 
-3. **Deployment Options**
-- Docker container
-- Cloud services (AWS, GCP, Azure)
-- Custom VPS
+### Graph Optimization
+- Efficient force calculation caching
+- Smart node lookup system
+- Quadtree-based collision detection
+- Position state management
+- Transition smoothing
 
-### AI Component Deployment
+### Resource Management
+- Lazy loading for distant nodes
+- Memory optimization for large datasets
+- Force calculation batching
+- State update batching
 
-1. **Build the FastAPI Application**
-```bash
-cd ProjectZer0AI
-python -m pip install -r requirements.txt
-```
+## 🛡 Security Considerations
 
-2. **Deploy Options**
-- Docker container
-- Cloud Run
-- Kubernetes cluster
+- Secure Auth0 integration
+- Input sanitization
+- XSS prevention
+- CSRF protection
+- Rate limiting
+- Data validation
 
-## 👥 Contributing Guidelines
+## 📚 Additional Resources
 
-### Code Style
+- [Detailed API Documentation](docs/api.md)
+- [Graph System Documentation](docs/graph-system.md)
+- [Contributing Guidelines](CONTRIBUTING.md)
+- [Security Guidelines](SECURITY.md)
 
-1. **TypeScript**
-- Use strict type checking
-- Follow ESLint configuration
-- Use interfaces for complex types
+## 🤝 Contributing
 
-2. **Svelte**
-- Follow component structure guidelines
-- Use SCSS for styling
-- Implement proper reactivity
-
-3. **Testing**
-- Write unit tests for utilities
-- Include integration tests for components
-- Maintain good test coverage
-
-### Git Workflow
-
-1. **Branch Naming**
-```
-feature/description
-bugfix/description
-hotfix/description
-```
-
-2. **Commit Messages**
-```
-feat: Add new feature
-fix: Fix bug
-docs: Update documentation
-style: Format code
-refactor: Refactor code
-test: Add tests
-```
-
-3. **Pull Request Process**
-- Create feature branch
-- Write descriptive PR
-- Include tests
-- Request review
-
-## ⚙️ Advanced Configuration
-
-### Graph Visualization
-
-1. **Force Layout Configuration**
-```typescript
-const forceConfig = {
-  strength: -800,
-  distance: 200,
-  center: 0.1,
-  collision: 80
-}
-```
-
-2. **Three.js Scene Settings**
-```typescript
-const sceneConfig = {
-  fov: 75,
-  near: 0.1,
-  far: 1000,
-  position: [0, 0, 100]
-}
-```
-
-### Performance Optimization
-
-1. **Rendering Options**
-- Enable virtual scrolling
-- Use WebGL when available
-- Implement lazy loading
-
-2. **Caching Strategy**
-- Browser cache configuration
-- Neo4j query optimization
-- State management caching
-
-## 🔧 Troubleshooting Guide
-
-### Common Issues
-
-1. **Authentication Problems**
-- Verify Auth0 configuration
-- Check JWT token expiration
-- Confirm callback URLs
-
-2. **Graph Rendering Issues**
-- Check WebGL compatibility
-- Verify data structure
-- Monitor performance metrics
-
-3. **Database Connection**
-- Verify Neo4j credentials
-- Check connection string
-- Monitor query performance
-
-### Debug Tools
-
-1. **Frontend Debugging**
-- Browser DevTools
-- Svelte DevTools
-- Performance profiler
-
-2. **Backend Logging**
-```typescript
-logger.debug('Detailed information')
-logger.info('General information')
-logger.warn('Warning messages')
-logger.error('Error details')
-```
+Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a pull request.
 
 ## 📄 License
 
@@ -353,8 +224,8 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 
 ## 🙏 Acknowledgments
 
-- Three.js community
-- D3.js contributors
-- Neo4j team
-- Auth0 platform
+- D3.js community for force simulation insights
+- Neo4j team for graph database expertise
+- Auth0 platform for authentication
+- SvelteKit team for frontend framework
 - Open source community

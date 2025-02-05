@@ -1,9 +1,9 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/edges/connections/WordDefinitionEdge.svelte -->
+<!-- src/lib/components/graph/edges/connections/WordDefinitionEdge.svelte -->
 <script lang="ts">
-    import type { GraphNode } from '$lib/types/graph';
+    import type { GraphNode } from '$lib/types/graph/core';
     import type { WordNode, Definition } from '$lib/types/nodes';
     import BaseEdge from '../base/BaseEdge.svelte';
-    import { EDGE_CONSTANTS } from '../base/BaseEdgeConstants';
+    import { EDGE_CONSTANTS } from '../../../../constants/graph/edges';
 
     export let sourceNode: GraphNode;
     export let targetNode: GraphNode;
@@ -12,15 +12,6 @@
     export let targetX: number;
     export let targetY: number;
 
-    $: console.log('WordDefinitionEdge props:', {
-        sourceNode,
-        targetNode,
-        sourceX,
-        sourceY,
-        targetX,
-        targetY
-    });
-
     $: isLiveDefinition = targetNode.type === 'definition' && 
                          (targetNode.data as Definition).id === 
                          (sourceNode.data as WordNode).definitions[0].id;
@@ -28,8 +19,6 @@
     $: targetColor = isLiveDefinition ? 
         EDGE_CONSTANTS.COLORS.DEFINITION.LIVE : 
         EDGE_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE;
-        
-    $: console.log('WordDefinitionEdge color:', { isLiveDefinition, targetColor });
 </script>
 
 <BaseEdge

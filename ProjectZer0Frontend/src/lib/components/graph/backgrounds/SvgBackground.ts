@@ -1,7 +1,7 @@
 // src/lib/components/graph/backgrounds/SvgBackground.ts
 import * as d3 from 'd3';
-import type { BackgroundConfig } from './backgroundConfig';
-import { DEFAULT_BACKGROUND_CONFIG } from './backgroundConfig';
+import type { BackgroundConfig } from '$lib/types/graph/background';
+import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
 
 interface NetworkNode {
     id: string;

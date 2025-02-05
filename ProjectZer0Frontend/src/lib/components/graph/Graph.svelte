@@ -1,198 +1,295 @@
 <!-- src/lib/components/graph/Graph.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-    import { browser } from '$app/environment';
-    import type { GraphNode, GraphEdge, ViewType } from '$lib/types/graph';
-    import GraphLayout from '../graph/layouts/GraphLayout.svelte';
-    import Edge from './edges/Edge.svelte';
+    import { onMount, onDestroy } from 'svelte';
+    import * as d3 from 'd3';
+    import type { GraphData, GraphNode, ViewType } from '$lib/types/graph/core';
+    import type { BackgroundConfig } from '$lib/types/graph/background';
+    import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
     import { SvgBackground } from './backgrounds/SvgBackground';
-    import type { BackgroundConfig } from './backgrounds/backgroundConfig';
-    import { DEFAULT_BACKGROUND_CONFIG } from './backgrounds/backgroundConfig';
- 
-    export let nodes: GraphNode[] = [];
-    export let links: GraphEdge[] = [];
-    export let width = window.innerWidth;
-    export let height = window.innerHeight;
-    export let backgroundConfig: Partial<BackgroundConfig> = {};
-    export let isPreviewMode: boolean = false;
+    import GraphLayout from './layouts/GraphLayout.svelte';
+    import { DIMENSIONS } from '$lib/constants/graph';
+
+    // Props
+    export let data: GraphData;
+    export let width = DIMENSIONS.WIDTH;
+    export let height = DIMENSIONS.HEIGHT;
     export let viewType: ViewType;
- 
-    const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
-    const dispatch = createEventDispatcher();
- 
+    export let backgroundConfig: Partial<BackgroundConfig> = {};
+    export let isPreviewMode = false;
+
+    let mounted = false;
     let container: HTMLDivElement;
-    let backgroundSvg: SVGSVGElement;
+    let svg: SVGSVGElement;
     let backgroundGroup: SVGGElement;
+    let contentGroup: SVGGElement;
     let background: SvgBackground | null = null;
-    let graphLayout: GraphLayout;
- 
+    let transform = d3.zoomIdentity;
+    let viewBox = '0 0 3000 2400'; // Initial viewBox matching default dimensions
+    let resetZoom: (() => void) | undefined;
+
+    const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
+    
     function updateDimensions() {
         if (!container) return;
+        
+        // Get container dimensions
         const rect = container.getBoundingClientRect();
-        width = rect.width;
-        height = rect.height;
+        
+        // Update dimensions based on container size
+        const containerWidth = Math.max(rect.width, 1000); // Minimum width
+        const containerHeight = Math.max(rect.height, 800); // Minimum height
+        
+        // Set dimensions while maintaining aspect ratio
+        width = containerWidth as typeof DIMENSIONS.WIDTH;
+        height = containerHeight as typeof DIMENSIONS.HEIGHT;
         
         if (background) {
-            background.resize(width, height);
+            background.resize(containerWidth, containerHeight);
         }
+
+        console.log('Dimensions updated:', { width, height });
+        updateViewBox();
     }
- 
+
     function initializeBackground() {
-        if (!browser || !backgroundGroup) return;
-        background = new SvgBackground(
-            backgroundGroup, 
-            width, 
-            height
-        );
+        if (!backgroundGroup) {
+            console.log('No background group found');
+            return;
+        }
+        
+        console.log('Creating background with config:', mergedConfig);
+        
         if (background) {
+            background.destroy();
+        }
+
+        try {
+            background = new SvgBackground(
+                backgroundGroup, 
+                width, 
+                height,
+                mergedConfig
+            );
+            console.log('Background created:', background);
             background.start();
+        } catch (error) {
+            console.error('Error initializing background:', error);
         }
     }
- 
-    function handleReset() {
-        if (graphLayout) {
-            graphLayout.resetView();
-        }
+
+    function initializeZoom() {
+        if (!svg || !contentGroup) return;
+
+        console.log('Initializing zoom with dimensions:', {
+            width,
+            height,
+            viewBox,
+            transform: transform.toString()
+        });
+
+        const zoom = d3.zoom<SVGSVGElement, unknown>()
+            .scaleExtent([0.1, 4])
+            .on('zoom', (event) => {
+                console.log('Zoom event:', {
+                    type: event.sourceEvent?.type,
+                    transform: event.transform,
+                    k: event.transform.k,
+                    x: event.transform.x,
+                    y: event.transform.y
+                });
+                
+                transform = event.transform;
+                d3.select(contentGroup)
+                    .attr('transform', transform.toString());
+            });
+
+        d3.select(svg)
+            .call(zoom)
+            .call(zoom.transform, d3.zoomIdentity)
+            .on('contextmenu', (event) => event.preventDefault());
+
+        resetZoom = () => {
+            console.log('Reset zoom triggered');
+            d3.select(svg)
+                .transition()
+                .duration(750)
+                .call(zoom.transform, d3.zoomIdentity);
+        };
     }
- 
+
+    function updateViewBox() {
+        if (!width || !height) {
+            console.log('Skipping viewBox update - no dimensions');
+            return;
+        }
+        
+        // Calculate centered viewBox
+        const originX = -Math.round(width / 2);
+        const originY = -Math.round(height / 2);
+        const scaledWidth = Math.round(width);
+        const scaledHeight = Math.round(height);
+        
+        viewBox = `${originX} ${originY} ${scaledWidth} ${scaledHeight}`;
+        console.log('ViewBox updated:', { originX, originY, scaledWidth, scaledHeight, viewBox });
+    }
+
     onMount(() => {
+        console.log('Graph mounting with data:', data);
+        mounted = true;
+        
+        // Initialize dimensions and viewBox
         updateDimensions();
-        window.addEventListener('resize', updateDimensions);
-        if (width && height) {
-            initializeBackground();
+        
+        // Set up event listeners and initialize components
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', updateDimensions);
+            
+            if (width && height) {
+                console.log('Initializing graph with dimensions:', { width, height });
+                initializeBackground();
+                initializeZoom();
+            }
         }
     });
- 
+
     onDestroy(() => {
-        window.removeEventListener('resize', updateDimensions);
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('resize', updateDimensions);
+        }
         if (background) {
             background.destroy();
         }
     });
 
-    $: if (isPreviewMode !== undefined) {
-        console.log('Graph.svelte - Preview mode changed:', isPreviewMode);
-        if (graphLayout) {
-            setTimeout(() => {
-                graphLayout.resetView();
-            }, 0);
+    // Reactive statements
+    $: {
+        if (data) {
+            console.log('Graph data updated:', data);
         }
     }
- 
-    $: viewBox = width ? 
-        `${width * mergedConfig.viewport.origin.x} ${height * mergedConfig.viewport.origin.y} ${width * mergedConfig.viewport.scale} ${height * mergedConfig.viewport.scale}` : 
-        '0 0 100 100';
+
+    $: {
+        if (mounted && width && height) {
+            updateDimensions();
+        }
+    }
 </script>
- 
-<div 
-    class="graph-container"
-    bind:this={container}
->
-    <button 
-        class="reset-button"
-        on:click={handleReset}
-        aria-label="Reset view"
-    >
-        ⟲
-    </button>
- 
+
+<div bind:this={container} class="graph-container">
     <svg 
-        bind:this={backgroundSvg}
-        class="background-svg"
-        {width}
-        {height}
-        {viewBox}
-        preserveAspectRatio={mergedConfig.viewport.preserveAspectRatio}
-    >
-        <g 
-            bind:this={backgroundGroup}
-            class="background-group"
-        />
-    </svg>
- 
-    <GraphLayout 
-        bind:this={graphLayout}
-        {nodes}
-        {links}
+        bind:this={svg}
         {width} 
         {height}
-        {isPreviewMode}
-        {viewType} 
-        on:modeChange
+        {viewBox}
+        preserveAspectRatio="xMidYMid meet"
+        class="graph-svg"
     >
-        <svelte:fragment slot="edge" let:link let:source let:target>
-            <Edge {link} {source} {target} />
-        </svelte:fragment>
+        <defs>
+            <!-- Add filters or patterns here -->
+        </defs>
 
-        <svelte:fragment slot="node" let:node let:position>
-            <slot 
-                name="node" 
-                {node}
-                {position}
-            />
-        </svelte:fragment>
-    </GraphLayout>
+        <!-- Background layer with explicit dimensions -->
+        <g class="background-layer">
+            <svg 
+                width="100%"
+                height="100%"
+                overflow="visible"
+            >
+                <g bind:this={backgroundGroup} />
+            </svg>
+        </g>
+
+        <!-- Content layer (gets transformed by zoom) -->
+        <g 
+            bind:this={contentGroup} 
+            class="content-layer"
+        >
+            <GraphLayout
+                {data}
+                {width}
+                {height}
+                {viewType}
+                {isPreviewMode}
+            >
+                <svelte:fragment let:node let:position let:handleNodeModeChange>
+                    <slot {node} transform={position.svgTransform} {handleNodeModeChange} />
+                </svelte:fragment>
+            </GraphLayout>
+        </g>
+    </svg>
+
+    {#if resetZoom}
+        <button
+            class="reset-button"
+            on:click={resetZoom}
+            aria-label="Reset view"
+        >
+            <span class="material-symbols-outlined">restart_alt</span>
+        </button>
+    {/if}
 </div>
- 
+
 <style>
     .graph-container {
         width: 100%;
-        height: 100%;
-        position: relative;
+        height: 100vh;
+        background: black;
         overflow: hidden;
-        background-color: black;
+        position: relative;
     }
- 
-    .background-svg {
-        position: absolute;
-        top: 0;
-        left: 0;
+
+    .graph-svg {
         width: 100%;
         height: 100%;
-        z-index: 1;
-        pointer-events: none;
-        overflow: visible;
+        cursor: grab;
+        touch-action: none;
+        position: absolute;
     }
- 
+
+    .graph-svg:active {
+        cursor: grabbing;
+    }
+
+    .background-layer {
+        pointer-events: none;
+    }
+
+    .content-layer {
+        pointer-events: all;
+    }
+
+    :global(.graph-svg *) {
+        transform-box: fill-box;
+        transform-origin: 50% 50%;
+    }
+
     .reset-button {
         position: absolute;
-        bottom: 20px;
-        right: 20px;
-        width: 40px;
-        height: 40px;
+        bottom: 1rem;
+        right: 1rem;
+        background-color: transparent;
+        border: none;
         border-radius: 50%;
-        background: rgba(0, 0, 0, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 20px;
-        cursor: pointer;
+        width: 2.5rem;
+        height: 2.5rem;
         display: flex;
         align-items: center;
         justify-content: center;
-        z-index: 10;
-        transition: all 0.3s ease-out;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        z-index: 50;
     }
- 
+
     .reset-button:hover {
-        background: rgba(0, 0, 0, 0.8);
-        border-color: rgba(255, 255, 255, 0.4);
-        color: rgba(255, 255, 255, 1);
+        transform: translateY(-1px);
     }
- 
+
     .reset-button:active {
-        transform: scale(0.95);
+        transform: translateY(0);
     }
- 
-    :global(.graph-container svg) {
-        width: 100%;
-        height: 100%;
-    }
- 
-    :global(.graph-container .node) {
-        transition: transform 0.3s ease-out;
-    }
- 
-    :global(.graph-container .edge) {
-        pointer-events: none;
+
+    .reset-button :global(.material-symbols-outlined) {
+        color: white;
+        font-size: 2.25rem;
     }
 </style>

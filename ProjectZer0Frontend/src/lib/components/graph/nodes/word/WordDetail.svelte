@@ -2,7 +2,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { WordNode, NodeStyle } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
     import { fetchWithAuth } from '$lib/services/api';

@@ -1,7 +1,7 @@
-<!-- src/lib/components/graph/edges/Edge.svelte -->
-<script lang="ts">
-    import type { GraphEdge } from '$lib/types/graph';
-    import { EDGE_CONSTANTS } from './EdgeConstants';
+<!-- ProjectZer0Frontend/src/lib/components/graph/edges/Edge.svelte -->
+<!-- <script lang="ts">
+    import type { GraphEdge } from '$lib/types/graph/core';
+    import { EDGE_CONSTANTS } from '../../../constants/graph/EdgeConstants';
     
     export let source: { x: number; y: number };
     export let target: { x: number; y: number };
@@ -56,4 +56,4 @@
     .edge {
         pointer-events: none;
     }
-</style>
+</style> -->

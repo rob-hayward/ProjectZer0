@@ -315,3 +315,394 @@ State management might need restructuring for complexity
 Type system needs enhancement for future features
 
 This layout system is a fundamental component that will grow with the platform, requiring careful attention to scalability, performance, and maintainability in future iterations.
+
+
+# ProjectZer0 Graph System Design Document
+
+## 1. System Overview and Goals
+
+### 1.1 Project Purpose
+ProjectZer0's graph visualization system is designed to provide an interactive, dynamic representation of interconnected knowledge nodes. The system must handle multiple view types while maintaining a consistent user experience and smooth transitions between states.
+
+### 1.2 Core Functionality
+- Dynamic force-directed graph layouts
+- Multiple specialized view types
+- Interactive node size transitions
+- Adaptive navigation system
+- Hierarchical comment threading
+- Vote-based node positioning
+
+### 1.3 Key View Types
+
+#### 1.3.1 Single Node Views
+- Dashboard, forms, and other standalone content
+- Central content node with circular navigation nodes around it
+- Simple, stable layout requirements
+
+#### 1.3.2 Word-Definition Views
+- Central word node with circular navigation nodes arround it
+- Surrounding definition nodes with Vote-based proximity organization
+- Live/alternative definition distinction
+- Dynamic size transitions
+
+#### 1.3.3 Statement Network Views
+- Multiple interconnected statement nodes
+- Word-based edge connections
+- Vote-based centrality
+- Large-scale network handling
+
+#### 1.3.4 Discussion Views
+- Node-centered discussion threads
+- Hierarchical comment organization
+- Vote-based thread positioning
+- Clear visual thread separation
+
+## 2. Technical Architecture
+
+### 2.1 Project Structure
+```
+src/lib/
+├── components/
+│   └── graph/
+│       ├── Graph.svelte              # Universal graph container
+│       ├── GraphLayout.svelte        # Layout management
+│       ├── edges/                    # Edge components
+│       │   ├── BaseEdge.svelte
+│       │   └── WordDefinitionEdge.svelte
+│       └── nodes/                    # Node components
+│           ├── base/
+│           ├── word/
+│           ├── definition/
+│           └── discussion/
+├── services/
+│   └── graph/
+│       ├── simulation/
+│       │   ├── ForceSimulation.ts    # Main simulation controller
+│       │   └── layouts/              # Layout strategies
+│       │       ├── BaseLayoutStrategy.ts
+│       │       ├── SingleNodeLayout.ts
+│       │       ├── WordDefinitionLayout.ts
+│       │       └── DiscussionLayout.ts
+│       └── transformers/             # Data transformation services
+├── constants/
+│   └── graph/
+│       ├── forces.ts                 # Force configurations
+│       ├── nodes.ts                  # Node constants
+│       └── edges.ts                  # Edge constants
+└── types/
+    └── graph/
+        ├── core.ts                   # Core type definitions
+        ├── layout.ts                 # Layout types
+        └── simulation.ts             # Simulation types
+```
+
+### 2.2 Force Simulation Design
+
+#### 2.2.1 Base Layout Strategy
+```typescript
+abstract class BaseLayoutStrategy {
+    protected simulation: d3.Simulation<LayoutNode, LayoutLink>;
+    protected width: number;
+    protected height: number;
+
+    constructor(width: number, height: number) {
+        this.width = width;
+        this.height = height;
+        this.simulation = this.initializeSimulation();
+    }
+
+    protected abstract configureForces(): void;
+    protected abstract initializeNodePositions(nodes: LayoutNode[]): void;
+    
+    public abstract handleNodeStateChange(
+        nodeId: string, 
+        newState: NodeState
+    ): void;
+}
+```
+
+#### 2.2.2 Core Force Configuration
+```typescript
+protected configureBaseForces(): void {
+    // Collision force for all layouts
+    const collision = d3.forceCollide<LayoutNode>()
+        .radius(node => {
+            const baseRadius = FORCE_CONSTANTS.getNodeBaseRadius(
+                node.type,
+                node.subtype === 'live',
+                node.metadata.isDetail
+            );
+            return baseRadius + FORCE_CONSTANTS.COLLISION.PADDING[node.type];
+        })
+        .strength(FORCE_CONSTANTS.COLLISION.STRENGTH)
+        .iterations(FORCE_CONSTANTS.COLLISION.ITERATIONS);
+
+    // Basic many-body force
+    const charge = d3.forceManyBody()
+        .strength(FORCE_CONSTANTS.CHARGE.DEFAULT)
+        .distanceMin(FORCE_CONSTANTS.CHARGE.DISTANCE_MIN)
+        .distanceMax(FORCE_CONSTANTS.CHARGE.DISTANCE_MAX);
+
+    this.simulation
+        .force("collision", collision)
+        .force("charge", charge);
+}
+```
+
+## 3. View-Specific Requirements
+
+### 3.1 Single Node Views
+
+#### 3.1.1 Force Configuration
+```typescript
+class SingleNodeLayout extends BaseLayoutStrategy {
+    configureForces(): void {
+        this.configureBaseForces();
+        
+        // Navigation node positioning force
+        const navigationForce = d3.forceRadial<LayoutNode>(
+            node => {
+                if (node.type !== 'navigation') return 0;
+                const centralNode = this.getCentralNode();
+                return this.calculateNavigationRadius(centralNode);
+            },
+            0,
+            0
+        ).strength(1);
+
+        this.simulation.force("navigation", navigationForce);
+    }
+}
+```
+
+### 3.2 Word-Definition Views
+
+#### 3.2.1 Force Configuration
+```typescript
+class WordDefinitionLayout extends BaseLayoutStrategy {
+    configureForces(): void {
+        this.configureBaseForces();
+
+        // Vote-based many-body force
+        const manyBody = d3.forceManyBody<LayoutNode>()
+            .strength(node => {
+                if (node.type === 'word') return 0;
+                return -300 + (node.metadata.votes * this.voteScale);
+            })
+            .distanceMin(150)
+            .distanceMax(1000);
+
+        // Link force for word-definition connections
+        const link = d3.forceLink<LayoutNode, LayoutLink>()
+            .id(d => d.id)
+            .strength(l => FORCE_CONSTANTS.getLinkStrength(
+                l.type,
+                (l.target as LayoutNode).subtype === 'live'
+            ));
+
+        this.simulation
+            .force("manyBody", manyBody)
+            .force("link", link);
+    }
+}
+```
+
+### 3.3 Statement Network Views
+
+#### 3.3.1 Force Configuration
+```typescript
+class StatementLayout extends BaseLayoutStrategy {
+    configureForces(): void {
+        this.configureBaseForces();
+
+        // Vote-based center attraction
+        const centerAttraction = d3.forceManyBody<LayoutNode>()
+            .strength(node => {
+                return -100 + (node.metadata.votes * this.voteScale);
+            })
+            .distanceMin(150)
+            .distanceMax(2000);
+
+        // Word-based link force
+        const link = d3.forceLink<LayoutNode, LayoutLink>()
+            .id(d => d.id)
+            .strength(0.3);
+
+        this.simulation
+            .force("centerAttraction", centerAttraction)
+            .force("link", link);
+    }
+}
+```
+
+### 3.4 Discussion Views
+
+#### 3.4.1 Force Configuration
+```typescript
+class DiscussionLayout extends BaseLayoutStrategy {
+    configureForces(): void {
+        this.configureBaseForces();
+
+        // Thread-aware many-body force
+        const manyBody = d3.forceManyBody<LayoutNode>()
+            .strength(node => {
+                if (node.type === 'discussion') return 0;
+                const threadVotes = this.getThreadVotes(node);
+                return -200 + (threadVotes * this.voteScale);
+            });
+
+        // Thread-maintaining link force
+        const link = d3.forceLink<LayoutNode, LayoutLink>()
+            .id(d => d.id)
+            .distance(link => {
+                const target = link.target as CommentNode;
+                const baseDistance = 200;
+                const voteAdjustment = target.metadata.votes * 2;
+                return baseDistance - voteAdjustment;
+            })
+            .strength(0.5);
+
+        this.simulation
+            .force("manyBody", manyBody)
+            .force("link", link);
+    }
+}
+```
+
+## 4. Implementation Strategy
+
+### 4.1 Development Phases
+
+1. Core Infrastructure
+   - Base force simulation setup
+   - Layout strategy system
+   - Node/edge base components
+
+2. Single Node Views
+   - Central node positioning
+   - Navigation node circle
+   - Basic transitions
+
+3. Word-Definition Views
+   - Vote-based positioning
+   - Live/alternative handling
+   - Size transitions
+
+4. Statement Network
+   - Large-scale force handling
+   - Word-based edges
+   - Performance optimization
+
+5. Discussion Views
+   - Thread hierarchy
+   - Comment organization
+   - Vote-based positioning
+
+### 4.2 Testing Strategy
+
+#### 4.2.1 Unit Tests
+- Force calculations
+- Node positioning
+- State transitions
+- Layout strategies
+
+#### 4.2.2 Integration Tests
+- Full view rendering
+- Force interactions
+- State management
+- Performance metrics
+
+#### 4.2.3 Performance Tests
+- Large network handling
+- Transition smoothness
+- Memory usage
+- Frame rates
+
+## 5. Key Considerations
+
+### 5.1 Performance
+- Use Barnes-Hut approximation for large networks
+- Implement node culling for distant elements
+- Optimize force calculation frequency
+- Handle large datasets efficiently
+
+### 5.2 User Experience
+- Smooth transitions between states
+- Consistent navigation positioning
+- Clear visual hierarchy
+- Responsive interactions
+
+### 5.3 Maintainability
+- Clear separation of concerns
+- Type safety throughout
+- Documented force configurations
+- Modular layout strategies
+
+## 6. Appendix
+
+### 6.1 Force Configuration Constants
+```typescript
+export const FORCE_CONSTANTS = {
+    SIMULATION: {
+        ALPHA_DECAY: 0.02,
+        VELOCITY_DECAY: 0.4,
+        ALPHA_MIN: 0.001,
+        ALPHA_TARGET: 0
+    },
+
+    CHARGE: {
+        DEFAULT: -30,
+        DISTANCE_MIN: 50,
+        DISTANCE_MAX: 1000
+    },
+
+    COLLISION: {
+        STRENGTH: 1,
+        ITERATIONS: 4,
+        PADDING: {
+            CENTRAL: 20,
+            DEFINITION: 15,
+            NAVIGATION: 10
+        }
+    },
+
+    NAVIGATION: {
+        PREVIEW_PADDING: 100,
+        DETAIL_PADDING: 250,
+        TRANSITION_DURATION: 300
+    }
+};
+```
+
+### 6.2 Edge Rendering
+```typescript
+interface EdgeRenderOptions {
+    sourceNode: LayoutNode;
+    targetNode: LayoutNode;
+    type: EdgeType;
+}
+
+function calculateEdgePath({
+    sourceNode,
+    targetNode,
+    type
+}: EdgeRenderOptions): string {
+    const sourceRadius = getNodeRadius(sourceNode);
+    const targetRadius = getNodeRadius(targetNode);
+    
+    // Calculate actual connection points
+    const angle = Math.atan2(
+        targetNode.y - sourceNode.y,
+        targetNode.x - sourceNode.x
+    );
+    
+    const startX = sourceNode.x + Math.cos(angle) * sourceRadius;
+    const startY = sourceNode.y + Math.sin(angle) * sourceRadius;
+    const endX = targetNode.x - Math.cos(angle) * targetRadius;
+    const endY = targetNode.y - Math.sin(angle) * targetRadius;
+    
+    return `M ${startX} ${startY} L ${endX} ${endY}`;
+}
+```
+
+This document serves as a comprehensive guide for the development of ProjectZer0's graph visualization system. It should be updated as development progresses and new requirements or optimizations are discovered.

@@ -1,6 +1,6 @@
 <script lang="ts">
     import { spring } from 'svelte/motion';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { createEventDispatcher } from 'svelte';
 
     export let mode: 'expand' | 'collapse';

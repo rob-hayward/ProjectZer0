@@ -1,13 +1,11 @@
-// See https://kit.svelte.dev/docs/types#app
-// for information about these interfaces
 declare global {
 	namespace App {
-		// interface Error {}
-		// interface Locals {}
-		// interface PageData {}
-		// interface PageState {}
-		// interface Platform {}
+	  interface PageData {
+		view: import('$lib/types/graph').ViewType;
+		viewType: import('$lib/types/graph').ViewType;
+		wordData: any | null;
+	  }
 	}
-}
-
-export {};
+  }
+  
+  export {};

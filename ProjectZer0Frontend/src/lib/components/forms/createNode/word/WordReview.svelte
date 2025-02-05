@@ -29,6 +29,9 @@
 
     async function handleSubmit() {
         isSubmitting = true;
+        errorMessage = null;
+        successMessage = null;
+
         try {
             const wordData = {
                 word: word.trim(),
@@ -48,19 +51,26 @@
             
             if (browser) console.log('Word creation response:', JSON.stringify(createdWord, null, 2));
 
+            if (!createdWord?.word) {
+                throw new Error('Created word data is incomplete');
+            }
+
+            // Update store and show success message
+            wordStore.set(createdWord);
             successMessage = `Word node "${createdWord.word}" created successfully`;
             dispatch('success', {
                 message: successMessage,
                 word: createdWord.word
             });
 
-            // Update the wordStore with the created word
-            wordStore.set(createdWord);
-
-            // Wait for success message to be shown, then navigate
+            // Navigate to the new word's page
             setTimeout(() => {
-                goto('/graph/word');
-            }, 2000);
+                goto(`/graph/word?word=${encodeURIComponent(createdWord.word)}`).catch(error => {
+                    console.error('Navigation error:', error);
+                    errorMessage = 'Error navigating to new word';
+                });
+            }, 1000);
+
         } catch (e) {
             if (browser) {
                 console.error('Error creating word:', e);

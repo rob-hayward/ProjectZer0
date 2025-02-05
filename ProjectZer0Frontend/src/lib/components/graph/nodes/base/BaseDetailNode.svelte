@@ -4,7 +4,7 @@
     import { spring } from 'svelte/motion';
     import type { NodeStyle } from '$lib/types/nodes';
     import BaseSvgNode from './BaseNode.svelte';
-    import { CIRCLE_RADIUS } from './BaseNodeConstants';
+    import { CIRCLE_RADIUS } from '../../../../constants/graph/nodes';
  
     export let style: NodeStyle;
  

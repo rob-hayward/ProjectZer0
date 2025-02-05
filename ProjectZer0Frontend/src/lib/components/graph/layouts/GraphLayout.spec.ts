@@ -1,238 +1,231 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { GraphLayout } from './GraphLayout';
-import type { GraphData, GraphNode, GraphEdge } from '$lib/types/graph';
-import type { WordNode, Definition } from '$lib/types/nodes';
+// src/lib/components/graph/layouts/GraphLayout.spec.ts
 
-describe('GraphLayout', () => {
-    let layout: GraphLayout;
-    const defaultWidth = 1000;
-    const defaultHeight = 800;
+// Create a proper mock instance type
+type MockLayoutInstance = {
+    updateLayout: ReturnType<typeof vi.fn>;
+    updatePreviewMode: ReturnType<typeof vi.fn>;
+    updateDefinitionModes: ReturnType<typeof vi.fn>;
+    resize: ReturnType<typeof vi.fn>;
+    stop: ReturnType<typeof vi.fn>;
+    width: number;
+    height: number;
+};
 
-    // Helper function to create test nodes
-    function createTestNodes(): GraphNode[] {
-        const now = new Date().toISOString();
-        const wordData: WordNode = {
-            id: 'word-1',
-            word: 'test',
-            createdBy: 'test-user',
-            publicCredit: true,
-            createdAt: now,
-            updatedAt: now,
-            positiveVotes: 0,
-            negativeVotes: 0,
-            definitions: []
-        };
-    
-        const baseDefinition: Definition = {
-            id: 'def-base',
-            text: 'test definition',
-            createdBy: 'test-user',
-            createdAt: now,
-            positiveVotes: 0,
-            negativeVotes: 0
-        };
-    
-        return [
-            {
-                id: 'word-1',
-                group: 'central',
-                type: 'word',
-                data: wordData
-            },
-            {
-                id: 'def-1',
-                group: 'live-definition',
-                type: 'definition',
-                data: { ...baseDefinition, id: 'def-1', isLive: true }
-            },
-            {
-                id: 'def-2',
-                group: 'alternative-definition',
-                type: 'definition',
-                data: { ...baseDefinition, id: 'def-2' }
-            },
-            {
-                id: 'def-3',
-                group: 'alternative-definition',
-                type: 'definition',
-                data: { ...baseDefinition, id: 'def-3' }
-            }
-        ];
+// Store mock factory for reuse
+const createMockInstance = (): MockLayoutInstance => ({
+    updateLayout: vi.fn().mockReturnValue(new Map([
+        ['word1', { x: 100, y: 100, svgTransform: 'translate(100,100)', scale: 1 }],
+        ['nav1', { x: 200, y: 200, svgTransform: 'translate(200,200)', scale: 1 }]
+    ])),
+    updatePreviewMode: vi.fn(),
+    updateDefinitionModes: vi.fn(),
+    resize: vi.fn(),
+    stop: vi.fn(),
+    width: 1000,
+    height: 800
+});
+
+// Set up mocks before any imports
+vi.mock('./GraphLayoutEngine', () => ({
+    GraphLayoutEngine: class MockGraphLayoutEngine {
+        constructor(width: number, height: number, viewType: string, isPreviewMode: boolean) {
+            return createMockInstance();
+        }
     }
+}));
 
-    function createTestLinks(): GraphEdge[] {
-        return [
-            {
-                source: 'word-1',
-                target: 'def-1',
-                type: 'live',
-                value: 1
-            },
-            {
-                source: 'word-1',
-                target: 'def-2',
-                type: 'alternative',
-                value: 1
-            },
-            {
-                source: 'word-1',
-                target: 'def-3',
-                type: 'alternative',
-                value: 1
-            }
-        ];
-    }
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, cleanup } from '@testing-library/svelte';
+import { tick } from 'svelte';
+import GraphLayout from './GraphLayout.svelte';
+import type { GraphData, NodeType } from '../../../types/graph/core';
+import type { WordNode, NodeMode } from '../../../types/nodes';
+import type { NavigationOption } from '../../../types/navigation';
+import type { ComponentProps } from 'svelte';
+
+const mockWord: WordNode = {
+    id: 'word1',
+    word: 'test',
+    createdBy: 'test-user',
+    publicCredit: true,
+    createdAt: '2024-01-01',
+    updatedAt: '2024-01-01',
+    positiveVotes: 0,
+    negativeVotes: 0,
+    definitions: []
+};
+
+const mockNavOption: NavigationOption = {
+    id: 'nav1',
+    label: 'Test Nav',
+    icon: 'test-icon'
+};
+
+type GraphLayoutProps = ComponentProps<GraphLayout>;
+
+describe('GraphLayout.svelte', () => {
+    let mockInstance: MockLayoutInstance;
+    let mockData: GraphData;
+    let defaultProps: GraphLayoutProps;
 
     beforeEach(() => {
-        layout = new GraphLayout(defaultWidth, defaultHeight, 'word');
+        console.log('\n--- Test Starting ---');
+        vi.useFakeTimers();
+        vi.clearAllMocks();
+        
+        mockData = {
+            nodes: [
+                { id: 'word1', type: 'word' as NodeType, data: mockWord, group: 'central' },
+                { id: 'nav1', type: 'navigation' as NodeType, data: mockNavOption, group: 'navigation' }
+            ],
+            links: []
+        };
+
+        defaultProps = {
+            data: mockData,
+            width: 1000,
+            height: 800,
+            viewType: 'word',
+            isPreviewMode: false
+        };
     });
 
-    describe('Basic Initialization', () => {
-        it('should create a layout instance with correct dimensions', () => {
-            expect(layout).toBeDefined();
-            expect(layout.width).toBe(defaultWidth);
-            expect(layout.height).toBe(defaultHeight);
-        });
-
-        it('should initialize with default preview mode', () => {
-            const newLayout = new GraphLayout(defaultWidth, defaultHeight, 'word', false);
-            const data = {
-                nodes: createTestNodes(),
-                links: createTestLinks()
-            };
-            const positions = newLayout.updateLayout(data);
-            expect(positions.size).toBe(4); // word + 3 definitions
-        });
+    afterEach(() => {
+        console.log('--- Test Cleanup ---');
+        cleanup();
+        vi.useRealTimers();
     });
 
-    describe('Node Positioning', () => {
-        describe('Central Word Node', () => {
-            it('should position word node at the center', () => {
-                const data: GraphData = {
-                    nodes: [createTestNodes()[0]], // Only word node
-                    links: []
-                };
-
-                const positions = layout.updateLayout(data);
-                const wordPosition = positions.get('word-1');
-
-                expect(wordPosition).toBeDefined();
-                expect(wordPosition?.x).toBe(0);
-                expect(wordPosition?.y).toBe(0);
-            });
+    async function renderAndWait(props = defaultProps) {
+        console.log('Starting render with props:', JSON.stringify(props, null, 2));
+        
+        const result = render(GraphLayout, {
+            props,
         });
 
-        describe('Definition Node Positioning', () => {
-            it('should position nodes with higher vote counts closer to center', () => {
-                const nodes = createTestNodes();
-                
-                // Set up different vote counts
-                (nodes[1].data as Definition).positiveVotes = 10; // Live def
-                (nodes[2].data as Definition).positiveVotes = 5;  // Alt def 1
-                (nodes[3].data as Definition).positiveVotes = 2;  // Alt def 2
+        // Ensure layoutReady and mount happen first
+        await tick();
+        await vi.runAllTimersAsync();
+        await tick();
 
-                const data: GraphData = {
-                    nodes,
-                    links: createTestLinks()
-                };
-
-                const positions = layout.updateLayout(data);
-                const distances = nodes.slice(1).map(node => {
-                    const pos = positions.get(node.id);
-                    const centerPos = positions.get('word-1');
-                    if (!pos || !centerPos) return Infinity;
-                    
-                    return Math.sqrt(
-                        Math.pow(pos.x - centerPos.x, 2) + 
-                        Math.pow(pos.y - centerPos.y, 2)
-                    );
-                });
-
-                // Check that distances increase as votes decrease
-                expect(distances[0]).toBeLessThan(distances[1]);
-                expect(distances[1]).toBeLessThan(distances[2]);
+        // Add test content to the slots
+        const nodes = result.container.querySelector('.nodes');
+        if (nodes) {
+            props.data.nodes.forEach(node => {
+                const g = document.createElement('g');
+                g.setAttribute('class', 'mock-node-content');
+                g.setAttribute('data-node-id', node.id);
+                const circle = document.createElement('circle');
+                circle.setAttribute('r', '5');
+                g.appendChild(circle);
+                nodes.appendChild(g);
             });
+        }
 
-            it('should maintain minimum distance between nodes', () => {
-                const data: GraphData = {
-                    nodes: createTestNodes(),
-                    links: createTestLinks()
-                };
+        console.log('Initial render complete');
+        
+        // Wait for onMount and initialization
+        await tick();
+        console.log('First tick (mount) complete');
+        
+        // Wait for layout engine creation and initial update
+        await vi.runAllTimersAsync();
+        await tick();
+        console.log('Layout initialization complete');
+        
+        // Wait for reactivity and updates to settle
+        for (let i = 0; i < 3; i++) {
+            await vi.advanceTimersByTimeAsync(10);
+            await tick();
+        }
+        console.log('Layout stabilization complete');
+        
+        return result;
+    }
 
-                const positions = layout.updateLayout(data);
+    it('should render base structure', async () => {
+        const { container } = await renderAndWait();
+        expect(container.querySelector('.graph-layout')).toBeTruthy();
+    });
 
-                // Check distances between definitions
-                const nodes = Array.from(positions.entries())
-                    .filter(([id]) => id !== 'word-1'); // Exclude central node
+    it('should render nodes with correct transforms', async () => {
+        const { container } = await renderAndWait();
+        
+        const nodeElements = container.querySelectorAll('.node');
+        expect(nodeElements.length).toBe(mockData.nodes.length);
+        
+        expect(nodeElements[0].getAttribute('transform')).toBe('translate(100,100)');
+        expect(nodeElements[1].getAttribute('transform')).toBe('translate(200,200)');
+    });
 
-                for (let i = 0; i < nodes.length; i++) {
-                    for (let j = i + 1; j < nodes.length; j++) {
-                        const [, pos1] = nodes[i];
-                        const [, pos2] = nodes[j];
-                        const distance = Math.sqrt(
-                            Math.pow(pos2.x - pos1.x, 2) + 
-                            Math.pow(pos2.y - pos1.y, 2)
-                        );
-                        expect(distance).toBeGreaterThan(150); // Minimum spacing requirement
-                    }
+    it('should handle preview mode changes', async () => {
+        const { component } = await renderAndWait();
+
+        // Get the instance from updateLayout mock result
+        const updateLayout = vi.spyOn(createMockInstance(), 'updateLayout');
+        const updatePreviewMode = vi.spyOn(createMockInstance(), 'updatePreviewMode');
+        
+        await component.$set({ isPreviewMode: true });
+        await tick();
+        await vi.runAllTimersAsync();
+
+        expect(updatePreviewMode).toHaveBeenCalledWith(true);
+        expect(updateLayout).toHaveBeenCalled();
+    });
+
+    it('should handle data changes', async () => {
+        const { component } = await renderAndWait();
+        const updateLayout = vi.spyOn(createMockInstance(), 'updateLayout');
+
+        const newData: GraphData = {
+            nodes: [
+                ...mockData.nodes,
+                {
+                    id: 'nav2',
+                    type: 'navigation',
+                    data: { id: 'nav2', label: 'New Nav', icon: 'test' },
+                    group: 'navigation'
                 }
-            });
-        });
+            ],
+            links: []
+        };
+
+        await component.$set({ data: newData });
+        await tick();
+        await vi.runAllTimersAsync();
+
+        expect(updateLayout).toHaveBeenCalledWith(newData);
     });
 
-    describe('Mode Transitions', () => {
-        it('should update node positions when switching to preview mode', () => {
-            const data: GraphData = {
-                nodes: createTestNodes(),
-                links: createTestLinks()
-            };
+    it('should handle mode changes', async () => {
+        const { container } = await renderAndWait();
+        
+        const firstNode = container.querySelector('.node');
+        expect(firstNode).toBeTruthy();
 
-            // Get initial positions
-            const normalPositions = layout.updateLayout(data);
-            
-            // Switch to preview mode
-            layout.updatePreviewMode(true);
-            const previewPositions = layout.updateLayout(data);
+        const updateDefinitionModes = vi.spyOn(createMockInstance(), 'updateDefinitionModes');
+        const updateLayout = vi.spyOn(createMockInstance(), 'updateLayout');
 
-            // Verify positions have changed appropriately
-            for (const [id, pos] of normalPositions) {
-                const previewPos = previewPositions.get(id);
-                if (id !== 'word-1') { // Exclude central node
-                    expect(previewPos?.scale).toBeLessThan(pos.scale);
-                }
-            }
+        const modeChangeEvent = new CustomEvent('modechange', {
+            detail: { nodeId: 'word1', mode: 'detail' as NodeMode },
+            bubbles: true
         });
 
-        it('should handle individual node detail mode transitions', () => {
-            const data: GraphData = {
-                nodes: createTestNodes(),
-                links: createTestLinks()
-            };
+        firstNode!.dispatchEvent(modeChangeEvent);
+        await tick();
+        await vi.runAllTimersAsync();
 
-            const initialPositions = layout.updateLayout(data);
-
-            // Transition one node to detail mode
-            const definitionModes = new Map([['def-1', 'detail' as const]]);
-            layout.updateDefinitionModes(definitionModes);
-            
-            const updatedPositions = layout.updateLayout(data);
-
-            // Check that detail mode node has proper scale
-            const def1Pos = updatedPositions.get('def-1');
-            expect(def1Pos).toBeDefined();
-            if (def1Pos) {
-                expect(def1Pos.scale).toBeGreaterThan(1);
-            }
-        });
+        expect(updateDefinitionModes).toHaveBeenCalled();
+        expect(updateLayout).toHaveBeenCalled();
     });
 
-    describe('Resize Handling', () => {
-        it('should update dimensions on resize', () => {
-            const newWidth = 800;
-            const newHeight = 600;
-            layout.resize(newWidth, newHeight);
-            expect(layout.width).toBe(newWidth);
-            expect(layout.height).toBe(newHeight);
-        });
+    it('should cleanup on unmount', async () => {
+        const { unmount } = await renderAndWait();
+        const stop = vi.spyOn(createMockInstance(), 'stop');
+
+        unmount();
+        await vi.runAllTimersAsync();
+
+        expect(stop).toHaveBeenCalled();
     });
 });

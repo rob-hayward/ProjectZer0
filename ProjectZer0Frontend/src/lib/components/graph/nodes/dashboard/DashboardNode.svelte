@@ -3,7 +3,7 @@
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
     import type { UserProfile } from '$lib/types/user';
     import type { UserActivity } from '$lib/services/userActivity';
-    import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
 
     export let node: UserProfile;
     export let userActivity: UserActivity | undefined;

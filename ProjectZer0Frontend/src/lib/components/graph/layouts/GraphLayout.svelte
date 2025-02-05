@@ -1,202 +1,162 @@
-<!-- src/lib/components/graph/layouts/GraphLayout.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graph/layouts/GraphLayout.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import * as d3 from 'd3';
-    import type { GraphNode, NodePosition, GraphData, GraphEdge, ViewType } from '$lib/types/graph';
-    import { GraphLayout } from './GraphLayout';
-    import NavigationNode from '../nodes/navigation/NavigationNode.svelte';
-    import { isNavigationNode } from '$lib/types/graph';
-    import { handleNavigation } from '$lib/services/navigation';
-    import type { NavigationOptionId } from '$lib/services/navigation';
-
-    export let nodes: GraphNode[] = [];
-    export let links: GraphEdge[] = [];
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+    import type { GraphData, NodePosition, ViewType } from '$lib/types/graph/core';
+    import type { NodeMode } from '$lib/types/nodes';
+    import { GraphLayoutEngine as LayoutClass } from './GraphLayoutEngine';
+    import WordDefinitionEdge from '../edges/connections/WordDefinitionEdge.svelte';
+ 
+    export let data: GraphData;
     export let width: number;
     export let height: number;
-    export let isPreviewMode: boolean = false;
-    export let viewType: ViewType = 'word'; // Add viewType prop with default
+    export let viewType: ViewType;
+    export let isPreviewMode = false;
  
-    let svg: SVGSVGElement;
-    let container: SVGGElement;
-    let layout: GraphLayout;
-    let nodePositions = new Map<string, NodePosition>();
-    let zoom: d3.ZoomBehavior<SVGSVGElement, unknown>;
-    let hoveredNodeId: string | null = null;
+    const dispatch = createEventDispatcher<{
+        modechange: { nodeId: string; mode: NodeMode }
+    }>();
  
-    function handleNodeHover(nodeId: string, isHovered: boolean) {
-        hoveredNodeId = isHovered ? nodeId : null;
+    let layout: LayoutClass | null = null;
+    let nodePositions: Map<string, NodePosition> = new Map();
+    let expandedNodes = new Map<string, NodeMode>();
+    let initialized = false;
+    let layoutReady = false;
+    let currentViewType = viewType;
+ 
+    function updateNodePositions() {
+        if (!layout || !data) return;
+        nodePositions = layout.updateLayout(data);
+        layoutReady = true;
     }
-
-    function handleNodeClick(nodeId: string) {
-        handleNavigation(nodeId as NavigationOptionId);
-    }
  
-    export function resetView() {
-        if (!svg || !zoom) return;
+    function handleNodeModeChange(nodeId: string, mode: NodeMode) {
+        console.log('Node mode change:', { nodeId, mode });
+        expandedNodes.set(nodeId, mode);
+        expandedNodes = new Map(expandedNodes);
         
-        const initialTransform = d3.zoomIdentity
-            .translate(width / 2, height * 0.515);
+        if (layout) {
+            layout.updateDefinitionModes(expandedNodes);
+            updateNodePositions();
+        }
  
-        d3.select(svg)
-            .transition()
-            .duration(750)
-            .call(zoom.transform, initialTransform);
+        dispatch('modechange', { nodeId, mode });
     }
  
     function initializeLayout() {
-        layout = new GraphLayout(width, height, viewType, isPreviewMode);
-        updateLayout();
+        console.log('Initializing layout:', { width, height, viewType, isPreviewMode });
+        layout = new LayoutClass(width, height, viewType, isPreviewMode);
+        layout.updateDefinitionModes(expandedNodes);
+        updateNodePositions();
+        initialized = true;
+        currentViewType = viewType;
     }
- 
-    function updateLayout() {
-        if (!layout) return;
-        nodePositions = layout.updateLayout({ nodes, links });
-        nodes = nodes;
-    }
- 
-    function initializeZoom() {
-        zoom = d3.zoom<SVGSVGElement, unknown>()
-            .scaleExtent([0.1, 4])
-            .on('zoom', (event) => {
-                d3.select(container)
-                    .attr('transform', event.transform.toString());
-            });
- 
-        const initialTransform = d3.zoomIdentity
-            .translate(width / 2, height * 0.515);
- 
-        d3.select(svg)
-            .call(zoom)
-            .call(zoom.transform, initialTransform);
+
+    // Watch for view type changes
+    $: if (initialized && layout && viewType !== currentViewType) {
+        console.log('View type changed:', { from: currentViewType, to: viewType });
+        layout.updateViewType(viewType);
+        currentViewType = viewType;
+        updateNodePositions();
     }
  
     onMount(() => {
+        console.log('GraphLayout mounting');
         initializeLayout();
-        initializeZoom();
     });
  
     onDestroy(() => {
+        console.log('GraphLayout destroying');
         if (layout) {
             layout.stop();
         }
     });
-
-    $: if (layout && isPreviewMode !== undefined) {
-    console.log('Preview mode change detected:', { isPreviewMode });
-    layout.updatePreviewMode(isPreviewMode);
-    // Force a complete layout update after preview mode changes
-    setTimeout(() => {
-        console.log('Forcing layout update after preview mode change');
-        updateLayout();
-    }, 50); // Small delay to ensure preview mode change has taken effect
-}
  
-    $: if (layout && (nodes || links)) {
-        updateLayout();
+    $: if (initialized && layout && isPreviewMode !== undefined) {
+        console.log('Preview mode changed:', isPreviewMode);
+        layout.updatePreviewMode(isPreviewMode);
+        updateNodePositions();
     }
-
-    // Debug log for edge rendering
-        $: {
-        console.log('Edge rendering state:', {
-            links: links.map(link => ({
-                source: link.source,
-                target: link.target,
-                type: link.type,
-                value: link.value
-            })),
-            nodePositions: Object.fromEntries(
-                Array.from(nodePositions.entries()).map(([id, pos]) => [
-                    id,
-                    {
-                        x: pos.x,
-                        y: pos.y
-                    }
-                ])
-            )
-        });
+ 
+    $: if (initialized && layout && data) {
+        console.log('Data changed:', { nodes: data.nodes.length, links: data.links?.length });
+        updateNodePositions();
+    }
+ 
+    $: if (initialized && layout && width && height) {
+        console.log('Dimensions changed:', { width, height });
+        layout.resize(width, height);
+        updateNodePositions();
     }
 </script>
  
-<svg
-    bind:this={svg}
-    class="graph"
-    {width}
-    {height}
-    viewBox="0 0 {width} {height}"
->
-    <defs>
-        <radialGradient id="node-gradient" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="rgba(255,255,255,0.1)" />
-            <stop offset="100%" stop-color="rgba(255,255,255,0)" />
-        </radialGradient>
-    </defs>
- 
-    <g bind:this={container}>
-      <!-- Update the edge rendering section -->
-        {#each links as link}
-            {@const sourceId = typeof link.source === 'string' ? link.source : 
-                'id' in link.source ? link.source.id : null}
-            {@const targetId = typeof link.target === 'string' ? link.target : 
-                'id' in link.target ? link.target.id : null}
-            {@const sourcePos = sourceId ? nodePositions.get(sourceId) : null}
-            {@const targetPos = targetId ? nodePositions.get(targetId) : null}
-            {#if sourcePos && targetPos}
-                <slot 
-                    name="edge"
-                    {link}
-                    source={sourcePos}
-                    target={targetPos}
-                />
-            {/if}
+<g class="graph-layout">
+    {#if layoutReady && data.links?.length > 0}
+    <g class="edges" aria-hidden="true">
+        {#each data.links as link}
+        {@const sourceId = typeof link.source === 'string' ? link.source : link.source.id}
+        {@const targetId = typeof link.target === 'string' ? link.target : link.target.id}
+        {@const sourceNode = data.nodes.find(n => n.id === sourceId)}
+        {@const targetNode = data.nodes.find(n => n.id === targetId)}
+        {@const sourcePos = nodePositions.get(sourceId)}
+        {@const targetPos = nodePositions.get(targetId)}
+        {#if sourcePos && targetPos && sourceNode && targetNode}
+            {@const debugInfo = console.log('Edge rendering:', {
+                sourceId,
+                targetId,
+                sourcePos,
+                targetPos,
+                sourceNode,
+                targetNode
+            })}
+            <WordDefinitionEdge
+                {sourceNode}
+                {targetNode}
+                sourceX={sourcePos.x}
+                sourceY={sourcePos.y}
+                targetX={targetPos.x}
+                targetY={targetPos.y}
+            />
+        {/if}
         {/each}
-
-        <!-- Render nodes -->
-        {#each nodes as node (node.id)}
-            {@const position = nodePositions.get(node.id)}
-            {#if position}
-                {#if isNavigationNode(node)}
-                    <NavigationNode 
-                        option={node.data}
+    </g>
+{/if}
+    {#if layoutReady && data.nodes?.length > 0}
+        <g class="nodes">
+            {#each data.nodes as node (node.id)}
+                {@const position = nodePositions.get(node.id)}
+                {#if position}
+                    <g 
+                        class="node {node.type} {node.group}"
                         transform={position.svgTransform}
-                        isHovered={hoveredNodeId === node.id}
-                        on:click={() => handleNodeClick(node.data.id)}
-                        on:mouseenter={() => handleNodeHover(node.id, true)}
-                        on:mouseleave={() => handleNodeHover(node.id, false)}
-                    />
-                {:else}
-                    <g
-                        class="node"
-                        transform={position.svgTransform}
-                        data-node-id={node.id}
                     >
                         <slot
-                            name="node"
                             {node}
                             {position}
+                            {handleNodeModeChange}
                         />
                     </g>
                 {/if}
-            {/if}
-        {/each}
-    </g>
-</svg>
+            {/each}
+        </g>
+    {/if}
+</g>
  
 <style>
-    .graph {
+    .graph-layout {
         width: 100%;
         height: 100%;
-        cursor: grab;
+        pointer-events: none;
     }
  
-    .graph:active {
-        cursor: grabbing;
+    .nodes {
+        pointer-events: all;
     }
  
-    :global(.graph .node) {
+    .edges {
+        pointer-events: none;
+    }
+ 
+    :global(.node) {
         transition: transform 0.3s ease-out;
-    }
- 
-    :global(.graph *) {
-        vector-effect: non-scaling-stroke;
     }
 </style>

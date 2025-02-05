@@ -1,6 +1,6 @@
 // ProjectZer0Frontend/src/lib/components/graph/nodes/utils/nodeStyles.ts
 import type { NodeStyle } from '$lib/types/nodes';
-import { NODE_CONSTANTS } from '../base/BaseNodeConstants';
+import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
 
 export function createWordNodeStyle(): NodeStyle {
     return {

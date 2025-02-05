@@ -118,16 +118,6 @@
       "_app/immutable/assets/_page.BV6NgN4E.css"
     ]
   },
-  "src/routes/graph/+page.ts": {
-    "file": "entries/pages/graph/_page.ts.js",
-    "name": "entries/pages/graph/_page.ts",
-    "src": "src/routes/graph/+page.ts",
-    "isEntry": true,
-    "imports": [
-      "_index.js",
-      "_api.js"
-    ]
-  },
   "src/routes/graph/[view]/+page.svelte": {
     "file": "entries/pages/graph/_view_/_page.svelte.js",
     "name": "entries/pages/graph/_view_/_page.svelte",
@@ -142,7 +132,17 @@
       "_api.js"
     ],
     "css": [
-      "_app/immutable/assets/_page.xqreJnRh.css"
+      "_app/immutable/assets/_page.BSKYGzea.css"
+    ]
+  },
+  "src/routes/graph/[view]/+page.ts": {
+    "file": "entries/pages/graph/_view_/_page.ts.js",
+    "name": "entries/pages/graph/_view_/_page.ts",
+    "src": "src/routes/graph/[view]/+page.ts",
+    "isEntry": true,
+    "imports": [
+      "_index.js",
+      "_api.js"
     ]
   }
 }
