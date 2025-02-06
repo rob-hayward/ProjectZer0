@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as d3 from 'd3';
-    import type { GraphData, GraphNode, ViewType } from '$lib/types/graph/core';
+    import type { GraphData, ViewType } from '$lib/types/graph/core';
     import type { BackgroundConfig } from '$lib/types/graph/background';
     import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
     import { SvgBackground } from './backgrounds/SvgBackground';
@@ -17,38 +17,44 @@
     export let backgroundConfig: Partial<BackgroundConfig> = {};
     export let isPreviewMode = false;
 
-    let mounted = false;
+    // DOM refs
     let container: HTMLDivElement;
     let svg: SVGSVGElement;
     let backgroundGroup: SVGGElement;
     let contentGroup: SVGGElement;
+    
+    // Component state
     let background: SvgBackground | null = null;
-    let transform = d3.zoomIdentity;
-    let viewBox = '0 0 3000 2400'; // Initial viewBox matching default dimensions
+    let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
+    let dimensions = {
+        width,
+        height,
+        viewBox: `${-width/2} ${-height/2} ${width} ${height}`
+    };
 
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
     
     function updateDimensions() {
         if (!container) return;
         
-        // Get container dimensions
         const rect = container.getBoundingClientRect();
+        const containerWidth = Math.max(rect.width, 1000);
+        const containerHeight = Math.max(rect.height, 800);
         
-        // Update dimensions based on container size
-        const containerWidth = Math.max(rect.width, 1000); // Minimum width
-        const containerHeight = Math.max(rect.height, 800); // Minimum height
-        
-        // Set dimensions while maintaining aspect ratio
-        width = containerWidth as typeof DIMENSIONS.WIDTH;
-        height = containerHeight as typeof DIMENSIONS.HEIGHT;
-        
-        if (background) {
-            background.resize(containerWidth, containerHeight);
-        }
+        if (dimensions.width !== containerWidth || dimensions.height !== containerHeight) {
+            dimensions = {
+                width: containerWidth as typeof DIMENSIONS.WIDTH,
+                height: containerHeight as typeof DIMENSIONS.HEIGHT,
+                viewBox: `${-containerWidth/2} ${-containerHeight/2} ${containerWidth} ${containerHeight}`
+            };
+            
+            if (background) {
+                background.resize(containerWidth, containerHeight);
+            }
 
-        console.log('Dimensions updated:', { width, height });
-        updateViewBox();
+            console.log('Dimensions updated:', dimensions);
+        }
     }
 
     function initializeBackground() {
@@ -57,8 +63,6 @@
             return;
         }
         
-        console.log('Creating background with config:', mergedConfig);
-        
         if (background) {
             background.destroy();
         }
@@ -66,11 +70,10 @@
         try {
             background = new SvgBackground(
                 backgroundGroup, 
-                width, 
-                height,
+                dimensions.width, 
+                dimensions.height,
                 mergedConfig
             );
-            console.log('Background created:', background);
             background.start();
         } catch (error) {
             console.error('Error initializing background:', error);
@@ -80,72 +83,44 @@
     function initializeZoom() {
         if (!svg || !contentGroup) return;
 
-        console.log('Initializing zoom with dimensions:', {
-            width,
-            height,
-            viewBox,
-            transform: transform.toString()
-        });
+        // Initialize with identity transform since viewBox is already centered
+        initialTransform = d3.zoomIdentity.scale(1);
 
         const zoom = d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([0.1, 4])
             .on('zoom', (event) => {
+                d3.select(contentGroup)
+                    .attr('transform', event.transform.toString());
+                
                 console.log('Zoom event:', {
                     type: event.sourceEvent?.type,
-                    transform: event.transform,
-                    k: event.transform.k,
-                    x: event.transform.x,
-                    y: event.transform.y
+                    transform: event.transform
                 });
-                
-                transform = event.transform;
-                d3.select(contentGroup)
-                    .attr('transform', transform.toString());
             });
 
+        // Apply zoom behavior
         d3.select(svg)
             .call(zoom)
-            .call(zoom.transform, d3.zoomIdentity)
+            .call(zoom.transform, initialTransform)
             .on('contextmenu', (event) => event.preventDefault());
 
         resetZoom = () => {
-            console.log('Reset zoom triggered');
             d3.select(svg)
                 .transition()
                 .duration(750)
-                .call(zoom.transform, d3.zoomIdentity);
+                .call(zoom.transform, initialTransform);
         };
-    }
-
-    function updateViewBox() {
-        if (!width || !height) {
-            console.log('Skipping viewBox update - no dimensions');
-            return;
-        }
-        
-        // Calculate centered viewBox
-        const originX = -Math.round(width / 2);
-        const originY = -Math.round(height / 2);
-        const scaledWidth = Math.round(width);
-        const scaledHeight = Math.round(height);
-        
-        viewBox = `${originX} ${originY} ${scaledWidth} ${scaledHeight}`;
-        console.log('ViewBox updated:', { originX, originY, scaledWidth, scaledHeight, viewBox });
     }
 
     onMount(() => {
         console.log('Graph mounting with data:', data);
-        mounted = true;
         
-        // Initialize dimensions and viewBox
         updateDimensions();
         
-        // Set up event listeners and initialize components
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', updateDimensions);
             
-            if (width && height) {
-                console.log('Initializing graph with dimensions:', { width, height });
+            if (dimensions.width && dimensions.height) {
                 initializeBackground();
                 initializeZoom();
             }
@@ -162,25 +137,21 @@
     });
 
     // Reactive statements
-    $: {
-        if (data) {
-            console.log('Graph data updated:', data);
-        }
+    $: if (data) {
+        console.log('Graph data updated:', data);
     }
 
-    $: {
-        if (mounted && width && height) {
-            updateDimensions();
-        }
+    $: if (dimensions.width && dimensions.height) {
+        updateDimensions();
     }
 </script>
 
 <div bind:this={container} class="graph-container">
     <svg 
         bind:this={svg}
-        {width} 
-        {height}
-        {viewBox}
+        width={dimensions.width} 
+        height={dimensions.height}
+        viewBox={dimensions.viewBox}
         preserveAspectRatio="xMidYMid meet"
         class="graph-svg"
     >
@@ -188,7 +159,6 @@
             <!-- Add filters or patterns here -->
         </defs>
 
-        <!-- Background layer with explicit dimensions -->
         <g class="background-layer">
             <svg 
                 width="100%"
@@ -199,15 +169,14 @@
             </svg>
         </g>
 
-        <!-- Content layer (gets transformed by zoom) -->
         <g 
             bind:this={contentGroup} 
             class="content-layer"
         >
             <GraphLayout
                 {data}
-                {width}
-                {height}
+                width={dimensions.width}
+                height={dimensions.height}
                 {viewType}
                 {isPreviewMode}
             >

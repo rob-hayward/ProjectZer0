@@ -22,6 +22,10 @@
     let initialized = false;
     let layoutReady = false;
     let currentViewType = viewType;
+    
+    // Track previous values to prevent unnecessary updates
+    let prevWidth = width;
+    let prevHeight = height;
  
     function updateNodePositions() {
         if (!layout || !data) return;
@@ -49,6 +53,8 @@
         updateNodePositions();
         initialized = true;
         currentViewType = viewType;
+        prevWidth = width;
+        prevHeight = height;
     }
 
     // Watch for view type changes
@@ -82,10 +88,12 @@
         updateNodePositions();
     }
  
-    $: if (initialized && layout && width && height) {
-        console.log('Dimensions changed:', { width, height });
+    $: if (initialized && layout && (width !== prevWidth || height !== prevHeight)) {
+        console.log('Dimensions changed:', { width, height, prev: { width: prevWidth, height: prevHeight } });
         layout.resize(width, height);
         updateNodePositions();
+        prevWidth = width;
+        prevHeight = height;
     }
 </script>
  
@@ -100,14 +108,6 @@
         {@const sourcePos = nodePositions.get(sourceId)}
         {@const targetPos = nodePositions.get(targetId)}
         {#if sourcePos && targetPos && sourceNode && targetNode}
-            {@const debugInfo = console.log('Edge rendering:', {
-                sourceId,
-                targetId,
-                sourcePos,
-                targetPos,
-                sourceNode,
-                targetNode
-            })}
             <WordDefinitionEdge
                 {sourceNode}
                 {targetNode}
@@ -119,7 +119,8 @@
         {/if}
         {/each}
     </g>
-{/if}
+    {/if}
+
     {#if layoutReady && data.nodes?.length > 0}
         <g class="nodes">
             {#each data.nodes as node (node.id)}
