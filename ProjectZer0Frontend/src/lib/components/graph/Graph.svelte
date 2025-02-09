@@ -1,9 +1,10 @@
 <!-- src/lib/components/graph/Graph.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
     import type { GraphData, ViewType } from '$lib/types/graph/core';
     import type { BackgroundConfig } from '$lib/types/graph/background';
+    import type { NodeMode } from '$lib/types/nodes';
     import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
     import { SvgBackground } from './backgrounds/SvgBackground';
     import GraphLayout from './layouts/GraphLayout.svelte';
@@ -17,11 +18,15 @@
     export let backgroundConfig: Partial<BackgroundConfig> = {};
     export let isPreviewMode = false;
 
+    // Event dispatch
+    const dispatch = createEventDispatcher();
+
     // DOM refs
     let container: HTMLDivElement;
     let svg: SVGSVGElement;
     let backgroundGroup: SVGGElement;
     let contentGroup: SVGGElement;
+    let graphLayout: GraphLayout;
     
     // Component state
     let background: SvgBackground | null = null;
@@ -53,13 +58,13 @@
                 background.resize(containerWidth, containerHeight);
             }
 
-            console.log('Dimensions updated:', dimensions);
+            console.log('[Graph] Dimensions updated:', dimensions);
         }
     }
 
     function initializeBackground() {
         if (!backgroundGroup) {
-            console.log('No background group found');
+            console.log('[Graph] No background group found');
             return;
         }
         
@@ -76,7 +81,7 @@
             );
             background.start();
         } catch (error) {
-            console.error('Error initializing background:', error);
+            console.error('[Graph] Error initializing background:', error);
         }
     }
 
@@ -92,7 +97,7 @@
                 d3.select(contentGroup)
                     .attr('transform', event.transform.toString());
                 
-                console.log('Zoom event:', {
+                console.log('[Graph] Zoom event:', {
                     type: event.sourceEvent?.type,
                     transform: event.transform
                 });
@@ -112,8 +117,19 @@
         };
     }
 
+    function handleModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
+        console.log('[Graph] Mode change event received:', event.detail);
+        
+        // Forward the event
+        dispatch('modechange', event.detail);
+    }
+
     onMount(() => {
-        console.log('Graph mounting with data:', data);
+        console.log('[Graph] Mounting with data:', {
+            nodeCount: data.nodes.length,
+            linkCount: data.links?.length || 0,
+            viewType
+        });
         
         updateDimensions();
         
@@ -128,6 +144,7 @@
     });
 
     onDestroy(() => {
+        console.log('[Graph] Destroying');
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateDimensions);
         }
@@ -138,7 +155,11 @@
 
     // Reactive statements
     $: if (data) {
-        console.log('Graph data updated:', data);
+        console.log('[Graph] Data updated:', {
+            nodeCount: data.nodes.length,
+            linkCount: data.links?.length || 0,
+            viewType
+        });
     }
 
     $: if (dimensions.width && dimensions.height) {
@@ -174,11 +195,13 @@
             class="content-layer"
         >
             <GraphLayout
+                bind:this={graphLayout}
                 {data}
                 width={dimensions.width}
                 height={dimensions.height}
                 {viewType}
                 {isPreviewMode}
+                on:modechange={handleModeChange}
             >
                 <svelte:fragment let:node let:position let:handleNodeModeChange>
                     <slot {node} transform={position.svgTransform} {handleNodeModeChange} />

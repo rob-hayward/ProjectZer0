@@ -39,7 +39,7 @@ export class LayoutService {
     }
 
     constructor(config: LayoutConfig) {
-        console.log('Initializing LayoutService:', config);
+        console.log('[LayoutService] Initializing:', config);
         
         this._width = config.width;
         this._height = config.height;
@@ -54,7 +54,7 @@ export class LayoutService {
     }
 
     private createLayoutStrategy(viewType: ViewType): BaseLayoutStrategy {
-        console.log('Creating layout strategy for view type:', viewType);
+        console.log('[LayoutService] Creating layout strategy for view type:', viewType);
         let strategy: BaseLayoutStrategy;
         switch (viewType) {
             case 'word':
@@ -67,7 +67,7 @@ export class LayoutService {
                 strategy = new SingleNodeLayout(this._width, this._height, viewType);
                 break;
         }
-        console.log('Created layout strategy:', {
+        console.log('[LayoutService] Created layout strategy:', {
             type: viewType,
             width: this._width,
             height: this._height,
@@ -80,7 +80,7 @@ export class LayoutService {
         nodes: LayoutNode[];
         links: LayoutLink[];
     } {
-        console.log('Transforming data to layout format');
+        console.log('[LayoutService] Transforming data to layout format');
 
         const layoutNodes = data.nodes.map(node => {
             const nodeType = (node.type === 'definition' ? 'definition' :
@@ -115,7 +115,7 @@ export class LayoutService {
             } as LayoutLink;
         });
 
-        console.log('Layout data transformed:', {
+        console.log('[LayoutService] Layout data transformed:', {
             isPreviewMode: this.state.isPreviewMode,
             nodes: layoutNodes.map(n => ({
                 id: n.id,
@@ -143,7 +143,7 @@ export class LayoutService {
     }
 
     public updateLayout(graphNodes: GraphNode[], graphLinks: GraphEdge[] = [], forceSkipAnimation: boolean = false): Map<string, NodePosition> {
-        console.log('LayoutService updateLayout called with:', {
+        console.log('[LayoutService] UpdateLayout called with:', {
             nodeCount: graphNodes.length,
             linkCount: graphLinks.length,
             viewType: this._viewType,
@@ -156,8 +156,7 @@ export class LayoutService {
             links: graphLinks 
         });
 
-        // Let layout strategy handle the positioning
-        console.log('Updating layout strategy with transformed data:', {
+        console.log('[LayoutService] Updating layout strategy with transformed data:', {
             nodeCount: layoutData.nodes.length,
             linkCount: layoutData.links.length,
             nodes: layoutData.nodes.map(n => ({
@@ -181,7 +180,7 @@ export class LayoutService {
             }
         ]));
 
-        console.log('Layout positions calculated:', {
+        console.log('[LayoutService] Layout positions calculated:', {
             positionCount: positions.size
         });
 
@@ -190,10 +189,9 @@ export class LayoutService {
 
     public updatePreviewMode(isPreview: boolean): void {
         if (this.state.isPreviewMode !== isPreview) {
-            console.log('Preview mode changed:', { 
+            console.log('[LayoutService] Preview mode changed:', { 
                 old: this.state.isPreviewMode, 
-                new: isPreview,
-                currentNodeCount: this.layoutStrategy.getSimulation().nodes().length
+                new: isPreview
             });
             
             this.state.isPreviewMode = isPreview;
@@ -201,11 +199,6 @@ export class LayoutService {
             // Get current simulation state
             const currentNodes = this.layoutStrategy.getSimulation().nodes();
             const currentLinks = (this.layoutStrategy.getSimulation().force('link') as d3.ForceLink<LayoutNode, LayoutLink>)?.links() || [];
-            
-            console.log('Current simulation state:', {
-                nodeCount: currentNodes.length,
-                linkCount: currentLinks.length
-            });
             
             // Update isDetail metadata for word node
             const updatedNodes = currentNodes.map(node => {
@@ -232,26 +225,53 @@ export class LayoutService {
         );
         
         if (hadChanges) {
-            console.log('Definition modes changed:', { 
+            console.log('[LayoutService] Definition modes changed:', { 
                 old: Object.fromEntries(this.state.definitionModes),
                 new: Object.fromEntries(modes)
             });
+            
+            // Update internal state
             this.state.definitionModes = new Map(modes);
-            // Force refresh of the layout
-            const simNodes = this.layoutStrategy.getSimulation().nodes();
-            this.layoutStrategy.updateData(simNodes, []);
+            
+            // Get current layout data
+            const currentNodes = this.layoutStrategy.getSimulation().nodes();
+            const currentLinks = (this.layoutStrategy.getSimulation().force('link') as d3.ForceLink<LayoutNode, LayoutLink>)?.links() || [];
+            
+            // Create updated layout nodes with new metadata
+            const updatedNodes = currentNodes.map(node => ({
+                ...node,
+                metadata: {
+                    ...node.metadata,
+                    isDetail: node.type === 'definition' ? 
+                        modes.get(node.id) === 'detail' : 
+                        node.metadata.isDetail
+                }
+            }));
+            
+            console.log('[LayoutService] Updating layout with mode changes:', {
+                nodeCount: updatedNodes.length,
+                modeChanges: Array.from(modes.entries()),
+                updatedNodes: updatedNodes.map(n => ({
+                    id: n.id,
+                    type: n.type,
+                    isDetail: n.metadata.isDetail
+                }))
+            });
+            
+            // Update layout with new node states
+            this.layoutStrategy.updateData(updatedNodes, currentLinks);
         }
     }
 
     public resize(width: number, height: number): void {
-        console.log('Resizing layout:', { width, height });
+        console.log('[LayoutService] Resizing layout:', { width, height });
         this._width = width;
         this._height = height;
         this.layoutStrategy.updateDimensions(width, height);
     }
 
     public stop(): void {
-        console.log('Stopping layout service');
+        console.log('[LayoutService] Stopping');
         this.layoutStrategy.stop();
     }
 

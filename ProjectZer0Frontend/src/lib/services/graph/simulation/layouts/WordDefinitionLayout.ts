@@ -10,13 +10,12 @@ import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
 export class WordDefinitionLayout extends BaseLayoutStrategy {
     private readonly INITIAL_RING_SPACING = 250;
     private readonly GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-    private readonly LIVE_DEFINITION_ANGLE = 0;
     private readonly FIRST_ALT_ANGLE = Math.PI;
     private isPreviewMode: boolean = false;
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(DIMENSIONS.WIDTH, DIMENSIONS.HEIGHT, viewType);
-        console.log('WordDefinitionLayout constructed:', {
+        console.log('[WordDefinitionLayout] Constructed:', {
             width: DIMENSIONS.WIDTH,
             height: DIMENSIONS.HEIGHT,
             viewType
@@ -27,13 +26,81 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         const wordNode = this.simulation.nodes().find(n => n.metadata.fixed);
         if (!wordNode) return 0;
         
-        // Calculate the difference between detail and preview radii
         const detailRadius = NODE_CONSTANTS.SIZES.WORD.detail / 4;
         const previewRadius = NODE_CONSTANTS.SIZES.WORD.preview / 2;
         const radiusDifference = detailRadius - previewRadius;
+
+        console.log('[WordDefinitionLayout] Word node radius adjustment:', {
+            isDetail: wordNode.metadata.isDetail,
+            adjustment: wordNode.metadata.isDetail ? 0 : radiusDifference
+        });
         
-        // Return radius difference only when in preview mode
         return wordNode.metadata.isDetail ? 0 : radiusDifference;
+    }
+
+    private getDefinitionSizeIncrease(): number {
+        const detailSize = NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail;
+        const previewSize = NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview;
+        return (detailSize - previewSize) / 2;
+    }
+
+    private getDefinitionRingIndex(node: LayoutNode): number {
+        if (node.type !== 'definition') return -1;
+        if (node.subtype === 'live') return 0;
+        
+        const alternatives = this.simulation.nodes()
+            .filter(n => n.type === 'definition' && n.subtype === 'alternative')
+            .sort((a, b) => (b.metadata.votes || 0) - (a.metadata.votes || 0));
+        
+        return alternatives.indexOf(node) + 1;
+    }
+
+    private getRingSpacingAdjustment(ringIndex: number): number {
+        const nodes = this.simulation.nodes();
+        console.log('[WordDefinitionLayout] Calculating ring spacing for ring:', ringIndex);
+        
+        // Get all definitions sorted by ring index
+        const definitionNodes = nodes
+            .filter(n => n.type === 'definition')
+            .map(n => ({
+                node: n,
+                ringIndex: n.subtype === 'live' ? 0 : this.getDefinitionRingIndex(n)
+            }))
+            .sort((a, b) => a.ringIndex - b.ringIndex);
+
+        // Calculate size increase once
+        const sizeIncrease = this.getDefinitionSizeIncrease();
+        let totalAdjustment = 0;
+
+        // Calculate cumulative adjustment for each ring up to current
+        for (let targetRing = 0; targetRing <= ringIndex; targetRing++) {
+            const expandedNodesInRing = definitionNodes
+                .filter(({ node, ringIndex: defRingIndex }) => 
+                    defRingIndex === targetRing && node.metadata.isDetail);
+
+            if (expandedNodesInRing.length > 0) {
+                totalAdjustment += sizeIncrease;
+                console.log('[WordDefinitionLayout] Ring adjustment increment:', {
+                    ringIndex: targetRing,
+                    expandedNodes: expandedNodesInRing.length,
+                    sizeIncrease,
+                    currentTotal: totalAdjustment
+                });
+            }
+        }
+
+        console.log('[WordDefinitionLayout] Final ring spacing calculation:', {
+            ringIndex,
+            totalAdjustment,
+            affectedNodes: definitionNodes
+                .filter(({ ringIndex: defRingIndex }) => defRingIndex <= ringIndex)
+                .map(({ node }) => ({
+                    id: node.id,
+                    isDetail: node.metadata.isDetail
+                }))
+        });
+
+        return totalAdjustment;
     }
 
     private calculateAltDefinitionPosition(index: number): { angle: number, radius: number } {
@@ -45,17 +112,32 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             angle = angle % (2 * Math.PI);
         }
 
-        // Start with the original radius calculation
-        const baseRadius = this.INITIAL_RING_SPACING * (1.25 + (index * 0.2));
-        // Adjust radius based on word node size
-        const radiusAdjustment = this.getWordNodeRadiusAdjustment();
-        const radius = baseRadius - radiusAdjustment;
+        const ringIndex = index + 1; // Ring index starts at 1 for alternatives
+        const baseRadius = this.INITIAL_RING_SPACING * (1.25 + (ringIndex * 0.2));
+        const wordAdjustment = this.getWordNodeRadiusAdjustment();
+        const ringAdjustment = this.getRingSpacingAdjustment(ringIndex);
+
+        // Calculate final radius with all adjustments
+        const radius = baseRadius + ringAdjustment - wordAdjustment;
+
+        console.log('[WordDefinitionLayout] Alternative definition position:', {
+            index,
+            ringIndex,
+            baseRadius,
+            wordAdjustment,
+            ringAdjustment,
+            finalRadius: radius,
+            angle: angle * (180 / Math.PI)
+        });
 
         return { angle, radius };
     }
 
     initializeNodePositions(nodes: LayoutNode[]): void {
-        console.log('WordDefinitionLayout: initializing node positions');
+        console.log('[WordDefinitionLayout] Initializing node positions:', {
+            nodeCount: nodes.length,
+            nodeTypes: nodes.map(n => ({ id: n.id, type: n.type, subtype: n.subtype }))
+        });
         
         nodes.forEach(node => {
             node.x = undefined;
@@ -79,47 +161,65 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         const liveDefinition = nodes.find(n => n.type === 'definition' && n.subtype === 'live');
         if (liveDefinition) {
             const radiusAdjustment = this.getWordNodeRadiusAdjustment();
-            const x = (this.INITIAL_RING_SPACING * 1.1) - radiusAdjustment;
-            liveDefinition.x = x;
+            const ringAdjustment = this.getRingSpacingAdjustment(0);
+            const selfAdjustment = liveDefinition.metadata.isDetail ? 
+                (NODE_CONSTANTS.SIZES.DEFINITION.live.detail - 
+                 NODE_CONSTANTS.SIZES.DEFINITION.live.preview) / 2 : 0;
+            
+            const posX = this.INITIAL_RING_SPACING * 1.1 + ringAdjustment - radiusAdjustment + selfAdjustment;
+            
+            console.log('[WordDefinitionLayout] Live definition position:', {
+                id: liveDefinition.id,
+                radiusAdjustment,
+                ringAdjustment,
+                selfAdjustment,
+                finalPosition: posX,
+                isDetail: liveDefinition.metadata.isDetail
+            });
+            
+            liveDefinition.x = posX;
             liveDefinition.y = 0;
-            liveDefinition.fx = x;
+            liveDefinition.fx = posX;
             liveDefinition.fy = 0;
         }
 
         // Position alternative definitions
-        const alternatives = nodes.filter(n => n.type === 'definition' && n.subtype === 'alternative')
+        const alternatives = nodes
+            .filter(n => n.type === 'definition' && n.subtype === 'alternative')
             .sort((a, b) => (b.metadata.votes || 0) - (a.metadata.votes || 0));
 
         alternatives.forEach((node, index) => {
             const { angle, radius } = this.calculateAltDefinitionPosition(index);
-            node.x = Math.cos(angle) * radius;
-            node.y = Math.sin(angle) * radius;
+            const selfExpansion = node.metadata.isDetail ? 
+                (NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail - 
+                 NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview) / 2 : 0;
+            
+            const finalRadius = radius + selfExpansion;
+            
+            console.log('[WordDefinitionLayout] Alternative definition position:', {
+                id: node.id,
+                index,
+                baseRadius: radius,
+                selfExpansion,
+                finalRadius,
+                angle: angle * (180 / Math.PI),
+                isDetail: node.metadata.isDetail
+            });
+            
+            node.x = Math.cos(angle) * finalRadius;
+            node.y = Math.sin(angle) * finalRadius;
+            node.fx = node.x;
+            node.fy = node.y;
         });
     }
 
     configureForces(): void {
-        console.log('WordDefinitionLayout: configuring forces');
+        console.log('[WordDefinitionLayout] Configuring forces');
 
         // Configure navigation node forces
         NavigationNodeLayout.configureNavigationForces(this.simulation, this.getNodeSize.bind(this));
 
-        const alternatives = this.simulation.nodes()
-            .filter(n => n.type === 'definition' && n.subtype === 'alternative');
-
-        // Radial force for alternative definitions
-        const radialForce = d3.forceRadial<LayoutNode>(
-            node => {
-                if (node.type !== 'definition' || node.subtype !== 'alternative') return 0;
-                const index = alternatives.indexOf(node);
-                const baseRadius = this.INITIAL_RING_SPACING * (1.25 + (index * 0.2));
-                const radiusAdjustment = this.getWordNodeRadiusAdjustment();
-                return baseRadius - radiusAdjustment;
-            },
-            0,
-            0
-        ).strength(0.8);
-
-        // Collision detection
+        // Configure collision detection
         const collision = d3.forceCollide<LayoutNode>()
             .radius(node => {
                 if (node.type === 'navigation') return 0;
@@ -132,41 +232,28 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             .strength(SIMULATION.FORCES.COLLISION.STRENGTH)
             .iterations(SIMULATION.FORCES.COLLISION.ITERATIONS);
 
-        // Angular force to maintain golden angle distribution
-        const angularForce = d3.forceLink<LayoutNode, LayoutLink>([])
-            .distance((d, i) => {
-                const source = typeof d.source === 'string' ? null : d.source;
-                if (!source || source.type !== 'definition' || source.subtype !== 'alternative') return 0;
-                const index = alternatives.indexOf(source);
-                const baseDistance = this.INITIAL_RING_SPACING * (1 + (index * 0.5)) * (Math.PI / 8);
-                const radiusAdjustment = this.getWordNodeRadiusAdjustment();
-                return baseDistance - radiusAdjustment;
-            })
-            .strength(0.3);
-
         // Configure simulation forces
         this.simulation
-            .force('radial', radialForce)
             .force('collision', collision)
-            .force('angular', angularForce)
             .force('charge', d3.forceManyBody().strength(-300))
             .restart();
     }
 
     public updateData(nodes: LayoutNode[], links: LayoutLink[], skipAnimation: boolean = false): void {
-        console.log('WordDefinitionLayout updateData:', {
+        console.log('[WordDefinitionLayout] Update data called:', {
             nodeCount: nodes.length,
             linkCount: links.length,
             skipAnimation,
-            isPreviewMode: this.isPreviewMode
+            nodes: nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                subtype: n.subtype,
+                isDetail: n.metadata.isDetail
+            }))
         });
 
         this.simulation.stop();
-        
-        // Initialize positions with current preview mode state
         this.initializeNodePositions(nodes);
-        
-        // Update simulation nodes and restart
         this.simulation.nodes(nodes);
         this.configureForces();
         
@@ -180,10 +267,9 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     }
 
     public updatePreviewMode(isPreview: boolean): void {
-        console.log('WordDefinitionLayout updatePreviewMode:', { isPreview });
+        console.log('[WordDefinitionLayout] Update preview mode:', { isPreview });
         if (this.isPreviewMode !== isPreview) {
             this.isPreviewMode = isPreview;
-            // Re-initialize positions with current nodes when preview mode changes
             const currentNodes = this.simulation.nodes();
             this.updateData(currentNodes, [], false);
         }

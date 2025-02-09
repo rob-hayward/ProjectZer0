@@ -26,6 +26,8 @@
     import { isDashboardNode, isEditProfileNode, isCreateNodeNode, isWordNode, 
         isDefinitionNode, isNavigationNode } from '$lib/types/graph/core';
     
+    type ModeChangeEvent = CustomEvent<{ mode: 'preview' | 'detail' }>;
+    
     export let data: GraphPageData;
 
     // Initialization states
@@ -33,12 +35,13 @@
     let dataInitialized = false;
     let userActivity: UserActivity | undefined;
     let graphLayout: Graph;
-    let definitionNodeModes: Map<string, 'preview' | 'detail'> = new Map();
+    let definitionNodeModes = new Map<string, 'preview' | 'detail'>();
+    let graphData: GraphData;
 
     $: viewType = view as ViewType;
     
     // State debugging
-    $: console.log('Auth State:', {
+    $: console.log('[Page] Auth State:', {
         authInitialized,
         dataInitialized,
         hasUser: !!$userStore,
@@ -51,7 +54,30 @@
         ($page.params.view === 'word' ? 'detail' : 'preview')
         : 'preview';
 
-    // Styles
+    // Initialize nodes in correct modes when word data changes
+    $: if (wordData?.definitions) {
+        const definitionNodes = wordData.definitions;
+        
+        // Check for any new nodes that don't have modes set
+        const newNodes = definitionNodes.filter(def => !definitionNodeModes.has(def.id));
+        
+        if (newNodes.length > 0) {
+            console.log('[Page] Initializing definition modes for new nodes:', {
+                newNodes: newNodes.map(n => ({
+                    id: n.id
+                }))
+            });
+            
+            // Initialize each new node in preview mode
+            newNodes.forEach(node => {
+                definitionNodeModes.set(node.id, 'preview');
+            });
+            
+            // Trigger reactivity
+            definitionNodeModes = new Map(definitionNodeModes);
+        }
+    }
+
     const wordStyle = {
         previewSize: NODE_CONSTANTS.SIZES.WORD.preview,
         detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
@@ -90,15 +116,14 @@
             false;
 
     async function initializeData() {
-        console.log('Starting initializeData');
+        console.log('[Page] Starting initializeData');
         try {
-            // Handle auth first
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
-            console.log('Auth check complete:', { hasUser: !!fetchedUser });
+            console.log('[Page] Auth check complete:', { hasUser: !!fetchedUser });
             
             if (!fetchedUser) {
-                console.log('No user found, redirecting to login');
+                console.log('[Page] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -106,10 +131,8 @@
             authInitialized = true;
             userStore.set(fetchedUser);
             
-            // Once auth is confirmed, fetch activity
             userActivity = await getUserActivity();
             
-            // Handle word data if needed
             if (view === 'word') {
                 const wordParam = new URL(window.location.href).searchParams.get('word');
                 if (wordParam) {
@@ -121,13 +144,13 @@
             }
             
             dataInitialized = true;
-            console.log('Data initialization complete', {
+            console.log('[Page] Data initialization complete', {
                 hasUser: !!fetchedUser,
                 hasActivity: !!userActivity,
                 view
             });
         } catch (error) {
-            console.error('Error in initializeData:', error);
+            console.error('[Page] Error in initializeData:', error);
             auth0.login();
         }
     }
@@ -142,17 +165,86 @@
 
     // Event handlers
     function handleWordNodeModeChange(event: CustomEvent<{ mode: 'preview' | 'detail' }>) {
-        console.log('Word node mode change:', event.detail);
-        wordNodeMode = event.detail.mode;
+        const newMode = event.detail.mode;
+        console.log('[Page] Word node mode change:', { newMode, currentMode: wordNodeMode });
+        wordNodeMode = newMode;
     }
 
-    function handleDefinitionModeChange(event: CustomEvent<{ mode: 'preview' | 'detail' }>, nodeId: string) {
-        console.log('Definition mode change:', { nodeId, newMode: event.detail.mode });
-        definitionNodeModes.set(nodeId, event.detail.mode);
+    function handleDefinitionModeChange(event: ModeChangeEvent, nodeId: string) {
+        const newMode = event.detail.mode;
+        const node = wordData?.definitions.find(n => n.id === nodeId);
+        const isLiveDefinition = node && wordData?.definitions.indexOf(node) === 0;
+        
+        console.log('[Page] Definition mode change:', { 
+            nodeId, 
+            newMode, 
+            isLiveDefinition,
+            currentModes: Array.from(definitionNodeModes.entries())
+        });
+        
+        // Update the modes map
+        definitionNodeModes.set(nodeId, newMode);
+        // Create new map to trigger reactivity
         definitionNodeModes = new Map(definitionNodeModes);
+
+        // Force graph data update
+        updateGraphData();
     }
 
-    // Graph data preparation
+    // Helper function to update graph data
+    function updateGraphData() {
+        if (!centralNode) {
+            graphData = { nodes: [], links: [] };
+            return;
+        }
+
+        const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
+        
+        if (wordData && wordData.definitions.length > 0 && view === 'word') {
+            const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
+                getNetVotes(b) - getNetVotes(a)
+            );
+
+            const definitionNodes: GraphNode[] = sortedDefinitions.map((definition, index) => ({
+                id: definition.id,
+                type: 'definition' as NodeType,
+                data: definition,
+                group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
+                mode: definitionNodeModes.get(definition.id) || 'preview' // Include mode in node data
+            }));
+
+            const definitionLinks: GraphEdge[] = sortedDefinitions.map((definition, index) => ({
+                source: centralNode.id,
+                target: definition.id,
+                type: (index === 0 ? 'live' : 'alternative') as EdgeType,
+                value: 1 + Math.abs(getNetVotes(definition))
+            }));
+
+            // Include word node mode
+            const nodesWithModes = baseNodes.map(node => 
+                node.type === 'word' ? { ...node, mode: wordNodeMode } : node
+            );
+
+            graphData = {
+                nodes: [...nodesWithModes, ...definitionNodes],
+                links: definitionLinks
+            };
+        } else {
+            graphData = { nodes: baseNodes, links: [] };
+        }
+
+        console.log('[Page] Updated graph data:', {
+            nodeCount: graphData.nodes.length,
+            definitionModes: Array.from(definitionNodeModes.entries()),
+            nodes: graphData.nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                mode: 'mode' in n ? n.mode : undefined
+            }))
+        });
+    }
+
+    // Central node preparation
     $: centralNode = isReady && $userStore && (isWordView && wordData ? {
         id: wordData.id,
         type: 'word' as const,
@@ -179,41 +271,41 @@
             group: 'navigation' as const
         }));
 
-    $: graphData = centralNode ? (() => {
-        const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
-        
-        if (wordData && wordData.definitions.length > 0) {
-            const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
-                getNetVotes(b) - getNetVotes(a)
-            );
-
-            if (view === 'word') {
-                const definitionNodes: GraphNode[] = sortedDefinitions.map((definition, index) => ({
-                    id: definition.id,
-                    type: 'definition' as NodeType,
-                    data: definition,
-                    group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup
-                }));
-
-                const definitionLinks: GraphEdge[] = sortedDefinitions.map((definition, index) => ({
-                    source: centralNode.id,
-                    target: definition.id,
-                    type: (index === 0 ? 'live' : 'alternative') as EdgeType,
-                    value: 1 + Math.abs(getNetVotes(definition))
-                }));
-
-                return {
-                    nodes: [...baseNodes, ...definitionNodes],
-                    links: definitionLinks
-                } satisfies GraphData;
-            }
+    // Update graph data when core dependencies change
+    $: {
+        if (centralNode || navigationNodes || wordData) {
+            updateGraphData();
         }
-        
-        return { nodes: baseNodes, links: [] } satisfies GraphData;
-    })() : { nodes: [], links: [] } satisfies GraphData;
+    }
 
-    $: nodes = graphData.nodes;
-    $: links = graphData.links;
+    $: nodes = graphData?.nodes || [];
+    $: links = graphData?.links || [];
+
+    // Debug logs
+    $: if (definitionNodeModes.size > 0) {
+        console.log('[Page] Definition modes updated:', {
+            modes: Array.from(definitionNodeModes.entries()),
+            nodeStates: nodes
+                .filter(n => n.type === 'definition')
+                .map(n => ({
+                    id: n.id,
+                    type: n.type,
+                    group: n.group,
+                    mode: definitionNodeModes.get(n.id)
+                }))
+        });
+    }
+
+    $: if (nodes.length > 0) {
+        console.log('[Page] Nodes updated:', {
+            total: nodes.length,
+            definitions: nodes.filter(n => n.type === 'definition').map(n => ({
+                id: n.id,
+                group: n.group,
+                mode: definitionNodeModes.get(n.id)
+            }))
+        });
+    }
 </script>
 
 {#if !isReady}
@@ -231,9 +323,9 @@
     data={graphData}
     {isPreviewMode}
     {viewType}
-    on:modeChange
+    on:modechange
 >
-    <svelte:fragment let:node let:transform>
+    <svelte:fragment let:node let:transform let:handleNodeModeChange>
         {#if isDashboardNode(node)}
             <DashboardNode 
                 node={node.data} 

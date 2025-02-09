@@ -16,7 +16,7 @@ export class GraphLayoutEngine {
     } | null = null;
 
     constructor(width: number, height: number, viewType: ViewType, isPreviewMode = false) {
-        console.log('Creating GraphLayoutEngine:', { width, height, viewType, isPreviewMode });
+        console.log('[GraphLayoutEngine] Creating:', { width, height, viewType, isPreviewMode });
         this._width = width;
         this._height = height;
         this._viewType = viewType;
@@ -46,11 +46,22 @@ export class GraphLayoutEngine {
     }
 
     private hasSignificantChanges(newData: GraphData): boolean {
+        console.log('[GraphLayoutEngine] Checking for changes:', {
+            hasPreviousData: !!this.previousData,
+            currentModes: Array.from(this.definitionNodeModes.entries()),
+            nodeCount: newData.nodes.length,
+            definitionNodes: newData.nodes.filter(n => n.type === 'definition').length
+        });
+
+        // DEBUG: Always return true to force updates
+        return true;
+
+        /* Original logic commented out for debugging
         if (!this.previousData || !this.previousData.nodes || !this.previousData.links) {
             return true;
         }
     
-        // Check for mode changes in nodes
+        // Check for mode changes
         const hasModesChanged = Array.from(this.definitionNodeModes.entries()).some(
             ([nodeId, mode]) => {
                 const prevNode = this.previousData?.nodes.find(n => n.id === nodeId);
@@ -61,20 +72,21 @@ export class GraphLayoutEngine {
         );
     
         if (hasModesChanged) {
-            console.log('Mode changes detected, requiring layout update');
+            console.log('[GraphLayoutEngine] Mode changes detected');
             return true;
         }
     
-        // Check for structural changes in nodes
+        // Check for structural changes
         const structuralChanges = !this.areNodesEqual(this.previousData.nodes, newData.nodes) ||
                                 !this.areLinksEqual(this.previousData.links, newData.links || []);
     
         if (structuralChanges) {
-            console.log('Structural changes detected, requiring layout update');
+            console.log('[GraphLayoutEngine] Structural changes detected');
             return true;
         }
     
         return false;
+        */
     }
 
     private areNodesEqual(prev: GraphNode[], curr: GraphNode[]): boolean {
@@ -103,22 +115,23 @@ export class GraphLayoutEngine {
     }
 
     public updateLayout(data: GraphData, skipAnimation: boolean = false): Map<string, NodePosition> {
-        console.log('GraphLayoutEngine updateLayout called:', {
+        console.log('[GraphLayoutEngine] UpdateLayout called:', {
             nodeCount: data.nodes.length,
             linkCount: data.links?.length || 0,
             viewType: this._viewType,
-            skipAnimation
+            skipAnimation,
+            currentModes: Array.from(this.definitionNodeModes.entries())
         });
 
         // Check if we need to update the layout
         if (!this.hasSignificantChanges(data)) {
-            console.log('No significant changes detected, returning current positions');
+            console.log('[GraphLayoutEngine] No significant changes detected, returning current positions');
             return this.currentPositions;
         }
         
         // Check if layout service needs to be recreated
         if (this._viewType !== this.layoutService.viewType) {
-            console.log('View type changed, recreating layout service:', {
+            console.log('[GraphLayoutEngine] View type changed, recreating layout service:', {
                 from: this.layoutService.viewType,
                 to: this._viewType
             });
@@ -127,6 +140,14 @@ export class GraphLayoutEngine {
         }
         
         // Update layout and store current positions
+        console.log('[GraphLayoutEngine] Updating layout with data:', {
+            nodes: data.nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                group: n.group
+            }))
+        });
+
         this.currentPositions = this.layoutService.updateLayout(
             data.nodes,
             data.links || [],
@@ -143,14 +164,14 @@ export class GraphLayoutEngine {
     }
 
     public updatePreviewMode(isPreview: boolean): void {
-        console.log('GraphLayoutEngine updatePreviewMode:', { isPreview });
+        console.log('[GraphLayoutEngine] UpdatePreviewMode:', { isPreview });
         // Clear cached data to force layout recalculation
         this.previousData = null;
         this.layoutService.updatePreviewMode(isPreview);
     }
 
     public updateDefinitionModes(modes: Map<string, 'preview' | 'detail'>): void {
-        console.log('GraphLayoutEngine updateDefinitionModes:', { 
+        console.log('[GraphLayoutEngine] UpdateDefinitionModes:', { 
             modeCount: modes.size,
             modes: Array.from(modes.entries())
         });
@@ -161,14 +182,14 @@ export class GraphLayoutEngine {
     }
 
     public resize(width: number, height: number): void {
-        console.log('GraphLayoutEngine resize:', { width, height });
+        console.log('[GraphLayoutEngine] Resize:', { width, height });
         this._width = width;
         this._height = height;
         this.layoutService.resize(width, height);
     }
 
     public stop(): void {
-        console.log('GraphLayoutEngine stopping');
+        console.log('[GraphLayoutEngine] Stopping');
         this.layoutService.stop();
     }
 
@@ -177,7 +198,7 @@ export class GraphLayoutEngine {
     }
 
     public updateViewType(viewType: ViewType): void {
-        console.log('GraphLayoutEngine updateViewType:', {
+        console.log('[GraphLayoutEngine] UpdateViewType:', {
             from: this._viewType,
             to: viewType
         });

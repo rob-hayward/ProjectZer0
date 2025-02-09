@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/layouts/GraphLayout.svelte -->
+<!-- src/lib/components/graph/layouts/GraphLayout.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import type { GraphData, NodePosition, ViewType } from '$lib/types/graph/core';
@@ -27,29 +27,94 @@
     let prevWidth = width;
     let prevHeight = height;
  
-    function updateNodePositions() {
+    function updateNodePositions(forceUpdate = false) {
         if (!layout || !data) return;
-        nodePositions = layout.updateLayout(data);
+        
+        // Extract modes from node data
+        const modes = new Map<string, NodeMode>();
+        data.nodes.forEach(node => {
+            if ('mode' in node) {
+                modes.set(node.id, node.mode as NodeMode);
+            }
+        });
+        
+        console.log('[GraphLayout] Updating node positions:', {
+            nodeCount: data.nodes.length,
+            linkCount: data.links?.length,
+            modes: Array.from(modes.entries()),
+            forceUpdate
+        });
+
+        // Update layout modes before updating positions
+        if (modes.size > 0) {
+            layout.updateDefinitionModes(modes);
+        }
+        
+        nodePositions = layout.updateLayout(data, !forceUpdate);
         layoutReady = true;
     }
- 
-    function handleNodeModeChange(nodeId: string, mode: NodeMode) {
-        console.log('Node mode change:', { nodeId, mode });
-        expandedNodes.set(nodeId, mode);
+
+    function handleModeChange(nodeId: string, newMode: NodeMode) {
+        console.log('[GraphLayout] Node mode change:', { nodeId, newMode });
+        
+        // Store previous state for debugging
+        const prevMode = expandedNodes.get(nodeId);
+        
+        // Update mode
+        expandedNodes.set(nodeId, newMode);
         expandedNodes = new Map(expandedNodes);
         
         if (layout) {
+            console.log('[GraphLayout] Processing mode change:', {
+                nodeId,
+                prevMode,
+                newMode,
+                allModes: Array.from(expandedNodes.entries())
+            });
+            
+            // Update the modes
             layout.updateDefinitionModes(expandedNodes);
-            updateNodePositions();
+            
+            // Force a full layout update
+            updateNodePositions(true);
+        } else {
+            console.warn('[GraphLayout] Layout not initialized for mode change');
         }
  
-        dispatch('modechange', { nodeId, mode });
+        dispatch('modechange', { nodeId, mode: newMode });
+    }
+
+    function createModeChangeHandler(nodeId: string) {
+        return function(event: CustomEvent<{ mode: NodeMode }>) {
+            handleModeChange(nodeId, event.detail.mode);
+        };
     }
  
     function initializeLayout() {
-        console.log('Initializing layout:', { width, height, viewType, isPreviewMode });
+        console.log('[GraphLayout] Initializing layout:', { 
+            width, 
+            height, 
+            viewType, 
+            isPreviewMode
+        });
+        
         layout = new LayoutClass(width, height, viewType, isPreviewMode);
-        layout.updateDefinitionModes(expandedNodes);
+        
+        // Extract initial modes from node data
+        const modes = new Map<string, NodeMode>();
+        data.nodes.forEach(node => {
+            if ('mode' in node) {
+                modes.set(node.id, node.mode as NodeMode);
+            }
+        });
+        
+        if (modes.size > 0) {
+            console.log('[GraphLayout] Setting initial definition modes:', 
+                Array.from(modes.entries())
+            );
+            layout.updateDefinitionModes(modes);
+        }
+        
         updateNodePositions();
         initialized = true;
         currentViewType = viewType;
@@ -59,39 +124,53 @@
 
     // Watch for view type changes
     $: if (initialized && layout && viewType !== currentViewType) {
-        console.log('View type changed:', { from: currentViewType, to: viewType });
+        console.log('[GraphLayout] View type changed:', { 
+            from: currentViewType, 
+            to: viewType 
+        });
         layout.updateViewType(viewType);
         currentViewType = viewType;
-        updateNodePositions();
+        updateNodePositions(true);
     }
  
     onMount(() => {
-        console.log('GraphLayout mounting');
+        console.log('[GraphLayout] Mounting');
         initializeLayout();
     });
  
     onDestroy(() => {
-        console.log('GraphLayout destroying');
+        console.log('[GraphLayout] Destroying');
         if (layout) {
             layout.stop();
         }
     });
  
     $: if (initialized && layout && isPreviewMode !== undefined) {
-        console.log('Preview mode changed:', isPreviewMode);
+        console.log('[GraphLayout] Preview mode changed:', { 
+            isPreviewMode,
+            expandedNodes: Array.from(expandedNodes.entries())
+        });
         layout.updatePreviewMode(isPreviewMode);
-        updateNodePositions();
+        updateNodePositions(true);
     }
  
     $: if (initialized && layout && data) {
-        console.log('Data changed:', { nodes: data.nodes.length, links: data.links?.length });
+        console.log('[GraphLayout] Data changed:', { 
+            nodes: data.nodes.length, 
+            links: data.links?.length,
+            expandedNodes: Array.from(expandedNodes.entries())
+        });
         updateNodePositions();
     }
  
     $: if (initialized && layout && (width !== prevWidth || height !== prevHeight)) {
-        console.log('Dimensions changed:', { width, height, prev: { width: prevWidth, height: prevHeight } });
+        console.log('[GraphLayout] Dimensions changed:', { 
+            width, 
+            height, 
+            prev: { width: prevWidth, height: prevHeight } 
+        });
         layout.resize(width, height);
-        updateNodePositions();
+        updateNodePositions(true);
         prevWidth = width;
         prevHeight = height;
     }
@@ -133,7 +212,7 @@
                         <slot
                             {node}
                             {position}
-                            {handleNodeModeChange}
+                            handleNodeModeChange={createModeChangeHandler(node.id)}
                         />
                     </g>
                 {/if}
