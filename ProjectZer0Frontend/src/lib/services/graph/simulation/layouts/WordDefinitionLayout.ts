@@ -38,10 +38,18 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         return wordNode.metadata.isDetail ? 0 : radiusDifference;
     }
 
-    private getDefinitionSizeIncrease(): number {
+    private getDefinitionSizeIncrease(ringIndex: number): number {
         const detailSize = NODE_CONSTANTS.SIZES.DEFINITION.alternative.detail;
         const previewSize = NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview;
-        return (detailSize - previewSize) / 2;
+        const baseIncrease = (detailSize - previewSize);
+        
+        // Live definition (ring 0) gets full base increase
+        if (ringIndex === 0) {
+            return baseIncrease;
+        }
+        
+        // Alternative definitions get a larger increase to ensure spacing
+        return baseIncrease * 2; // Adjust this multiplier to control spacing between expanded alternatives
     }
 
     private getDefinitionRingIndex(node: LayoutNode): number {
@@ -59,7 +67,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         const nodes = this.simulation.nodes();
         console.log('[WordDefinitionLayout] Calculating ring spacing for ring:', ringIndex);
         
-        // Get all definitions sorted by ring index
         const definitionNodes = nodes
             .filter(n => n.type === 'definition')
             .map(n => ({
@@ -68,29 +75,33 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             }))
             .sort((a, b) => a.ringIndex - b.ringIndex);
 
-        // Calculate size increase once
-        const sizeIncrease = this.getDefinitionSizeIncrease();
+        const sizeIncrease = this.getDefinitionSizeIncrease(ringIndex);
         let totalAdjustment = 0;
 
-        // Calculate cumulative adjustment for each ring up to current
-        for (let targetRing = 0; targetRing <= ringIndex; targetRing++) {
-            const expandedNodesInRing = definitionNodes
-                .filter(({ node, ringIndex: defRingIndex }) => 
-                    defRingIndex === targetRing && node.metadata.isDetail);
+        // Check if there are any expanded nodes in this ring
+        const hasExpandedInCurrentRing = definitionNodes
+            .some(({ node, ringIndex: defRingIndex }) => 
+                defRingIndex === ringIndex && node.metadata.isDetail);
 
-            if (expandedNodesInRing.length > 0) {
-                totalAdjustment += sizeIncrease;
-                console.log('[WordDefinitionLayout] Ring adjustment increment:', {
-                    ringIndex: targetRing,
-                    expandedNodes: expandedNodesInRing.length,
-                    sizeIncrease,
-                    currentTotal: totalAdjustment
-                });
-            }
+        // Check if there are any expanded nodes in inner rings
+        const hasExpandedInInnerRings = definitionNodes
+            .some(({ node, ringIndex: defRingIndex }) => 
+                defRingIndex < ringIndex && node.metadata.isDetail);
+
+        if (hasExpandedInCurrentRing) {
+            // Full adjustment plus extra spacing for expanded nodes
+            totalAdjustment += sizeIncrease * 1.5;  // Additional multiplier for expanded nodes
+        } else if (hasExpandedInInnerRings) {
+            // Small increase for outer rings when inner rings have expanded nodes
+            const decayFactor = 0.3;  // Slightly increased from 0.2
+            totalAdjustment += sizeIncrease * decayFactor;
         }
 
-        console.log('[WordDefinitionLayout] Final ring spacing calculation:', {
+        console.log('[WordDefinitionLayout] Ring spacing calculation:', {
             ringIndex,
+            hasExpandedInCurrentRing,
+            hasExpandedInInnerRings,
+            sizeIncrease,
             totalAdjustment,
             affectedNodes: definitionNodes
                 .filter(({ ringIndex: defRingIndex }) => defRingIndex <= ringIndex)
