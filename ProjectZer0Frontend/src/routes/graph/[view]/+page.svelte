@@ -210,17 +210,17 @@
                 type: 'definition' as NodeType,
                 data: definition,
                 group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
-                mode: definitionNodeModes.get(definition.id) || 'preview' // Include mode in node data
+                mode: definitionNodeModes.get(definition.id) || 'preview'
             }));
 
+            // Simplified link creation - no vote-based values
             const definitionLinks: GraphEdge[] = sortedDefinitions.map((definition, index) => ({
                 source: centralNode.id,
                 target: definition.id,
                 type: (index === 0 ? 'live' : 'alternative') as EdgeType,
-                value: 1 + Math.abs(getNetVotes(definition))
+                value: 1  // Constant value since positioning is handled by layout
             }));
 
-            // Include word node mode
             const nodesWithModes = baseNodes.map(node => 
                 node.type === 'word' ? { ...node, mode: wordNodeMode } : node
             );
@@ -232,16 +232,6 @@
         } else {
             graphData = { nodes: baseNodes, links: [] };
         }
-
-        console.log('[Page] Updated graph data:', {
-            nodeCount: graphData.nodes.length,
-            definitionModes: Array.from(definitionNodeModes.entries()),
-            nodes: graphData.nodes.map(n => ({
-                id: n.id,
-                type: n.type,
-                mode: 'mode' in n ? n.mode : undefined
-            }))
-        });
     }
 
     // Central node preparation
@@ -311,7 +301,7 @@
 {#if !isReady}
     <div class="loading-container">
         <div class="loading-spinner" />
-        <span class="loading-text">Initializing...</span>
+        <span class="loading-text">Loading...</span>
     </div>
 {:else if !$userStore}
     <div class="loading-container">

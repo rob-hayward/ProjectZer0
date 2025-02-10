@@ -1,7 +1,7 @@
-// src/lib/components/graph/edges/EdgeConstants.ts
+// src/lib/components/graph/links/LinkConstants.ts
 import { COLORS } from '$lib/constants/colors';
 
-export const EDGE_CONSTANTS = {
+export const LINK_CONSTANTS = {
     STYLES: {
         WORD_TO_DEFINITION: {
             STROKE_WIDTH: 1.5,

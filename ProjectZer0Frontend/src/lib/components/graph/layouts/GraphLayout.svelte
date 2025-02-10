@@ -4,7 +4,7 @@
     import type { GraphData, NodePosition, ViewType } from '$lib/types/graph/core';
     import type { NodeMode } from '$lib/types/nodes';
     import { GraphLayoutEngine as LayoutClass } from './GraphLayoutEngine';
-    import WordDefinitionEdge from '../edges/connections/WordDefinitionEdge.svelte';
+    import WordDefinitionLink from '../links/connections/WordDefinitionLink.svelte';
  
     export let data: GraphData;
     export let width: number;
@@ -187,7 +187,7 @@
         {@const sourcePos = nodePositions.get(sourceId)}
         {@const targetPos = nodePositions.get(targetId)}
         {#if sourcePos && targetPos && sourceNode && targetNode}
-            <WordDefinitionEdge
+            <WordDefinitionLink
                 {sourceNode}
                 {targetNode}
                 sourceX={sourcePos.x}
