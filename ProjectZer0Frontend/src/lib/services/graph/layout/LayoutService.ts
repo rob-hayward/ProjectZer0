@@ -2,7 +2,7 @@
 import * as d3 from 'd3';
 import type { 
     GraphData, 
-    GraphEdge, 
+    GraphLink, 
     GraphNode, 
     NodePosition, 
     ViewType,
@@ -12,6 +12,7 @@ import type { LayoutNode, LayoutLink, LayoutConfig } from '../../../types/graph/
 import { SingleNodeLayout } from '../simulation/layouts/SingleNodeLayout';
 import { WordDefinitionLayout } from '../simulation/layouts/WordDefinitionLayout';
 import { BaseLayoutStrategy } from '../simulation/layouts/BaseLayoutStrategy';
+import { COORDINATE_SPACE } from '../../../constants/graph';
 
 interface LayoutState {
     isPreviewMode: boolean;
@@ -24,25 +25,26 @@ export class LayoutService {
     private _height: number;
     private _viewType: ViewType;
     private state: LayoutState;
+    private serviceId: string;
 
     // Public getters
-    get width(): number {
-        return this._width;
-    }
-
-    get height(): number {
-        return this._height;
-    }
-
-    get viewType(): ViewType {
-        return this._viewType;
-    }
+    get width(): number { return this._width; }
+    get height(): number { return this._height; }
+    get viewType(): ViewType { return this._viewType; }
 
     constructor(config: LayoutConfig) {
-        console.log('[LayoutService] Initializing:', config);
+        this.serviceId = Math.random().toString(36).substr(2, 9);
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Construction`, {
+            config,
+            worldDimensions: {
+                width: COORDINATE_SPACE.WORLD.WIDTH,
+                height: COORDINATE_SPACE.WORLD.HEIGHT
+            }
+        });
         
-        this._width = config.width;
-        this._height = config.height;
+        // Always use world dimensions for internal calculations
+        this._width = COORDINATE_SPACE.WORLD.WIDTH;
+        this._height = COORDINATE_SPACE.WORLD.HEIGHT;
         this._viewType = config.viewType;
         
         this.state = {
@@ -53,78 +55,37 @@ export class LayoutService {
         this.layoutStrategy = this.createLayoutStrategy(config.viewType);
     }
 
+    private getNodeSize(node: GraphNode): number {
+        if (node.type === 'word') {
+            return node.mode === 'detail' ? 
+                COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL : 
+                COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW;
+        }
+        
+        if (node.type === 'definition') {
+            return node.mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL :
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW;
+        }
+        
+        return COORDINATE_SPACE.NODES.SIZES.NAVIGATION;
+    }
+
     private createLayoutStrategy(viewType: ViewType): BaseLayoutStrategy {
-        console.log('[LayoutService] Creating layout strategy for view type:', viewType);
-        let strategy: BaseLayoutStrategy;
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Creating strategy`, {
+            viewType,
+            dimensions: { width: this._width, height: this._height }
+        });
+
         switch (viewType) {
             case 'word':
-                strategy = new WordDefinitionLayout(this._width, this._height, viewType);
-                break;
+                return new WordDefinitionLayout(this._width, this._height, viewType);
             case 'dashboard':
             case 'edit-profile':
             case 'create-node':
             default:
-                strategy = new SingleNodeLayout(this._width, this._height, viewType);
-                break;
+                return new SingleNodeLayout(this._width, this._height, viewType);
         }
-        console.log('[LayoutService] Created layout strategy:', {
-            type: viewType,
-            width: this._width,
-            height: this._height,
-            strategyType: strategy.constructor.name
-        });
-        return strategy;
-    }
-
-    private transformToLayoutFormat(data: GraphData): {
-        nodes: LayoutNode[];
-        links: LayoutLink[];
-    } {
-        console.log('[LayoutService] Transforming data to layout format');
-
-        const layoutNodes = data.nodes.map(node => {
-            const nodeType = (node.type === 'definition' ? 'definition' :
-                            node.type === 'word' ? 'word' :
-                            node.type === 'navigation' ? 'navigation' :
-                            'central') as NodeType | 'central';
-
-            const layoutNode: LayoutNode = {
-                id: node.id,
-                type: nodeType,
-                subtype: node.type === 'definition' 
-                    ? (node.group === 'live-definition' ? 'live' : 'alternative')
-                    : undefined,
-                metadata: {
-                    group: this.getLayoutGroup(node),
-                    fixed: node.group === 'central',
-                    isDetail: node.type === 'word' ? !this.state.isPreviewMode :
-                             this.state.definitionModes.get(node.id) === 'detail',
-                    votes: node.type === 'definition' ? this.getNodeVotes(node) : undefined
-                }
-            };
-            return layoutNode;
-        });
-
-        const layoutLinks = (data.links || []).map(link => {
-            const linkType = link.type === 'live' ? 'definition' : 'navigation';
-            return {
-                source: typeof link.source === 'string' ? link.source : link.source.id,
-                target: typeof link.target === 'string' ? link.target : link.target.id,
-                type: linkType,
-                strength: linkType === 'definition' ? 0.7 : 0.3
-            } as LayoutLink;
-        });
-
-        console.log('[LayoutService] Layout data transformed:', {
-            isPreviewMode: this.state.isPreviewMode,
-            nodes: layoutNodes.map(n => ({
-                id: n.id,
-                type: n.type,
-                isDetail: n.metadata.isDetail
-            }))
-        });
-        
-        return { nodes: layoutNodes, links: layoutLinks };
     }
 
     private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" {
@@ -142,65 +103,136 @@ export class LayoutService {
         return 0;
     }
 
-    public updateLayout(graphNodes: GraphNode[], graphLinks: GraphEdge[] = [], forceSkipAnimation: boolean = false): Map<string, NodePosition> {
-        console.log('[LayoutService] UpdateLayout called with:', {
-            nodeCount: graphNodes.length,
-            linkCount: graphLinks.length,
-            viewType: this._viewType,
-            currentStrategy: this.layoutStrategy.constructor.name,
-            forceSkipAnimation
+    private transformToLayoutFormat(data: GraphData): {
+        nodes: LayoutNode[];
+        links: LayoutLink[];
+    } {
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Transform] Starting data transformation`, {
+            inputNodes: data.nodes.length,
+            inputLinks: data.links?.length || 0
         });
 
-        const layoutData = this.transformToLayoutFormat({ 
-            nodes: graphNodes, 
-            links: graphLinks 
+        const layoutNodes = data.nodes.map(node => {
+            const nodeType = (node.type === 'definition' ? 'definition' :
+                            node.type === 'word' ? 'word' :
+                            node.type === 'navigation' ? 'navigation' :
+                            'central') as NodeType | 'central';
+
+            const isDetail = node.type === 'word' ? 
+                !this.state.isPreviewMode :
+                this.state.definitionModes.get(node.id) === 'detail';
+
+            return {
+                id: node.id,
+                type: nodeType,
+                subtype: node.type === 'definition' 
+                    ? (node.group === 'live-definition' ? 'live' : 'alternative')
+                    : undefined,
+                metadata: {
+                    group: this.getLayoutGroup(node),
+                    fixed: node.group === 'central',
+                    isDetail,
+                    votes: node.type === 'definition' ? this.getNodeVotes(node) : undefined
+                }
+            } as LayoutNode;
         });
 
-        console.log('[LayoutService] Updating layout strategy with transformed data:', {
-            nodeCount: layoutData.nodes.length,
-            linkCount: layoutData.links.length,
-            nodes: layoutData.nodes.map(n => ({
-                id: n.id,
-                type: n.type,
-                isDetail: n.metadata.isDetail
-            }))
-        });
-        
-        this.layoutStrategy.updateData(layoutData.nodes, layoutData.links, forceSkipAnimation);
+        const layoutLinks = (data.links || []).map(link => {
+            const linkType = link.type === 'live' ? 'definition' : 'navigation';
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
 
-        // Get positions from simulation
-        const simNodes = this.layoutStrategy.getSimulation().nodes();
-        const positions = new Map(simNodes.map(node => [
-            node.id,
-            {
-                x: node.x ?? 0,
-                y: node.y ?? 0,
-                scale: 1,
-                svgTransform: `translate(${node.x ?? 0}, ${node.y ?? 0})`
-            }
-        ]));
-
-        console.log('[LayoutService] Layout positions calculated:', {
-            positionCount: positions.size
+            return {
+                source: sourceId,
+                target: targetId,
+                type: linkType,
+                strength: linkType === 'definition' ? 0.7 : 0.3
+            } as LayoutLink;
         });
 
-        return positions;
+        return { nodes: layoutNodes, links: layoutLinks };
     }
 
-    public updatePreviewMode(isPreview: boolean): void {
-        if (this.state.isPreviewMode !== isPreview) {
-            console.log('[LayoutService] Preview mode changed:', { 
-                old: this.state.isPreviewMode, 
-                new: isPreview
+    // Updated method in LayoutService.ts
+public updateLayout(
+    graphNodes: GraphNode[], 
+    graphLinks: GraphLink[] = [], 
+    skipAnimation: boolean = false
+): Map<string, NodePosition> {
+    console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Starting layout update`, {
+        nodeCount: graphNodes.length,
+        linkCount: graphLinks.length,
+        skipAnimation
+    });
+
+    const layoutData = this.transformToLayoutFormat({ 
+        nodes: graphNodes, 
+        links: graphLinks 
+    });
+
+    // Apply the layout update
+    this.layoutStrategy.updateData(layoutData.nodes, layoutData.links, skipAnimation);
+
+    // Get positions from simulation
+    const simNodes = this.layoutStrategy.getSimulation().nodes();
+    const positions = new Map(simNodes.map(node => {
+        const simNode = layoutData.nodes.find(n => n.id === node.id);
+        const graphNode = graphNodes.find(n => n.id === node.id);
+        
+        if (!simNode || !graphNode) {
+            console.warn(`[LAYOUT-SERVICE:${this.serviceId}:Position] Node not found`, {
+                id: node.id
             });
-            
+            return [node.id, {
+                x: 0,
+                y: 0,
+                scale: 1,
+                svgTransform: 'translate(0, 0)'
+            }];
+        }
+        
+        // Ensure precise positioning by rounding coordinates
+        const x = Math.round(node.x ?? 0);
+        const y = Math.round(node.y ?? 0);
+
+        // Create consistent transform
+        const position = {
+            x,
+            y,
+            scale: 1,
+            svgTransform: `translate(${x}, ${y})`
+        };
+
+        // Debug position information
+        if (node.metadata.fixed) {
+            console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Position] Central node position`, {
+                nodeId: node.id,
+                type: node.type,
+                rawPosition: { x: node.x, y: node.y },
+                finalPosition: position,
+                isFixed: node.metadata.fixed,
+                fixedPosition: { fx: node.fx, fy: node.fy }
+            });
+        }
+
+        return [node.id, position];
+    }));
+
+    return positions;
+}
+
+    public updatePreviewMode(isPreview: boolean): void {
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Preview mode update`, { 
+            from: this.state.isPreviewMode,
+            to: isPreview
+        });
+
+        if (this.state.isPreviewMode !== isPreview) {
             this.state.isPreviewMode = isPreview;
             
-            // Get current simulation state
             const currentNodes = this.layoutStrategy.getSimulation().nodes();
             const currentLinks = (this.layoutStrategy.getSimulation().force('link') as d3.ForceLink<LayoutNode, LayoutLink>)?.links() || [];
             
-            // Update isDetail metadata for word node
             const updatedNodes = currentNodes.map(node => {
                 if (node.type === 'word' || node.metadata.fixed) {
                     return {
@@ -214,30 +246,24 @@ export class LayoutService {
                 return node;
             });
             
-            // Update the layout with both nodes and links
             this.layoutStrategy.updateData(updatedNodes, currentLinks);
         }
     }
 
     public updateDefinitionModes(modes: Map<string, 'preview' | 'detail'>): void {
-        const hadChanges = Array.from(modes.entries()).some(
-            ([nodeId, mode]) => this.state.definitionModes.get(nodeId) !== mode
-        );
-        
-        if (hadChanges) {
-            console.log('[LayoutService] Definition modes changed:', { 
-                old: Object.fromEntries(this.state.definitionModes),
-                new: Object.fromEntries(modes)
-            });
-            
-            // Update internal state
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Definition modes update`, {
+            modeCount: modes.size
+        });
+
+        const changes = Array.from(modes.entries())
+            .filter(([nodeId, mode]) => this.state.definitionModes.get(nodeId) !== mode);
+
+        if (changes.length > 0) {
             this.state.definitionModes = new Map(modes);
             
-            // Get current layout data
             const currentNodes = this.layoutStrategy.getSimulation().nodes();
             const currentLinks = (this.layoutStrategy.getSimulation().force('link') as d3.ForceLink<LayoutNode, LayoutLink>)?.links() || [];
             
-            // Create updated layout nodes with new metadata
             const updatedNodes = currentNodes.map(node => ({
                 ...node,
                 metadata: {
@@ -248,30 +274,24 @@ export class LayoutService {
                 }
             }));
             
-            console.log('[LayoutService] Updating layout with mode changes:', {
-                nodeCount: updatedNodes.length,
-                modeChanges: Array.from(modes.entries()),
-                updatedNodes: updatedNodes.map(n => ({
-                    id: n.id,
-                    type: n.type,
-                    isDetail: n.metadata.isDetail
-                }))
-            });
-            
-            // Update layout with new node states
             this.layoutStrategy.updateData(updatedNodes, currentLinks);
         }
     }
 
     public resize(width: number, height: number): void {
-        console.log('[LayoutService] Resizing layout:', { width, height });
-        this._width = width;
-        this._height = height;
-        this.layoutStrategy.updateDimensions(width, height);
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Dimensions update`, { 
+            from: { width: this._width, height: this._height },
+            to: { width: COORDINATE_SPACE.WORLD.WIDTH, height: COORDINATE_SPACE.WORLD.HEIGHT }
+        });
+
+        // Always maintain world space dimensions
+        this._width = COORDINATE_SPACE.WORLD.WIDTH;
+        this._height = COORDINATE_SPACE.WORLD.HEIGHT;
+        this.layoutStrategy.updateDimensions(this._width, this._height);
     }
 
     public stop(): void {
-        console.log('[LayoutService] Stopping');
+        console.debug(`[LAYOUT-SERVICE:${this.serviceId}:Lifecycle] Stopping service`);
         this.layoutStrategy.stop();
     }
 

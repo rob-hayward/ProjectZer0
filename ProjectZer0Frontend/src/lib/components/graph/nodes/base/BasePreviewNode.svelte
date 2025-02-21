@@ -1,3 +1,4 @@
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BasePreviewNode.svelte -->
 <script lang="ts">
     import type { NodeStyle } from '$lib/types/nodes';
     import BaseNode from './BaseNode.svelte';

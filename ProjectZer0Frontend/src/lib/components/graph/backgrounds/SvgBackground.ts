@@ -2,6 +2,7 @@
 import * as d3 from 'd3';
 import type { BackgroundConfig } from '$lib/types/graph/background';
 import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
+import { COORDINATE_SPACE } from '$lib/constants/graph';
 
 interface NetworkNode {
     id: string;
@@ -37,8 +38,12 @@ export class SvgBackground {
     ) {
         this.config = { ...DEFAULT_BACKGROUND_CONFIG, ...config };
         const rootGroup = d3.select(container);
-        this.width = width * this.config.viewportScale;
-        this.height = height * this.config.viewportScale;
+
+        // Use world dimensions
+        this.width = COORDINATE_SPACE.WORLD.WIDTH;
+        this.height = COORDINATE_SPACE.WORLD.HEIGHT;
+
+        // Calculate center point
         const halfWidth = this.width / 2;
         const halfHeight = this.height / 2;
 
@@ -66,7 +71,7 @@ export class SvgBackground {
 
         filter.append('feGaussianBlur')
             .attr('in', 'SourceGraphic')
-            .attr('stdDeviation', '3')
+            .attr('stdDeviation', '8')  // Increased blur for larger space
             .attr('result', 'blur');
 
         filter.append('feColorMatrix')
@@ -101,12 +106,15 @@ export class SvgBackground {
     }
 
     private createInitialNodes(): NetworkNode[] {
+        const spreadFactor = 0.9; // Use 90% of the space to keep nodes away from edges
+        const scaledVelocity = this.config.animation.baseVelocity * (this.width / 20000); // Scale velocity to world size
+
         return Array.from({ length: this.config.nodeCount }, (_, i) => ({
             id: `node-${i}`,
-            x: (Math.random() - 0.5) * this.width,
-            y: (Math.random() - 0.5) * this.height,
-            vx: (Math.random() - 0.5) * this.config.animation.baseVelocity,
-            vy: (Math.random() - 0.5) * this.config.animation.baseVelocity,
+            x: (Math.random() - 0.5) * this.width * spreadFactor,
+            y: (Math.random() - 0.5) * this.height * spreadFactor,
+            vx: (Math.random() - 0.5) * scaledVelocity,
+            vy: (Math.random() - 0.5) * scaledVelocity,
             connections: this.generateConnections(i),
             styleIndex: Math.floor(Math.random() * this.config.nodeStyles.length)
         }));
@@ -116,13 +124,16 @@ export class SvgBackground {
         const connectionCount = this.config.minConnections + 
             Math.floor(Math.random() * (this.config.maxConnections - this.config.minConnections + 1));
         
-        return Array.from({ length: connectionCount }, () => {
+        const connections = new Set<string>();
+        while (connections.size < connectionCount) {
             let targetIndex;
             do {
                 targetIndex = Math.floor(Math.random() * this.config.nodeCount);
             } while (targetIndex === nodeIndex);
-            return `node-${targetIndex}`;
-        });
+            connections.add(`node-${targetIndex}`);
+        }
+        
+        return Array.from(connections);
     }
 
     private initializeNodes(): void {
@@ -141,11 +152,12 @@ export class SvgBackground {
         const halfWidth = this.width / 2;
         const halfHeight = this.height / 2;
         const moveConfig = this.config.animation;
+        const scaledDrift = moveConfig.driftForce * (this.width / 20000); // Scale drift to world size
 
         this.nodes.forEach(node => {
             // Add small random adjustments to velocity
-            node.vx += (Math.random() - 0.5) * moveConfig.driftForce;
-            node.vy += (Math.random() - 0.5) * moveConfig.driftForce;
+            node.vx += (Math.random() - 0.5) * scaledDrift;
+            node.vy += (Math.random() - 0.5) * scaledDrift;
 
             // Update position
             node.x += node.vx * moveConfig.velocityScale;
@@ -158,19 +170,12 @@ export class SvgBackground {
                 node.vy = (node.vy / speed) * moveConfig.maxSpeed;
             }
 
-            // Smooth wrapping at boundaries
-            if (node.x < -halfWidth - 100) {
-                node.x = halfWidth + 98;
-            }
-            if (node.x > halfWidth + 100) {
-                node.x = -halfWidth - 98;
-            }
-            if (node.y < -halfHeight - 100) {
-                node.y = halfHeight + 98;
-            }
-            if (node.y > halfHeight + 100) {
-                node.y = -halfHeight - 98;
-            }
+            // Smooth wrapping at boundaries with buffer
+            const buffer = this.width * 0.05; // 5% buffer zone
+            if (node.x < -halfWidth - buffer) node.x = halfWidth + buffer - 10;
+            if (node.x > halfWidth + buffer) node.x = -halfWidth - buffer + 10;
+            if (node.y < -halfHeight - buffer) node.y = halfHeight + buffer - 10;
+            if (node.y > halfHeight + buffer) node.y = -halfHeight - buffer + 10;
         });
     }
 
@@ -240,8 +245,9 @@ export class SvgBackground {
     }
 
     public resize(width: number, height: number): void {
-        this.width = width * this.config.viewportScale;
-        this.height = height * this.config.viewportScale;
+        // Maintain world space dimensions
+        this.width = COORDINATE_SPACE.WORLD.WIDTH;
+        this.height = COORDINATE_SPACE.WORLD.HEIGHT;
         const halfWidth = this.width / 2;
         const halfHeight = this.height / 2;
 

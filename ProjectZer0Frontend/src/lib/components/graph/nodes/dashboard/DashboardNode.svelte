@@ -3,7 +3,8 @@
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
     import type { UserProfile } from '$lib/types/user';
     import type { UserActivity } from '$lib/services/userActivity';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { COORDINATE_SPACE } from '../../../../constants/graph';
 
     export let node: UserProfile;
     export let userActivity: UserActivity | undefined;
@@ -67,17 +68,20 @@
     );
 
     const style = {
-        previewSize: NODE_CONSTANTS.SIZES.DASHBOARD.size,
-        detailSize: NODE_CONSTANTS.SIZES.DASHBOARD.size,
+        previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
+        detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
         colors: NODE_CONSTANTS.COLORS.DASHBOARD,
-        padding: NODE_CONSTANTS.PADDING,
+        padding: {
+            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+        },
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
         stroke: NODE_CONSTANTS.STROKE
     };
 </script>
 
 <BaseSvgDetailNode {style}>
-    <svelte:fragment let:radius let:isHovered>
+    <svelte:fragment let:radius>
         <!-- Title -->
         <text 
             dy={-radius + 120} 

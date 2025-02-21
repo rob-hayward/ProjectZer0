@@ -2,7 +2,7 @@
 <script lang="ts">
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
     import type { UserProfile } from '$lib/types/user';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import { createEventDispatcher } from 'svelte';
     import { updateUserProfile } from '$lib/services/userProfile';
     import { goto } from '$app/navigation';

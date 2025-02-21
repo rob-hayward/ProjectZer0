@@ -1,6 +1,6 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseNode.svelte -->
+<!-- src/lib/components/graph/nodes/base/BaseNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     import type { NodeStyle } from '$lib/types/nodes';
     
     export let transform: string;
@@ -9,6 +9,7 @@
     const radius = style.previewSize / 2;
     const filterId = `glow-${Math.random().toString(36).slice(2)}`;
     const gradientId = `gradient-${Math.random().toString(36).slice(2)}`;
+    const nodeId = `node-${Math.random().toString(36).slice(2)}`;
     
     $: highlightColor = style.highlightColor || '#FFFFFF';
  
@@ -19,6 +20,20 @@
     function handleClick() {
         dispatch('click');
     }
+
+    onMount(() => {
+        const transformMatch = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+        if (transformMatch) {
+            console.debug(`[NODE-DEBUG:${nodeId}] Node mounted with transform:`, {
+                rawTransform: transform,
+                x: parseFloat(transformMatch[1]),
+                y: parseFloat(transformMatch[2]),
+                radius
+            });
+        } else {
+            console.debug(`[NODE-DEBUG:${nodeId}] Node mounted with invalid transform:`, transform);
+        }
+    });
 </script>
  
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -26,6 +41,7 @@
 <g 
     class="base-node"
     {transform}
+    data-node-id={nodeId}
     on:click={handleClick}
 >
     <defs>
@@ -60,6 +76,15 @@
             <stop offset="100%" stop-color={highlightColor} stop-opacity="0.1"/>
         </radialGradient>
     </defs>
+
+    <!-- Debug center point marker -->
+    <circle
+        cx="0"
+        cy="0"
+        r="4"
+        fill="red"
+        class="debug-center"
+    />
  
     <!-- Base layers for depth -->
     <circle
@@ -102,7 +127,12 @@
  
 <style>
     .base-node {
-        transform-origin: center;
+        transform-origin: center !important;
+    }
+
+    .debug-center {
+        pointer-events: none;
+        opacity: 0.7;
     }
     
     /* Base layers for subtle depth effect */

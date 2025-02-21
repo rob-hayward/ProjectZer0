@@ -5,7 +5,8 @@
     import type { UserProfile } from '$lib/types/user';
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { COORDINATE_SPACE } from '../../../../constants/graph';
     import BaseSvgNode from '../base/BaseNode.svelte';
 
     export let data: Definition;
@@ -21,12 +22,13 @@
     let creatorDetails: UserProfile | null = null;
 
     $: style = {
-        previewSize: type === 'live' 
-            ? NODE_CONSTANTS.SIZES.DEFINITION.live.preview 
-            : NODE_CONSTANTS.SIZES.DEFINITION.alternative.preview,
-        detailSize: NODE_CONSTANTS.SIZES.DEFINITION.live.detail,
+        previewSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW,
+        detailSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL,
         colors: NODE_CONSTANTS.COLORS.DEFINITION[type],
-        padding: NODE_CONSTANTS.PADDING,
+        padding: {
+            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+        },
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
         stroke: NODE_CONSTANTS.STROKE
     };

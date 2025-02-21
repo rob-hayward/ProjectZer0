@@ -1,19 +1,20 @@
 // src/lib/components/graph/backgrounds/backgroundConfig.ts
 import { COLORS } from '$lib/constants/colors';
+import { COORDINATE_SPACE } from '$lib/constants/graph';
 
 // Base style constants
 const NODE_STYLE = {
-    RADIUS: 3,
-    GLOW_RADIUS: 5,
-    GLOW_OPACITY: 0.25
+    RADIUS: 100,             // Much larger for visibility in world space
+    GLOW_RADIUS: 200,        // Larger glow for better effect
+    GLOW_OPACITY: 1.4        // Increased opacity for visibility
 } as const;
 
-// Simple movement constants based on the reference example
+// Movement constants scaled for world space
 const MOVEMENT_STYLE = {
-    BASE_VELOCITY: 0.15,      // Initial velocity range (-0.15 to 0.15)
-    VELOCITY_SCALE: 0.5,      // Scale factor for velocity (like the 0.5 in the reference)
-    DRIFT_FORCE: 0.008,       // Small random adjustments
-    MAX_SPEED: 0.25          // Maximum allowed speed
+    BASE_VELOCITY: 100,      // Increased for visible movement in large space
+    VELOCITY_SCALE: 1.2,     // Adjusted for smooth but noticeable movement
+    DRIFT_FORCE: 10,         // Increased for more dynamic movement
+    MAX_SPEED: 200          // Increased to allow more movement
 } as const;
 
 export interface BackgroundNodeStyle {
@@ -60,14 +61,14 @@ export interface BackgroundConfig {
 }
 
 export const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
-    nodeCount: 35,
-    viewportScale: 1.5,
-    minConnections: 2,
-    maxConnections: 4,
+    nodeCount: 3000,          // More nodes for better coverage
+    viewportScale: 1,        // Keep at 1 since we're using world space
+    minConnections: 8,       // More connections for denser network
+    maxConnections: 8,       // More maximum connections
     viewport: {
         origin: {
-            x: -0.5,
-            y: -0.5
+            x: -COORDINATE_SPACE.WORLD.WIDTH / 2,
+            y: -COORDINATE_SPACE.WORLD.HEIGHT / 2
         },
         scale: 1,
         preserveAspectRatio: 'xMidYMid meet'
@@ -102,10 +103,10 @@ export const DEFAULT_BACKGROUND_CONFIG: BackgroundConfig = {
         }
     ],
     edgeStyle: {
-        width: 1.2,
+        width: 50,           // Much wider edges for visibility
         color: COLORS.GRAPH.EDGE.DEFAULT,
         glowColor: COLORS.UI.TEXT.TERTIARY,
-        glowWidth: 1,
-        opacity: 0.08
+        glowWidth: 25,       // Wider glow
+        opacity: 1.15        // Slightly increased opacity
     }
 };

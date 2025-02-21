@@ -1,21 +1,27 @@
 // src/lib/services/graph/simulation/layouts/common/NavigationNodeLayout.ts
 import * as d3 from 'd3';
 import type { LayoutNode, LayoutLink } from '../../../../../types/graph/layout';
-import { LAYOUTS, SIMULATION } from '../../../../../constants/graph';
-import { NODE_CONSTANTS } from '../../../../../constants/graph/nodes';
+import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../../../constants/graph';
 
 export class NavigationNodeLayout {
     private static calculateNavigationRadius(centralNode: LayoutNode, getNodeSize: (node: LayoutNode) => number): number {
         const centralSize = getNodeSize(centralNode);
-        const navSize = NODE_CONSTANTS.SIZES.NAVIGATION.size;
-        const baseRadius = (centralSize / 2) + (navSize / 2) + LAYOUTS.NAVIGATION.RADIAL.BASE_PADDING;
+        const navSize = COORDINATE_SPACE.NODES.SIZES.NAVIGATION;
         
-        // Apply multiplier based on detail mode
-        const multiplier = centralNode.metadata.isDetail ? 
-            LAYOUTS.NAVIGATION.RADIAL.MULTIPLIERS.DETAIL : 
-            LAYOUTS.NAVIGATION.RADIAL.MULTIPLIERS.PREVIEW;
+        // Use the constants directly with no multipliers
+        // NAVIGATION.RING_DISTANCE represents the desired distance from central node perimeter
+        // to navigation node perimeter
+        const perimeterDistance = COORDINATE_SPACE.LAYOUT.NAVIGATION.RING_DISTANCE || 40;
+        const baseRadius = (centralSize / 2) + perimeterDistance + (navSize / 2);
 
-        return baseRadius * multiplier;
+        console.debug('[NAV-NODE-LAYOUT] Calculated radius:', {
+            centralSize,
+            navSize,
+            perimeterDistance,
+            baseRadius
+        });
+
+        return baseRadius;
     }
 
     static initializeNavigationNodes(
@@ -44,6 +50,13 @@ export class NavigationNodeLayout {
                 const radius = this.calculateNavigationRadius(centralNode, getNodeSize);
                 node.x = Math.cos(angle) * radius;
                 node.y = Math.sin(angle) * radius;
+                
+                console.debug('[NAV-NODE-LAYOUT] Positioned navigation node:', {
+                    nodeId: node.id,
+                    radius,
+                    angle,
+                    position: { x: node.x, y: node.y }
+                });
             }
         });
     }
@@ -61,26 +74,26 @@ export class NavigationNodeLayout {
                 this.calculateNavigationRadius(centralNode, getNodeSize) : 0,
             0,
             0
-        ).strength(LAYOUTS.NAVIGATION.FORCE.STRENGTH);
+        ).strength(FORCE_SIMULATION.SIMULATION.BASE.VELOCITY_DECAY);
 
         // Repulsion between navigation nodes
         const manyBody = d3.forceManyBody<LayoutNode>()
             .strength(node => 
                 node.type === 'navigation' ? 
-                LAYOUTS.NAVIGATION.FORCE.CHARGE : 0
+                COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.STRENGTH.NAVIGATION : 0
             )
-            .distanceMin(SIMULATION.FORCES.CHARGE.DISTANCE.MIN)
-            .distanceMax(SIMULATION.FORCES.CHARGE.DISTANCE.MAX);
+            .distanceMin(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MIN)
+            .distanceMax(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MAX);
 
         // Collision prevention for navigation nodes
         const collision = d3.forceCollide<LayoutNode>()
             .radius(node => {
                 if (node.type !== 'navigation') return 0;
-                const baseRadius = NODE_CONSTANTS.SIZES.NAVIGATION.size / 2;
-                return baseRadius + LAYOUTS.NAVIGATION.FORCE.COLLISION_PADDING;
+                const baseRadius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
+                return baseRadius + COORDINATE_SPACE.NODES.PADDING.COLLISION.NAVIGATION;
             })
-            .strength(SIMULATION.FORCES.COLLISION.STRENGTH)
-            .iterations(SIMULATION.FORCES.COLLISION.ITERATIONS);
+            .strength(FORCE_SIMULATION.SIMULATION.BASE.VELOCITY_DECAY)
+            .iterations(6);
 
         // Apply forces to simulation
         simulation

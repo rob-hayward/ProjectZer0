@@ -3,7 +3,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { Definition, NodeStyle, VoteStatus } from '$lib/types/nodes';
     import type { UserProfile } from '$lib/types/user';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     import { getDisplayName } from '../utils/nodeUtils';

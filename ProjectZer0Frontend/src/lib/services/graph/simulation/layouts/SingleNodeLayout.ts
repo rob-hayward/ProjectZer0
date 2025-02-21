@@ -4,15 +4,14 @@ import { BaseLayoutStrategy } from './BaseLayoutStrategy';
 import { NavigationNodeLayout } from './common/NavigationNodeLayout';
 import type { LayoutNode, LayoutLink } from '../../../../types/graph/layout';
 import type { ViewType } from '../../../../types/graph/core';
-import { LAYOUTS, DIMENSIONS } from '../../../../constants/graph';
-import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../../constants/graph';
 
 export class SingleNodeLayout extends BaseLayoutStrategy {
     constructor(width: number, height: number, viewType: ViewType) {
-        super(DIMENSIONS.WIDTH, DIMENSIONS.HEIGHT, viewType);
+        super(COORDINATE_SPACE.WORLD.WIDTH, COORDINATE_SPACE.WORLD.HEIGHT, viewType);
         console.log('SingleNodeLayout constructed:', { 
-            width: DIMENSIONS.WIDTH, 
-            height: DIMENSIONS.HEIGHT, 
+            width: COORDINATE_SPACE.WORLD.WIDTH, 
+            height: COORDINATE_SPACE.WORLD.HEIGHT, 
             viewType 
         });
     }
@@ -41,35 +40,33 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
 
         NavigationNodeLayout.configureNavigationForces(this.simulation, this.getNodeSize.bind(this));
 
-        const { FORCES } = LAYOUTS.SINGLE_NODE;
-
         // Configure central node forces
         const centralCharge = d3.forceManyBody<LayoutNode>()
             .strength(node => node.type === 'central' ? 
-                FORCES.CENTRAL.CHARGE.STRENGTH : 0)
-            .distanceMin(FORCES.CENTRAL.CHARGE.DISTANCE.MIN)
-            .distanceMax(FORCES.CENTRAL.CHARGE.DISTANCE.MAX);
+                COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.STRENGTH.WORD : 0)
+            .distanceMin(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MIN)
+            .distanceMax(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MAX);
 
         const collision = d3.forceCollide<LayoutNode>()
             .radius(node => {
                 if (node.type !== 'central') return 0;
                 const baseRadius = this.getNodeSize(node) / 2;
-                return baseRadius + FORCES.CENTRAL.COLLISION.PADDING;
+                return baseRadius + COORDINATE_SPACE.NODES.PADDING.COLLISION.BASE;
             })
-            .strength(FORCES.CENTRAL.COLLISION.STRENGTH)
-            .iterations(FORCES.CENTRAL.COLLISION.ITERATIONS);
+            .strength(FORCE_SIMULATION.SIMULATION.BASE.VELOCITY_DECAY)
+            .iterations(6);
 
         this.simulation
             .force('centralCharge', centralCharge)
             .force('centralCollision', collision)
-            .alpha(1)
+            .alpha(FORCE_SIMULATION.SIMULATION.BASE.ALPHA_VALUES.START)
             .restart();
     }
 
     private getNodeSize(node: LayoutNode): number {
         if (node.type === 'central') {
-            return NODE_CONSTANTS.SIZES.DASHBOARD.size;
+            return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL;
         }
-        return NODE_CONSTANTS.SIZES.NAVIGATION.size;
+        return COORDINATE_SPACE.NODES.SIZES.NAVIGATION;
     }
 }

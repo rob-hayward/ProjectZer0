@@ -1,4 +1,5 @@
 // src/lib/types/graph/core.ts
+
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { UserProfile } from '../user';
 import type { NavigationOption } from '../navigation';
@@ -9,26 +10,8 @@ import type { WordNode as WordNodeData } from '../nodes';
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network';
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition';
-export type EdgeType = 'live' | 'alternative';
-
-// Page data interface
-export interface GraphPageData {
-    view: ViewType;
-    viewType: ViewType;
-    wordData: WordNodeData | null;
-    nodes?: GraphNode[];
-    links?: GraphEdge[];
-}
-
-// Layout configuration
-export interface LayoutConfig {
-    centerNode: boolean;
-    navigationRadius: {
-        preview: number;
-        detail: number;
-    };
-    forceConfig: Record<string, any>;
-}
+export type LinkType = 'live' | 'alternative';
+export type NodeMode = 'preview' | 'detail';
 
 // Position interface for rendering
 export interface NodePosition {
@@ -36,9 +19,6 @@ export interface NodePosition {
     y: number;
     scale: number;
     svgTransform: string;
-    angle?: number;
-    distanceFromCenter?: number;
-    renderOrder?: number;
 }
 
 // Core node interface
@@ -47,20 +27,30 @@ export interface GraphNode extends SimulationNodeDatum {
     type: NodeType;
     data: UserProfile | NavigationOption | WordNodeData | Definition;
     group: NodeGroup;
+    mode?: NodeMode;
 }
 
-// Core edge interface
-export interface GraphEdge {
+// Core link interface
+export interface GraphLink extends SimulationLinkDatum<GraphNode> {
     source: string | GraphNode;
     target: string | GraphNode;
-    type: EdgeType;
-    value: number;
+    type: LinkType;
+    value?: number;  // Optional as it's layout-specific
 }
 
 // Main graph data structure
 export interface GraphData {
     nodes: GraphNode[];
-    links: GraphEdge[];
+    links: GraphLink[];
+}
+
+// Page data interface
+export interface GraphPageData {
+    view: ViewType;
+    viewType: ViewType;
+    wordData: WordNodeData | null;
+    nodes?: GraphNode[];
+    links?: GraphLink[];
 }
 
 // Type guards
@@ -103,8 +93,8 @@ export const isAlternativeDefinitionNode = (node: GraphNode): boolean =>
 export const isGraphNodeReference = (value: string | GraphNode): value is GraphNode => 
     typeof value === 'object' && value !== null && 'id' in value;
 
-export const isLiveEdge = (edge: GraphEdge): boolean => edge.type === 'live';
-export const isAlternativeEdge = (edge: GraphEdge): boolean => edge.type === 'alternative';
+export const isLiveLink = (link: GraphLink): boolean => link.type === 'live';
+export const isAlternativeLink = (link: GraphLink): boolean => link.type === 'alternative';
 
 // Data preparation utility
 export function prepareGraphData(wordNode: WordNodeData): GraphData {
@@ -123,11 +113,10 @@ export function prepareGraphData(wordNode: WordNodeData): GraphData {
         }))
     ];
 
-    const links: GraphEdge[] = wordNode.definitions.map((def, index) => ({
+    const links: GraphLink[] = wordNode.definitions.map((def, index) => ({
         source: wordNode.id,
         target: def.id,
-        type: index === 0 ? 'live' : 'alternative',
-        value: 1
+        type: index === 0 ? 'live' : 'alternative'
     }));
 
     return { nodes, links };

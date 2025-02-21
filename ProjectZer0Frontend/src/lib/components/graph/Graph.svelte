@@ -8,12 +8,10 @@
     import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
     import { SvgBackground } from './backgrounds/SvgBackground';
     import GraphLayout from './layouts/GraphLayout.svelte';
-    import { DIMENSIONS } from '$lib/constants/graph';
+    import { COORDINATE_SPACE } from '$lib/constants/graph';
 
     // Props
     export let data: GraphData;
-    export let width = DIMENSIONS.WIDTH;
-    export let height = DIMENSIONS.HEIGHT;
     export let viewType: ViewType;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
     export let isPreviewMode = false;
@@ -32,41 +30,36 @@
     let background: SvgBackground | null = null;
     let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
-    let dimensions = {
-        width,
-        height,
-        viewBox: `${-width/2} ${-height/2} ${width} ${height}`
+    let containerDimensions = {
+        width: 0,
+        height: 0
+    };
+
+    // Constant world dimensions from COORDINATE_SPACE
+    const worldDimensions = {
+        width: COORDINATE_SPACE.WORLD.WIDTH,
+        height: COORDINATE_SPACE.WORLD.HEIGHT,
+        viewBox: `${-COORDINATE_SPACE.WORLD.WIDTH/2} ${-COORDINATE_SPACE.WORLD.HEIGHT/2} ${COORDINATE_SPACE.WORLD.WIDTH} ${COORDINATE_SPACE.WORLD.HEIGHT}`
     };
 
     const mergedConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
     
-    function updateDimensions() {
+    function updateContainerDimensions() {
         if (!container) return;
         
         const rect = container.getBoundingClientRect();
-        const containerWidth = Math.max(rect.width, 1000);
-        const containerHeight = Math.max(rect.height, 800);
+        containerDimensions = {
+            width: rect.width,
+            height: rect.height
+        };
         
-        if (dimensions.width !== containerWidth || dimensions.height !== containerHeight) {
-            dimensions = {
-                width: containerWidth as typeof DIMENSIONS.WIDTH,
-                height: containerHeight as typeof DIMENSIONS.HEIGHT,
-                viewBox: `${-containerWidth/2} ${-containerHeight/2} ${containerWidth} ${containerHeight}`
-            };
-            
-            if (background) {
-                background.resize(containerWidth, containerHeight);
-            }
-
-            console.log('[Graph] Dimensions updated:', dimensions);
+        if (background) {
+            background.resize(rect.width, rect.height);
         }
     }
 
     function initializeBackground() {
-        if (!backgroundGroup) {
-            console.log('[Graph] No background group found');
-            return;
-        }
+        if (!backgroundGroup) return;
         
         if (background) {
             background.destroy();
@@ -75,8 +68,8 @@
         try {
             background = new SvgBackground(
                 backgroundGroup, 
-                dimensions.width, 
-                dimensions.height,
+                containerDimensions.width, 
+                containerDimensions.height,
                 mergedConfig
             );
             background.start();
@@ -88,22 +81,20 @@
     function initializeZoom() {
         if (!svg || !contentGroup) return;
 
-        // Initialize with identity transform since viewBox is already centered
-        initialTransform = d3.zoomIdentity.scale(1);
+        initialTransform = d3.zoomIdentity
+            .scale(COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM);
 
         const zoom = d3.zoom<SVGSVGElement, unknown>()
-            .scaleExtent([0.1, 4])
+            .scaleExtent([
+                COORDINATE_SPACE.WORLD.VIEW.MIN_ZOOM,
+                COORDINATE_SPACE.WORLD.VIEW.MAX_ZOOM
+            ])
             .on('zoom', (event) => {
-                d3.select(contentGroup)
-                    .attr('transform', event.transform.toString());
-                
-                console.log('[Graph] Zoom event:', {
-                    type: event.sourceEvent?.type,
-                    transform: event.transform
-                });
+                const transform = event.transform.toString();
+                d3.select(contentGroup).attr('transform', transform);
+                d3.select(backgroundGroup).attr('transform', transform);
             });
 
-        // Apply zoom behavior
         d3.select(svg)
             .call(zoom)
             .call(zoom.transform, initialTransform)
@@ -118,25 +109,16 @@
     }
 
     function handleModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.log('[Graph] Mode change event received:', event.detail);
-        
-        // Forward the event
         dispatch('modechange', event.detail);
     }
 
     onMount(() => {
-        console.log('[Graph] Mounting with data:', {
-            nodeCount: data.nodes.length,
-            linkCount: data.links?.length || 0,
-            viewType
-        });
-        
-        updateDimensions();
+        updateContainerDimensions();
         
         if (typeof window !== 'undefined') {
-            window.addEventListener('resize', updateDimensions);
+            window.addEventListener('resize', updateContainerDimensions);
             
-            if (dimensions.width && dimensions.height) {
+            if (containerDimensions.width && containerDimensions.height) {
                 initializeBackground();
                 initializeZoom();
             }
@@ -144,35 +126,25 @@
     });
 
     onDestroy(() => {
-        console.log('[Graph] Destroying');
         if (typeof window !== 'undefined') {
-            window.removeEventListener('resize', updateDimensions);
+            window.removeEventListener('resize', updateContainerDimensions);
         }
         if (background) {
             background.destroy();
         }
     });
 
-    // Reactive statements
-    $: if (data) {
-        console.log('[Graph] Data updated:', {
-            nodeCount: data.nodes.length,
-            linkCount: data.links?.length || 0,
-            viewType
-        });
-    }
-
-    $: if (dimensions.width && dimensions.height) {
-        updateDimensions();
+    $: if (containerDimensions.width && containerDimensions.height) {
+        updateContainerDimensions();
     }
 </script>
 
 <div bind:this={container} class="graph-container">
     <svg 
         bind:this={svg}
-        width={dimensions.width} 
-        height={dimensions.height}
-        viewBox={dimensions.viewBox}
+        width="100%"
+        height="100%"
+        viewBox={worldDimensions.viewBox}
         preserveAspectRatio="xMidYMid meet"
         class="graph-svg"
     >
@@ -197,8 +169,8 @@
             <GraphLayout
                 bind:this={graphLayout}
                 {data}
-                width={dimensions.width}
-                height={dimensions.height}
+                width={COORDINATE_SPACE.WORLD.WIDTH}
+                height={COORDINATE_SPACE.WORLD.HEIGHT}
                 {viewType}
                 {isPreviewMode}
                 on:modechange={handleModeChange}

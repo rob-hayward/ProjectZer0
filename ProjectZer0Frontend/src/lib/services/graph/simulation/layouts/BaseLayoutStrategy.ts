@@ -2,9 +2,9 @@
 import * as d3 from 'd3';
 import type { LayoutNode, LayoutLink } from '../../../../types/graph/layout';
 import type { ViewType } from '../../../../types/graph/core';
-import { SIMULATION, DIMENSIONS } from '../../../../constants/graph';
+import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../../constants/graph';
 
-export interface EdgePath {
+export interface LinkPath {
     path: string;
     sourcePoint: { x: number; y: number };
     targetPoint: { x: number; y: number };
@@ -15,35 +15,69 @@ export abstract class BaseLayoutStrategy {
     protected width: number;
     protected height: number;
     protected viewType: ViewType;
-    protected edgePaths: Map<string, EdgePath>;
+    protected linkPaths: Map<string, LinkPath>;
+    protected strategyId: string;
 
     constructor(width: number, height: number, viewType: ViewType) {
-        console.log('BaseLayoutStrategy constructor:', { width, height, viewType });
-        this.width = width;
-        this.height = height;
+        this.strategyId = Math.random().toString(36).substr(2, 9);
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Init] Constructor`, {
+            width: COORDINATE_SPACE.WORLD.WIDTH,
+            height: COORDINATE_SPACE.WORLD.HEIGHT,
+            viewType
+        });
+
+        this.width = COORDINATE_SPACE.WORLD.WIDTH;
+        this.height = COORDINATE_SPACE.WORLD.HEIGHT;
         this.viewType = viewType;
-        this.edgePaths = new Map();
+        this.linkPaths = new Map();
         this.simulation = this.initializeBaseSimulation();
     }
 
     protected initializeBaseSimulation(): d3.Simulation<LayoutNode, LayoutLink> {
-        return d3.forceSimulation<LayoutNode>()
-            .velocityDecay(SIMULATION.BASE.VELOCITY_DECAY)
-            .alphaDecay(SIMULATION.BASE.ALPHA_DECAY)
-            .alphaMin(SIMULATION.BASE.ALPHA_MIN);
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Init] Creating simulation`);
+
+        const simulation = d3.forceSimulation<LayoutNode>()
+            .velocityDecay(COORDINATE_SPACE.ANIMATION.VELOCITY_DECAY)
+            .alphaDecay(COORDINATE_SPACE.ANIMATION.ALPHA_DECAY)
+            .alphaMin(COORDINATE_SPACE.ANIMATION.ALPHA_MIN);
+
+        simulation.on('tick', () => {
+            if (simulation.alpha() < 0.3) {
+                console.debug(`[BASE-STRATEGY:${this.strategyId}:Simulation] Tick`, {
+                    alpha: simulation.alpha(),
+                    nodePositions: simulation.nodes()
+                        .filter(n => n.metadata.fixed)
+                        .map(n => ({
+                            id: n.id,
+                            type: n.type,
+                            position: { x: n.x ?? 0, y: n.y ?? 0 },
+                            fixed: { fx: n.fx, fy: n.fy }
+                        }))
+                });
+            }
+            this.updateLinkPaths();
+        });
+
+        return simulation;
     }
 
     protected getLinkId(link: LayoutLink): string {
-        const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-        const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+        const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+        const targetId = typeof link.target === 'string' ? link.target : link.target.id;
         return `${sourceId}-${targetId}`;
     }
 
-    protected calculateEdgePath(link: LayoutLink): EdgePath {
-        const source = link.source as LayoutNode;
-        const target = link.target as LayoutNode;
+    protected calculateLinkPath(link: LayoutLink): LinkPath {
+        const source = typeof link.source === 'object' ? link.source : 
+            this.simulation.nodes().find(n => n.id === link.source);
+        const target = typeof link.target === 'object' ? link.target :
+            this.simulation.nodes().find(n => n.id === link.target);
 
-        if (!source.x || !source.y || !target.x || !target.y) {
+        if (!source || !target) {
+            console.warn(`[BASE-STRATEGY:${this.strategyId}:Link] Missing node reference`, {
+                sourceId: typeof link.source === 'string' ? link.source : link.source.id,
+                targetId: typeof link.target === 'string' ? link.target : link.target.id
+            });
             return {
                 path: '',
                 sourcePoint: { x: 0, y: 0 },
@@ -51,41 +85,31 @@ export abstract class BaseLayoutStrategy {
             };
         }
 
-        const dx = target.x - source.x;
-        const dy = target.y - source.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        const sourceX = source.x ?? 0;
+        const sourceY = source.y ?? 0;
+        const targetX = target.x ?? 0;
+        const targetY = target.y ?? 0;
 
-        if (distance === 0) {
-            return {
-                path: '',
-                sourcePoint: { x: source.x, y: source.y },
-                targetPoint: { x: target.x, y: target.y }
-            };
-        }
-
-        const unitX = dx / distance;
-        const unitY = dy / distance;
-
-        const sourcePoint = {
-            x: source.x + (unitX * 0),
-            y: source.y + (unitY * 0)
+        return {
+            path: `M${sourceX},${sourceY}L${targetX},${targetY}`,
+            sourcePoint: { x: sourceX, y: sourceY },
+            targetPoint: { x: targetX, y: targetY }
         };
-        const targetPoint = {
-            x: target.x - (unitX * 0),
-            y: target.y - (unitY * 0)
-        };
+    }
 
-        const path = `M${sourcePoint.x},${sourcePoint.y}L${targetPoint.x},${targetPoint.y}`;
-
-        return { path, sourcePoint, targetPoint };
+    protected updateLinkPaths(): void {
+        const links = (this.simulation.force('link') as d3.ForceLink<LayoutNode, LayoutLink>)?.links() || [];
+        links.forEach(link => {
+            const linkId = this.getLinkId(link);
+            this.linkPaths.set(linkId, this.calculateLinkPath(link));
+        });
     }
 
     abstract initializeNodePositions(nodes: LayoutNode[]): void;
     abstract configureForces(): void;
 
     public updateData(nodes: LayoutNode[], links: LayoutLink[], skipAnimation: boolean = false): void {
-        console.log('BaseLayoutStrategy updateData called:', {
-            strategyType: this.constructor.name,
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Update] Updating data`, {
             nodeCount: nodes.length,
             linkCount: links.length,
             skipAnimation
@@ -105,33 +129,25 @@ export abstract class BaseLayoutStrategy {
         const linkForce = this.simulation.force('link') as d3.ForceLink<LayoutNode, LayoutLink>;
         if (linkForce && links.length > 0) {
             linkForce.links(links);
-            links.forEach(link => {
-                const edgeId = this.getLinkId(link);
-                this.edgePaths.set(edgeId, this.calculateEdgePath(link));
-            });
         }
 
-        this.simulation.on('tick', () => {
-            links.forEach(link => {
-                const edgeId = this.getLinkId(link);
-                this.edgePaths.set(edgeId, this.calculateEdgePath(link));
-            });
+        // Initial link path calculation
+        links.forEach(link => {
+            const linkId = this.getLinkId(link);
+            this.linkPaths.set(linkId, this.calculateLinkPath(link));
         });
 
-        if (skipAnimation) {
-            this.simulation.alpha(0);
-        } else {
-            this.simulation.alpha(SIMULATION.BASE.ALPHA_VALUES.START);
-        }
-
-        this.simulation.restart();
+        this.simulation
+            .alpha(skipAnimation ? 0 : FORCE_SIMULATION.SIMULATION.BASE.ALPHA_VALUES.START)
+            .restart();
     }
 
-    public getEdgePath(sourceId: string, targetId: string): EdgePath | undefined {
-        return this.edgePaths.get(`${sourceId}-${targetId}`);
+    public getLinkPath(sourceId: string, targetId: string): LinkPath | undefined {
+        return this.linkPaths.get(`${sourceId}-${targetId}`);
     }
 
     public stop(): void {
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Lifecycle] Stopping`);
         this.simulation.stop();
     }
 
@@ -140,12 +156,18 @@ export abstract class BaseLayoutStrategy {
     }
 
     public updateDimensions(width: number, height: number): void {
-        this.width = width;
-        this.height = height;
-        this.simulation.alpha(SIMULATION.BASE.ALPHA_VALUES.RESTART).restart();
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Lifecycle] Updating dimensions`, {
+            from: { width: this.width, height: this.height },
+            to: { width: COORDINATE_SPACE.WORLD.WIDTH, height: COORDINATE_SPACE.WORLD.HEIGHT }
+        });
+
+        this.width = COORDINATE_SPACE.WORLD.WIDTH;
+        this.height = COORDINATE_SPACE.WORLD.HEIGHT;
+        this.simulation.alpha(FORCE_SIMULATION.SIMULATION.BASE.ALPHA_VALUES.RESTART).restart();
     }
 
     public reheat(): void {
-        this.simulation.alpha(SIMULATION.BASE.ALPHA_VALUES.RESTART).restart();
+        console.debug(`[BASE-STRATEGY:${this.strategyId}:Lifecycle] Reheating simulation`);
+        this.simulation.alpha(FORCE_SIMULATION.SIMULATION.BASE.ALPHA_VALUES.RESTART).restart();
     }
 }

@@ -1,31 +1,7 @@
-// ProjectZer0Frontend/src/lib/constants/graph/NodeConstants.ts
-import { COLORS } from '$lib/constants/colors';
-
-export const CIRCLE_RADIUS = 290;
+// src/lib/constants/graph/nodes.ts
+import { COLORS } from '../colors';
 
 export const NODE_CONSTANTS = {
-    SIZES: {
-        DASHBOARD: {
-            size: 600  // Large fixed size for dashboard
-        },
-        WORD: {
-            preview: 135,      
-            detail: 600       
-        },
-        DEFINITION: {
-            live: {
-                preview: 320,
-                detail: 600
-            },
-            alternative: {
-                preview: 320,
-                detail: 600
-            }
-        },
-        NAVIGATION: {
-            size: 80
-        }
-    },
     STROKE: {
         preview: {
             normal: 3,
@@ -35,10 +11,6 @@ export const NODE_CONSTANTS = {
             normal: 2,
             hover: 3
         }
-    },
-    PADDING: {
-        preview: 10,         
-        detail: 40           
     },
     LINE_HEIGHT: {
         preview: 16,         

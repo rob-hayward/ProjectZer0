@@ -2,9 +2,9 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { COORDINATE_SPACE } from '../../../../constants/graph';
     import { COLORS } from '$lib/constants/colors';
-    import { FORM_STYLES } from '$lib/styles/forms';
     import type { UserProfile } from '$lib/types/user';
 
     import NodeTypeSelect from '$lib/components/forms/createNode/shared/NodeTypeSelect.svelte';
@@ -105,8 +105,8 @@
     }
 
     $: style = {
-        previewSize: NODE_CONSTANTS.SIZES.WORD.detail,
-        detailSize: NODE_CONSTANTS.SIZES.WORD.detail,
+        previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
+        detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
         colors: formData.nodeType === 'word' ? NODE_CONSTANTS.COLORS.WORD : {
             background: NODE_CONSTANTS.COLORS.WORD.background,
             border: NODE_CONSTANTS.COLORS.WORD.border,
@@ -114,7 +114,10 @@
             hover: NODE_CONSTANTS.COLORS.WORD.hover,
             gradient: NODE_CONSTANTS.COLORS.WORD.gradient
         },
-        padding: NODE_CONSTANTS.PADDING,
+        padding: {
+            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+        },
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
         stroke: NODE_CONSTANTS.STROKE,
         highlightColor: formData.nodeType === 'word' 
