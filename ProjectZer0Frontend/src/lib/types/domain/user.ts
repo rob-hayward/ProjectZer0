@@ -1,4 +1,4 @@
-// src/lib/types/user.ts
+// ProjectZer0Frontend/src/lib/types/domain/user.ts
 
 export interface UserProfile {
   // Required Auth0 field

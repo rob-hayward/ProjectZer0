@@ -1,5 +1,6 @@
-// src/lib/types/svg.ts
-import type { NodeMode, NodeStyle } from './nodes';
+// ProjectZer0Frontend/src/lib/types/svg.ts
+import type { NodeMode } from './graph/enhanced';
+import type { NodeStyle } from './domain/nodes';
 
 export interface SvgNodeProps {
     centerX: number;

@@ -1,11 +1,12 @@
-<!-- src/lib/components/forms/createNode/createNode/CreateNodeNode.svelte -->
+<!-- src/lib/components/graph/nodes/createNode/CreateNodeNode.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
-    import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+    import BaseDetailNode from '../base/BaseNode.svelte';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import { isUserProfileData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import { COORDINATE_SPACE } from '../../../../constants/graph';
     import { COLORS } from '$lib/constants/colors';
-    import type { UserProfile } from '$lib/types/user';
 
     import NodeTypeSelect from '$lib/components/forms/createNode/shared/NodeTypeSelect.svelte';
     import WordInput from '$lib/components/forms/createNode/word/WordInput.svelte';
@@ -14,7 +15,22 @@
     import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
 
-    export let node: UserProfile;
+    export let node: RenderableNode;
+    
+    // Type guard for user profile data
+    if (!isUserProfileData(node.data)) {
+        throw new Error('Invalid node data type for CreateNodeNode');
+    }
+    
+    const userData = node.data;
+
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
+    }>();
+    
+    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        dispatch('modeChange', event.detail);
+    }
     
     let currentStep = 1;
     let formData = {
@@ -30,10 +46,28 @@
 
     let colorIndex = 0;
     let intervalId: NodeJS.Timeout | undefined;
+    
+    // Create a base style object that we'll modify
+    const baseStyle = {
+        previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
+        detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
+        colors: { ...NODE_CONSTANTS.COLORS.WORD }, // Clone to avoid modifying the original
+        padding: {
+            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+        },
+        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
+        stroke: NODE_CONSTANTS.STROKE,
+        highlightColor: COLORS.PRIMARY.BLUE
+    };
+    
+    // Current style - will be updated reactively
+    let currentStyle = { ...baseStyle };
+    let completeStyle = { ...baseStyle };
 
     $: if (formData.nodeType === '') {
         if (!intervalId) {
-            // Arranged colors in a more harmonious order
+            // Colors array
             const colors = [
                 {
                     base: COLORS.PRIMARY.BLUE,
@@ -81,20 +115,30 @@
             
             intervalId = setInterval(() => {
                 colorIndex = (colorIndex + 1) % colors.length;
-                // Update style with transition
-                style = {
-                    ...style,
-                    colors: {
-                        ...style.colors,
-                        border: colors[colorIndex].full as "#3498dbFF",
-                        text: colors[colorIndex].full as "#3498dbFF",
-                        hover: colors[colorIndex].full as "#3498dbFF",
-                        gradient: {
-                            start: colors[colorIndex].semi as "#3498db66",
-                            end: colors[colorIndex].light as "#3498db33"
-                        }
+                
+                // Use type assertion to bypass TypeScript's literal type checking
+                const newStyle = { ...baseStyle };
+                // Update style with new colors
+                newStyle.colors = {
+                    background: colors[colorIndex].light,
+                    border: colors[colorIndex].full,
+                    text: colors[colorIndex].full,
+                    hover: colors[colorIndex].full,
+                    gradient: {
+                        start: colors[colorIndex].semi,
+                        end: colors[colorIndex].light
                     }
-                };
+                } as typeof NODE_CONSTANTS.COLORS.WORD;
+                
+                newStyle.highlightColor = colors[colorIndex].base as typeof COLORS.PRIMARY.BLUE;
+                
+                // Update current style
+                currentStyle = newStyle;
+                
+                // Also update complete style if no node type is selected
+                if (formData.nodeType === '') {
+                    completeStyle = newStyle;
+                }
             }, 2000); // 2 seconds
         }
     } else {
@@ -104,35 +148,21 @@
         }
     }
 
-    $: style = {
-        previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        colors: formData.nodeType === 'word' ? NODE_CONSTANTS.COLORS.WORD : {
-            background: NODE_CONSTANTS.COLORS.WORD.background,
-            border: NODE_CONSTANTS.COLORS.WORD.border,
-            text: NODE_CONSTANTS.COLORS.WORD.text,
-            hover: NODE_CONSTANTS.COLORS.WORD.hover,
-            gradient: NODE_CONSTANTS.COLORS.WORD.gradient
-        },
-        padding: {
-            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-        },
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: NODE_CONSTANTS.STROKE,
-        highlightColor: formData.nodeType === 'word' 
-            ? COLORS.PRIMARY.BLUE 
-            : formData.nodeType === ''
-                ? [
-                    COLORS.PRIMARY.BLUE,
-                    COLORS.PRIMARY.PURPLE,
-                    COLORS.PRIMARY.GREEN,
-                    COLORS.PRIMARY.TURQUOISE,
-                    COLORS.PRIMARY.YELLOW,
-                    COLORS.PRIMARY.ORANGE
-                  ][colorIndex]
-                : undefined
-    };
+    // FIX: Better handling of style when node type is selected
+    $: if (formData.nodeType === 'word') {
+        // For word nodes, use the blue word style from constants
+        completeStyle = {
+            ...baseStyle,
+            colors: NODE_CONSTANTS.COLORS.WORD,
+            highlightColor: COLORS.PRIMARY.BLUE
+        };
+    } else if (formData.nodeType !== '') {
+        // For other node types, use current style from the animation
+        completeStyle = { ...currentStyle };
+    } else {
+        // When no node type selected, use animated current style
+        completeStyle = { ...currentStyle };
+    }
 
     $: stepTitle = currentStep === 1 ? 'Create New Node' :
                    currentStep === 2 ? 'Enter Word' :
@@ -163,8 +193,8 @@
     });
 </script>
 
-<BaseSvgDetailNode {style}>
-    <svelte:fragment let:radius>
+<BaseDetailNode {node} style={completeStyle} on:modeChange={handleModeChange}>
+    <svelte:fragment slot="default" let:radius>
         <g transform="translate(0, {-radius + (currentStep === 5 ? 100 : 120)})">
             <!-- Title -->
             <text 
@@ -227,7 +257,7 @@
                 {:else if currentStep === 5}
                     <WordReview
                         {...formData}
-                        userId={node.sub}
+                        userId={userData.sub}
                         disabled={isLoading}
                         on:back={handleBack}
                         on:success={e => successMessage = e.detail.message}
@@ -237,7 +267,7 @@
             </g>
         </g>
     </svelte:fragment>
-</BaseSvgDetailNode>
+</BaseDetailNode>
 
 <style>
     .title {
@@ -265,5 +295,25 @@
     
     :global(text) {
         transition: fill 2s ease-in-out;
+    }
+
+      /* Make sure foreignObject elements don't clip their content */
+      :global(foreignObject) {
+        overflow: visible !important;
+    }
+
+    /* Ensure the button containers have enough height */
+    :global(.button-wrapper) {
+        padding-top: 4px;
+        padding-bottom: 4px;
+        height: auto !important;
+        min-height: 45px;
+    }
+
+    /* Give buttons proper spacing */
+    :global(.action-button) {
+        margin-bottom: 5px;
+        position: relative;
+        z-index: 5;
     }
 </style>

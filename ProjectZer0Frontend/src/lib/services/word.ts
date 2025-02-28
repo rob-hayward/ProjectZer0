@@ -1,6 +1,6 @@
 // src/lib/services/word.ts
 import { fetchWithAuth } from './api';
-import type { WordNode } from '$lib/types/nodes';
+import type { WordNode } from '$lib/types/domain/nodes';
 
 export async function getWordData(word: string): Promise<WordNode | null> {
     try {

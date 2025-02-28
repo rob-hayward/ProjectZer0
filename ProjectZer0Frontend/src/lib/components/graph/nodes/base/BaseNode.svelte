@@ -1,66 +1,68 @@
-<!-- src/lib/components/graph/nodes/base/BaseNode.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher, onMount } from 'svelte';
-    import type { NodeStyle } from '$lib/types/nodes';
+    import { createEventDispatcher } from 'svelte';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     
-    export let transform: string;
-    export let style: NodeStyle;
+    // Node data - contains ALL information needed for rendering
+    export let node: RenderableNode;
+    // Allow custom style to be passed in (optional)
+    export let style = node.style;
     
-    const radius = style.previewSize / 2;
-    const filterId = `glow-${Math.random().toString(36).slice(2)}`;
-    const gradientId = `gradient-${Math.random().toString(36).slice(2)}`;
-    const nodeId = `node-${Math.random().toString(36).slice(2)}`;
-    
-    $: highlightColor = style.highlightColor || '#FFFFFF';
- 
     const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
         click: void;
     }>();
- 
+    
+    // Generate unique IDs for this instance
+    const nodeId = `node-${Math.random().toString(36).slice(2)}`;
+    const filterId = `glow-${nodeId}`;
+    const gradientId = `gradient-${nodeId}`;
+    
+    // Extract visual properties only - NO position info
+    $: radius = node.radius;
+    $: highlightColor = style.highlightColor;
+
     function handleClick() {
         dispatch('click');
     }
 
-    onMount(() => {
-        const transformMatch = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
-        if (transformMatch) {
-            console.debug(`[NODE-DEBUG:${nodeId}] Node mounted with transform:`, {
-                rawTransform: transform,
-                x: parseFloat(transformMatch[1]),
-                y: parseFloat(transformMatch[2]),
-                radius
-            });
-        } else {
-            console.debug(`[NODE-DEBUG:${nodeId}] Node mounted with invalid transform:`, transform);
-        }
-    });
+    interface $$Slots {
+        default: {
+            radius: number;
+            filterId: string;
+            gradientId: string;
+        };
+    }
+    
+    // Log creation for debugging
+    console.debug(`[BaseNode:${nodeId}] Created with radius ${radius}`);
 </script>
- 
+
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
     class="base-node"
-    {transform}
     data-node-id={nodeId}
     on:click={handleClick}
 >
+    <!-- Filter and gradient definitions -->
     <defs>
         <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
             <!-- Strong outer glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur1"/>
             <feFlood flood-color={highlightColor} flood-opacity="0.6" result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
- 
+            
             <!-- Medium glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur2"/>
             <feFlood flood-color={highlightColor} flood-opacity="0.8" result="color2"/>
             <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
- 
+            
             <!-- Sharp inner glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur3"/>
             <feFlood flood-color={highlightColor} flood-opacity="1" result="color3"/>
             <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
- 
+            
             <feMerge>
                 <feMergeNode in="shadow1"/>
                 <feMergeNode in="shadow2"/>
@@ -68,7 +70,7 @@
                 <feMergeNode in="SourceGraphic"/>
             </feMerge>
         </filter>
- 
+
         <!-- Gradient for the outer ring -->
         <radialGradient id={gradientId}>
             <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
@@ -77,83 +79,46 @@
         </radialGradient>
     </defs>
 
-    <!-- Debug center point marker -->
-    <circle
-        cx="0"
-        cy="0"
-        r="4"
-        fill="red"
-        class="debug-center"
-    />
- 
-    <!-- Base layers for depth -->
-    <circle
-        r={radius}
-        class="background-layer-1"
-    />
+    <!-- Base node layers - ONLY visual elements, NO positioning -->
+    <circle r={radius} class="background-layer-1" />
+    <circle r={radius - 4} class="background-layer-2" />
+    <circle r={radius - 8} class="background-layer-3" />
+    <circle r={radius - 12} class="content-background" />
     
-    <circle
-        r={radius - 4}
-        class="background-layer-2"
-    />
-    
-    <circle
-        r={radius - 8}
-        class="background-layer-3"
-    />
- 
-    <!-- Main content background -->
-    <circle
-        r={radius - 12}
-        class="content-background"
-    />
- 
-    <!-- Decorative rings -->
+    <!-- Decorative rings with glow effect -->
     <circle
         r={radius}
         class="outer-ring"
         style:stroke={highlightColor}
-        style:stroke-opacity="5.5"
+        style:stroke-opacity="0.5"
         filter={`url(#${filterId})`}
     />
- 
-    <circle
-        r={radius}
-        class="middle-ring"
-    />
     
-    <slot {radius} />
+    <circle r={radius} class="middle-ring" />
+    
+    <!-- Pass relevant data to child components -->
+    <slot {radius} {filterId} {gradientId} />
 </g>
- 
-<style>
-    .base-node {
-        transform-origin: center !important;
-    }
 
-    .debug-center {
-        pointer-events: none;
-        opacity: 0.7;
-    }
+<style>
+    /* Base node styles */
     
-    /* Base layers for subtle depth effect */
     .background-layer-1 {
-        fill: rgba(0, 0, 0, 0.5);  /* Lighter outer layer */
+        fill: rgba(0, 0, 0, 0.5);
     }
     
     .background-layer-2 {
-        fill: rgba(0, 0, 0, 0.8);  /* Darker middle layer */
+        fill: rgba(0, 0, 0, 0.8);
     }
     
     .background-layer-3 {
-        fill: rgba(0, 0, 0, 0.9);  /* Even darker inner layer */
+        fill: rgba(0, 0, 0, 0.9);
     }
  
-    /* Main content background */
     .content-background {
-        fill: rgba(0, 0, 0, 0.95);  /* Almost black content background for best contrast */
+        fill: rgba(0, 0, 0, 0.95);
     }
  
-    /* Decorative rings */
     .outer-ring {
         stroke-width: 6;
         vector-effect: non-scaling-stroke;

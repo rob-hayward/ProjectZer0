@@ -1,9 +1,10 @@
 // ProjectZer0Frontend/src/lib/services/navigation.ts
-import { goto } from '$app/navigation';
 import { get } from 'svelte/store';
 import * as auth0 from './auth0';
-import type { NavigationOption } from '$lib/types/navigation';
+import type { NavigationOption } from '$lib/types/domain/navigation';
 import { wordStore } from '$lib/stores/wordStore';
+import { graphStore } from '$lib/stores/graphStore';
+import type { ViewType } from '$lib/types/graph/enhanced';
 
 export const NavigationOptionId = {
     DASHBOARD: 'dashboard',
@@ -26,22 +27,65 @@ function navigateWithWord(path: string) {
     const currentWord = get(wordStore);
     if (currentWord) {
         const url = `${path}?word=${encodeURIComponent(currentWord.word)}`;
-        goto(url, {
-            replaceState: true,
-            keepFocus: true,
-        });
+        // Use direct location change
+        window.location.href = url;
+    }
+}
+
+// Map navigation options to view types for graph state updates
+const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
+    [NavigationOptionId.DASHBOARD]: 'dashboard',
+    [NavigationOptionId.CREATE_NODE]: 'create-node',
+    [NavigationOptionId.EDIT_PROFILE]: 'edit-profile',
+    [NavigationOptionId.NETWORK]: 'network'
+};
+
+// Helper to update graph store without TypeScript errors
+function updateGraphStore(viewType: ViewType): void {
+    // Only check if graphStore exists, not its methods
+    if (!graphStore) {
+        console.warn('[Navigation] Graph store not available');
+        return;
+    }
+    
+    console.log(`[Navigation] Updating graph store to: ${viewType}`);
+    graphStore.setViewType(viewType);
+    
+    // Call forceTick directly
+    try {
+        graphStore.forceTick();
+    } catch (e) {
+        console.warn('[Navigation] Error calling forceTick:', e);
     }
 }
 
 // Navigation action handlers
 const navigationHandlers: Record<NavigationOptionId, () => void> = {
-    [NavigationOptionId.DASHBOARD]: () => goto('/graph/dashboard'),
-    [NavigationOptionId.CREATE_NODE]: () => goto('/graph/create-node'),
-    [NavigationOptionId.EDIT_PROFILE]: () => goto('/graph/edit-profile'),
-    [NavigationOptionId.EXPLORE]: () => goto('/explore'),
-    [NavigationOptionId.NETWORK]: () => goto('/network'),
-    [NavigationOptionId.INTERACTIONS]: () => goto('/interactions'),
-    [NavigationOptionId.CREATIONS]: () => goto('/creations'),
+    [NavigationOptionId.DASHBOARD]: () => {
+        updateGraphStore('dashboard');
+        window.location.href = '/graph/dashboard';
+    },
+    [NavigationOptionId.CREATE_NODE]: () => {
+        updateGraphStore('create-node');
+        window.location.href = '/graph/create-node';
+    },
+    [NavigationOptionId.EDIT_PROFILE]: () => {
+        updateGraphStore('edit-profile');
+        window.location.href = '/graph/edit-profile';
+    },
+    [NavigationOptionId.EXPLORE]: () => {
+        window.location.href = '/explore';
+    },
+    [NavigationOptionId.NETWORK]: () => {
+        updateGraphStore('network');
+        window.location.href = '/graph/network';
+    },
+    [NavigationOptionId.INTERACTIONS]: () => {
+        window.location.href = '/interactions';
+    },
+    [NavigationOptionId.CREATIONS]: () => {
+        window.location.href = '/creations';
+    },
     [NavigationOptionId.LOGOUT]: () => auth0.logout(),
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => navigateWithWord('/graph/alternative-definitions'),
     [NavigationOptionId.CREATE_ALTERNATIVE]: () => navigateWithWord('/graph/create-alternative'),
@@ -58,7 +102,7 @@ export const NavigationContext = {
 
 export type NavigationContext = typeof NavigationContext[keyof typeof NavigationContext];
 
-// Icons mapping
+// Icons mapping - preserved exactly as in the original
 const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.EXPLORE]: 'Language',
     [NavigationOptionId.CREATE_NODE]: 'add_circle',
@@ -73,7 +117,7 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.DISCUSS]: 'forum'
 };
 
-// Navigation option configurations per context
+// Navigation option configurations per context - preserved exactly as in the original
 const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]> = {
     [NavigationContext.DASHBOARD]: [
         NavigationOptionId.EXPLORE,
@@ -115,6 +159,17 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
 } as const;
 
 export function handleNavigation(optionId: NavigationOptionId): void {
+    console.log(`[Navigation] Handling navigation for option ID: ${optionId}`);
+    
+    // Get the corresponding view type for graph updates if available
+    const viewType = navigationViewTypeMap[optionId] as ViewType | undefined;
+    
+    // Pre-update graph store if this is a graph-related navigation
+    if (viewType) {
+        updateGraphStore(viewType);
+    }
+    
+    // Execute the navigation handler
     const handler = navigationHandlers[optionId];
     if (handler) {
         handler();

@@ -1,13 +1,30 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/nodes/dashboard/DashboardNode.svelte -->
 <script lang="ts">
-    import BaseSvgDetailNode from '../base/BaseDetailNode.svelte';
-    import type { UserProfile } from '$lib/types/user';
+    import { createEventDispatcher } from 'svelte';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { UserActivity } from '$lib/services/userActivity';
+    import { isUserProfileData } from '$lib/types/graph/enhanced';
+    import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import { COORDINATE_SPACE } from '../../../../constants/graph';
 
-    export let node: UserProfile;
+    export let node: RenderableNode;
     export let userActivity: UserActivity | undefined;
+
+    // Type guard for user profile data
+    if (!isUserProfileData(node.data)) {
+        throw new Error('Invalid node data type for DashboardNode');
+    }
+    
+    const userData = node.data;
+    
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
+    }>();
+
+    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        dispatch('modeChange', event.detail);
+    }
 
     const METRICS_SPACING = {
         labelX: -200,
@@ -62,25 +79,13 @@
     }
 
     $: missionStatementLines = getWrappedText(
-        node.mission_statement || "no mission statement set.",
+        userData.mission_statement || "no mission statement set.",
         420, 
         METRICS_SPACING.labelX
     );
-
-    const style = {
-        previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        colors: NODE_CONSTANTS.COLORS.DASHBOARD,
-        padding: {
-            preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-            detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-        },
-        lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-        stroke: NODE_CONSTANTS.STROKE
-    };
 </script>
 
-<BaseSvgDetailNode {style}>
+<BaseDetailNode {node} on:modeChange={handleModeChange}>
     <svelte:fragment let:radius>
         <!-- Title -->
         <text 
@@ -103,7 +108,7 @@
                 dy="25"
                 class="value left-align"
             >
-                {node.preferred_username || node.name || node.nickname || 'User'}
+                {userData.preferred_username || userData.name || userData.nickname || 'User'}
             </text>
         </g>
 
@@ -176,7 +181,7 @@
             </g>
         {/if}
     </svelte:fragment>
-</BaseSvgDetailNode>
+</BaseDetailNode>
 
 <style>
     text {

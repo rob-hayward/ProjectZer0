@@ -1,5 +1,5 @@
 // src/lib/services/userProfile.ts
-import type { UserProfile } from '../types/user';
+import type { UserProfile } from '../types/domain/user';
 import { fetchWithAuth } from './api';
 
 export async function updateUserProfile(userData: Partial<UserProfile>): Promise<UserProfile | null> {

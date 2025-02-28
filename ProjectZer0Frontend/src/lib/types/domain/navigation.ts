@@ -1,4 +1,4 @@
-// src/lib/types/navigation.ts
+// ProjectZer0Frontend/src/lib/types/domain/navigation.ts
 export interface NavigationOption {
   id: string;
   label: string;

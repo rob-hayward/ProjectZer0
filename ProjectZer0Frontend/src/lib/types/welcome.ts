@@ -1,4 +1,4 @@
-// src/lib/types/welcome.ts
+// ProjectZer0Frontend/src/lib/types/welcome.ts
 import type { Vector2, Vector3, Mesh, Line } from 'three';
 
 export interface BackgroundNode {

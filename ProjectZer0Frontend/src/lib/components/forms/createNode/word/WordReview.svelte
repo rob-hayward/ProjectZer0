@@ -2,10 +2,10 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
-    import { goto } from '$app/navigation';
     import { fetchWithAuth } from '$lib/services/api';
     import { FORM_STYLES } from '$lib/styles/forms';
     import { wordStore } from '$lib/stores/wordStore';
+    import { graphStore } from '$lib/stores/graphStore';
     import FormNavigation from '../shared/FormNavigation.svelte';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
@@ -19,6 +19,7 @@
     let shareToX = false;
     let isSubmitting = false;
     let errorMessage: string | null = null;
+    // CHANGE: Remove local successMessage - only dispatch to parent
     let successMessage: string | null = null;
 
     const dispatch = createEventDispatcher<{
@@ -30,7 +31,7 @@
     async function handleSubmit() {
         isSubmitting = true;
         errorMessage = null;
-        successMessage = null;
+        // CHANGE: Don't set local success message
 
         try {
             const wordData = {
@@ -55,21 +56,41 @@
                 throw new Error('Created word data is incomplete');
             }
 
-            // Update store and show success message
+            // Update word store
             wordStore.set(createdWord);
-            successMessage = `Word node "${createdWord.word}" created successfully`;
+            
+            // Update graph store to word view type
+            if (browser && graphStore && graphStore.setViewType) {
+                console.log('[WordReview] Updating graph store to word view');
+                graphStore.setViewType('word');
+                
+                // Force immediate visual update if available
+                if (graphStore.forceTick) {
+                    try {
+                        graphStore.forceTick();
+                    } catch (e) {
+                        console.warn('[WordReview] Error forcing tick:', e);
+                    }
+                }
+            }
+
+            // CHANGE: Only dispatch success event, don't set local message
+            const successMsg = `Word node "${createdWord.word}" created successfully`;
             dispatch('success', {
-                message: successMessage,
+                message: successMsg,
                 word: createdWord.word
             });
 
-            // Navigate to the new word's page
+            // Use direct navigation instead of goto
             setTimeout(() => {
-                goto(`/graph/word?word=${encodeURIComponent(createdWord.word)}`).catch(error => {
-                    console.error('Navigation error:', error);
-                    errorMessage = 'Error navigating to new word';
-                });
-            }, 1000);
+                if (browser) {
+                    const targetUrl = `/graph/word?word=${encodeURIComponent(createdWord.word)}`;
+                    console.log('[WordReview] Navigating to:', targetUrl);
+                    
+                    // Use direct window location for reliable navigation
+                    window.location.href = targetUrl;
+                }
+            }, 800); // Slightly shorter timeout for better responsiveness
 
         } catch (e) {
             if (browser) {
@@ -138,10 +159,10 @@
         </div>
     </foreignObject>
 
-    <!-- Messages -->
-    {#if errorMessage || successMessage}
+    <!-- Messages - CHANGE: Only show error messages, not success messages -->
+    {#if errorMessage}
         <g transform="translate(0, 240)">
-            <MessageDisplay {errorMessage} {successMessage} />
+            <MessageDisplay errorMessage={errorMessage} successMessage={null} />
         </g>
     {/if}
 

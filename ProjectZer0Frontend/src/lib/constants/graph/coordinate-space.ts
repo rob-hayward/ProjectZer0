@@ -32,9 +32,9 @@ export const COORDINATE_SPACE = {
             DETAIL: 40,
             PREVIEW: 10,
             COLLISION: {
-                BASE: 40,
-                NAVIGATION: 10,
-                DEFINITION: 150
+                BASE: 20,          // Collision padding for central nodes
+                NAVIGATION: 5,     // Collision padding for navigation nodes
+                DEFINITION: 150    // Collision padding for definition nodes
             }
         }
     },
@@ -42,11 +42,13 @@ export const COORDINATE_SPACE = {
     // Layout distances and spacing
     LAYOUT: {
         RING_SPACING: {
-            INITIAL: 1000,           // Base spacing for first ring
-            INCREMENT: 0.2           // Increase per ring
+            INITIAL: 1000,         // Base spacing for first ring
+            INCREMENT: 0.2         // Increase per ring
         },
         NAVIGATION: {
-            RING_DISTANCE: 40       // Distance from central node perimeter to navigation node perimeter
+            // No longer using this for navigation node positioning
+            // Simple, direct padding is set in the layout component
+            NODE_PADDING: 70       // Direct spacing between node perimeters
         },
         FORCES: {
             CHARGE: {
@@ -56,7 +58,7 @@ export const COORDINATE_SPACE = {
                         LIVE: -1600,
                         ALTERNATIVE: -300
                     },
-                    NAVIGATION: -100
+                    NAVIGATION: -50  // Reduced repulsion for navigation nodes
                 },
                 DISTANCE: {
                     MIN: 200,
@@ -65,8 +67,8 @@ export const COORDINATE_SPACE = {
             }
         },
         CLUSTER: {
-            MIN_SIZE: 5000,          // Minimum size for a cluster
-            SPACING: 10000           // Space between clusters
+            MIN_SIZE: 5000,        // Minimum size for a cluster
+            SPACING: 10000         // Space between clusters
         }
     },
 

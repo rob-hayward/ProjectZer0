@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { jwtStore } from '../stores/JWTStore';
 import * as auth0Module from './auth0';
 import { userStore } from '../stores/userStore';
-import type { UserProfile } from '../types/user';
+import type { UserProfile } from '../types/domain/user';
 
 describe('Auth0 Service', () => {
   const originalFetch = global.fetch;

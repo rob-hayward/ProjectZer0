@@ -1,26 +1,45 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseDetailNode.svelte -->
+<!-- src/lib/components/graph/nodes/base/BaseDetailNode.svelte -->
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import { spring } from 'svelte/motion';
-    import type { NodeStyle } from '$lib/types/nodes';
-    import BaseSvgNode from './BaseNode.svelte';
-    import { COORDINATE_SPACE } from '../../../../constants/graph';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import BaseNode from './BaseNode.svelte';
+    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
 
-    export let style: NodeStyle;
+    // Allow passing the node and custom style for more flexibility
+    export let node: RenderableNode;
+    export let style = node.style;
 
-    const baseOpacity = spring(0, { stiffness: 0.3, damping: 0.8 });
+    const baseOpacity = spring(0, { 
+        stiffness: 0.3, 
+        damping: 0.8 
+    });
+
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
+        click: void;
+    }>();
+
+    interface $$Slots {
+        default: {
+            radius: number;
+            filterId: string;
+            gradientId: string;
+        };
+    }
 
     onMount(() => {
         baseOpacity.set(1);
     });
 
-    // Use standard detail size from COORDINATE_SPACE
-    $: radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+    function handleButtonClick() {
+        dispatch('click');
+    }
 
-    $: detailStyle = {
-        ...style,
-        previewSize: radius * 2  // Double the radius for diameter
-    };
+    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        dispatch('modeChange', event.detail);
+    }
 </script>
 
 <g 
@@ -28,12 +47,23 @@
     style:opacity={$baseOpacity}
     style:transform-origin="center"
 >
-    <BaseSvgNode 
-        transform="" 
-        style={detailStyle}
-    >
-        <slot {radius} />
-    </BaseSvgNode>
+    <BaseNode {node} {style}>
+        <svelte:fragment slot="default" let:radius let:filterId let:gradientId>
+            <slot 
+                {radius} 
+                {filterId} 
+                {gradientId}
+            />
+            
+            <!-- Collapse Button -->
+            <ExpandCollapseButton 
+                mode="collapse"
+                y={radius}
+                on:click={handleButtonClick}
+                on:modeChange={handleModeChange}
+            />
+        </svelte:fragment>
+    </BaseNode>
 </g>
 
 <style>

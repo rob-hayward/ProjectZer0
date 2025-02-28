@@ -1,40 +1,26 @@
-// src/lib/types/graph/props.ts
-import type { GraphData, ViewType } from './core';
+// ProjectZer0Frontend/src/lib/types/graph/props.ts
+import type { GraphData, ViewType, NodeMode, RenderableNode, RenderableLink } from './enhanced';
 import type { BackgroundConfig } from './background';
-import type { NodeMode } from '$lib/types/nodes';
 
+// Props for main Graph component
 export interface GraphProps {
     data: GraphData;
-    width?: number;
-    height?: number;
     viewType: ViewType;
     backgroundConfig?: Partial<BackgroundConfig>;
-    isPreviewMode?: boolean;
 }
 
-export interface GraphLayoutProps {
-    data: GraphData;
-    width: number;
-    height: number;
-    viewType: ViewType;
-    isPreviewMode: boolean;
+// Props for NodeRenderer component
+export interface NodeRendererProps {
+    node: RenderableNode;
+    onModeChange: (nodeId: string, mode: NodeMode) => void;
 }
 
-export interface LayoutEngineConfig {
-    width: number;
-    height: number;
-    viewType: ViewType;
-    isPreviewMode?: boolean;
+// Props for LinkRenderer component
+export interface LinkRendererProps {
+    link: RenderableLink;
 }
 
-// Update Graph.svelte props
+// Custom events
 export interface GraphEvents {
     modechange: CustomEvent<{ nodeId: string; mode: NodeMode }>;
-}
-
-export interface LayoutStrategyConfig {
-    width: number;
-    height: number;
-    viewType: ViewType;
-    isPreviewMode?: boolean;
 }

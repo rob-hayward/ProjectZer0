@@ -1,10 +1,9 @@
-// src/lib/types/nodes.ts
+// ProjectZer0Frontend/src/lib/types/domain/nodes.ts
 export interface Definition {
     id: string;
     text: string;
     createdBy: string;
     createdAt: string;
-    votes?: number; // Keep for backwards compatibility
     positiveVotes: number;
     negativeVotes: number;
     isLive?: boolean;
@@ -26,10 +25,10 @@ export interface WordNode {
     };
 }
 
-export type NodeMode = 'preview' | 'detail';
-export type NodeType = 'word' | 'definition' | 'belief';
+// Common types
 export type VoteStatus = 'agree' | 'disagree' | 'none';
 
+// Style types for node rendering
 export interface NodeStyle {
     previewSize: number;
     detailSize: number;
@@ -61,5 +60,5 @@ export interface NodeStyle {
             hover: number;
         };
     };
-    highlightColor?: string; 
+    highlightColor?: string;
 }

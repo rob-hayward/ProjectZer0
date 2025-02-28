@@ -1,7 +1,18 @@
 // src/routes/graph/[view]/+page.ts
 import { redirect } from '@sveltejs/kit';
 import type { PageLoad } from '../$types';
-import type { GraphPageData, ViewType } from '$lib/types/graph/core';
+import type { 
+    GraphData, 
+    GraphNode, 
+    GraphLink,
+    GraphPageData,
+    RenderableNode,
+    NodeType,
+    NodeGroup,
+    NodeMode,
+    ViewType,
+    LinkType
+} from '$lib/types/graph/enhanced';
 import { getWordData } from '$lib/services/word';
 
 export const ssr = false;
@@ -73,6 +84,7 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
     return {
         view,
         viewType: view,
-        wordData
+        wordData,
+        _routeKey: Math.random().toString(36).substring(2) // Add random key for forcing re-renders
     };
 }) satisfies PageLoad;

@@ -1,50 +1,45 @@
 <!-- src/routes/graph/[view]/+page.svelte -->
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, afterUpdate } from 'svelte';
     import { page } from '$app/stores';
     import * as auth0 from '$lib/services/auth0';
     import type { UserActivity } from '$lib/services/userActivity';
     import { getUserActivity } from '$lib/services/userActivity';
-    import { getWordData } from '$lib/services/word';  
-    import { NODE_CONSTANTS } from '$lib/constants/graph/node-styling';
-    import { COORDINATE_SPACE } from '$lib/constants/graph';
+    import { getWordData } from '$lib/services/word'; 
     import Graph from '$lib/components/graph/Graph.svelte';
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
-    import WordPreview from '$lib/components/graph/nodes/word/WordPreview.svelte';
-    import WordDetail from '$lib/components/graph/nodes/word/WordDetail.svelte';
-    import DefinitionPreview from '$lib/components/graph/nodes/definition/DefinitionPreview.svelte';
-    import DefinitionDetail from '$lib/components/graph/nodes/definition/DefinitionDetail.svelte';
+    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
+    import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import { getNavigationOptions } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
-    import { COLORS } from '$lib/constants/colors';
+    import { graphStore } from '$lib/stores/graphStore';
     import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
     import type { 
-        GraphNode, 
-        GraphPageData, 
-        GraphLink, 
-        LinkType, 
         GraphData, 
-        NodeGroup, 
-        NodeType, 
+        GraphNode, 
+        GraphLink,
+        GraphPageData,
+        RenderableNode,
+        NodeType,
+        NodeGroup,
+        NodeMode,
         ViewType,
-        NodeMode 
-    } from '$lib/types/graph/core';
-    import { 
-        isDashboardNode, 
-        isEditProfileNode, 
-        isCreateNodeNode, 
-        isWordNode, 
-        isDefinitionNode, 
-        isNavigationNode 
-    } from '$lib/types/graph/core';
-    import type { NodeStyle } from '$lib/types/nodes';
-    
-    type ModeChangeEvent = CustomEvent<{ mode: NodeMode }>;
+        LinkType
+    } from '$lib/types/graph/enhanced';
+    import {
+        isDashboardNode,
+        isEditProfileNode,
+        isCreateNodeNode,
+        isWordNode,
+        isDefinitionNode,
+        isNavigationNode,
+        isWordNodeData
+    } from '$lib/types/graph/enhanced';
     
     export let data: GraphPageData;
 
@@ -52,104 +47,60 @@
     let authInitialized = false;
     let dataInitialized = false;
     let userActivity: UserActivity | undefined;
-    let graphLayout: Graph;
-    let definitionNodeModes = new Map<string, NodeMode>();
-    let graphData: GraphData;
 
-    // Initialize viewType from page data
-    $: viewType = data.viewType;
-    
     // Use wordData from page data for initial state
     $: initialWordData = data.wordData;
+    
+    // UPDATED: Derive viewType directly from URL parameters instead of data object
+    $: viewType = $page.params.view as ViewType;
+    $: {
+        // Directly log current view type whenever it changes (no dependency on data.viewType)
+        console.log('[VIEW-TYPE] Current view from URL:', viewType);
+    }
     
     // Word node mode handling
     $: wordNodeMode = $page ? 
         ($page.params.view === 'word' ? 'detail' : 'preview')
         : 'preview';
 
-    // Initialize nodes in correct modes when word data changes
-    $: if (wordData?.definitions) {
-        console.debug('[INIT-7] +page.svelte: Setting definition modes', {
-            definitionCount: wordData.definitions.length,
-            existingModes: Array.from(definitionNodeModes.entries())
-        });
-
-        const definitionNodes = wordData.definitions;
-        const newNodes = definitionNodes.filter(def => !definitionNodeModes.has(def.id));
-        
-        if (newNodes.length > 0) {
-            console.debug('[INIT-8] +page.svelte: New definition nodes found', {
-                count: newNodes.length,
-                nodeIds: newNodes.map(n => n.id)
-            });
-
-            newNodes.forEach(node => {
-                definitionNodeModes.set(node.id, 'preview');
-            });
-            definitionNodeModes = new Map(definitionNodeModes);
-        }
-    }
-
-    // Node styles configuration using COORDINATE_SPACE
-    const wordStyle: NodeStyle = {
-    previewSize: COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW,
-    detailSize: COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL,
-    colors: NODE_CONSTANTS.COLORS.WORD,
-    padding: {
-        preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-        detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-    },
-    lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-    stroke: NODE_CONSTANTS.STROKE,
-    highlightColor: COLORS.PRIMARY.BLUE
-};
-
-const liveDefinitionStyle: NodeStyle = {
-    previewSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW,
-    detailSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL,
-    colors: NODE_CONSTANTS.COLORS.DEFINITION.live,
-    padding: {
-        preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-        detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-    },
-    lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-    stroke: NODE_CONSTANTS.STROKE,
-    highlightColor: COLORS.PRIMARY.BLUE  
-};
-
-const alternativeDefinitionStyle: NodeStyle = {
-    previewSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW,
-    detailSize: COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL,
-    colors: NODE_CONSTANTS.COLORS.DEFINITION.alternative,
-    padding: {
-        preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-        detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-    },
-    lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
-    stroke: NODE_CONSTANTS.STROKE,
-    highlightColor: COLORS.PRIMARY.PURPLE
-};
-
-   // Preview mode handling
-   $: isPreviewMode = view === 'alternative-definitions' ? 
+    // Preview mode handling
+    $: isPreviewMode = view === 'alternative-definitions' ? 
         wordNodeMode === 'preview' : 
         view === 'word' ? 
             wordNodeMode === 'preview' : 
             false;
 
+    // UPDATED: Force immediate graph updates on navigation
+    function forceGraphUpdate(newViewType: ViewType) {
+        console.log('[FORCE-UPDATE] Forcing graph update to:', newViewType);
+        
+        if (graphStore) {
+            // Update the graph store
+            graphStore.setViewType(newViewType);
+            
+            // Force immediate simulation ticks (no args to avoid TS error)
+            if (graphStore.forceTick) {
+                graphStore.forceTick();
+            }
+            
+            // Force render with new route key
+            routeKey = `${newViewType}-${Date.now()}`;
+        }
+    }
+
     async function initializeData() {
-        console.debug('[INIT-9] +page.svelte: Starting data initialization');
+        console.log('[INIT] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.debug('[INIT-9a] +page.svelte: No user found, redirecting to login');
+                console.log('[INIT] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
             
-            console.debug('[INIT-10] +page.svelte: User authenticated', {
+            console.log('[INIT] User authenticated', {
                 userId: fetchedUser.sub
             });
             authInitialized = true;
@@ -157,12 +108,12 @@ const alternativeDefinitionStyle: NodeStyle = {
             userActivity = await getUserActivity();
             
             if (view === 'word') {
-                console.debug('[INIT-11] +page.svelte: Word view detected, loading word data');
+                console.log('[INIT] Word view detected, loading word data');
                 const wordParam = new URL(window.location.href).searchParams.get('word');
                 if (wordParam) {
                     const loadedWord = await getWordData(wordParam);
                     if (loadedWord) {
-                        console.debug('[INIT-12] +page.svelte: Setting word data', {
+                        console.log('[INIT] Setting word data', {
                             wordId: loadedWord.id,
                             definitionCount: loadedWord.definitions?.length
                         });
@@ -171,59 +122,76 @@ const alternativeDefinitionStyle: NodeStyle = {
                 }
             }
             
-            console.debug('[INIT-13] +page.svelte: Data initialization complete');
+            console.log('[INIT] Data initialization complete');
             dataInitialized = true;
+            
+            // Important: Force a graph update after initialization completes
+            forceGraphUpdate(viewType);
         } catch (error) {
-            console.error('[INIT-ERROR] +page.svelte: Error in initializeData:', error);
+            console.error('[INIT-ERROR] Error in initializeData:', error);
             auth0.login();
         }
     }
 
-    onMount(initializeData);
+    onMount(() => {
+        initializeData();
+        
+        // Simplified: Use afterUpdate instead of navigation hooks for better TypeScript compatibility
+        console.log('[NAVIGATION] Mounted, listening for URL changes');
+    });
+    
+    // Enhanced afterUpdate to ensure graph store stays in sync with URL
+    afterUpdate(() => {
+        // Always update graph store with current view type
+        if (graphStore && viewType) {
+            console.log('[AFTER-UPDATE] Current view type from URL:', viewType);
+            
+            if (graphStore.getViewType() !== viewType) {
+                console.log('[AFTER-UPDATE] Fixing mismatched view types:', {
+                    storeType: graphStore.getViewType(),
+                    urlType: viewType
+                });
+                graphStore.setViewType(viewType);
+            }
+        }
+    });
 
     // View and data reactivity
     $: view = $page.params.view;
     $: isWordView = view === 'word' || view === 'alternative-definitions';
     $: wordData = isWordView ? ($wordStore || initialWordData) : null;
     $: isReady = authInitialized && dataInitialized;
+    
+    // UPDATED: Enhanced route key with timestamp to ensure uniqueness
+    $: routeKey = `${viewType}-${Date.now()}`;
 
     // Event handlers
-    function handleWordNodeModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        console.debug('[UPDATE-1] +page.svelte: Word node mode change', {
-            newMode: event.detail.mode,
-            currentMode: wordNodeMode
+    function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
+        console.log('[MODE-CHANGE] Node mode change', {
+            nodeId: event.detail.nodeId,
+            newMode: event.detail.mode
         });
-        wordNodeMode = event.detail.mode;
+        
+        // Handle word node mode changes specifically
+        if (wordData && event.detail.nodeId === wordData.id) {
+            console.log('[MODE-CHANGE] Word node mode change', {
+                from: wordNodeMode,
+                to: event.detail.mode
+            });
+            wordNodeMode = event.detail.mode;
+        }
     }
 
-    function handleDefinitionModeChange(event: ModeChangeEvent, nodeId: string) {
-        console.debug('[UPDATE-2] +page.svelte: Definition mode change', {
-            nodeId,
-            newMode: event.detail.mode,
-            currentMode: definitionNodeModes.get(nodeId)
-        });
-        const newMode = event.detail.mode;
-        definitionNodeModes.set(nodeId, newMode);
-        definitionNodeModes = new Map(definitionNodeModes);
-        updateGraphData();
-    }
-
-    // Graph data management
-    function updateGraphData() {
-        console.debug('[UPDATE-3] +page.svelte: Updating graph data', {
-            hasCentralNode: !!centralNode,
-            definitionModes: Array.from(definitionNodeModes.entries())
-        });
-
+    // Create graph data
+    function createGraphData(): GraphData {
         if (!centralNode) {
-            graphData = { nodes: [], links: [] };
-            return;
+            return { nodes: [], links: [] };
         }
 
         const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
         
         if (wordData && wordData.definitions.length > 0 && view === 'word') {
-            console.debug('[UPDATE-4] +page.svelte: Processing word view data', {
+            console.log('[DATA] Creating word view data', {
                 definitionCount: wordData.definitions.length,
                 wordNodeMode
             });
@@ -247,30 +215,31 @@ const alternativeDefinitionStyle: NodeStyle = {
                 type: 'definition' as NodeType,
                 data: definition,
                 group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
-                mode: (definitionNodeModes.get(definition.id) || 'preview') as NodeMode
+                mode: 'preview' as NodeMode
             }));
 
             // Define pure relationship links
             const definitionLinks: GraphLink[] = sortedDefinitions.map((definition, index) => ({
+                id: `${centralNode.id}-${definition.id}`,
                 source: centralNode.id,
                 target: definition.id,
                 type: (index === 0 ? 'live' : 'alternative') as LinkType
             }));
 
-            console.debug('[UPDATE-5] +page.svelte: Created graph structure', {
+            console.log('[DATA] Created graph structure', {
                 nodeCount: nodesWithModes.length + definitionNodes.length,
                 linkCount: definitionLinks.length
             });
 
-            graphData = {
+            return {
                 nodes: [...nodesWithModes, ...definitionNodes],
                 links: definitionLinks
             };
         } else {
-            console.debug('[UPDATE-6] +page.svelte: Created base graph structure', {
+            console.log('[DATA] Created base graph structure', {
                 nodeCount: baseNodes.length
             });
-            graphData = { nodes: baseNodes, links: [] };
+            return { nodes: baseNodes, links: [] };
         }
     }
 
@@ -279,7 +248,8 @@ const alternativeDefinitionStyle: NodeStyle = {
         id: wordData.id,
         type: 'word' as const,
         data: wordData,
-        group: 'central' as const
+        group: 'central' as const,
+        mode: wordNodeMode
     } : {
         id: $userStore.sub,
         type: view as 'dashboard' | 'edit-profile' | 'create-node',
@@ -290,8 +260,9 @@ const alternativeDefinitionStyle: NodeStyle = {
     $: context = 
         view === 'dashboard' ? NavigationContext.DASHBOARD :
         view === 'create-node' ? NavigationContext.CREATE_NODE :
+        view === 'edit-profile' ? NavigationContext.EDIT_PROFILE :
         isWordView ? NavigationContext.WORD :
-        NavigationContext.EDIT_PROFILE;
+        NavigationContext.DASHBOARD;
 
     $: navigationNodes = getNavigationOptions(context)
         .map(option => ({
@@ -301,17 +272,8 @@ const alternativeDefinitionStyle: NodeStyle = {
             group: 'navigation' as const
         }));
 
-    // Update graph data when core dependencies change
-    $: {
-        if (centralNode || navigationNodes || wordData) {
-            console.debug('[UPDATE-7] +page.svelte: Dependencies changed, updating graph data', {
-                hasCentralNode: !!centralNode,
-                hasNavigationNodes: !!navigationNodes,
-                hasWordData: !!wordData
-            });
-            updateGraphData();
-        }
-    }
+    // Create graph data reactively
+    $: graphData = isReady ? createGraphData() : { nodes: [], links: [] };
 </script>
 
 {#if !isReady}
@@ -324,77 +286,50 @@ const alternativeDefinitionStyle: NodeStyle = {
         <div class="loading-text">Authentication required</div>
     </div>
 {:else}
+{#key routeKey}
 <Graph 
-    bind:this={graphLayout}
     data={graphData}
-    {isPreviewMode}
     {viewType}
-    on:modechange
+    on:modechange={handleNodeModeChange}
 >
-    <svelte:fragment let:node let:transform let:handleNodeModeChange>
-        {#if isDashboardNode(node)}
+    <svelte:fragment slot="default" let:node let:handleModeChange>
+        {#if isWordNode(node) && wordData}
+            <WordNode 
+                {node}
+                wordText={wordData.word}
+                on:modeChange={handleModeChange}
+            />
+        {:else if isDefinitionNode(node) && wordData}
+            <DefinitionNode 
+                {node}
+                wordText={wordData.word}
+                on:modeChange={handleModeChange}
+            />
+        {:else if isDashboardNode(node)}
             <DashboardNode 
-                node={node.data} 
+                {node}
                 {userActivity}
+                on:modeChange={handleModeChange}
             />
         {:else if isEditProfileNode(node)}
             <EditProfileNode 
-                node={node.data}
+                {node}
+                on:modeChange={handleModeChange}
             />
         {:else if isCreateNodeNode(node)}
             <CreateNodeNode 
-                node={node.data}
+                {node}
+                on:modeChange={handleModeChange}
             />
         {:else if isNavigationNode(node)}
             <NavigationNode 
-                option={node.data}
-                transform={transform.toString()}
+                {node}
+                on:hover={() => {}} 
             />
-        {:else if isWordNode(node)}
-            {#if node.group === 'central'}
-                {#if wordNodeMode === 'preview'}
-                    <WordPreview
-                        data={node.data}
-                        style={wordStyle}
-                        transform={transform.toString()}
-                        on:modeChange={handleWordNodeModeChange}
-                    />
-                {:else}
-                    <WordDetail
-                        data={node.data}
-                        style={wordStyle}
-                        on:modeChange={handleWordNodeModeChange}
-                    />
-                {/if}
-            {:else}
-                <WordPreview
-                    data={node.data}
-                    style={wordStyle}
-                    transform={transform.toString()}
-                />
-            {/if}
-        {:else if isDefinitionNode(node) && wordData}
-            {#if definitionNodeModes.get(node.id) === 'detail'}
-                <DefinitionDetail
-                    word={wordData.word}
-                    data={node.data}
-                    type={node.group === 'live-definition' ? 'live' : 'alternative'}
-                    style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
-                    on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
-                />
-            {:else}
-                <DefinitionPreview
-                    word={wordData.word}
-                    definition={node.data}
-                    type={node.group === 'live-definition' ? 'live' : 'alternative'}
-                    style={node.group === 'live-definition' ? liveDefinitionStyle : alternativeDefinitionStyle}
-                    transform={transform.toString()}
-                    on:modeChange={(event) => handleDefinitionModeChange(event, node.id)}
-                />
-            {/if}
         {/if}
     </svelte:fragment>
 </Graph>
+{/key}
 {/if}
 
 <style>
@@ -422,8 +357,8 @@ const alternativeDefinitionStyle: NodeStyle = {
     }
 
     .loading-spinner {
-        width: 580px;
-        height: 580px;
+        width: 80px;
+        height: 80px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);
         border-radius: 50%;

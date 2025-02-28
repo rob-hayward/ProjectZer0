@@ -1,5 +1,5 @@
 import { fetchWithAuth } from './api';
-import type { UserProfile } from '$lib/types/user';
+import type { UserProfile } from '$lib/types/domain/user';
 
 export async function getUserDetails(userId: string): Promise<UserProfile | null> {
   try {

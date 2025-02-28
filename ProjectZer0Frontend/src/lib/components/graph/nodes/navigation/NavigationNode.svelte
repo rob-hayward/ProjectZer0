@@ -1,59 +1,142 @@
 <!-- src/lib/components/graph/nodes/navigation/NavigationNode.svelte -->
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<!-- svelte-ignore a11y-no-static-element-interactions -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
+    import type { RenderableNode } from '$lib/types/graph/enhanced';
+    import type { NavigationOption } from '$lib/types/domain/navigation';
     import { handleNavigation } from '$lib/services/navigation';
-    import type { NavigationOption } from '$lib/types/navigation';
     import type { NavigationOptionId } from '$lib/services/navigation';
     import { getNavigationColor } from './navigationColors';
+    import { isNavigationData } from '$lib/types/graph/enhanced';
+    import { COORDINATE_SPACE } from '$lib/constants/graph';
+    import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
+    import { graphStore } from '$lib/stores/graphStore';
+    import type { ViewType } from '$lib/types/graph/enhanced';
 
-    const dispatch = createEventDispatcher();
+    export let node: RenderableNode;
 
-    export let option: NavigationOption;
-    export let transform: string;
-    export let isHovered = false;
+    const dispatch = createEventDispatcher<{
+        hover: { isHovered: boolean };
+    }>();
 
-    const color = getNavigationColor(option.id);
+    let isHovered = false;
+    let connectionEndpoint = { x: 0, y: 0 }; // Point on dashboard perimeter
     const filterId = `nav-glow-${Math.random().toString(36).slice(2)}`;
     
-    let transformValues: number[] = [];
-    let translateX: number = 0;
-    let translateY: number = 0;
+    // Type guard for navigation data
+    if (!isNavigationData(node.data)) {
+        throw new Error('Invalid node data type for NavigationNode');
+    }
 
-    $: {
-        const matches = transform.match(/translate\(([-\d.e+-]+),\s*([-\d.e+-]+)\)/);
-        if (matches) {
-            transformValues = [parseFloat(matches[1]), parseFloat(matches[2])];
-            [translateX, translateY] = transformValues;
-        } else {
-            transformValues = [0, 0];
-            [translateX, translateY] = transformValues;
+    const navigationData = node.data as NavigationOption;
+    
+    // Get color from navigation option ID
+    $: color = getNavigationColor(navigationData.id);
+
+    // Calculate connection line endpoint on dashboard perimeter using the verified scaling factor
+    onMount(() => {
+        if (node.position) {
+            // Vector from node to center (0,0)
+            const vectorX = -node.position.x;
+            const vectorY = -node.position.y;
+            
+            // Length of vector (distance to center)
+            const distance = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+            
+            if (distance > 0) {
+                // Unit vector components (normalized direction toward center)
+                const unitX = vectorX / distance;
+                const unitY = vectorY / distance;
+                
+                // Use known scaling factor for dashboard radius
+                // This matches your empirical finding that dividing by 9 works
+                const effectiveRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 9;
+                
+                // Calculate point on perimeter in local coordinates
+                connectionEndpoint = {
+                    x: unitX * effectiveRadius,
+                    y: unitY * effectiveRadius
+                };
+                
+                console.debug(`[NavigationNode] Connection endpoint for ${navigationData.id} using empirical scaling:`, {
+                    nodePosition: node.position,
+                    unitVector: { x: unitX, y: unitY },
+                    effectiveRadius,
+                    connectionEndpoint
+                });
+            }
+        }
+    });
+
+    async function handleClick() {
+        // Get the target view type based on navigation option
+        const targetViewType = navigationData.id === 'dashboard' ? 'dashboard' : 
+                             navigationData.id === 'create-word' ? 'create-node' :
+                             navigationData.id === 'edit-profile' ? 'edit-profile' : 'dashboard';
+        
+        console.log('[NAVIGATION] Clicked node:', { 
+            id: navigationData.id, 
+            targetViewType 
+        });
+        
+        // 1. FIRST update the graph store directly
+        if (graphStore && graphStore.setViewType) {
+            console.log('[NAVIGATION] Directly updating graph store:', targetViewType);
+            graphStore.setViewType(targetViewType as ViewType);
+            
+            // Force immediate refresh
+            if (graphStore.forceTick) {
+                console.log('[NAVIGATION] Forcing immediate graph update');
+                graphStore.forceTick(); // No arguments to avoid TS error
+            }
+        }
+        
+        // 2. THEN perform navigation
+        try {
+            // Force a small timeout to give store update time to propagate
+            await new Promise(resolve => setTimeout(resolve, 10));
+            handleNavigation(navigationData.id as NavigationOptionId);
+            console.log('[NAVIGATION] Navigation completed');
+        } catch (e) {
+            console.error('[NAVIGATION] Error during navigation:', e);
         }
     }
 
-    function handleClick() {
-        handleNavigation(option.id as NavigationOptionId);
-    }
-
     function handleMouseEnter() {
-        dispatch('hover', { isHovered: true });
         isHovered = true;
+        dispatch('hover', { isHovered: true });
+        
+        // Ensure positions stay fixed during hover interactions
+        // This must be done by completely stopping the simulation
+        if (graphStore.fixNodePositions) {
+            // First force stop the simulation completely
+            if (graphStore.stopSimulation) {
+                graphStore.stopSimulation();
+            }
+            
+            // Fix node positions - no alpha, no restart
+            graphStore.fixNodePositions();
+            
+            // Additional force tick to ensure everything is properly positioned
+            if (graphStore.forceTick) {
+                graphStore.forceTick();
+            }
+        }
     }
 
     function handleMouseLeave() {
-        dispatch('hover', { isHovered: false });
         isHovered = false;
+        dispatch('hover', { isHovered: false });
+        
+        // Again ensure positions stay fixed
+        if (graphStore.fixNodePositions) {
+            // Fix node positions but don't restart
+            graphStore.fixNodePositions();
+        }
     }
 </script>
 
-<g 
-    class="navigation-node"
-    {transform}
-    on:mouseenter={handleMouseEnter}
-    on:mouseleave={handleMouseLeave}
-    on:click={handleClick}
->
+<!-- Navigation node wrapper - NO animations or transforms that could affect positioning -->
+<g class="navigation-node-wrapper">
     <defs>
         <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
             <!-- Strong outer glow -->
@@ -80,65 +163,79 @@
         </filter>
     </defs>
 
-    {#if isHovered}
-        <!-- Connection line to center -->
-        <line 
-            class="connection-line"
-            x1="0"
-            y1="0"
-            x2={-translateX * 0.55}
-            y2={-translateY * 0.55}
-            stroke={`${color}50`}
-            stroke-width="1.5"
-        />
-    {/if}
+    <!-- Connection line from nav node to dashboard perimeter -->
+    <line 
+        class="connection-line"
+        x1="0"
+        y1="0"
+        x2={connectionEndpoint.x}
+        y2={connectionEndpoint.y}
+        stroke={`${color}80`}
+        stroke-width="2.5"
+        class:visible={isHovered}
+    />
 
-    <!-- Icon Container -->
-    <foreignObject 
-        x="-16" 
-        y="-16" 
-        width="32" 
-        height="32" 
-        class="icon-container"
-        style:filter={isHovered ? `url(#${filterId})` : 'none'}
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <g 
+        class="navigation-node"
+        style="pointer-events: all; touch-action: none;"
+        on:mouseenter={handleMouseEnter}
+        on:mouseleave={handleMouseLeave}
+        on:click={handleClick}
     >
-        <div 
-            class="icon-wrapper"
-            {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+        <!-- Icon Container with fixed size and position -->
+        <foreignObject 
+            x="-16" 
+            y="-16" 
+            width="32" 
+            height="32" 
+            class="icon-container"
+            style:filter={isHovered ? `url(#${filterId})` : 'none'}
         >
-            <span 
-                class="material-symbols-outlined"
-                style:color={isHovered ? color : 'white'}
+            <div 
+                class="icon-wrapper"
+                {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
             >
-                {option.icon}
-            </span>
-        </div>
-    </foreignObject>
+                <span 
+                    class="material-symbols-outlined"
+                    style:color={isHovered ? color : 'white'}
+                >
+                    {navigationData.icon}
+                </span>
+            </div>
+        </foreignObject>
 
-    <!-- Label -->
-    {#if isHovered}
+        <!-- Label - ALWAYS render but control visibility with CSS -->
         <text
             class="label"
             dy="30"
             style:fill={color}
+            style:opacity={isHovered ? 1 : 0}
+            style:pointer-events="none"
         >
-            {option.label}
+            {navigationData.label}
         </text>
-    {/if}
+    </g>
 </g>
 
 <style>
+    .navigation-node-wrapper {
+        /* Prevent any unpredictable positioning */
+        transform: none !important;
+        will-change: auto;
+    }
+
     .navigation-node {
         cursor: pointer;
+        /* Disable any transitions that could affect layout */
+        transform: none !important;
+        will-change: auto;
     }
 
     .icon-container {
         overflow: visible;
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .navigation-node:hover .icon-container {
-        transform: scale(1.1);
+        /* No transitions that could affect layout */
     }
 
     .icon-wrapper {
@@ -151,11 +248,26 @@
 
     :global(.navigation-node .material-symbols-outlined) {
         font-size: 24px;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        /* Only transition color, not any size or position properties */
+        transition: color 0.3s ease;
     }
 
     .navigation-node:hover :global(.material-symbols-outlined) {
-        font-size: 32px;
+        /* Keep exact same size on hover */
+        font-size: 24px;
+    }
+
+    .connection-line {
+        pointer-events: none;
+        vector-effect: non-scaling-stroke;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.2s ease-out;
+    }
+
+    .connection-line.visible {
+        visibility: visible;
+        opacity: 1;
     }
 
     .label {
@@ -164,56 +276,7 @@
         text-anchor: middle;
         dominant-baseline: middle;
         pointer-events: none;
-        opacity: 0;
-        animation: fadeIn 0.2s ease-out forwards;
-    }
-
-    .connection-line {
-        pointer-events: none;
-        vector-effect: non-scaling-stroke;
-        opacity: 0;
-        animation: fadeIn 0.2s ease-out forwards;
-        stroke-dasharray: 2;
-        animation: fadeIn 0.2s ease-out forwards, dash 20s linear infinite;
-    }
-
-    .glow {
-        pointer-events: none;
-        opacity: 0;
-        animation: fadeIn 0.2s ease-out forwards, pulse 2s ease-in-out infinite;
-    }
-
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-        }
-        to {
-            opacity: 1;
-        }
-    }
-
-    @keyframes pulse {
-        0% {
-            transform: scale(1);
-            opacity: 0.8;
-        }
-        50% {
-            transform: scale(1.1);
-            opacity: 0.6;
-        }
-        100% {
-            transform: scale(1);
-            opacity: 0.8;
-        }
-    }
-
-    @keyframes dash {
-        to {
-            stroke-dashoffset: -1000;
-        }
-    }
-
-    :global(.navigation-node *) {
-        vector-effect: non-scaling-stroke;
+        /* Use opacity instead of display/visibility for smoother transitions */
+        transition: opacity 0.2s ease-out;
     }
 </style>

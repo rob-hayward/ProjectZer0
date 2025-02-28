@@ -1,6 +1,6 @@
 // src/lib/stores/wordStore.ts
 import { writable } from 'svelte/store';
-import type { WordNode } from '$lib/types/nodes';
+import type { WordNode } from '$lib/types/domain/nodes';
 
 export type WordViewType = 'word' | 'alternative-definitions' | 'create-alternative' | 'discuss';
 

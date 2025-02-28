@@ -1,5 +1,5 @@
 // src/lib/services/auth0.ts
-import type { UserProfile } from '../types/user';
+import type { UserProfile } from '../types/domain/user';
 import { jwtStore } from '../stores/JWTStore';
 import { userStore } from '../stores/userStore';
 

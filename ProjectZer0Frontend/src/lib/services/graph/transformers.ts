@@ -1,8 +1,8 @@
 // ProjectZer0Frontend/src/lib/services/graph/transformers.ts
-import type { WordNode } from '$lib/types/nodes';
-import type { UserProfile } from '$lib/types/user';
-import type { NavigationOption } from '$lib/types/navigation';
-import type { LayoutNode, LayoutLink } from '$lib/types/graph/layout';
+import type { WordNode } from '$lib/types/domain/nodes';
+import type { UserProfile } from '$lib/types/domain/user';
+import type { NavigationOption } from '$lib/types/domain/navigation';
+import type { LayoutNode, LayoutLink } from '$lib/types/legacy/layout';
 
 export interface LayoutData {
     nodes: LayoutNode[];

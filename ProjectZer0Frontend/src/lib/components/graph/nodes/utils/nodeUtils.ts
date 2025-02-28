@@ -1,5 +1,5 @@
 // src/components/graph/nodes/utils/nodeUtils.ts
-import type { UserProfile } from '$lib/types/user';
+import type { UserProfile } from '$lib/types/domain/user';
 
 interface VoteWithLow {
     low: number;
