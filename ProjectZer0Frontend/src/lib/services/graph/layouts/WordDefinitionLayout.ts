@@ -2,8 +2,8 @@
 import * as d3 from 'd3';
 import { BaseLayoutStrategy } from './BaseLayoutStrategy';
 import { NavigationNodeLayout } from './common/NavigationNodeLayout';
-import type { EnhancedNode, EnhancedLink } from '$lib/types/graph/enhanced';
-import { asD3Nodes, asD3Links } from '$lib/types/graph/enhanced';
+import type { EnhancedNode, EnhancedLink } from '../../../types/graph/enhanced';
+import { asD3Nodes, asD3Links } from '../../../types/graph/enhanced';
 import type { 
     GraphData, 
     ViewType, 
@@ -12,7 +12,7 @@ import type {
     GraphNode,
     GraphLink
 } from '$lib/types/graph/enhanced';
-import { COORDINATE_SPACE, FORCE_SIMULATION } from '$lib/constants/graph';
+import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../constants/graph';
 
 /**
  * Layout strategy for word and definition nodes
@@ -30,6 +30,8 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     private readonly FIRST_ALT_ANGLE = Math.PI;
     private definitionAngles: Map<string, number> = new Map();
     private expansionState: Map<string, boolean> = new Map();
+    // Added: Track expanded definitions and their ring indices
+    private expandedDefinitions: Map<string, { ringIndex: number, adjustment: number }> = new Map();
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(width, height, viewType);
@@ -282,33 +284,52 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         // Update expansion state tracking
         this.expansionState.set(nodeId, mode === 'detail');
 
+        // If this is a definition node, update expanded definitions tracking
+        if (node.type === 'definition') {
+            // Calculate ring index
+            let ringIndex = 0;
+            if (node.subtype === 'live') {
+                ringIndex = 0; // Live definition is always at ring 0
+            } else {
+                // Find position in sorted alternatives
+                const alternatives = nodes
+                    .filter(n => n.type === 'definition' && n.subtype === 'alternative')
+                    .sort((a, b) => (b.metadata?.votes || 0) - (a.metadata?.votes || 0));
+                    
+                const altIndex = alternatives.findIndex(d => d.id === nodeId);
+                ringIndex = altIndex + 1; // Alternative definitions start at ring 1
+            }
+            
+            // Calculate adjustment for this node (radius difference between detail and preview)
+            const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
+                              COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 + COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
+                
+            // Update tracking
+            if (mode === 'detail') {
+                this.expandedDefinitions.set(nodeId, { ringIndex, adjustment });
+                console.debug('[WordDefinitionLayout] Added expanded definition:', {
+                    nodeId,
+                    ringIndex,
+                    adjustment
+                });
+            } else {
+                this.expandedDefinitions.delete(nodeId);
+                console.debug('[WordDefinitionLayout] Removed expanded definition:', {
+                    nodeId
+                });
+            }
+        }
+
         // For word nodes, we need to update all definition positions
         if (node.type === 'word') {
             console.debug('[WordDefinitionLayout] Word node mode changed, repositioning definitions');
-            
-            // Recalculate all positions
             this.repositionDefinitions(nodes);
-            
-            // ADDITION: Reposition navigation nodes if the central word node changed mode
-            if (node.group === 'central') {
-                console.debug('[WordDefinitionLayout] Central word node mode changed, repositioning navigation nodes');
-                
-                // Call NavigationNodeLayout to reposition navigation nodes
-                NavigationNodeLayout.updateNavigationPositions(nodes, this.getNodeRadius.bind(this));
-            }
         }
         
-        // If an alternative definition changes mode, we may need to adjust other definitions
-        if (node.type === 'definition' && node.subtype === 'alternative') {
-            console.debug('[WordDefinitionLayout] Alternative definition mode changed');
-            
-            // Get all alternative definitions
-            const alternatives = nodes
-                .filter(n => n.type === 'definition' && n.subtype === 'alternative')
-                .sort((a, b) => (b.metadata?.votes || 0) - (a.metadata?.votes || 0));
-                
-            // Reposition them to handle expansion changes
-            this.positionAlternativeDefinitions(alternatives);
+        // If a definition changes mode, we need to adjust all definitions
+        if (node.type === 'definition') {
+            console.debug('[WordDefinitionLayout] Definition node mode changed, repositioning all definitions');
+            this.repositionDefinitions(nodes);
         }
         
         // CRITICAL: Stop simulation and enforce fixed positions
@@ -338,6 +359,32 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
                 }
                 
                 this.expansionState.set(node.id, isExpanded);
+                
+                // Also update expanded definitions tracking for definition nodes
+                if (node.type === 'definition') {
+                    if (isExpanded) {
+                        // Calculate ring index
+                        let ringIndex = 0;
+                        if (node.subtype === 'live') {
+                            ringIndex = 0;
+                        } else {
+                            const alternatives = nodes
+                                .filter(n => n.type === 'definition' && n.subtype === 'alternative')
+                                .sort((a, b) => (b.metadata?.votes || 0) - (a.metadata?.votes || 0));
+                                
+                            const altIndex = alternatives.findIndex(d => d.id === node.id);
+                            ringIndex = altIndex + 1;
+                        }
+                        
+                        // Calculate adjustment
+                        const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
+                                          COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2;
+                                          
+                        this.expandedDefinitions.set(node.id, { ringIndex, adjustment });
+                    } else {
+                        this.expandedDefinitions.delete(node.id);
+                    }
+                }
             }
         });
     }
@@ -443,8 +490,34 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 :
             0;
         
+        // Calculate adjustment from inner expanded nodes
+        let innerExpandedAdjustment = 0;
+        this.expandedDefinitions.forEach((data, id) => {
+            // If this is an inner ring that's expanded, add its adjustment
+            if (data.ringIndex < ringIndex) {
+                innerExpandedAdjustment += data.adjustment;
+                console.debug('[WordDefinitionLayout] Adding inner expanded adjustment:', {
+                    forNodeId: node.id,
+                    fromNodeId: id,
+                    innerRingIndex: data.ringIndex,
+                    thisRingIndex: ringIndex,
+                    adjustment: data.adjustment
+                });
+            }
+        });
+        
         // Calculate final radius - expansion moves outward, word preview moves inward
-        const radius = baseRadius + expansionAdjustment - wordAdjustment;
+        const radius = baseRadius + expansionAdjustment - wordAdjustment + innerExpandedAdjustment;
+
+        console.debug('[WordDefinitionLayout] Alternative definition position calculated:', {
+            nodeId: node.id,
+            ringIndex,
+            baseRadius,
+            expansionAdjustment,
+            wordAdjustment,
+            innerExpandedAdjustment,
+            finalRadius: radius
+        });
 
         return { angle, radius };
     }
