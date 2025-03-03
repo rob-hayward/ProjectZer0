@@ -12,7 +12,9 @@ import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../../constants/graph'
  */
 export class NavigationNodeLayout {
     /**
-     * Position navigation nodes in a circle around the central node
+     * Position navigation nodes in a circle around the central node,
+     * adjusting the distance based on central node size
+     * 
      * @param nodes All nodes in the simulation
      * @param getNodeRadius Function to calculate node radius
      * @returns The radius used for the navigation circle
@@ -44,13 +46,24 @@ export class NavigationNodeLayout {
         // Calculate ring radius based on central node size
         const centralRadius = getNodeRadius(centralNode);
         
-        // Direct distance control using NODE_PADDING (distance between perimeters)
-        const nodeDistanceFromCenter = COORDINATE_SPACE.LAYOUT.NAVIGATION.NODE_PADDING + centralRadius;
+        // Determine if central node is in preview or detail mode
+        const isPreview = centralNode.mode === 'preview';
+        
+        // Use the appropriate distance constant based on central node mode
+        const navigationDistance = isPreview
+            ? COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE
+            : COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE;
+        
+        // Calculate final distance from center (central node radius + constant distance)
+        const nodeDistanceFromCenter = centralRadius + navigationDistance;
         
         console.debug('[NavigationNodeLayout] Navigation ring calculation:', {
+            centralNodeType: centralNode.type,
+            centralNodeMode: centralNode.mode,
             centralRadius,
-            padding: COORDINATE_SPACE.LAYOUT.NAVIGATION.NODE_PADDING,
-            nodeDistanceFromCenter
+            navigationDistance,
+            isPreview,
+            finalDistance: nodeDistanceFromCenter
         });
 
         // Position navigation nodes in a circle
@@ -76,6 +89,7 @@ export class NavigationNodeLayout {
             // Store angle and radius in metadata for connection calculations
             if (node.metadata) {
                 node.metadata.angle = angle;
+                node.metadata.radius = nodeDistanceFromCenter; // Store the actual distance used
                 node.metadata.centralRadius = centralRadius;
             }
             
@@ -220,6 +234,23 @@ export class NavigationNodeLayout {
         } catch (error) {
             console.error(`[NavigationNodeLayout] Error removing force ${forceName}:`, error);
         }
+    }
+
+    /**
+     * Update navigation node positions when central node changes size
+     * Call this when the central node mode changes
+     */
+    static updateNavigationPositions(
+        nodes: EnhancedNode[],
+        getNodeRadius: (node: EnhancedNode) => number
+    ): void {
+        console.debug('[NavigationNodeLayout] Updating navigation positions due to central node mode change');
+        
+        // Reposition all navigation nodes based on the new central node size
+        this.positionNavigationNodes(nodes, getNodeRadius);
+        
+        // Ensure positions are fixed
+        this.enforceFixedPositions(nodes);
     }
 
     /**

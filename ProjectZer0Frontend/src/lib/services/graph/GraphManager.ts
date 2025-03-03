@@ -198,8 +198,25 @@ export class GraphManager {
         console.debug(`[GraphManager:${this.managerId}] Forcing ${ticks} simulation ticks`);
         
         for (let i = 0; i < ticks; i++) {
+            // Before each tick, ensure central node positions are fixed
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            nodes.forEach(node => {
+                if (node.fixed || node.group === 'central') {
+                    node.x = 0;
+                    node.y = 0;
+                    node.fx = 0;
+                    node.fy = 0;
+                    node.vx = 0;
+                    node.vy = 0;
+                }
+            });
+            
+            // Tick the simulation
             this.simulation.tick();
         }
+        
+        // After all ticks, fix node positions again
+        this.fixNodePositions();
         
         // Update the store after manual ticks
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -213,10 +230,12 @@ export class GraphManager {
     public fixNodePositions(): void {
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         
+        console.debug(`[GraphManager:${this.managerId}] Enforcing fixed positions for ${nodes.length} nodes`);
+        
         // Force fixed nodes to stay at their assigned positions
         nodes.forEach(node => {
             if (node.fixed || node.group === 'central') {
-                // Central nodes always at origin
+                // Central nodes always at origin with VERY explicit position setting
                 node.x = 0;
                 node.y = 0;
                 node.fx = 0;
@@ -224,6 +243,17 @@ export class GraphManager {
                 // Ensure zero velocity
                 node.vx = 0;
                 node.vy = 0;
+                
+                // Flag as fixed to be extra sure
+                node.fixed = true;
+                
+                // Log central node position for debugging
+                console.debug(`[GraphManager:${this.managerId}] Fixed central node at origin`, {
+                    id: node.id,
+                    type: node.type,
+                    position: { x: node.x, y: node.y },
+                    fixed: { fx: node.fx, fy: node.fy }
+                });
             } else if (node.type === 'navigation') {
                 // Navigation nodes fixed at their assigned positions
                 if (node.fx !== null && node.fx !== undefined) {
@@ -251,13 +281,17 @@ export class GraphManager {
             }
         });
         
-        // Stop the simulation to prevent any movement
+        // Stop the simulation completely to prevent any movement
         this.simulation.alpha(0);
+        this.simulation.alphaTarget(0);
         
         // Update the store to reflect these fixed positions
         this.nodesStore.update(() => [...nodes]);
         
-        console.debug(`[GraphManager:${this.managerId}] Fixed node positions enforced`);
+        // IMPORTANT: If we have a WordDefinitionLayout, call its enforceFixedPositions method too
+        if (this.currentLayoutStrategy instanceof WordDefinitionLayout) {
+            (this.currentLayoutStrategy as WordDefinitionLayout).enforceFixedPositions();
+        }
     }
 
     private startSimulation(): void {
@@ -290,10 +324,14 @@ export class GraphManager {
             
             nodes.forEach(node => {
                 if (node.fixed || node.group === 'central') {
+                    // IMPORTANT: ALWAYS enforce central node position on EVERY tick
                     node.x = 0;
                     node.y = 0;
                     node.fx = 0;
                     node.fy = 0;
+                    // Zero velocity
+                    node.vx = 0;
+                    node.vy = 0;
                 } else if (node.type === 'navigation') {
                     // Ensure navigation nodes keep their fixed positions
                     if (node.fx !== null && node.fx !== undefined) {
@@ -302,6 +340,9 @@ export class GraphManager {
                     if (node.fy !== null && node.fy !== undefined) {
                         node.y = node.fy;
                     }
+                    // Zero velocity
+                    node.vx = 0;
+                    node.vy = 0;
                 }
             });
             
@@ -386,6 +427,10 @@ export class GraphManager {
             
             // Update simulation with strategy-applied nodes
             this.simulation.nodes(asD3Nodes(nodes));
+            
+            // IMPORTANT: Call fixNodePositions here to ensure fixed positions
+            // are enforced after layout initialization
+            this.fixNodePositions();
         }
     }
 

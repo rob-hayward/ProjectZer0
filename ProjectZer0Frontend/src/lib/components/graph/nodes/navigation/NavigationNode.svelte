@@ -7,10 +7,9 @@
     import type { NavigationOptionId } from '$lib/services/navigation';
     import { getNavigationColor } from './navigationColors';
     import { isNavigationData } from '$lib/types/graph/enhanced';
-    import { COORDINATE_SPACE } from '$lib/constants/graph';
-    import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
     import { graphStore } from '$lib/stores/graphStore';
     import type { ViewType } from '$lib/types/graph/enhanced';
+    import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
 
     export let node: RenderableNode;
 
@@ -19,7 +18,7 @@
     }>();
 
     let isHovered = false;
-    let connectionEndpoint = { x: 0, y: 0 }; // Point on dashboard perimeter
+    let connectionEndpoint = { x: 0, y: 0 }; // Point on central node's perimeter
     const filterId = `nav-glow-${Math.random().toString(36).slice(2)}`;
     
     // Type guard for navigation data
@@ -32,40 +31,27 @@
     // Get color from navigation option ID
     $: color = getNavigationColor(navigationData.id);
 
-    // Calculate connection line endpoint on dashboard perimeter using the verified scaling factor
+    /**
+     * Calculate connection endpoint using the CoordinateSystem service
+     */
+    function calculateConnectionEndpoint() {
+        if (!node.position) return { x: 0, y: 0 };
+        
+        // Let the coordinate system handle the calculation
+        const viewType = graphStore.getViewType();
+        return coordinateSystem.calculateNavigationConnectionEndpoint(node.position, viewType);
+    }
+
+    // Ensure endpoint is calculated on component initialization
     onMount(() => {
-        if (node.position) {
-            // Vector from node to center (0,0)
-            const vectorX = -node.position.x;
-            const vectorY = -node.position.y;
-            
-            // Length of vector (distance to center)
-            const distance = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
-            
-            if (distance > 0) {
-                // Unit vector components (normalized direction toward center)
-                const unitX = vectorX / distance;
-                const unitY = vectorY / distance;
-                
-                // Use known scaling factor for dashboard radius
-                // This matches your empirical finding that dividing by 9 works
-                const effectiveRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 9;
-                
-                // Calculate point on perimeter in local coordinates
-                connectionEndpoint = {
-                    x: unitX * effectiveRadius,
-                    y: unitY * effectiveRadius
-                };
-                
-                console.debug(`[NavigationNode] Connection endpoint for ${navigationData.id} using empirical scaling:`, {
-                    nodePosition: node.position,
-                    unitVector: { x: unitX, y: unitY },
-                    effectiveRadius,
-                    connectionEndpoint
-                });
-            }
-        }
+        connectionEndpoint = calculateConnectionEndpoint();
+        console.debug(`[NavigationNode:${navigationData.id}] Initial connection point:`, connectionEndpoint);
     });
+
+    // Recalculate on store changes
+    $: if ($graphStore) {
+        connectionEndpoint = calculateConnectionEndpoint();
+    }
 
     async function handleClick() {
         // Get the target view type based on navigation option
@@ -103,10 +89,10 @@
 
     function handleMouseEnter() {
         isHovered = true;
+        console.debug(`[NavigationNode:${navigationData.id}] Mouse enter, isHovered=${isHovered}`);
         dispatch('hover', { isHovered: true });
         
         // Ensure positions stay fixed during hover interactions
-        // This must be done by completely stopping the simulation
         if (graphStore.fixNodePositions) {
             // First force stop the simulation completely
             if (graphStore.stopSimulation) {
@@ -115,6 +101,9 @@
             
             // Fix node positions - no alpha, no restart
             graphStore.fixNodePositions();
+            
+            // Recalculate connection endpoint for the current state
+            connectionEndpoint = calculateConnectionEndpoint();
             
             // Additional force tick to ensure everything is properly positioned
             if (graphStore.forceTick) {
@@ -125,6 +114,7 @@
 
     function handleMouseLeave() {
         isHovered = false;
+        console.debug(`[NavigationNode:${navigationData.id}] Mouse leave, isHovered=${isHovered}`);
         dispatch('hover', { isHovered: false });
         
         // Again ensure positions stay fixed

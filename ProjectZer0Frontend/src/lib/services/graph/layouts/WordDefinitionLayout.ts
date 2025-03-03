@@ -2,8 +2,8 @@
 import * as d3 from 'd3';
 import { BaseLayoutStrategy } from './BaseLayoutStrategy';
 import { NavigationNodeLayout } from './common/NavigationNodeLayout';
-import type { EnhancedNode, EnhancedLink } from '../../../types/graph/enhanced';
-import { asD3Nodes, asD3Links } from '../../../types/graph/enhanced';
+import type { EnhancedNode, EnhancedLink } from '$lib/types/graph/enhanced';
+import { asD3Nodes, asD3Links } from '$lib/types/graph/enhanced';
 import type { 
     GraphData, 
     ViewType, 
@@ -12,7 +12,7 @@ import type {
     GraphNode,
     GraphLink
 } from '$lib/types/graph/enhanced';
-import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../constants/graph';
+import { COORDINATE_SPACE, FORCE_SIMULATION } from '$lib/constants/graph';
 
 /**
  * Layout strategy for word and definition nodes
@@ -41,6 +41,49 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     }
 
     /**
+     * Clear ALL forces from the simulation - duplicated from SingleNodeLayout
+     * This ensures no forces can affect node positions
+     */
+    private clearAllForces(): void {
+        console.debug('[WordDefinitionLayout] Clearing all forces');
+        
+        // Get all force names
+        const sim = this.simulation as any;
+        
+        // List all forces that might be present
+        const potentialForceNames = [
+            'charge', 'collision', 'link', 'center', 'x', 'y',
+            'manyBody', 'radial', 'navigationRadial', 'navigationCharge',
+            'navigationCollision', 'centralCharge', 'centralCollision',
+            'positioning', 'custom'
+        ];
+        
+        // Remove all forces
+        potentialForceNames.forEach(name => {
+            try {
+                sim.force(name, null);
+            } catch (e) {
+                // Ignore errors
+            }
+        });
+        
+        // Check if there are still any forces left
+        const remainingForces = Object.keys(sim._forces || {});
+        if (remainingForces.length > 0) {
+            console.warn('[WordDefinitionLayout] Some forces still remain:', remainingForces);
+            
+            // Try to remove these as well
+            remainingForces.forEach(name => {
+                try {
+                    sim.force(name, null);
+                } catch (e) {
+                    console.warn(`[WordDefinitionLayout] Cannot remove force: ${name}`);
+                }
+            });
+        }
+    }
+
+    /**
      * Set initial positions for all nodes
      */
     initializeNodePositions(nodes: EnhancedNode[]): void {
@@ -48,6 +91,12 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             nodeCount: nodes.length,
             nodeTypes: nodes.map(n => ({ id: n.id, type: n.type, subtype: n.subtype }))
         });
+
+        // Stop simulation during initialization
+        this.simulation.stop();
+        
+        // CRITICAL: Clear all forces before positioning nodes
+        this.clearAllForces();
 
         // Update expansion state tracking
         this.updateExpansionState(nodes);
@@ -77,13 +126,26 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             return;
         }
 
-        // Center the word node
+        // Center the word node with EXPLICIT POSITION FIXING
         centralNode.fx = 0;
         centralNode.fy = 0;
         centralNode.x = 0;
         centralNode.y = 0;
+        centralNode.vx = 0;
+        centralNode.vy = 0;
+        centralNode.fixed = true; // Ensure fixed flag is set
+        
+        // Ensure metadata reflects this
+        if (centralNode.metadata) {
+            centralNode.metadata.fixed = true;
+        }
 
-        console.debug('[WordDefinitionLayout] Central node positioned at center');
+        console.debug('[WordDefinitionLayout] Central node positioned at center with fixed constraints', {
+            id: centralNode.id,
+            position: { x: centralNode.x, y: centralNode.y },
+            fixed: { fx: centralNode.fx, fy: centralNode.fy },
+            velocity: { vx: centralNode.vx, vy: centralNode.vy }
+        });
 
         // Position live definition with adjustments
         const liveDefinition = nodes.find(n => n.type === 'definition' && n.subtype === 'live');
@@ -98,6 +160,9 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
 
         // Position all alternatives
         this.positionAlternativeDefinitions(alternatives);
+        
+        // Final enforcement of fixed positions
+        this.enforceFixedPositions();
     }
 
     /**
@@ -106,50 +171,78 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     configureForces(): void {
         console.debug('[WordDefinitionLayout] Configuring forces');
 
-        // Remove all existing forces first
-        (this.simulation as any).force('charge', null);
-        (this.simulation as any).force('collision', null);
-        (this.simulation as any).force('link', null);
-        (this.simulation as any).force('center', null);
+        // CRITICAL: Start with no forces at all
+        this.clearAllForces();
         
         // Configure minimal forces for navigation nodes
         NavigationNodeLayout.configureNoForces(this.simulation);
 
-        // Configure collision detection with node-size aware padding
-        const collision = d3.forceCollide<any>()
-            .radius((d: any) => {
-                const node = d as EnhancedNode;
-                const size = this.getNodeRadius(node);
-                const padding = COORDINATE_SPACE.NODES.PADDING.COLLISION[
-                    node.type === 'definition' ? 'DEFINITION' : 'BASE'
-                ];
-                return size + padding;
-            })
-            .strength(0.8)  // Higher collision strength for better separation
-            .iterations(6);
-
-        // Mild charge force to maintain spacing
-        const charge = d3.forceManyBody<any>()
-            .strength((d: any) => {
-                const node = d as EnhancedNode;
-                // Different charge based on node type
-                if (node.type === 'word' || node.group === 'central') {
-                    return COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.STRENGTH.WORD;
-                } else if (node.type === 'definition') {
-                    return node.subtype === 'live' ?
-                        COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.STRENGTH.DEFINITION.LIVE :
-                        COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.STRENGTH.DEFINITION.ALTERNATIVE;
-                } else {
-                    return -50; // Default mild charge
+        // NO FORCES: Following the SingleNodeLayout approach, we don't add any forces
+        // to the simulation, relying completely on fixed positions instead
+        
+        // Add a tick handler that enforces central node position on EVERY tick
+        this.simulation.on('tick.fixedPosition', () => {
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            
+            // Find central node and fix its position on every tick
+            const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+            if (centralNode) {
+                // Aggressively reset position to origin
+                centralNode.x = 0;
+                centralNode.y = 0;
+                centralNode.fx = 0;
+                centralNode.fy = 0;
+                centralNode.vx = 0;
+                centralNode.vy = 0;
+            }
+            
+            // Also fix navigation nodes
+            nodes.forEach(node => {
+                if (node.type === 'navigation' && node.fx !== undefined && node.fy !== undefined) {
+                    node.x = node.fx;
+                    node.y = node.fy;
+                    node.vx = 0;
+                    node.vy = 0;
                 }
-            })
-            .distanceMin(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MIN)
-            .distanceMax(COORDINATE_SPACE.LAYOUT.FORCES.CHARGE.DISTANCE.MAX);
+            });
+        });
+        
+        // Start with a VERY mild alpha - just like SingleNodeLayout
+        this.simulation.alpha(0.01).restart();
+    }
 
-        // Configure forces
-        this.simulation
-            .force('collision', collision)
-            .force('charge', charge);
+    /**
+     * Additional function to call after layout is applied to ensure positions are fixed
+     */
+    public enforceFixedPositions(): void {
+        if (!this.simulation) return;
+        
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find and fix central node
+        const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+        if (centralNode) {
+            centralNode.x = 0;
+            centralNode.y = 0;
+            centralNode.fx = 0;
+            centralNode.fy = 0;
+            centralNode.vx = 0;
+            centralNode.vy = 0;
+            centralNode.fixed = true;
+            
+            // Ensure index 0 for central node (might help with stability)
+            if (typeof centralNode.index === 'number') {
+                centralNode.index = 0;
+            }
+            
+            console.debug('[WordDefinitionLayout] Enforced central node position at (0,0)');
+        }
+        
+        // Also enforce navigation node positions
+        NavigationNodeLayout.enforceFixedPositions(nodes);
+        
+        // Force simulation to honor these positions
+        this.simulation.alpha(0).alphaTarget(0);
     }
 
     /**
@@ -195,6 +288,14 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             
             // Recalculate all positions
             this.repositionDefinitions(nodes);
+            
+            // ADDITION: Reposition navigation nodes if the central word node changed mode
+            if (node.group === 'central') {
+                console.debug('[WordDefinitionLayout] Central word node mode changed, repositioning navigation nodes');
+                
+                // Call NavigationNodeLayout to reposition navigation nodes
+                NavigationNodeLayout.updateNavigationPositions(nodes, this.getNodeRadius.bind(this));
+            }
         }
         
         // If an alternative definition changes mode, we may need to adjust other definitions
@@ -210,8 +311,12 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             this.positionAlternativeDefinitions(alternatives);
         }
         
-        // Ensure navigation node positions are maintained
-        NavigationNodeLayout.enforceFixedPositions(nodes);
+        // CRITICAL: Stop simulation and enforce fixed positions
+        this.simulation.stop();
+        this.enforceFixedPositions();
+        
+        // Restart with VERY minimal alpha to avoid movement
+        this.simulation.alpha(0.01).restart();
     }
 
     /**
@@ -365,28 +470,51 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
 
     /**
      * Update data and handle mode changes
+     * ALWAYS skip animation like SingleNodeLayout
      */
     public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = false): void {
         console.debug('[WordDefinitionLayout] Updating layout data', {
             nodeCount: nodes.length,
-            linkCount: links.length,
-            skipAnimation
+            linkCount: links.length
         });
 
+        // Always stop simulation during update
+        this.simulation.stop();
+        
         // Track expansion state changes
         this.updateExpansionState(nodes);
 
-        this.simulation.stop();
+        // Clear all forces
+        this.clearAllForces();
+        
+        // Initialize positions
         this.initializeNodePositions(nodes);
+        
+        // Update nodes
         this.simulation.nodes(asD3Nodes(nodes));
+        
+        // Configure forces (which adds no actual forces)
         this.configureForces();
 
-        // Very small alpha to minimize force-based movement
-        const alpha = skipAnimation ? 0 : 0.1;
-
-        this.simulation
-            .alpha(alpha)
-            .alphaTarget(0)
-            .restart();
+        // ALWAYS skip animation by setting alpha to 0
+        this.simulation.alpha(0).alphaTarget(0);
+            
+        // Ensure fixed positions after update
+        this.enforceFixedPositions();
+    }
+    
+    /**
+     * Stops the layout strategy and clears all forces
+     */
+    public stop(): void {
+        console.debug('[WordDefinitionLayout] Stopping layout');
+        
+        // Call parent stop
+        super.stop();
+        
+        // Also clear all forces
+        if (this.simulation) {
+            this.clearAllForces();
+        }
     }
 }

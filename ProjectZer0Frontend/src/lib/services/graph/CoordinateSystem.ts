@@ -3,6 +3,7 @@ import { writable, derived, get } from 'svelte/store';
 import type { ZoomTransform } from 'd3';
 import * as d3 from 'd3';
 import { COORDINATE_SPACE } from '$lib/constants/graph';
+import type { NodeMode, ViewType } from '$lib/types/graph/enhanced';
 
 /**
  * Service that handles coordinate transformations between
@@ -152,6 +153,70 @@ export class CoordinateSystem {
         const effectiveRadius = dashboardViewRadius * CoordinateSystem.RADIUS_SCALE_FACTOR;
         
         // Calculate endpoint in node's local coordinates
+        return {
+            x: unitX * effectiveRadius,
+            y: unitY * effectiveRadius
+        };
+    }
+
+    /**
+     * Calculate the connection endpoint for a navigation node based on its position
+     * and the inferred central node mode.
+     * 
+     * @param nodePosition Position of the navigation node
+     * @param viewType Current view type
+     * @returns Connection endpoint in navigation node's local coordinates
+     */
+    public calculateNavigationConnectionEndpoint(
+        nodePosition: { x: number, y: number },
+        viewType: ViewType
+    ): { x: number, y: number } {
+        // Vector from navigation node to center (0,0)
+        const vectorX = -nodePosition.x;
+        const vectorY = -nodePosition.y;
+        
+        // Distance between points
+        const distance = Math.sqrt(vectorX * vectorX + vectorY * vectorY);
+        
+        if (distance === 0) return { x: 0, y: 0 };
+        
+        // Unit vector toward center
+        const unitX = vectorX / distance;
+        const unitY = vectorY / distance;
+        
+        // Infer central node mode based on navigation node distance
+        let centralNodeMode: NodeMode = 'detail';
+        
+        if (viewType === 'word') {
+            const ourDistance = Math.sqrt(nodePosition.x * nodePosition.x + nodePosition.y * nodePosition.y);
+            const detailModeDistance = COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 + 
+                                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE;
+            const previewModeDistance = COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2 + 
+                                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE;
+                                
+            if (Math.abs(ourDistance - previewModeDistance) < Math.abs(ourDistance - detailModeDistance)) {
+                centralNodeMode = 'preview';
+            }
+        }
+        
+        // Get appropriate radius based on view type and inferred mode
+        let centralNodeRadius;
+        if (viewType === 'word') {
+            centralNodeRadius = centralNodeMode === 'preview' 
+                ? COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2
+                : COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2;
+        } else {
+            centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+        }
+        
+        // Get appropriate scaling factor
+        const scalingFactor = centralNodeMode === 'preview'
+            ? COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.PREVIEW_MODE
+            : COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.DETAIL_MODE;
+        
+        // Calculate effective radius
+        const effectiveRadius = centralNodeRadius * scalingFactor;
+        
         return {
             x: unitX * effectiveRadius,
             y: unitY * effectiveRadius

@@ -42,13 +42,20 @@ export const COORDINATE_SPACE = {
     // Layout distances and spacing
     LAYOUT: {
         RING_SPACING: {
-            INITIAL: 1000,         // Base spacing for first ring
-            INCREMENT: 0.2         // Increase per ring
+            INITIAL: 600,         // Base spacing for first ring
+            INCREMENT: 0.13        // Increase per ring
         },
         NAVIGATION: {
-            // No longer using this for navigation node positioning
-            // Simple, direct padding is set in the layout component
-            NODE_PADDING: 70       // Direct spacing between node perimeters
+            // Direct distances from central node perimeter to navigation nodes
+            DISTANCE: {
+                DETAIL_MODE: 70,   // Distance when central node is in detail mode
+                PREVIEW_MODE: 50   // Distance when central node is in preview mode
+            },
+            // Scaling factors for connection endpoints
+            CONNECTION_SCALING: {
+                DETAIL_MODE: 1/4.35,  // Scaling factor for detail mode endpoints 
+                PREVIEW_MODE: 1/1.38 // Scaling factor for preview mode endpoints
+            }
         },
         FORCES: {
             CHARGE: {
