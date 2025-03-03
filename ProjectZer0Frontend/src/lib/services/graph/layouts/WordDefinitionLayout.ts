@@ -302,7 +302,8 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             
             // Calculate adjustment for this node (radius difference between detail and preview)
             const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
-                              COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 + COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
+                              COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
+                              COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
                 
             // Update tracking
             if (mode === 'detail') {
@@ -320,9 +321,17 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             }
         }
 
-        // For word nodes, we need to update all definition positions
+        // For word nodes, we need to update all nodes
         if (node.type === 'word') {
-            console.debug('[WordDefinitionLayout] Word node mode changed, repositioning definitions');
+            console.debug('[WordDefinitionLayout] Word node mode changed, repositioning all nodes');
+            
+            // First update navigation nodes to ensure they adapt to the word node's new size
+            NavigationNodeLayout.positionNavigationNodes(
+                nodes, 
+                this.getNodeRadius.bind(this)
+            );
+            
+            // Then update definition positions
             this.repositionDefinitions(nodes);
         }
         
@@ -378,7 +387,8 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
                         
                         // Calculate adjustment
                         const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
-                                          COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2;
+                                          COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
+                                          COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
                                           
                         this.expandedDefinitions.set(node.id, { ringIndex, adjustment });
                     } else {
