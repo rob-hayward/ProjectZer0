@@ -23,6 +23,17 @@
     const data = node.data;
     const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
 
+    // Normalize definition text - handle both field name conventions
+    $: definitionText = data.text || data.definitionText || '';
+
+    // Log the data structure for debugging
+    $: console.debug(`[DefinitionNode] Definition data:`, {
+        id: data.id,
+        text: data.text,
+        definitionText: data.definitionText,
+        normalizedText: definitionText
+    });
+
     const METRICS_SPACING = {
         labelX: -200,
         equalsX: 0,
@@ -165,8 +176,8 @@
     $: textWidth = node.style.previewSize - (node.style.padding.preview * 2) - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
-    // Text wrapping for preview mode
-    $: content = `${wordText}: ${data.text}`;
+    // Text wrapping for preview mode - USE definitionText here
+    $: content = `${wordText}: ${definitionText}`;
     $: lines = content.split(' ').reduce((acc, word) => {
         const currentLine = acc[acc.length - 1] || '';
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
@@ -182,6 +193,9 @@
     onMount(async () => {
         console.log('[DefinitionNode] Mounting with definition:', {
             id: data.id,
+            text: data.text,
+            definitionText: data.definitionText,
+            normalizedText: definitionText,
             initialPositiveVotes: data.positiveVotes,
             initialNegativeVotes: data.negativeVotes,
             mode: node.mode
@@ -243,7 +257,7 @@
                 {subtype === 'live' ? 'Live Definition' : 'Alternative Definition'}
             </text>
 
-            <!-- Definition Display -->
+            <!-- Definition Display - Using normalized definitionText -->
             <g class="definition-display" transform="translate(0, {-radius/2 - 55})">
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
@@ -252,7 +266,7 @@
                 >
                     <div class="definition-line">
                         <span class="word-text">{wordText}:</span>
-                        <span class="definition-text">{data.text}</span>
+                        <span class="definition-text">{definitionText}</span>
                     </div>
                 </foreignObject>
             </g>

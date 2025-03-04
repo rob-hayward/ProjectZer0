@@ -19,8 +19,6 @@
     let shareToX = false;
     let isSubmitting = false;
     let errorMessage: string | null = null;
-    // CHANGE: Remove local successMessage - only dispatch to parent
-    let successMessage: string | null = null;
 
     const dispatch = createEventDispatcher<{
         back: void;
@@ -31,7 +29,6 @@
     async function handleSubmit() {
         isSubmitting = true;
         errorMessage = null;
-        // CHANGE: Don't set local success message
 
         try {
             const wordData = {

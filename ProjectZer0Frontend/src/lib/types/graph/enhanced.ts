@@ -114,6 +114,27 @@ export interface RenderableLink {
     strength?: number; // Added for consistent access
 }
 
+export interface LayoutNode {
+    id: string;
+    type: string;
+    subtype?: string;
+    metadata: {
+        group: string;
+        fixed?: boolean;
+        votes?: number;
+        createdAt?: string;
+        // Other metadata properties
+        [key: string]: any;
+    };
+}
+
+export interface LayoutLink {
+    source: string;
+    target: string;
+    type: string;
+    strength?: number;
+}
+
 // Force configuration types
 export interface ForceConfig {
     charge: {
@@ -178,7 +199,7 @@ export const isWordNodeData = (data: any): data is WordNode =>
     data && 'word' in data && 'definitions' in data;
 
 export const isDefinitionData = (data: any): data is Definition =>
-    data && 'text' in data && 'createdBy' in data;
+    data && (('text' in data) || ('definitionText' in data)) && 'createdBy' in data;
 
 export const isNavigationData = (data: any): data is NavigationOption =>
     data && 'label' in data && 'icon' in data;
@@ -208,3 +229,4 @@ export const isLiveLink = (link: RenderableLink): boolean =>
 
 export const isAlternativeLink = (link: RenderableLink): boolean =>
     link.type === 'alternative';
+

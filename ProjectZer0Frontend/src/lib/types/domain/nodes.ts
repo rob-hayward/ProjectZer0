@@ -2,6 +2,7 @@
 export interface Definition {
     id: string;
     text: string;
+    definitionText?: string; // For alternative definitions 
     createdBy: string;
     createdAt: string;
     positiveVotes: number;
