@@ -10,6 +10,7 @@
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
+    import CreateAlternativeDefinitionNode from '$lib/components/graph/nodes/createNode/CreateAlternativeDefinitionNode.svelte';
     import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
     import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
@@ -51,26 +52,38 @@
     // Use wordData from page data for initial state
     $: initialWordData = data.wordData;
     
-    // UPDATED: Derive viewType directly from URL parameters instead of data object
+    // Derive viewType directly from URL parameters
     $: viewType = $page.params.view as ViewType;
-    $: {
-        // Directly log current view type whenever it changes (no dependency on data.viewType)
-        console.log('[VIEW-TYPE] Current view from URL:', viewType);
-    }
+    $: view = viewType;
     
     // Word node mode handling
     $: wordNodeMode = $page ? 
         ($page.params.view === 'word' ? 'detail' : 'preview')
         : 'preview';
 
+    // Check for alternative definition mode (separate from view type)
+    $: isAlternativeDefinitionsMode = false; // NOTE: alternative-definitions is a mode, not a view type
+    
     // Preview mode handling
-    $: isPreviewMode = view === 'alternative-definitions' ? 
+    $: isPreviewMode = isAlternativeDefinitionsMode ? 
         wordNodeMode === 'preview' : 
         view === 'word' ? 
             wordNodeMode === 'preview' : 
             false;
+            
+    // Check for alternative definition creation view
+    $: isCreateAlternative = view === 'create-alternative';
+    
+    // Word-related view check
+    $: isWordView = view === 'word';
+    
+    // Only true word views need word data for the central node
+    $: needsWordDataForCentralNode = isWordView;
+    
+    // But we still need to load word data for create-alternative
+    $: needsWordDataLoaded = isWordView || isCreateAlternative;
 
-    // UPDATED: Force immediate graph updates on navigation
+    // Force immediate graph updates on navigation
     function forceGraphUpdate(newViewType: ViewType) {
         console.log('[FORCE-UPDATE] Forcing graph update to:', newViewType);
         
@@ -78,7 +91,7 @@
             // Update the graph store
             graphStore.setViewType(newViewType);
             
-            // Force immediate simulation ticks (no args to avoid TS error)
+            // Force immediate simulation ticks
             if (graphStore.forceTick) {
                 graphStore.forceTick();
             }
@@ -107,15 +120,17 @@
             userStore.set(fetchedUser);
             userActivity = await getUserActivity();
             
-            if (view === 'word') {
-                console.log('[INIT] Word view detected, loading word data');
+            // Handle word data for both word view and create-alternative view
+            if (needsWordDataLoaded) {
+                console.log(`[INIT] ${view} view detected, loading word data`);
                 const wordParam = new URL(window.location.href).searchParams.get('word');
                 if (wordParam) {
                     const loadedWord = await getWordData(wordParam);
                     if (loadedWord) {
                         console.log('[INIT] Setting word data', {
                             wordId: loadedWord.id,
-                            definitionCount: loadedWord.definitions?.length
+                            definitionCount: loadedWord.definitions?.length,
+                            view
                         });
                         wordStore.set(loadedWord);
                     }
@@ -125,7 +140,7 @@
             console.log('[INIT] Data initialization complete');
             dataInitialized = true;
             
-            // Important: Force a graph update after initialization completes
+            // Force a graph update after initialization completes
             forceGraphUpdate(viewType);
         } catch (error) {
             console.error('[INIT-ERROR] Error in initializeData:', error);
@@ -135,14 +150,11 @@
 
     onMount(() => {
         initializeData();
-        
-        // Simplified: Use afterUpdate instead of navigation hooks for better TypeScript compatibility
         console.log('[NAVIGATION] Mounted, listening for URL changes');
     });
     
-    // Enhanced afterUpdate to ensure graph store stays in sync with URL
+    // Ensure graph store stays in sync with URL
     afterUpdate(() => {
-        // Always update graph store with current view type
         if (graphStore && viewType) {
             console.log('[AFTER-UPDATE] Current view type from URL:', viewType);
             
@@ -156,13 +168,11 @@
         }
     });
 
-    // View and data reactivity
-    $: view = $page.params.view;
-    $: isWordView = view === 'word' || view === 'alternative-definitions';
-    $: wordData = isWordView ? ($wordStore || initialWordData) : null;
+    // Data reactivity
+    $: wordData = needsWordDataLoaded ? ($wordStore || initialWordData) : null;
     $: isReady = authInitialized && dataInitialized;
     
-    // UPDATED: Enhanced route key with timestamp to ensure uniqueness
+    // Enhanced route key with timestamp to ensure uniqueness
     $: routeKey = `${viewType}-${Date.now()}`;
 
     // Event handlers
@@ -182,6 +192,24 @@
         }
     }
 
+    // Updated central node type handling
+    $: centralNode = isReady && $userStore && (needsWordDataForCentralNode && wordData ? {
+        // Word node as central for word views
+        id: wordData.id,
+        type: 'word' as const,
+        data: wordData,
+        group: 'central' as const,
+        mode: wordNodeMode
+    } : {
+        // User profile for all other views including create-alternative
+        id: $userStore.sub,
+        // IMPORTANT: Using 'create-node' type for both create-node and create-alternative views
+        // We'll differentiate in the component rendering based on isCreateAlternative flag
+        type: isCreateAlternative ? 'create-node' as const : view as NodeType,
+        data: $userStore,
+        group: 'central' as const
+    });
+
     // Create graph data
     function createGraphData(): GraphData {
         if (!centralNode) {
@@ -190,7 +218,7 @@
 
         const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
         
-        if (wordData && wordData.definitions.length > 0 && view === 'word') {
+        if (wordData && wordData.definitions && wordData.definitions.length > 0 && view === 'word') {
             console.log('[DATA] Creating word view data', {
                 definitionCount: wordData.definitions.length,
                 wordNodeMode
@@ -243,25 +271,13 @@
         }
     }
 
-    // Central node preparation
-    $: centralNode = isReady && $userStore && (isWordView && wordData ? {
-        id: wordData.id,
-        type: 'word' as const,
-        data: wordData,
-        group: 'central' as const,
-        mode: wordNodeMode
-    } : {
-        id: $userStore.sub,
-        type: view as 'dashboard' | 'edit-profile' | 'create-node',
-        data: $userStore,
-        group: 'central' as const
-    });
-
+    // Define navigation context based on the current view
     $: context = 
         view === 'dashboard' ? NavigationContext.DASHBOARD :
         view === 'create-node' ? NavigationContext.CREATE_NODE :
         view === 'edit-profile' ? NavigationContext.EDIT_PROFILE :
         isWordView ? NavigationContext.WORD :
+        view === 'create-alternative' ? NavigationContext.WORD : // Use word context for alternative definition
         NavigationContext.DASHBOARD;
 
     $: navigationNodes = getNavigationOptions(context)
@@ -317,15 +333,33 @@
                 on:modeChange={handleModeChange}
             />
         {:else if isCreateNodeNode(node)}
-            <CreateNodeNode 
-                {node}
-                on:modeChange={handleModeChange}
-            />
+            {#if isCreateAlternative && wordData}
+                <!-- When in create-alternative view and have word data, render CreateAlternativeDefinitionNode -->
+                <CreateAlternativeDefinitionNode 
+                    {node}
+                    on:modeChange={handleModeChange}
+                />
+            {:else}
+                <CreateNodeNode 
+                    {node}
+                    on:modeChange={handleModeChange}
+                />
+            {/if}
         {:else if isNavigationNode(node)}
             <NavigationNode 
                 {node}
                 on:hover={() => {}} 
             />
+        {:else}
+            <!-- Fallback for unrecognized node types -->
+            <g>
+                <text 
+                    dy="-10" 
+                    class="error-text"
+                >
+                    Unknown node type: {node.type}
+                </text>
+            </g>
         {/if}
     </svelte:fragment>
 </Graph>
@@ -368,6 +402,13 @@
     .loading-text {
         font-family: 'Orbitron', sans-serif;
         font-size: 1.2rem;
+    }
+
+    /* Add styling for the error text via CSS instead of inline attributes */
+    :global(.error-text) {
+        fill: red;
+        font-size: 14px;
+        text-anchor: middle;
     }
 
     @keyframes spin {

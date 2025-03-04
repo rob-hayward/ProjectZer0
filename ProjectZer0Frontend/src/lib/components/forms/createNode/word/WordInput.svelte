@@ -1,6 +1,7 @@
 <!-- src/lib/components/forms/createNode/word/WordInput.svelte -->
 <script lang="ts">
     import { goto } from '$app/navigation';
+    import { browser } from '$app/environment';
     import { createEventDispatcher } from 'svelte';
     import { fetchWithAuth } from '$lib/services/api';
     import { wordStore } from '$lib/stores/wordStore';
@@ -14,6 +15,7 @@
     const dispatch = createEventDispatcher<{
         back: void;
         proceed: void;
+        error: { message: string };
     }>();
 
     let isCheckingWord = false;
@@ -22,6 +24,7 @@
     async function checkWordExistence() {
         if (!word.trim()) {
             errorMessage = 'Please enter a word';
+            dispatch('error', { message: errorMessage });
             return;
         }
 
@@ -35,17 +38,26 @@
                 // Word exists - fetch its data
                 const wordData = await fetchWithAuth(`/nodes/word/${encodeURIComponent(word.trim())}`);
                 errorMessage = `Word "${word.trim()}" already exists. Redirecting to word page...`;
+                dispatch('error', { message: errorMessage });
                 
                 // Update word store and navigate
                 wordStore.set(wordData);
+                
                 setTimeout(() => {
-                    goto('/graph/word');
-                }, 2000);
+                    if (browser) {
+                        const targetUrl = `/graph/word?word=${encodeURIComponent(word.trim())}`;
+                        console.log('[WordInput] Navigating to:', targetUrl);
+                        
+                        // Use direct window location for reliable navigation
+                        window.location.href = targetUrl;
+                    }
+                }, 1500); // Slightly shorter timeout
             } else {
                 dispatch('proceed');
             }
         } catch (e) {
             errorMessage = e instanceof Error ? e.message : 'Failed to check word existence';
+            dispatch('error', { message: errorMessage });
         } finally {
             isCheckingWord = false;
         }
@@ -78,13 +90,6 @@
             {disabled}
         />
     </foreignObject>
-
-    <!-- Error Message -->
-    {#if errorMessage}
-        <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.labelToInput + 50})">
-            <MessageDisplay {errorMessage} />
-        </g>
-    {/if}
 
     <!-- Navigation -->
     <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields})">

@@ -37,7 +37,9 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.DASHBOARD]: 'dashboard',
     [NavigationOptionId.CREATE_NODE]: 'create-node',
     [NavigationOptionId.EDIT_PROFILE]: 'edit-profile',
-    [NavigationOptionId.NETWORK]: 'network'
+    [NavigationOptionId.NETWORK]: 'network',
+    // Add create-alternative mapping
+    [NavigationOptionId.CREATE_ALTERNATIVE]: 'create-alternative'
 };
 
 // Helper to update graph store without TypeScript errors
@@ -88,7 +90,21 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     },
     [NavigationOptionId.LOGOUT]: () => auth0.logout(),
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => navigateWithWord('/graph/alternative-definitions'),
-    [NavigationOptionId.CREATE_ALTERNATIVE]: () => navigateWithWord('/graph/create-alternative'),
+    // Updated handler for CREATE_ALTERNATIVE
+    [NavigationOptionId.CREATE_ALTERNATIVE]: () => {
+        const currentWord = get(wordStore);
+        if (currentWord) {
+            // First update graph state
+            updateGraphStore('create-alternative');
+            
+            // Then navigate with current word
+            console.log(`[Navigation] Navigating to create alternative for word: ${currentWord.word}`);
+            window.location.href = `/graph/create-alternative?word=${encodeURIComponent(currentWord.word)}`;
+        } else {
+            console.warn('[Navigation] Cannot create alternative: No word found in store');
+            window.location.href = '/graph/dashboard';
+        }
+    },
     [NavigationOptionId.DISCUSS]: () => navigateWithWord('/graph/discuss')
 };
 

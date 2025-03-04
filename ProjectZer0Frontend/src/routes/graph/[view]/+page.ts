@@ -32,7 +32,16 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
         searchParams: Object.fromEntries(url.searchParams.entries())
     });
 
-    const validViews: ViewType[] = ['dashboard', 'word', 'create-node', 'edit-profile', 'network', 'statement'];
+    const validViews: ViewType[] = [
+        'dashboard', 
+        'word', 
+        'create-node', 
+        'edit-profile', 
+        'network', 
+        'statement',
+        'create-alternative' // Added create-alternative as a valid view
+    ];
+    
     const view = params.view as ViewType;
 
     console.debug('[INIT-2] +page.ts: View type determined', { 
@@ -46,17 +55,18 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
     }
 
     let wordData = null;
-    if (view === 'word') {
+    // Handle both 'word' and 'create-alternative' views that need word data
+    if (view === 'word' || view === 'create-alternative') {
         const wordParam = url.searchParams.get('word');
-        console.debug('[INIT-3] +page.ts: Word view detected', { wordParam });
+        console.debug(`[INIT-3] +page.ts: ${view} view detected`, { wordParam });
 
         if (!wordParam) {
-            console.debug('[INIT-3a] +page.ts: No word parameter, redirecting to dashboard');
+            console.debug(`[INIT-3a] +page.ts: No word parameter for ${view}, redirecting to dashboard`);
             throw redirect(307, '/graph/dashboard');
         }
 
         try {
-            console.debug('[INIT-4] +page.ts: Fetching word data', { wordParam });
+            console.debug('[INIT-4] +page.ts: Fetching word data', { wordParam, viewType: view });
             wordData = await getWordData(wordParam);
             
             if (!wordData) {
@@ -66,7 +76,8 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
 
             console.debug('[INIT-5] +page.ts: Word data loaded successfully', {
                 wordId: wordData.id,
-                definitionCount: wordData.definitions?.length
+                definitionCount: wordData.definitions?.length,
+                viewType: view
             });
 
         } catch (error) {
