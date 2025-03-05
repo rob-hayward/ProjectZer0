@@ -25,7 +25,7 @@ export class WordService {
   async createWord(wordData: {
     word: string;
     createdBy: string;
-    definition?: string;
+    definitionText?: string;
     discussion?: string;
     publicCredit: boolean;
   }) {
@@ -43,34 +43,48 @@ export class WordService {
         `Free Dictionary definition: ${freeDictionaryDefinition}`,
       );
 
-      // Create the word node with initial definition
+      // Determine the primary definition
+      // If user provided a definition, it becomes the primary
+      // Otherwise use the API definition or a fallback
+      const primaryDefinition =
+        wordData.definitionText ||
+        freeDictionaryDefinition ||
+        'No definition available';
+
+      this.logger.log(
+        `Using primary definition: "${primaryDefinition.substring(0, 30)}..."`,
+      );
+      this.logger.log(
+        `Definition source: ${wordData.definitionText ? 'User' : freeDictionaryDefinition ? 'API' : 'Default'}`,
+      );
+
+      // Create the word node with primary definition
       const wordNode = await this.wordSchema.createWord({
         word: wordData.word,
         createdBy: wordData.createdBy,
-        initialDefinition:
-          wordData.definition ||
-          freeDictionaryDefinition ||
-          'No definition available',
+        initialDefinition: primaryDefinition,
         publicCredit: wordData.publicCredit,
       });
       this.logger.log(
         `Created word node: ${JSON.stringify(wordNode, null, 2)}`,
       );
 
-      // Try to add API definition but don't fail if it doesn't work
+      // If user provided a definition AND API returned a different definition
+      // Add the API definition as an alternative
       if (
-        wordData.definition &&
+        wordData.definitionText &&
         freeDictionaryDefinition &&
-        freeDictionaryDefinition !== wordData.definition
+        freeDictionaryDefinition !== wordData.definitionText
       ) {
         try {
+          this.logger.log('Adding API definition as alternative definition');
           const freeDefinition = await this.wordSchema.addDefinition({
             word: wordData.word,
             createdBy: 'FreeDictionaryAPI',
             definitionText: freeDictionaryDefinition,
           });
           this.logger.log(
-            `Added Free Dictionary definition: ${JSON.stringify(freeDefinition, null, 2)}`,
+            `Added API definition as alternative: ${JSON.stringify(freeDefinition, null, 2)}`,
           );
         } catch (error) {
           this.logger.warn(`Failed to add API definition: ${error.message}`);

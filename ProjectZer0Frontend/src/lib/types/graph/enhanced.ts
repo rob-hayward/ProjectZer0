@@ -199,7 +199,7 @@ export const isWordNodeData = (data: any): data is WordNode =>
     data && 'word' in data && 'definitions' in data;
 
 export const isDefinitionData = (data: any): data is Definition =>
-    data && (('text' in data) || ('definitionText' in data)) && 'createdBy' in data;
+    data && 'definitionText' in data && 'createdBy' in data;
 
 export const isNavigationData = (data: any): data is NavigationOption =>
     data && 'label' in data && 'icon' in data;

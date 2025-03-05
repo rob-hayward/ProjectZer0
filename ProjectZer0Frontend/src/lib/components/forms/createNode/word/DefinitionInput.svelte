@@ -6,10 +6,11 @@
     import FormNavigation from '../shared/FormNavigation.svelte';
     import CharacterCount from '../shared/CharacterCount.svelte';
  
-    export let definition = '';
+    // Updated to use definitionText for consistency
+    export let definitionText = '';
     export let disabled = false;
  
-    $: isOverLimit = definition.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH;
+    $: isOverLimit = definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH;
     
     const dispatch = createEventDispatcher<{
         back: void;
@@ -19,7 +20,7 @@
     function handleInput(event: Event) {
         const textarea = event.target as HTMLTextAreaElement;
         if (textarea.value.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH) {
-            definition = textarea.value.slice(0, TEXT_LIMITS.MAX_DEFINITION_LENGTH);
+            definitionText = textarea.value.slice(0, TEXT_LIMITS.MAX_DEFINITION_LENGTH);
         }
     }
 </script>
@@ -44,7 +45,7 @@
         <textarea
             class="form-textarea"
             class:error={isOverLimit}
-            bind:value={definition}
+            bind:value={definitionText}
             on:input={handleInput}
             placeholder="Enter your definition of this word within the context of its use in ProjectZer0."
             {disabled}
@@ -56,11 +57,11 @@
         x={FORM_STYLES.layout.leftAlign + FORM_STYLES.layout.fieldWidth - 90}
         y={FORM_STYLES.layout.verticalSpacing.labelToInput + 160}
         class="character-count"
-        class:near-limit={definition.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH - 20}
+        class:near-limit={definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH - 20}
         class:over-limit={isOverLimit}
         text-anchor="end"
     >
-        {TEXT_LIMITS.MAX_DEFINITION_LENGTH - definition.length} characters remaining
+        {TEXT_LIMITS.MAX_DEFINITION_LENGTH - definitionText.length} characters remaining
     </text>
 
     <!-- Navigation -->

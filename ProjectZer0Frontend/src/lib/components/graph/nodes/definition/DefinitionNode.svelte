@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-    import type { VoteStatus } from '$lib/types/domain/nodes';
+    import type { VoteStatus, Definition } from '$lib/types/domain/nodes';
     import { isDefinitionData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -20,18 +20,18 @@
         throw new Error('Invalid node data type for DefinitionNode');
     }
 
-    const data = node.data;
+    // Explicitly cast to Definition type to resolve TypeScript errors
+    const data = node.data as Definition;
     const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
 
-    // Normalize definition text - handle both field name conventions
-    $: definitionText = data.text || data.definitionText || '';
+    // Get the definition text - no more fallback needed
+    $: definitionText = data.definitionText;
 
     // Log the data structure for debugging
     $: console.debug(`[DefinitionNode] Definition data:`, {
         id: data.id,
-        text: data.text,
-        definitionText: data.definitionText,
-        normalizedText: definitionText
+        definitionText,
+        mode: node.mode
     });
 
     const METRICS_SPACING = {
@@ -176,7 +176,7 @@
     $: textWidth = node.style.previewSize - (node.style.padding.preview * 2) - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
-    // Text wrapping for preview mode - USE definitionText here
+    // Text wrapping for preview mode - using definitionText
     $: content = `${wordText}: ${definitionText}`;
     $: lines = content.split(' ').reduce((acc, word) => {
         const currentLine = acc[acc.length - 1] || '';
@@ -193,9 +193,7 @@
     onMount(async () => {
         console.log('[DefinitionNode] Mounting with definition:', {
             id: data.id,
-            text: data.text,
-            definitionText: data.definitionText,
-            normalizedText: definitionText,
+            definitionText,
             initialPositiveVotes: data.positiveVotes,
             initialNegativeVotes: data.negativeVotes,
             mode: node.mode
@@ -221,25 +219,6 @@
     $: netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
     $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
     $: definitionStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
-    
-    // Debug mode changes
-    $: console.debug(`[DefinitionNode] Mode state:`, { 
-        mode: node.mode, 
-        isDetail,
-        id: data.id
-    });
-
-    // Debug reactive updates
-    $: {
-        console.log('[DefinitionNode] Vote state updated:', {
-            userVoteStatus,
-            netVotes,
-            definitionStatus,
-            positiveVotes: data.positiveVotes,
-            negativeVotes: data.negativeVotes,
-            scoreDisplay
-        });
-    }
 </script>
 
 {#if isDetail}
@@ -257,7 +236,7 @@
                 {subtype === 'live' ? 'Live Definition' : 'Alternative Definition'}
             </text>
 
-            <!-- Definition Display - Using normalized definitionText -->
+            <!-- Definition Display - Using definitionText -->
             <g class="definition-display" transform="translate(0, {-radius/2 - 55})">
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
@@ -271,6 +250,9 @@
                 </foreignObject>
             </g>
 
+            <!-- Rest of the component is unchanged -->
+            <!-- ... -->
+            
             <!-- User Context -->
             <g transform="translate(0, -50)">
                 <text 
@@ -483,6 +465,7 @@
 {/if}
 
 <style>
+    /* Styles remain unchanged */
     text {
         text-anchor: middle;
         font-family: 'Orbitron', sans-serif;

@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/alternativeDefinition/AlternativeDefinitionReview.svelte -->
+<!-- src/lib/components/forms/createNode/alternativeDefinition/AlternativeDefinitionReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
@@ -11,7 +11,7 @@
     import type { WordNode } from '$lib/types/domain/nodes';
 
     export let word = '';
-    export let definition = '';
+    export let definitionText = ''; // Updated prop name for consistency
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
@@ -29,7 +29,7 @@
     }>();
 
     async function handleSubmit() {
-        if (!definition.trim()) {
+        if (!definitionText.trim()) {
             errorMessage = "Definition is required";
             dispatch('error', { message: errorMessage });
             return;
@@ -45,7 +45,7 @@
             const definitionData = {
                 word: word,
                 createdBy: userId,
-                definitionText: definition,
+                definitionText: definitionText, // Already standardized
                 // Optional fields
                 discussion: discussion || '',
                 publicCredit
@@ -137,11 +137,11 @@
                 <span class="value word-value">{word}</span>
             </div>
             
-            {#if definition}
+            {#if definitionText}
                 <div class="review-item">
                     <span class="label">Your Definition:</span>
                     <div class="scrollable-content">
-                        <span class="value">{definition}</span>
+                        <span class="value">{definitionText}</span>
                     </div>
                 </div>
             {/if}
@@ -197,12 +197,13 @@
             onNext={handleSubmit}
             nextLabel={isSubmitting ? "Submitting..." : "Add Definition"}
             loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting || !definition.trim()}
+            nextDisabled={disabled || isSubmitting || !definitionText.trim()}
         />
     </g>
 </g>
 
 <style>
+    /* Style unchanged */
     :global(.review-container) {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;

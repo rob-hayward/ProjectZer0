@@ -1,8 +1,7 @@
 // ProjectZer0Frontend/src/lib/types/domain/nodes.ts
 export interface Definition {
     id: string;
-    text: string;
-    definitionText?: string; // For alternative definitions 
+    definitionText: string;  // Changed from text to definitionText
     createdBy: string;
     createdAt: string;
     positiveVotes: number;

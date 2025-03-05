@@ -6,15 +6,16 @@
     import FormNavigation from '../shared/FormNavigation.svelte';
     import CharacterCount from '../shared/CharacterCount.svelte';
     
-    export let definition = '';
+    // Updated to use definitionText for consistency
+    export let definitionText = '';
     export let disabled = false;
     
     // Add a flag to track if validation errors should be shown
     let showValidationErrors = false;
     
     // For alternative definitions, we must have a definition
-    $: isOverLimit = definition.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH;
-    $: isEmpty = definition.trim().length === 0;
+    $: isOverLimit = definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH;
+    $: isEmpty = definitionText.trim().length === 0;
     $: isValid = !isOverLimit && !isEmpty;
     
     const dispatch = createEventDispatcher<{
@@ -25,7 +26,7 @@
     function handleInput(event: Event) {
         const textarea = event.target as HTMLTextAreaElement;
         if (textarea.value.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH) {
-            definition = textarea.value.slice(0, TEXT_LIMITS.MAX_DEFINITION_LENGTH);
+            definitionText = textarea.value.slice(0, TEXT_LIMITS.MAX_DEFINITION_LENGTH);
         }
     }
     
@@ -60,7 +61,7 @@
         <textarea
             class="form-textarea"
             class:error={showValidationErrors && isEmpty}
-            bind:value={definition}
+            bind:value={definitionText}
             on:input={handleInput}
             placeholder="Enter your alternative definition for this word."
             {disabled}
@@ -83,11 +84,11 @@
         x={FORM_STYLES.layout.leftAlign + FORM_STYLES.layout.fieldWidth - 90}
         y={FORM_STYLES.layout.verticalSpacing.labelToInput + 160}
         class="character-count"
-        class:near-limit={definition.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH - 20}
+        class:near-limit={definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH - 20}
         class:over-limit={isOverLimit}
         text-anchor="end"
     >
-        {TEXT_LIMITS.MAX_DEFINITION_LENGTH - definition.length} characters remaining
+        {TEXT_LIMITS.MAX_DEFINITION_LENGTH - definitionText.length} characters remaining
     </text>
     
     <!-- Navigation -->

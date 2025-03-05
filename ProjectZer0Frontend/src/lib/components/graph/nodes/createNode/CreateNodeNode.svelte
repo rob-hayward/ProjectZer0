@@ -36,7 +36,7 @@
     let formData = {
         nodeType: '',
         word: '',
-        definition: '',
+        definitionText: '',  // Updated from definition to definitionText
         discussion: '',
         publicCredit: false
     };
@@ -242,7 +242,7 @@
                 />
                 {:else if currentStep === 3}
                     <DefinitionInput
-                        bind:definition={formData.definition}
+                        bind:definitionText={formData.definitionText}
                         disabled={isLoading}
                         on:back={handleBack}
                         on:proceed={handleNext}
@@ -256,7 +256,10 @@
                     />
                 {:else if currentStep === 5}
                     <WordReview
-                        {...formData}
+                        word={formData.word}
+                        definitionText={formData.definitionText} 
+                        discussion={formData.discussion}
+                        publicCredit={formData.publicCredit}
                         userId={userData.sub}
                         disabled={isLoading}
                         on:back={handleBack}

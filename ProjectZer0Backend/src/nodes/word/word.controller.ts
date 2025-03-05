@@ -15,6 +15,16 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
+// Define standardized DTO for word creation
+interface CreateWordDto {
+  word: string;
+  definitionText?: string;
+  discussion?: string;
+  publicCredit: boolean;
+  shareToX?: boolean; // For social media sharing
+  createdBy: string;
+}
+
 @Controller('nodes/word')
 @UseGuards(JwtAuthGuard)
 export class WordController {
@@ -31,12 +41,20 @@ export class WordController {
   }
 
   @Post()
-  async createWord(@Body() wordData: any) {
+  async createWord(@Body() wordData: CreateWordDto) {
     this.logger.log(
       `Received request to create word: ${JSON.stringify(wordData, null, 2)}`,
     );
     try {
-      const createdWord = await this.wordService.createWord(wordData);
+      // Ensure we're using definitionText consistently
+      const createdWord = await this.wordService.createWord({
+        word: wordData.word,
+        createdBy: wordData.createdBy,
+        definitionText: wordData.definitionText,
+        discussion: wordData.discussion,
+        publicCredit: wordData.publicCredit,
+      });
+
       this.logger.log(`Created word: ${JSON.stringify(createdWord, null, 2)}`);
       return createdWord;
     } catch (error) {

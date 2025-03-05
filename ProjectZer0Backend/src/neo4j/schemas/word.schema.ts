@@ -83,7 +83,7 @@ export class WordSchema {
      // Create Definition Node
      CREATE (d:DefinitionNode {
          id: apoc.create.uuid(),
-         text: $initialDefinition,
+         definitionText: $initialDefinition,
          createdBy: $createdBy,
          createdAt: datetime(),
          positiveVotes: 0,
@@ -142,7 +142,7 @@ export class WordSchema {
      MATCH (w:WordNode {word: $word})
      CREATE (d:DefinitionNode {
          id: apoc.create.uuid(),
-         text: $definitionText,
+         definitionText: $definitionText,
          createdBy: $createdBy,
          createdAt: datetime(),
          positiveVotes: 0,

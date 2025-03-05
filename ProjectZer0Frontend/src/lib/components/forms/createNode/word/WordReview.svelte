@@ -10,7 +10,7 @@
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
     export let word = '';
-    export let definition = '';
+    export let definitionText = ''; // Updated prop name for consistency
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
@@ -33,7 +33,7 @@
         try {
             const wordData = {
                 word: word.trim(),
-                definition,
+                definitionText, // Now using consistent field name
                 discussion,
                 publicCredit,
                 createdBy: userId,
@@ -71,7 +71,6 @@
                 }
             }
 
-            // CHANGE: Only dispatch success event, don't set local message
             const successMsg = `Word node "${createdWord.word}" created successfully`;
             dispatch('success', {
                 message: successMsg,
@@ -116,11 +115,11 @@
                 <span class="value word-value">{word}</span>
             </div>
             
-            {#if definition}
+            {#if definitionText}
                 <div class="review-item">
                     <span class="label">Definition:</span>
                     <div class="scrollable-content">
-                        <span class="value">{definition}</span>
+                        <span class="value">{definitionText}</span>
                     </div>
                 </div>
             {/if}
@@ -156,7 +155,7 @@
         </div>
     </foreignObject>
 
-    <!-- Messages - CHANGE: Only show error messages, not success messages -->
+    <!-- Messages -->
     {#if errorMessage}
         <g transform="translate(0, 240)">
             <MessageDisplay errorMessage={errorMessage} successMessage={null} />
@@ -176,6 +175,7 @@
 </g>
 
 <style>
+    /* Style unchanged */
     :global(.review-container) {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;
