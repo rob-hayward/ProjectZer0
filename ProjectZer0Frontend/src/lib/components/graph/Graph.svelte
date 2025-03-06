@@ -33,7 +33,8 @@
 
     // Event dispatch for node mode changes
     const dispatch = createEventDispatcher<{
-        modechange: { nodeId: string; mode: NodeMode }
+        modechange: { nodeId: string; mode: NodeMode };
+        visibilitychange: { nodeId: string; isHidden: boolean };
     }>();
 
     // DOM references
@@ -170,6 +171,21 @@
         
         // Forward the event to parent
         dispatch('modechange', event.detail);
+    }
+
+    /**
+     * Handle node visibility change events
+     */
+    function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
+        console.debug('[Graph] Visibility change event:', event.detail);
+        
+        // Notify the graph store
+        if (graphStore) {
+            graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden);
+        }
+        
+        // Forward the event to parent
+        dispatch('visibilitychange', event.detail);
     }
 
     /**
@@ -314,6 +330,7 @@
                             <NodeRenderer 
                                 {node}
                                 on:modeChange={handleModeChange}
+                                on:visibilityChange={handleVisibilityChange}
                             >
                                 <svelte:fragment 
                                     slot="default" 

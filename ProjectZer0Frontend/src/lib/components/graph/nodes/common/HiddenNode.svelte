@@ -28,7 +28,7 @@
     
     // Dispatch events
     const dispatch = createEventDispatcher<{
-        visibilityChange: { nodeId: string; isHidden: boolean };
+        visibilityChange: { isHidden: boolean };
         modeChange: { mode: 'preview' | 'detail' };
     }>();
     
@@ -42,7 +42,6 @@
         // For a hidden node, the ShowHideButton will always dispatch the opposite visibility
         // When clicked, we want to make the node visible, so dispatch with isHidden: false
         dispatch('visibilityChange', {
-            nodeId: node.id,
             isHidden: false // Always false when showing a previously hidden node
         });
     }
