@@ -52,16 +52,26 @@ export function getVoteValue(votes: number | VoteWithLow | unknown): number {
     return 0;
 }
 
-export function getNetVotes(node: NodeWithVotes): number {
-    // If using new voting system
-    if ('positiveVotes' in node && 'negativeVotes' in node) {
-        const pos = getVoteValue(node.positiveVotes);
-        const neg = getVoteValue(node.negativeVotes);
-        return pos - neg;
+    // Update the getNetVotes function to be more flexible with its parameter type
+    export function getNetVotes(nodeData: any): number {
+        // Safety check for null/undefined
+        if (!nodeData) return 0;
+
+        // If using new voting system with positiveVotes/negativeVotes
+        if ('positiveVotes' in nodeData && 'negativeVotes' in nodeData) {
+            const pos = getVoteValue(nodeData.positiveVotes);
+            const neg = getVoteValue(nodeData.negativeVotes);
+            return pos - neg;
+        }
+        
+        // Fallback for old voting system with just votes property
+        if ('votes' in nodeData) {
+            return getVoteValue(nodeData.votes);
+        }
+        
+        // If nothing matches, return 0
+        return 0;
     }
-    // Fallback for old voting system
-    return getVoteValue(node.votes);
-}
 
 export function getDisplayName(
     userId: string, 

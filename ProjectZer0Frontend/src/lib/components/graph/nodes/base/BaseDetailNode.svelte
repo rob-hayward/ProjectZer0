@@ -55,10 +55,11 @@
                 {gradientId}
             />
             
-            <!-- Collapse Button -->
+            <!-- Collapse Button (positioned to the left) -->
             <ExpandCollapseButton 
                 mode="collapse"
                 y={radius}
+                x={-20} 
                 on:click={handleButtonClick}
                 on:modeChange={handleModeChange}
             />

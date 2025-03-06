@@ -6,6 +6,7 @@
 
     export let mode: 'expand' | 'collapse';
     export let y: number = 0;
+    export let x: number = -20; // Default to left side positioning
 
     const dispatch = createEventDispatcher<{
         click: void;
@@ -40,7 +41,7 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
     class="mode-button"
-    transform="translate(0, {y})"
+    transform="translate({x}, {y})"
     on:mouseenter={() => isHovered = true}
     on:mouseleave={() => isHovered = false}
     on:click={handleClick}

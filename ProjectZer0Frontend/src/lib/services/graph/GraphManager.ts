@@ -7,9 +7,10 @@ import type {
     NodeMode, 
     NodeType,
     GraphNode,
-    GraphLink
+    GraphLink,
+    EnhancedNode
 } from '$lib/types/graph/enhanced';
-import type { EnhancedNode, EnhancedLink, RenderableNode, RenderableLink, LayoutUpdateConfig } from '$lib/types/graph/enhanced';
+import type { EnhancedLink, RenderableNode, RenderableLink, LayoutUpdateConfig } from '$lib/types/graph/enhanced';
 import { asD3Nodes, asD3Links } from '$lib/types/graph/enhanced';
 import { COORDINATE_SPACE, NODE_CONSTANTS } from '$lib/constants/graph';
 import { COLORS } from '$lib/constants/colors';
@@ -92,8 +93,9 @@ export class GraphManager {
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
         console.debug(`[GraphManager:${this.managerId}] Updating node mode`, { nodeId, mode });
         
+        // Use the simulation nodes instead of trying to get from the store
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const nodeIndex = currentNodes.findIndex(n => n.id === nodeId);
+        const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
             console.warn(`[GraphManager:${this.managerId}] Node not found for mode update`, { nodeId });
@@ -119,7 +121,7 @@ export class GraphManager {
         });
         
         // Update the nodes store to trigger rerender and link recalculation
-        this.nodesStore.set([...currentNodes]);
+        this.nodesStore.update(() => [...currentNodes]);
         
         // Log that this will trigger link recalculation via the derived store
         console.debug(`[GraphManager:${this.managerId}] Node update triggered - link paths will recalculate`);
@@ -135,6 +137,40 @@ export class GraphManager {
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
         this.simulationActive = true;
+    }
+    
+    public updateNodeVisibility(nodeId: string, isHidden: boolean): void {
+        console.debug(`[GraphManager:${this.managerId}] Updating node visibility`, {
+            nodeId,
+            isHidden
+        });
+        
+        // Use the simulation nodes instead of trying to get from the store
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
+        
+        if (nodeIndex === -1) {
+            console.warn(`[GraphManager:${this.managerId}] Node not found for visibility update`, { nodeId });
+            return;
+        }
+        
+        // Update the node
+        const node = currentNodes[nodeIndex];
+        node.isHidden = isHidden;
+        node.hiddenReason = 'user'; // User-initiated change
+        
+        console.debug(`[GraphManager:${this.managerId}] Node visibility updated`, {
+            nodeId,
+            isHidden,
+            hiddenReason: 'user'
+        });
+        
+        // Update the nodes store
+        this.nodesStore.update(() => [...currentNodes]);
+        
+        // No need to restart the simulation for visibility changes
+        // But we should ensure fixed positions are maintained
+        this.fixNodePositions();
     }
 
     public updateViewType(viewType: ViewType): void {
@@ -442,6 +478,13 @@ export class GraphManager {
         });
         
         return nodes.map(node => {
+            // Calculate net votes for the node
+            const netVotes = this.getNodeVotes(node);
+            
+            // Determine if node should be hidden based on community standard
+            const isHidden = (node.type === 'word' || node.type === 'definition') && 
+                netVotes < 0;
+                
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
@@ -454,6 +497,9 @@ export class GraphManager {
                 subtype: node.type === 'definition' ? 
                     (node.group === 'live-definition' ? 'live' : 'alternative') : 
                     undefined,
+                // Add visibility properties
+                isHidden,
+                hiddenReason: isHidden ? 'community' : undefined,
                 // Initialize D3 positioning properties
                 x: null,
                 y: null,
@@ -533,6 +579,8 @@ export class GraphManager {
                 mode: node.mode,
                 data: node.data,
                 radius: node.radius,
+                isHidden: node.isHidden,
+                hiddenReason: node.hiddenReason,
                 position: {
                     x,
                     y,
@@ -602,6 +650,10 @@ export class GraphManager {
         if (node.type === 'definition' && 'data' in node) {
             const def = node.data as { positiveVotes?: number; negativeVotes?: number };
             return (def.positiveVotes || 0) - (def.negativeVotes || 0);
+        }
+        else if (node.type === 'word' && 'data' in node) {
+            const word = node.data as { positiveVotes?: number; negativeVotes?: number };
+            return (word.positiveVotes || 0) - (word.negativeVotes || 0);
         }
         return 0;
     }

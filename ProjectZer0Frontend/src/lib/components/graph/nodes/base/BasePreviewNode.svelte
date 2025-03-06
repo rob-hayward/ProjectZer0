@@ -70,7 +70,7 @@
             />
         {/if}
 
-        <!-- Expand/Collapse Button -->
+        <!-- Expand/Collapse Button (positioned to the left) -->
         {#if $$slots.button}
             <slot 
                 name="button" 
@@ -80,6 +80,7 @@
                 <ExpandCollapseButton 
                     mode="expand"
                     y={radius}
+                    x={-20} 
                     on:click={handleButtonClick}
                     on:modeChange={handleModeChange}
                 />

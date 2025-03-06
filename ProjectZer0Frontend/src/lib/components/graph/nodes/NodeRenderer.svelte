@@ -3,12 +3,18 @@
     import { createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     
+    // Update these imports to match your project structure
+    import HiddenNode from './common/HiddenNode.svelte';  
+    import ShowHideButton from './common/ShowHideButton.svelte';
+    import { getNetVotes } from './utils/nodeUtils';
+    
     // The node to render
     export let node: RenderableNode;
     
-    // Event dispatcher for mode changes
+    // Event dispatcher for mode changes and visibility changes
     const dispatch = createEventDispatcher<{
         modeChange: { nodeId: string; mode: NodeMode };
+        visibilityChange: { nodeId: string; isHidden: boolean };
     }>();
     
     // Handle mode change events from child components
@@ -20,7 +26,16 @@
             mode: event.detail.mode 
         });
     }
-
+    
+    // Handle visibility change events
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        console.debug(`[NodeRenderer] Visibility change for node ${node.id}:`, event.detail);
+        dispatch('visibilityChange', { 
+            nodeId: node.id, 
+            isHidden: event.detail.isHidden 
+        });
+    }
+    
     // Component ID for debugging
     const rendererId = node.id.substring(0, 8);
     
@@ -29,6 +44,11 @@
     $: posY = node.position.y;
     $: transform = `translate(${posX}, ${posY})`;
     
+    // Calculate net votes for the node
+    $: netVotes = node.type === 'word' || node.type === 'definition' 
+        ? getNetVotes(node.data)
+        : 0;
+    
     // Log positioning info for debugging
     $: {
         console.debug(`[NodeRenderer:${rendererId}] Position:`, {
@@ -36,7 +56,8 @@
             type: node.type,
             x: posX,
             y: posY,
-            transform
+            transform,
+            isHidden: node.isHidden
         });
     }
 </script>
@@ -48,13 +69,35 @@
     data-node-type={node.type}
     data-node-mode={node.mode || 'preview'}
     data-node-group={node.group}
+    data-node-hidden={node.isHidden ? 'true' : 'false'}
     {transform}
 >
-    <!-- Render appropriate node component using slot -->
-    <slot 
-        {node}
-        {handleModeChange}
-    />
+    {#if node.isHidden}
+        <!-- Render hidden node -->
+        <HiddenNode 
+            {node}
+            hiddenBy={node.hiddenReason || 'community'}
+            {netVotes}
+            on:visibilityChange={handleVisibilityChange}
+            on:modeChange={handleModeChange}
+        />
+    {:else}
+        <!-- Render regular node using slot -->
+        <slot 
+            {node}
+            {handleModeChange}
+        />
+        
+        <!-- Add show/hide button to qualifying nodes (positioned to the right) -->
+        {#if node.type === 'word' || node.type === 'definition'}
+            <ShowHideButton 
+                isHidden={false}
+                y={node.radius} 
+                x={20}  
+                on:visibilityChange={handleVisibilityChange}
+            />
+        {/if}
+    {/if}
 </g>
 
 <style>

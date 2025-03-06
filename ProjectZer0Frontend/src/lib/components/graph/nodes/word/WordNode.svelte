@@ -415,19 +415,6 @@
                 y={radius}
                 on:click={handleModeChange}
             />
-            
-            <!-- Discussion Button -->
-            {#if showDiscussionButton}
-                <g transform="translate(0, {radius - 120})">
-                    <foreignObject x="-100" width="200" height="55">
-                        <div class="button-wrapper">
-                            <button class="action-button discussion">
-                                View Discussion
-                            </button>
-                        </div>
-                    </foreignObject>
-                </g>
-            {/if}
         </svelte:fragment>
     </BaseDetailNode>
 {:else}

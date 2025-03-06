@@ -6,7 +6,8 @@ import type {
     NodeMode, 
     NodeType,
     GraphNode,
-    GraphLink
+    GraphLink,
+    EnhancedNode
 } from '$lib/types/graph/enhanced';
 import type { RenderableNode, RenderableLink, LayoutUpdateConfig } from '$lib/types/graph/enhanced';
 import { GraphManager } from '$lib/services/graph/GraphManager';
@@ -22,11 +23,12 @@ export interface GraphStore {
     subscribe: Readable<GraphState>['subscribe'];
     setData: (data: GraphData, config?: LayoutUpdateConfig) => void;
     updateNodeMode: (nodeId: string, mode: NodeMode) => void;
+    updateNodeVisibility: (nodeId: string, isHidden: boolean) => void; // New method
     setViewType: (viewType: ViewType) => void;
     getViewType: () => ViewType;
     fixNodePositions: () => void;
-    stopSimulation: () => void; // Added method to completely stop simulation
-    forceTick: () => void;      // Added method to force simulation ticks
+    stopSimulation: () => void;
+    forceTick: () => void;
     dispose: () => void;
 }
 
@@ -61,6 +63,13 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             manager.updateNodeMode(nodeId, mode);
             isUpdatingStore.set(false);
         },
+        
+        // New method to update node visibility
+        updateNodeVisibility: (nodeId: string, isHidden: boolean) => {
+            isUpdatingStore.set(true);
+            manager.updateNodeVisibility(nodeId, isHidden);
+            isUpdatingStore.set(false);
+        },
 
         setViewType: (viewType: ViewType) => {
             viewTypeStore.set(viewType);
@@ -74,12 +83,12 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             manager.fixNodePositions();
         },
         
-        // New method to completely stop the simulation
+        // Method to completely stop the simulation
         stopSimulation: () => {
             manager.stopSimulation();
         },
         
-        // New method to force simulation ticks for immediate updates
+        // Method to force simulation ticks for immediate updates
         forceTick: () => {
             manager.forceTick();
         },

@@ -49,6 +49,8 @@ export interface EnhancedNode {
     data: UserProfile | NavigationOption | WordNode | Definition;
     group: NodeGroup;
     mode?: NodeMode;
+    isHidden?: boolean;
+    hiddenReason?: 'community' | 'user';
 
     // Physical properties
     radius: number;
@@ -93,6 +95,8 @@ export interface RenderableNode {
     type: NodeType;
     group: NodeGroup;
     mode?: NodeMode;
+    isHidden?: boolean;
+    hiddenReason?: 'community' | 'user';
     data: UserProfile | NavigationOption | WordNode | Definition;
     radius: number;
     position: NodePosition;
