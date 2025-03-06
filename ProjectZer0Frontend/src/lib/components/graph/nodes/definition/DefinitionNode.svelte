@@ -9,6 +9,7 @@
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
+    import { graphStore } from '$lib/stores/graphStore';
     import { fetchWithAuth } from '$lib/services/api';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     
@@ -111,6 +112,16 @@
                 negativeVotes: data.negativeVotes,
                 netVotes
             });
+            
+            // NEW CODE: Recalculate visibility based on vote data
+            if (graphStore) {
+                console.log('[DefinitionNode] Recalculating node visibility based on votes');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    data.positiveVotes, 
+                    data.negativeVotes
+                );
+            }
         } catch (error) {
             console.error('[DefinitionNode] Error fetching vote status:', error);
             
@@ -160,6 +171,16 @@
                 data.positiveVotes = getNeo4jNumber(result.positiveVotes);
                 data.negativeVotes = getNeo4jNumber(result.negativeVotes);
                 console.log('[DefinitionNode] Vote recorded:', result);
+            }
+            
+            // Recalculate visibility after vote changes
+            if (graphStore) {
+                console.log('[DefinitionNode] Recalculating node visibility after vote update');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    data.positiveVotes, 
+                    data.negativeVotes
+                );
             }
         } catch (error) {
             console.error('[DefinitionNode] Error processing vote:', error);

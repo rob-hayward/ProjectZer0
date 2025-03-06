@@ -139,10 +139,11 @@ export class GraphManager {
         this.simulationActive = true;
     }
     
-    public updateNodeVisibility(nodeId: string, isHidden: boolean): void {
+    public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
         console.debug(`[GraphManager:${this.managerId}] Updating node visibility`, {
             nodeId,
-            isHidden
+            isHidden,
+            hiddenReason
         });
         
         // Use the simulation nodes instead of trying to get from the store
@@ -157,12 +158,12 @@ export class GraphManager {
         // Update the node
         const node = currentNodes[nodeIndex];
         node.isHidden = isHidden;
-        node.hiddenReason = 'user'; // User-initiated change
+        node.hiddenReason = hiddenReason; // Use the provided reason
         
         console.debug(`[GraphManager:${this.managerId}] Node visibility updated`, {
             nodeId,
             isHidden,
-            hiddenReason: 'user'
+            hiddenReason
         });
         
         // Update the nodes store
@@ -171,6 +172,68 @@ export class GraphManager {
         // No need to restart the simulation for visibility changes
         // But we should ensure fixed positions are maintained
         this.fixNodePositions();
+    }
+
+    /**
+     * Recalculate visibility for a node based on its votes
+     * This can be called after votes are loaded asynchronously
+     */
+    public recalculateNodeVisibility(nodeId: string, positiveVotes: number, negativeVotes: number): void {
+        console.debug(`[GraphManager:${this.managerId}] Recalculating node visibility based on votes`, {
+            nodeId,
+            positiveVotes,
+            negativeVotes
+        });
+        
+        // Get current nodes
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
+        
+        if (!node) {
+            console.warn(`[GraphManager:${this.managerId}] Node not found for visibility recalculation`, { nodeId });
+            return;
+        }
+        
+        // Only perform calculation for word and definition nodes
+        if (node.type !== 'word' && node.type !== 'definition') {
+            return;
+        }
+        
+        // Calculate net votes
+        const netVotes = positiveVotes - negativeVotes;
+        
+        console.debug(`[GraphManager:${this.managerId}] Vote calculation for node ${nodeId}:`, {
+            positiveVotes,
+            negativeVotes,
+            netVotes,
+            shouldBeHidden: netVotes < 0
+        });
+        
+        // Update visibility based on votes
+        const shouldBeHidden = netVotes < 0;
+        
+        // If node has a user-defined visibility, don't override it
+        if (node.hiddenReason === 'user') {
+            console.debug(`[GraphManager:${this.managerId}] Skipping community visibility update - user preference exists`);
+            return;
+        }
+        
+        // Only update if visibility state would change
+        if (node.isHidden !== shouldBeHidden) {
+            console.debug(`[GraphManager:${this.managerId}] Updating node visibility based on votes`, {
+                nodeId,
+                isHidden: shouldBeHidden,
+                hiddenReason: 'community',
+                netVotes
+            });
+            
+            // Update node visibility
+            node.isHidden = shouldBeHidden;
+            node.hiddenReason = 'community';
+            
+            // Update store to trigger rerender
+            this.nodesStore.update(() => [...currentNodes]);
+        }
     }
 
     public updateViewType(viewType: ViewType): void {
@@ -485,6 +548,12 @@ export class GraphManager {
             const isHidden = (node.type === 'word' || node.type === 'definition') && 
                 netVotes < 0;
                 
+            console.debug(`[GraphManager:${this.managerId}] Visibility check for node ${node.id}:`, {
+                type: node.type,
+                netVotes,
+                isHidden
+            });
+                
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
@@ -648,14 +717,44 @@ export class GraphManager {
 
     private getNodeVotes(node: GraphNode): number {
         if (node.type === 'definition' && 'data' in node) {
-            const def = node.data as { positiveVotes?: number; negativeVotes?: number };
-            return (def.positiveVotes || 0) - (def.negativeVotes || 0);
+            const def = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = this.getNeo4jNumber(def.positiveVotes);
+            const negVotes = this.getNeo4jNumber(def.negativeVotes);
+            
+            console.debug(`[GraphManager:${this.managerId}] Vote calculation for definition:`, {
+                id: node.id,
+                posVotes,
+                negVotes,
+                netVotes: posVotes - negVotes
+            });
+            
+            return posVotes - negVotes;
         }
         else if (node.type === 'word' && 'data' in node) {
-            const word = node.data as { positiveVotes?: number; negativeVotes?: number };
-            return (word.positiveVotes || 0) - (word.negativeVotes || 0);
+            const word = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = this.getNeo4jNumber(word.positiveVotes);
+            const negVotes = this.getNeo4jNumber(word.negativeVotes);
+            
+            console.debug(`[GraphManager:${this.managerId}] Vote calculation for word:`, {
+                id: node.id,
+                posVotes,
+                negVotes,
+                netVotes: posVotes - negVotes
+            });
+            
+            return posVotes - negVotes;
         }
         return 0;
+    }
+    
+    /**
+     * Helper to extract number from Neo4j number objects
+     */
+    private getNeo4jNumber(value: any): number {
+        if (value && typeof value === 'object' && 'low' in value) {
+            return Number(value.low);
+        }
+        return Number(value || 0);
     }
 
     private getNodeColor(node: EnhancedNode): string {

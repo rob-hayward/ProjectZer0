@@ -8,6 +8,7 @@
     import { userStore } from '$lib/stores/userStore';
     import { getUserDetails } from '$lib/services/userLookup';
     import { getDisplayName } from '../utils/nodeUtils';
+    import { graphStore } from '$lib/stores/graphStore';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -122,6 +123,16 @@
                 negativeVotes: wordData.negativeVotes,
                 netVotes
             });
+            
+            // NEW CODE: Recalculate visibility based on vote data
+            if (graphStore) {
+                console.log('[WordNode] Recalculating node visibility based on votes');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    wordData.positiveVotes, 
+                    wordData.negativeVotes
+                );
+            }
         } catch (error) {
             console.error('[WordNode] Error fetching vote status:', error);
             
@@ -177,6 +188,16 @@
             
             // Update net votes
             netVotes = (wordData.positiveVotes || 0) - (wordData.negativeVotes || 0);
+            
+            // Recalculate visibility after vote changes
+            if (graphStore) {
+                console.log('[WordNode] Recalculating node visibility after vote update');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    wordData.positiveVotes, 
+                    wordData.negativeVotes
+                );
+            }
             
         } catch (error) {
             console.error('[WordNode] Error processing vote:', error);

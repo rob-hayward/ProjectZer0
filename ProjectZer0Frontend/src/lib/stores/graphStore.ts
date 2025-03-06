@@ -23,7 +23,8 @@ export interface GraphStore {
     subscribe: Readable<GraphState>['subscribe'];
     setData: (data: GraphData, config?: LayoutUpdateConfig) => void;
     updateNodeMode: (nodeId: string, mode: NodeMode) => void;
-    updateNodeVisibility: (nodeId: string, isHidden: boolean) => void; // New method
+    updateNodeVisibility: (nodeId: string, isHidden: boolean, hiddenReason?: 'community' | 'user') => void; 
+    recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number) => void;
     setViewType: (viewType: ViewType) => void;
     getViewType: () => ViewType;
     fixNodePositions: () => void;
@@ -64,10 +65,15 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             isUpdatingStore.set(false);
         },
         
-        // New method to update node visibility
-        updateNodeVisibility: (nodeId: string, isHidden: boolean) => {
+        updateNodeVisibility: (nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user') => {
             isUpdatingStore.set(true);
-            manager.updateNodeVisibility(nodeId, isHidden);
+            manager.updateNodeVisibility(nodeId, isHidden, hiddenReason);
+            isUpdatingStore.set(false);
+        },
+        
+        recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number) => {
+            isUpdatingStore.set(true);
+            manager.recalculateNodeVisibility(nodeId, positiveVotes, negativeVotes);
             isUpdatingStore.set(false);
         },
 
