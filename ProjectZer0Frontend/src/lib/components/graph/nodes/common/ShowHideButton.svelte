@@ -8,7 +8,7 @@
     export let isHidden: boolean = false;
     export let y: number = 0;
     export let x: number = 20; // Default offset to the right by 20 units
-    export let nodeId: string = ""; // Passed for debugging and tracking
+    export const nodeId: string = ""; // Changed to export const since it's only for external reference
     
     const dispatch = createEventDispatcher<{
         click: void;
