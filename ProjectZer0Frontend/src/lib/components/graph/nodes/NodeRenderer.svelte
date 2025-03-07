@@ -2,11 +2,10 @@
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-    
-    // Update these imports to match your project structure
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
     import { getNetVotes } from './utils/nodeUtils';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     
     // The node to render
     export let node: RenderableNode;
@@ -30,11 +29,16 @@
     // Handle visibility change events
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         console.debug(`[NodeRenderer] Visibility change for node ${node.id}:`, event.detail);
+        
+        // Dispatch event to update local state
         dispatch('visibilityChange', { 
             nodeId: node.id, 
             isHidden: event.detail.isHidden 
         });
-    }
+        
+        // Save preference to store (true = visible, false = hidden)
+        visibilityStore.setPreference(node.id, !event.detail.isHidden);
+        }
     
     // Component ID for debugging
     const rendererId = node.id.substring(0, 8);

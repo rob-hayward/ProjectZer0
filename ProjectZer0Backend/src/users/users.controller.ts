@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { UserAuthService } from './user-auth.service';
 import { InteractionService } from './interactions/interaction.service';
+import { VisibilityService } from './interactions/visibility.service';
 import { UserSchema } from '../neo4j/schemas/user.schema';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserProfile } from './user.model';
@@ -21,6 +22,7 @@ export class UsersController {
   constructor(
     private userAuthService: UserAuthService,
     private interactionService: InteractionService,
+    private visibilityService: VisibilityService,
     private userSchema: UserSchema,
   ) {}
 
@@ -76,5 +78,44 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   async getUserDetails(@Param('userId') userId: string) {
     return this.userAuthService.getUserProfile(userId);
+  }
+
+  @Get('visibility-preferences')
+  @UseGuards(JwtAuthGuard)
+  async getUserVisibilityPreferences(@Request() req: any) {
+    this.logger.log(`Getting visibility preferences for user: ${req.user.sub}`);
+    try {
+      const preferences =
+        await this.visibilityService.getUserVisibilityPreferences(req.user.sub);
+      return preferences;
+    } catch (error) {
+      this.logger.error(
+        `Error getting visibility preferences: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  @Post('visibility-preferences')
+  @UseGuards(JwtAuthGuard)
+  async setUserVisibilityPreference(
+    @Request() req: any,
+    @Body() body: { nodeId: string; isVisible: boolean },
+  ) {
+    this.logger.log(
+      `Setting visibility preference for user ${req.user.sub}, node ${body.nodeId}: ${body.isVisible}`,
+    );
+    try {
+      return await this.visibilityService.setUserVisibilityPreference(
+        req.user.sub,
+        body.nodeId,
+        body.isVisible,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error setting visibility preference: ${error.message}`,
+      );
+      throw error;
+    }
   }
 }

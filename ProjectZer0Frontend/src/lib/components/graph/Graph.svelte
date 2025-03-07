@@ -19,6 +19,8 @@
     import NodeRenderer from './nodes/NodeRenderer.svelte';
     import GraphDebugVisualizer from '../debug/GraphDebugVisualizer.svelte';
     import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
+	import { userStore } from '$lib/stores/userStore';
 
     // Props
     export let data: GraphData;
@@ -231,13 +233,33 @@
     }
 
     // Lifecycle hooks
-    onMount(() => {
+    onMount(async () => {
         initialize();
         
         if (typeof window !== 'undefined') {
-            window.addEventListener('resize', updateContainerDimensions);
+        window.addEventListener('resize', updateContainerDimensions);
+        
+        // Load visibility preferences when component mounts
+        if ($userStore) {
+            await visibilityStore.loadPreferences();
+            applyVisibilityPreferences();
+        }
         }
     });
+    
+    // Function to apply loaded preferences to current nodes
+    function applyVisibilityPreferences() {
+        if (!graphStore || !$visibilityStore.isLoaded) return;
+        
+        // For each node, check if there's a preference and apply it
+        $graphStore.nodes.forEach(node => {
+        const preference = visibilityStore.getPreference(node.id);
+        if (preference !== undefined) {
+            console.log(`[Graph] Applying user preference for node ${node.id}: ${preference}`);
+            graphStore.updateNodeVisibility(node.id, !preference, 'user');
+        }
+        });
+    }
 
     onDestroy(() => {
         if (typeof window !== 'undefined') {
