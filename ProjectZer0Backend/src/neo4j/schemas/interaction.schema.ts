@@ -72,35 +72,68 @@ export class InteractionSchema {
     objectId: string,
     isVisible: boolean,
   ) {
-    const query = `
+    // Step 1: First get the existing interaction node or create if not exists
+    const getQuery = `
       MATCH (u:User {sub: $userId})
       MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      SET i.visibilityPreferences = COALESCE(i.visibilityPreferences, {}) + {$objectId: $isVisible}
-      RETURN i.visibilityPreferences[$objectId] as visibilityStatus
+      RETURN i.visibilityPreferences as prefs
     `;
-    const result = await this.neo4jService.write(query, {
+
+    const getResult = await this.neo4jService.read(getQuery, { userId });
+
+    // Get existing preferences or initialize empty object
+    let prefs =
+      getResult.records.length > 0 && getResult.records[0].get('prefs')
+        ? getResult.records[0].get('prefs')
+        : {};
+
+    // Step 2: Update the specific preference value in JavaScript
+    prefs = { ...prefs, [objectId]: isVisible };
+
+    // Step 3: Save the updated preferences object back to Neo4j
+    const setQuery = `
+      MATCH (u:User {sub: $userId})
+      MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+      SET i.visibilityPreferences = $prefs
+      RETURN i.visibilityPreferences as updatedPrefs
+    `;
+
+    // Execute the query but don't assign to an unused variable
+    await this.neo4jService.write(setQuery, {
       userId,
-      objectId,
-      isVisible,
+      prefs,
     });
-    return result.records[0].get('visibilityStatus');
+
+    // Return the specific value we just set
+    return isVisible;
   }
 
   async getVisibilityPreference(userId: string, objectId: string) {
     const query = `
       MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i.visibilityPreferences[$objectId] as visibilityStatus
+      RETURN i.visibilityPreferences as prefs
     `;
-    const result = await this.neo4jService.read(query, { userId, objectId });
-    return result.records[0]?.get('visibilityStatus');
+    const result = await this.neo4jService.read(query, { userId });
+
+    if (result.records.length === 0 || !result.records[0].get('prefs')) {
+      return undefined;
+    }
+
+    const prefs = result.records[0].get('prefs');
+    return prefs[objectId]; // Return the specific preference
   }
 
   async getVisibilityPreferences(userId: string) {
     const query = `
       MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i.visibilityPreferences as visibilityStatuses
+      RETURN i.visibilityPreferences as prefs
     `;
     const result = await this.neo4jService.read(query, { userId });
-    return result.records[0]?.get('visibilityStatuses') || {};
+
+    if (result.records.length === 0 || !result.records[0].get('prefs')) {
+      return {};
+    }
+
+    return result.records[0].get('prefs');
   }
 }

@@ -175,90 +175,134 @@ export class GraphManager {
     }
 
     /**
-     * Recalculate visibility for a node based on its votes
-     * This can be called after votes are loaded asynchronously
+     * Recalculate visibility for a node based on its votes and user preferences
+     * This can be called after votes are loaded asynchronously or when preferences change
      */
-    // In GraphManager.ts - Add new parameter to recalculateNodeVisibility
-public recalculateNodeVisibility(
-    nodeId: string, 
-    positiveVotes: number, 
-    negativeVotes: number,
-    userPreference?: boolean  // Optional user preference override
-  ): void {
-    console.debug(`[GraphManager:${this.managerId}] Recalculating node visibility based on votes`, {
-      nodeId,
-      positiveVotes,
-      negativeVotes,
-      userPreference
-    });
-    
-    // Get current nodes
-    const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-    const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
-    
-    if (!node) {
-      console.warn(`[GraphManager:${this.managerId}] Node not found for visibility recalculation`, { nodeId });
-      return;
-    }
-    
-    // Only perform calculation for word and definition nodes
-    if (node.type !== 'word' && node.type !== 'definition') {
-      return;
-    }
-    
-    // If user preference is provided, it overrides community visibility
-    if (userPreference !== undefined) {
-      // Only update if value would change
-      if (node.isHidden === userPreference) {
-        return;
-      }
-      
-      console.debug(`[GraphManager:${this.managerId}] Setting user-defined visibility for node ${nodeId}:`, {
-        isHidden: !userPreference,
-        hiddenReason: 'user'
-      });
-      
-      // Update node visibility
-      node.isHidden = !userPreference;
-      node.hiddenReason = 'user';
-    } else {
-      // Calculate net votes
-      const netVotes = positiveVotes - negativeVotes;
-      
-      console.debug(`[GraphManager:${this.managerId}] Vote calculation for node ${nodeId}:`, {
-        positiveVotes,
-        negativeVotes,
-        netVotes,
-        shouldBeHidden: netVotes < 0
-      });
-      
-      // Update visibility based on votes
-      const shouldBeHidden = netVotes < 0;
-      
-      // If node has a user-defined visibility, don't override it
-      if (node.hiddenReason === 'user') {
-        console.debug(`[GraphManager:${this.managerId}] Skipping community visibility update - user preference exists`);
-        return;
-      }
-      
-      // Only update if visibility state would change
-      if (node.isHidden !== shouldBeHidden) {
-        console.debug(`[GraphManager:${this.managerId}] Updating node visibility based on votes`, {
-          nodeId,
-          isHidden: shouldBeHidden,
-          hiddenReason: 'community',
-          netVotes
+    public recalculateNodeVisibility(
+        nodeId: string, 
+        positiveVotes: number, 
+        negativeVotes: number,
+        userPreference?: boolean  // Optional user preference override
+    ): void {
+        console.debug(`[GraphManager:${this.managerId}] Recalculating node visibility based on votes`, {
+            nodeId,
+            positiveVotes,
+            negativeVotes,
+            userPreference
         });
         
-        // Update node visibility
-        node.isHidden = shouldBeHidden;
-        node.hiddenReason = 'community';
-      }
+        // Get current nodes
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
+        
+        if (!node) {
+            console.warn(`[GraphManager:${this.managerId}] Node not found for visibility recalculation`, { nodeId });
+            return;
+        }
+        
+        // Only perform calculation for word and definition nodes
+        if (node.type !== 'word' && node.type !== 'definition') {
+            return;
+        }
+        
+        // If user preference is provided, it overrides community visibility
+        if (userPreference !== undefined) {
+            // Only update if value would change
+            if (node.isHidden === userPreference) {
+                return;
+            }
+            
+            console.debug(`[GraphManager:${this.managerId}] Setting user-defined visibility for node ${nodeId}:`, {
+                isHidden: !userPreference,
+                hiddenReason: 'user'
+            });
+            
+            // Update node visibility
+            node.isHidden = !userPreference;
+            node.hiddenReason = 'user';
+        } else {
+            // Calculate net votes
+            const netVotes = positiveVotes - negativeVotes;
+            
+            console.debug(`[GraphManager:${this.managerId}] Vote calculation for node ${nodeId}:`, {
+                positiveVotes,
+                negativeVotes,
+                netVotes,
+                shouldBeHidden: netVotes < 0
+            });
+            
+            // Update visibility based on votes
+            const shouldBeHidden = netVotes < 0;
+            
+            // If node has a user-defined visibility, don't override it
+            if (node.hiddenReason === 'user') {
+                console.debug(`[GraphManager:${this.managerId}] Skipping community visibility update - user preference exists`);
+                return;
+            }
+            
+            // Only update if visibility state would change
+            if (node.isHidden !== shouldBeHidden) {
+                console.debug(`[GraphManager:${this.managerId}] Updating node visibility based on votes`, {
+                    nodeId,
+                    isHidden: shouldBeHidden,
+                    hiddenReason: 'community',
+                    netVotes
+                });
+                
+                // Update node visibility
+                node.isHidden = shouldBeHidden;
+                node.hiddenReason = 'community';
+            }
+        }
+        
+        // Update store to trigger rerender
+        this.nodesStore.update(() => [...currentNodes]);
     }
-    
-    // Update store to trigger rerender
-    this.nodesStore.update(() => [...currentNodes]);
-  }
+
+    /**
+     * Apply user visibility preferences to all nodes
+     * Call this when preferences are loaded or updated
+     */
+    public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
+        console.debug(`[GraphManager:${this.managerId}] Applying visibility preferences to nodes`, {
+            preferenceCount: Object.keys(preferences).length
+        });
+        
+        if (Object.keys(preferences).length === 0) {
+            console.debug(`[GraphManager:${this.managerId}] No preferences to apply`);
+            return;
+        }
+        
+        // Get current nodes
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        let changedNodeCount = 0;
+        
+        // Apply preferences to all nodes
+        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+            const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
+            
+            if (node) {
+                // Only update if this would change visibility
+                const newHiddenState = !isVisible;
+                if (node.isHidden !== newHiddenState) {
+                    node.isHidden = newHiddenState;
+                    node.hiddenReason = 'user';
+                    changedNodeCount++;
+                    
+                    console.debug(`[GraphManager:${this.managerId}] Applied preference to node ${nodeId}:`, {
+                        isVisible,
+                        isHidden: node.isHidden
+                    });
+                }
+            }
+        });
+        
+        if (changedNodeCount > 0) {
+            console.debug(`[GraphManager:${this.managerId}] Updated ${changedNodeCount} nodes with preferences`);
+            // Update store to trigger rerender
+            this.nodesStore.update(() => [...currentNodes]);
+        }
+    }
 
     public updateViewType(viewType: ViewType): void {
         if (this._viewType === viewType) return;

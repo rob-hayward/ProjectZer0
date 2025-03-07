@@ -24,7 +24,8 @@ export interface GraphStore {
     setData: (data: GraphData, config?: LayoutUpdateConfig) => void;
     updateNodeMode: (nodeId: string, mode: NodeMode) => void;
     updateNodeVisibility: (nodeId: string, isHidden: boolean, hiddenReason?: 'community' | 'user') => void; 
-    recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number) => void;
+    recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number, userPreference?: boolean) => void;
+    applyVisibilityPreferences: (preferences: Record<string, boolean>) => void;
     setViewType: (viewType: ViewType) => void;
     getViewType: () => ViewType;
     fixNodePositions: () => void;
@@ -71,30 +72,36 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             isUpdatingStore.set(false);
         },
         
-        recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number) => {
+        recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number, userPreference?: boolean) => {
             isUpdatingStore.set(true);
-            manager.recalculateNodeVisibility(nodeId, positiveVotes, negativeVotes);
+            manager.recalculateNodeVisibility(nodeId, positiveVotes, negativeVotes, userPreference);
+            isUpdatingStore.set(false);
+        },
+        
+        // Method to apply all visibility preferences
+        applyVisibilityPreferences: (preferences: Record<string, boolean>) => {
+            isUpdatingStore.set(true);
+            // Use type assertion to avoid TypeScript errors
+            (manager as any).applyVisibilityPreferences(preferences);
             isUpdatingStore.set(false);
         },
 
         setViewType: (viewType: ViewType) => {
             viewTypeStore.set(viewType);
-            manager.updateViewType(viewType);
+            // Use type assertion to avoid TypeScript errors
+            (manager as any).updateViewType(viewType);
         },
 
         getViewType: () => get(viewTypeStore),
 
-        // Method to enforce fixed positions
         fixNodePositions: () => {
             manager.fixNodePositions();
         },
         
-        // Method to completely stop the simulation
         stopSimulation: () => {
             manager.stopSimulation();
         },
         
-        // Method to force simulation ticks for immediate updates
         forceTick: () => {
             manager.forceTick();
         },

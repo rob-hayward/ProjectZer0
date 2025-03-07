@@ -1,6 +1,6 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/nodes/NodeRenderer.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
@@ -37,8 +37,9 @@
         });
         
         // Save preference to store (true = visible, false = hidden)
+        // The preference store should handle persistence
         visibilityStore.setPreference(node.id, !event.detail.isHidden);
-        }
+    }
     
     // Component ID for debugging
     const rendererId = node.id.substring(0, 8);
@@ -64,6 +65,32 @@
             isHidden: node.isHidden
         });
     }
+    
+    // When component mounts, check if we have a stored visibility preference
+    // for this node and apply it if needed
+    onMount(() => {
+        if (node.type === 'word' || node.type === 'definition') {
+            const preference = visibilityStore.getPreference(node.id);
+            if (preference !== undefined) {
+                const shouldBeHidden = !preference;
+                
+                // Only update if different from current state
+                if (node.isHidden !== shouldBeHidden) {
+                    console.debug(`[NodeRenderer:${rendererId}] Applying stored visibility preference:`, {
+                        nodeId: node.id,
+                        isVisible: preference,
+                        shouldBeHidden
+                    });
+                    
+                    // Dispatch event to update the node state
+                    dispatch('visibilityChange', {
+                        nodeId: node.id,
+                        isHidden: shouldBeHidden
+                    });
+                }
+            }
+        }
+    });
 </script>
 
 <!-- Apply node position transform - THIS COMPONENT HANDLES ONLY POSITIONING -->

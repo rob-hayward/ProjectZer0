@@ -1,6 +1,6 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/Graph.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+    import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
     import type { BackgroundConfig } from '$lib/types/graph/background';
     import type { 
@@ -20,7 +20,10 @@
     import GraphDebugVisualizer from '../debug/GraphDebugVisualizer.svelte';
     import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
-	import { userStore } from '$lib/stores/userStore';
+    import { userStore } from '$lib/stores/userStore';
+
+    // Initialize visibility store as early as possible
+    visibilityStore.initialize();
 
     // Props
     export let data: GraphData;
@@ -183,11 +186,14 @@
         
         // Notify the graph store
         if (graphStore) {
-            graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden);
+            graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden, 'user');
         }
         
         // Forward the event to parent
         dispatch('visibilitychange', event.detail);
+        
+        // Save preference to store (true = visible, false = hidden)
+        visibilityStore.setPreference(event.detail.nodeId, !event.detail.isHidden);
     }
 
     /**
@@ -232,34 +238,58 @@
         initialized = true;
     }
 
+    /**
+     * Apply visibility preferences to current nodes
+     * This function can be called both on initial load and when preferences change
+     */
+    function applyVisibilityPreferences() {
+        if (!graphStore) return;
+        
+        const preferences = visibilityStore.getAllPreferences();
+        if (Object.keys(preferences).length > 0) {
+            console.log('[Graph] Applying visibility preferences to graph nodes:', 
+                Object.keys(preferences).length);
+            
+            // Use the new method to apply all preferences at once
+            // TypeScript may complain if the method is not in the type declaration
+            (graphStore as any).applyVisibilityPreferences(preferences);
+        } else {
+            console.log('[Graph] No visibility preferences to apply');
+        }
+    }
+
     // Lifecycle hooks
     onMount(async () => {
         initialize();
         
         if (typeof window !== 'undefined') {
-        window.addEventListener('resize', updateContainerDimensions);
-        
-        // Load visibility preferences when component mounts
-        if ($userStore) {
-            await visibilityStore.loadPreferences();
-            applyVisibilityPreferences();
-        }
+            window.addEventListener('resize', updateContainerDimensions);
+            
+            // Load visibility preferences when component mounts
+            if ($userStore) {
+                console.log('[Graph] Loading visibility preferences...');
+                
+                // Apply any cached preferences immediately
+                applyVisibilityPreferences();
+                
+                // Then load from backend and apply again
+                await visibilityStore.loadPreferences();
+                applyVisibilityPreferences();
+            }
         }
     });
-    
-    // Function to apply loaded preferences to current nodes
-    function applyVisibilityPreferences() {
-        if (!graphStore || !$visibilityStore.isLoaded) return;
-        
-        // For each node, check if there's a preference and apply it
-        $graphStore.nodes.forEach(node => {
-        const preference = visibilityStore.getPreference(node.id);
-        if (preference !== undefined) {
-            console.log(`[Graph] Applying user preference for node ${node.id}: ${preference}`);
-            graphStore.updateNodeVisibility(node.id, !preference, 'user');
+
+    // When the graph data changes or we navigate to a new page,
+    // make sure preferences are applied
+    afterUpdate(() => {
+        if (data && graphStore) {
+            console.log('[Graph] afterUpdate: Ensuring preferences are applied');
+            // Small delay to ensure graph has processed the data
+            setTimeout(() => {
+                applyVisibilityPreferences();
+            }, 50);
         }
-        });
-    }
+    });
 
     onDestroy(() => {
         if (typeof window !== 'undefined') {
