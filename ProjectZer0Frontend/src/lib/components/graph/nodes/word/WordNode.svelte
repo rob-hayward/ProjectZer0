@@ -42,16 +42,11 @@
     };
 
     // Voting state
-    let totalVotes = 0;
-    let positivePercent = 0;
-    let negativePercent = 0;
+    // Removed totalVotes, positivePercent, negativePercent variables as they're now reactive
     let createdDate = '';
     let showDiscussionButton = false;
     let userVoteStatus: 'agree' | 'disagree' | 'none' = 'none';
     let isVoting = false;
-    let netVotes = 0;
-    let scoreDisplay = "0";
-    let wordStatus = "";
     let wordCreatorDetails: any = null;
     
     const dispatch = createEventDispatcher<{
@@ -85,18 +80,7 @@
         return Number(value || 0);
     }
 
-    async function fetchStatsData(): Promise<void> {
-        try {
-            const response = await fetchWithAuth(`/words/${wordData.id}/stats`);
-            if (response) {
-                totalVotes = response.totalVotes || 0;
-                positivePercent = response.positivePercent || 0;
-                negativePercent = response.negativePercent || 0;
-            }
-        } catch (error) {
-            console.error('Error fetching word stats:', error);
-        }
-    }
+    // Removed fetchStatsData function and replaced with reactive declarations below
 
     async function initializeVoteStatus(retryCount = 0) {
         if (!$userStore) return;
@@ -114,8 +98,7 @@
             wordData.positiveVotes = getNeo4jNumber(response.positiveVotes);
             wordData.negativeVotes = getNeo4jNumber(response.negativeVotes);
             
-            // Update net votes directly
-            netVotes = (wordData.positiveVotes || 0) - (wordData.negativeVotes || 0);
+            // Update net votes directly - now handled by reactive declaration
             
             console.log('[WordNode] Updated vote status:', {
                 userVoteStatus,
@@ -124,7 +107,7 @@
                 netVotes
             });
             
-            // NEW CODE: Recalculate visibility based on vote data
+            // Recalculate visibility based on vote data
             if (graphStore) {
                 console.log('[WordNode] Recalculating node visibility based on votes');
                 graphStore.recalculateNodeVisibility(
@@ -186,9 +169,6 @@
                 console.log('[WordNode] Vote recorded:', result);
             }
             
-            // Update net votes
-            netVotes = (wordData.positiveVotes || 0) - (wordData.negativeVotes || 0);
-            
             // Recalculate visibility after vote changes
             if (graphStore) {
                 console.log('[WordNode] Recalculating node visibility after vote update');
@@ -232,7 +212,6 @@
         // Initialize vote counts
         const initialPos = getNeo4jNumber(wordData.positiveVotes);
         const initialNeg = getNeo4jNumber(wordData.negativeVotes);
-        netVotes = initialPos - initialNeg;
         
         console.log('[WordNode] Initial vote counts:', {
             initialPos,
@@ -242,14 +221,20 @@
         
         await initializeVoteStatus();
         
-        if (isDetail) {
-            await fetchStatsData();
-        }
+        // Removed the call to fetchStatsData since we're calculating stats locally now
     });
 
     // Reactive declarations
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    $: netVotes = (wordData.positiveVotes || 0) - (wordData.negativeVotes || 0);
+    
+    // Calculate vote stats locally with reactive declarations
+    $: positiveVotes = getNeo4jNumber(wordData.positiveVotes) || 0;
+    $: negativeVotes = getNeo4jNumber(wordData.negativeVotes) || 0;
+    $: netVotes = positiveVotes - negativeVotes;
+    $: totalVotes = positiveVotes + negativeVotes;
+    $: positivePercent = totalVotes > 0 ? Math.round((positiveVotes / totalVotes) * 100) : 0;
+    $: negativePercent = totalVotes > 0 ? Math.round((negativeVotes / totalVotes) * 100) : 0;
+    
     $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
     $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     
@@ -377,7 +362,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {wordData.positiveVotes || 0}
+                        {positiveVotes}
                     </text>
                 </g>
      
@@ -390,7 +375,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {wordData.negativeVotes || 0}
+                        {negativeVotes}
                     </text>
                 </g>
      
