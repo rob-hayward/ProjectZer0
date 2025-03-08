@@ -391,8 +391,8 @@
     }
 
     .loading-spinner {
-        width: 80px;
-        height: 80px;
+        width: 650px;
+        height: 650px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);
         border-radius: 50%;

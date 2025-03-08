@@ -157,21 +157,41 @@ export class GraphManager {
         
         // Update the node
         const node = currentNodes[nodeIndex];
+        const oldHiddenState = node.isHidden;
         node.isHidden = isHidden;
         node.hiddenReason = hiddenReason; // Use the provided reason
+        
+        // Update node radius based on new visibility
+        const oldRadius = node.radius;
+        node.radius = this.getNodeRadius(node);
         
         console.debug(`[GraphManager:${this.managerId}] Node visibility updated`, {
             nodeId,
             isHidden,
-            hiddenReason
+            hiddenReason,
+            oldRadius,
+            newRadius: node.radius
         });
         
         // Update the nodes store
         this.nodesStore.update(() => [...currentNodes]);
         
-        // No need to restart the simulation for visibility changes
-        // But we should ensure fixed positions are maintained
+        // If layout strategy exists, let it handle the visibility change
+        if (this.currentLayoutStrategy) {
+            // Check if we have the handleNodeVisibilityChange method
+            if (typeof (this.currentLayoutStrategy as any).handleNodeVisibilityChange === 'function') {
+                (this.currentLayoutStrategy as any).handleNodeVisibilityChange(nodeId, isHidden);
+            }
+        }
+        
+        // Ensure fixed positions are maintained
         this.fixNodePositions();
+        
+        // Restart simulation with low alpha for smooth transition
+        if (oldHiddenState !== isHidden) {
+            this.simulation.alpha(0.3).restart();
+            this.simulationActive = true;
+        }
     }
 
     /**
@@ -218,8 +238,7 @@ export class GraphManager {
             });
             
             // Update node visibility
-            node.isHidden = !userPreference;
-            node.hiddenReason = 'user';
+            this.updateNodeVisibility(nodeId, !userPreference, 'user');
         } else {
             // Calculate net votes
             const netVotes = positiveVotes - negativeVotes;
@@ -250,13 +269,9 @@ export class GraphManager {
                 });
                 
                 // Update node visibility
-                node.isHidden = shouldBeHidden;
-                node.hiddenReason = 'community';
+                this.updateNodeVisibility(nodeId, shouldBeHidden, 'community');
             }
         }
-        
-        // Update store to trigger rerender
-        this.nodesStore.update(() => [...currentNodes]);
     }
 
     /**
@@ -285,13 +300,13 @@ export class GraphManager {
                 // Only update if this would change visibility
                 const newHiddenState = !isVisible;
                 if (node.isHidden !== newHiddenState) {
-                    node.isHidden = newHiddenState;
-                    node.hiddenReason = 'user';
+                    // Use updateNodeVisibility to ensure proper radius and layout updates
+                    this.updateNodeVisibility(nodeId, newHiddenState, 'user');
                     changedNodeCount++;
                     
                     console.debug(`[GraphManager:${this.managerId}] Applied preference to node ${nodeId}:`, {
                         isVisible,
-                        isHidden: node.isHidden
+                        isHidden: newHiddenState
                     });
                 }
             }
@@ -299,8 +314,6 @@ export class GraphManager {
         
         if (changedNodeCount > 0) {
             console.debug(`[GraphManager:${this.managerId}] Updated ${changedNodeCount} nodes with preferences`);
-            // Update store to trigger rerender
-            this.nodesStore.update(() => [...currentNodes]);
         }
     }
 
@@ -762,6 +775,12 @@ export class GraphManager {
     }
 
     private getNodeRadius(node: GraphNode | EnhancedNode): number {
+        // First check if node is hidden - hidden nodes have the smallest radius
+        if ('isHidden' in node && node.isHidden) {
+            return COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+        }
+        
+        // Then check node type and mode
         if (node.type === 'word') {
             return node.mode === 'detail' ? 
                 COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 

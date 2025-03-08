@@ -1,4 +1,4 @@
-// src/lib/services/graph/simulation/layouts/WordDefinitionLayout.ts
+// src/lib/services/graph/layouts/WordDefinitionLayout.ts
 import * as d3 from 'd3';
 import { BaseLayoutStrategy } from './BaseLayoutStrategy';
 import { NavigationNodeLayout } from './common/NavigationNodeLayout';
@@ -24,14 +24,17 @@ import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../constants/graph';
  * - Alternative definitions positioned using golden angle distribution
  * - Vote-weighted positioning for alternative definitions
  * - Smooth transitions between preview and detail modes
+ * - Support for hidden nodes with smaller size and adjusted positioning
  */
 export class WordDefinitionLayout extends BaseLayoutStrategy {
     private readonly GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
     private readonly FIRST_ALT_ANGLE = Math.PI;
     private definitionAngles: Map<string, number> = new Map();
     private expansionState: Map<string, boolean> = new Map();
-    // Added: Track expanded definitions and their ring indices
+    // Track expanded definitions and their ring indices
     private expandedDefinitions: Map<string, { ringIndex: number, adjustment: number }> = new Map();
+    // Track hidden definitions and their ring indices
+    private hiddenNodes: Map<string, { ringIndex: number, adjustment: number }> = new Map();
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(width, height, viewType);
@@ -102,6 +105,9 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
 
         // Update expansion state tracking
         this.updateExpansionState(nodes);
+        
+        // Update hidden node tracking
+        this.updateHiddenState(nodes);
 
         // Reset velocities but preserve existing positions
         nodes.forEach(node => {
@@ -350,6 +356,104 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     }
 
     /**
+     * Handle node visibility changes
+     */
+    public handleNodeVisibilityChange(nodeId: string, isHidden: boolean): void {
+        console.debug('[WordDefinitionLayout] Node visibility change', {
+            nodeId,
+            isHidden
+        });
+
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = nodes.find(n => n.id === nodeId);
+        
+        if (!node) {
+            console.warn('[WordDefinitionLayout] Node not found for visibility change:', nodeId);
+            return;
+        }
+
+        // Update node visibility
+        const oldHiddenState = node.isHidden;
+        node.isHidden = isHidden;
+        
+        // Update radius based on new visibility
+        const oldRadius = node.radius;
+        node.radius = this.getNodeRadius(node);
+
+        console.debug('[WordDefinitionLayout] Node visibility updated', {
+            nodeId,
+            oldHiddenState,
+            newHiddenState: isHidden,
+            oldRadius,
+            newRadius: node.radius
+        });
+
+        // If this is a definition node, update hidden nodes tracking
+        if (node.type === 'definition') {
+            // Calculate ring index
+            let ringIndex = 0;
+            if (node.subtype === 'live') {
+                ringIndex = 0; // Live definition is always at ring 0
+            } else {
+                // Find position in sorted alternatives
+                const alternatives = nodes
+                    .filter(n => n.type === 'definition' && n.subtype === 'alternative')
+                    .sort((a, b) => (b.metadata?.votes || 0) - (a.metadata?.votes || 0));
+                    
+                const altIndex = alternatives.findIndex(d => d.id === nodeId);
+                ringIndex = altIndex + 1; // Alternative definitions start at ring 1
+            }
+            
+            // Calculate adjustment for this node when hidden
+            // Should be a negative value to pull other nodes inward
+            const adjustment = -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - 
+                               COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                
+            // Update tracking
+            if (isHidden) {
+                this.hiddenNodes.set(nodeId, { ringIndex, adjustment });
+                console.debug('[WordDefinitionLayout] Added hidden definition:', {
+                    nodeId,
+                    ringIndex,
+                    adjustment
+                });
+            } else {
+                this.hiddenNodes.delete(nodeId);
+                console.debug('[WordDefinitionLayout] Removed hidden definition:', {
+                    nodeId
+                });
+            }
+        }
+
+        // For word nodes, we need to update all nodes
+        if (node.type === 'word') {
+            console.debug('[WordDefinitionLayout] Word node visibility changed, repositioning all nodes');
+            
+            // First update navigation nodes to ensure they adapt to the word node's new size
+            NavigationNodeLayout.positionNavigationNodes(
+                nodes, 
+                this.getNodeRadius.bind(this)
+            );
+            
+            // Then update definition positions
+            this.repositionDefinitions(nodes);
+        }
+        
+        // If a definition changes visibility, we need to adjust all definitions
+        if (node.type === 'definition') {
+            console.debug('[WordDefinitionLayout] Definition node visibility changed, repositioning all definitions');
+            this.repositionDefinitions(nodes);
+        }
+        
+        // CRITICAL: Stop simulation and enforce fixed positions
+        this.simulation.stop();
+        this.enforceFixedPositions();
+        
+        // Restart with VERY minimal alpha to avoid movement
+        this.simulation.alpha(0.01).restart();
+    }
+
+    /**
      * Track expansion state changes
      */
     private updateExpansionState(nodes: EnhancedNode[]): void {
@@ -400,6 +504,64 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
     }
 
     /**
+     * Track hidden node state changes
+     */
+    private updateHiddenState(nodes: EnhancedNode[]): void {
+        // Update our hidden nodes map
+        nodes.forEach(node => {
+            if (node.type === 'definition' || node.type === 'word') {
+                const wasHidden = this.hiddenNodes.has(node.id);
+                const isHidden = node.isHidden || false;
+                
+                if (wasHidden !== isHidden) {
+                    console.debug('[WordDefinitionLayout] Node hidden state changed:', {
+                        nodeId: node.id,
+                        from: wasHidden,
+                        to: isHidden
+                    });
+                }
+                
+                // Update hidden nodes tracking for definition nodes
+                if (node.type === 'definition') {
+                    if (isHidden) {
+                        // Calculate ring index
+                        let ringIndex = 0;
+                        if (node.subtype === 'live') {
+                            ringIndex = 0;
+                        } else {
+                            const alternatives = nodes
+                                .filter(n => n.type === 'definition' && n.subtype === 'alternative')
+                                .sort((a, b) => (b.metadata?.votes || 0) - (a.metadata?.votes || 0));
+                                
+                            const altIndex = alternatives.findIndex(d => d.id === node.id);
+                            ringIndex = altIndex + 1;
+                        }
+                        
+                        // Calculate adjustment (negative value to pull inward)
+                        const adjustment = -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - 
+                                          COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                                          
+                        this.hiddenNodes.set(node.id, { ringIndex, adjustment });
+                        
+                        console.debug('[WordDefinitionLayout] Added hidden node tracking:', {
+                            nodeId: node.id,
+                            ringIndex,
+                            adjustment
+                        });
+                    } else {
+                        if (this.hiddenNodes.has(node.id)) {
+                            this.hiddenNodes.delete(node.id);
+                            console.debug('[WordDefinitionLayout] Removed hidden node tracking:', {
+                                nodeId: node.id
+                            });
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    /**
      * Position the live definition to the right of the word node
      */
     private positionLiveDefinition(node: EnhancedNode): void {
@@ -416,21 +578,35 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             (COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL - COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW) / 2 :
             0;
             
+        // Additional inward adjustment if word node is hidden
+        const wordHiddenAdjustment = wordNode?.isHidden ?
+            // If word is hidden, move definitions even further inward
+            (COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
+            0;
+            
         // Calculate expansion adjustment - move outward if expanded
         const expansionAdjustment = node.mode === 'detail' ?
             (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 :
             0;
+            
+        // Calculate hidden adjustment - move inward if hidden
+        const hiddenAdjustment = node.isHidden ?
+            -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
+            0;
         
-        // Calculate final position - expansion moves outward, word preview moves inward
-        const posX = baseRadius + expansionAdjustment - wordAdjustment;
+        // Calculate final position - expansion moves outward, word preview/hidden moves inward
+        const posX = baseRadius + expansionAdjustment - wordAdjustment - wordHiddenAdjustment + hiddenAdjustment;
 
         console.debug('[WordDefinitionLayout] Live definition positioned:', {
             id: node.id,
             baseRadius,
             expansionAdjustment,
             wordAdjustment,
+            wordHiddenAdjustment,
+            hiddenAdjustment,
             finalPosition: posX,
-            isDetail: node.mode === 'detail'
+            isDetail: node.mode === 'detail',
+            isHidden: node.isHidden
         });
 
         // Set position
@@ -459,7 +635,8 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
                 angle: angle * (180 / Math.PI),
                 radius,
                 position: { x: node.x, y: node.y },
-                isDetail: node.mode === 'detail'
+                isDetail: node.mode === 'detail',
+                isHidden: node.isHidden
             });
         });
     }
@@ -495,9 +672,19 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             (COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL - COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW) / 2 :
             0;
             
+        // Additional inward adjustment if word node is hidden
+        const wordHiddenAdjustment = wordNode?.isHidden ?
+            (COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
+            0;
+            
         // Calculate expansion adjustment - move outward if expanded
         const expansionAdjustment = node.mode === 'detail' ?
             (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 :
+            0;
+            
+        // Calculate hidden adjustment - move inward if hidden
+        const hiddenAdjustment = node.isHidden ?
+            -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
             0;
         
         // Calculate adjustment from inner expanded nodes
@@ -516,16 +703,46 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             }
         });
         
-        // Calculate final radius - expansion moves outward, word preview moves inward
-        const radius = baseRadius + expansionAdjustment - wordAdjustment + innerExpandedAdjustment;
+        // Calculate adjustment from inner hidden nodes
+        let innerHiddenAdjustment = 0;
+        this.hiddenNodes.forEach((data, id) => {
+            // If this is an inner ring that's hidden, add its adjustment (negative)
+            if (data.ringIndex < ringIndex) {
+                innerHiddenAdjustment += data.adjustment;
+                console.debug('[WordDefinitionLayout] Adding inner hidden adjustment:', {
+                    forNodeId: node.id,
+                    fromNodeId: id,
+                    innerRingIndex: data.ringIndex,
+                    thisRingIndex: ringIndex,
+                    adjustment: data.adjustment
+                });
+            }
+        });
+        
+        // Calculate final radius with all adjustments:
+        // - Expansion moves outward (positive)
+        // - Hidden moves inward (negative)
+        // - Word preview/hidden moves inward (negative)
+        // - Inner expanded nodes push outward (positive)
+        // - Inner hidden nodes pull inward (negative)
+        const radius = baseRadius + 
+                      expansionAdjustment + 
+                      hiddenAdjustment - 
+                      wordAdjustment - 
+                      wordHiddenAdjustment + 
+                      innerExpandedAdjustment + 
+                      innerHiddenAdjustment;
 
         console.debug('[WordDefinitionLayout] Alternative definition position calculated:', {
             nodeId: node.id,
             ringIndex,
             baseRadius,
             expansionAdjustment,
+            hiddenAdjustment,
             wordAdjustment,
+            wordHiddenAdjustment,
             innerExpandedAdjustment,
+            innerHiddenAdjustment,
             finalRadius: radius
         });
 
@@ -566,6 +783,9 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         
         // Track expansion state changes
         this.updateExpansionState(nodes);
+        
+        // Track hidden state changes
+        this.updateHiddenState(nodes);
 
         // Clear all forces
         this.clearAllForces();

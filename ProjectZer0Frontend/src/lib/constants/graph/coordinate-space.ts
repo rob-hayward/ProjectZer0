@@ -43,9 +43,10 @@ export const COORDINATE_SPACE = {
     // Layout distances and spacing
     LAYOUT: {
         RING_SPACING: {
-            INITIAL: 600,         // Base spacing for first ring
-            INCREMENT: 0.15,        // Increase per ring
-            DEFINITION_EXPANSION_BUFFER: 80 // Additional buffer when definitions expand
+            INITIAL: 650,         // Base spacing for first ring
+            INCREMENT: 0.2,        // Increase per ring
+            DEFINITION_EXPANSION_BUFFER: 80, // Additional buffer when definitions expand
+            PREVIEW_MODE_BUFFER: 60, // Buffer for preview mode
         },
         NAVIGATION: {
             // Direct distances from central node perimeter to navigation nodes

@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/lib/services/graph/simulation/layouts/BaseLayoutStrategy.ts
+// ProjectZer0Frontend/src/lib/services/graph/layouts/BaseLayoutStrategy.ts
 import * as d3 from 'd3';
 import type { EnhancedNode, EnhancedLink } from '../../../types/graph/enhanced';
 import { asD3Nodes, asD3Links } from '../../../types/graph/enhanced';
@@ -147,6 +147,35 @@ export abstract class BaseLayoutStrategy {
     }
 
     /**
+     * Handle node visibility changes
+     * Derived classes should implement this for specific behavior
+     */
+    public handleNodeVisibilityChange(nodeId: string, isHidden: boolean): void {
+        console.debug(`[BaseLayoutStrategy:${this.strategyId}:State] Node visibility change`, {
+            nodeId,
+            isHidden
+        });
+        
+        // Basic implementation - derived classes may override
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = nodes.find(n => n.id === nodeId);
+        
+        if (!node) {
+            console.warn(`[BaseLayoutStrategy:${this.strategyId}:State] Node not found for visibility change:`, nodeId);
+            return;
+        }
+        
+        // Update node visibility
+        node.isHidden = isHidden;
+        
+        // Update node radius based on new visibility
+        node.radius = this.getNodeRadius(node);
+        
+        // Apply any special positioning rules
+        // (Derived classes should override this for specific behavior)
+    }
+
+    /**
      * Get the current simulation
      */
     public getSimulation(): d3.Simulation<any, any> {
@@ -186,10 +215,16 @@ export abstract class BaseLayoutStrategy {
     }
 
     /**
-     * Calculate node radius based on type and mode
+     * Calculate node radius based on type, mode, and visibility
      * This is a utility method for derived classes
      */
     protected getNodeRadius(node: EnhancedNode): number {
+        // First check if node is hidden - hidden nodes have the smallest radius
+        if (node.isHidden) {
+            return COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+        }
+        
+        // If not hidden, calculate based on type and mode
         if (node.type === 'word') {
             return node.mode === 'detail' ? 
                 COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
