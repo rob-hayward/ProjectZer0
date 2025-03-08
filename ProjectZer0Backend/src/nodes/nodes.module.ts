@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WordModule } from './word/word.module';
 import { DefinitionModule } from './definition/definition.module';
-import { BeliefModule } from './belief/belief.module';
+import { StatementModule } from './statement/statement.module';
 import { DiscussionModule } from './discussion/discussion.module';
 import { CommentModule } from './comment/comment.module';
 
@@ -9,14 +9,14 @@ import { CommentModule } from './comment/comment.module';
   imports: [
     WordModule,
     DefinitionModule,
-    BeliefModule,
+    StatementModule,
     DiscussionModule,
     CommentModule,
   ],
   exports: [
     WordModule,
     DefinitionModule,
-    BeliefModule,
+    StatementModule,
     DiscussionModule,
     CommentModule,
   ],

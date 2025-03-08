@@ -16,7 +16,7 @@ export class DiscussionSchema {
     const result = await this.neo4jService.write(
       `
       MATCH (n)
-      WHERE n.id = $associatedNodeId AND (n:BeliefNode OR n:WordNode)
+      WHERE n.id = $associatedNodeId AND (n:StatementNode OR n:WordNode)
       CREATE (d:DiscussionNode {
         id: $id,
         createdBy: $createdBy,

@@ -20,14 +20,6 @@ export class WordSchema {
     return standardized;
   }
 
-  async initializeConstraints() {
-    this.logger.log('Initializing word uniqueness constraint');
-    await this.neo4jService.write(
-      'CREATE CONSTRAINT word_unique IF NOT EXISTS FOR (w:WordNode) REQUIRE w.word IS UNIQUE',
-    );
-    this.logger.log('Word uniqueness constraint initialized');
-  }
-
   async checkWordExistence(word: string): Promise<boolean> {
     const standardizedWord = this.standardizeWord(word);
     this.logger.log(

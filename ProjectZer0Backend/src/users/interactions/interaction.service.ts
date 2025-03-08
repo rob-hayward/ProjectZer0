@@ -62,11 +62,13 @@ export class InteractionService {
     objectId: string,
     isVisible: boolean,
   ): Promise<VisibilityPreference> {
-    return this.interactionSchema.setVisibilityPreference(
+    const result = await this.interactionSchema.setVisibilityPreference(
       userId,
       objectId,
       isVisible,
     );
+    // Convert the boolean result to a VisibilityPreference object
+    return { isVisible: result };
   }
 
   async getVisibilityPreference(
