@@ -8,12 +8,18 @@
     import { COORDINATE_SPACE } from '../../../../constants/graph';
     import { COLORS } from '$lib/constants/colors';
 
+    // Word related imports
     import NodeTypeSelect from '$lib/components/forms/createNode/shared/NodeTypeSelect.svelte';
     import WordInput from '$lib/components/forms/createNode/word/WordInput.svelte';
     import DefinitionInput from '$lib/components/forms/createNode/word/DefinitionInput.svelte';
     import DiscussionInput from '$lib/components/forms/createNode/shared/DiscussionInput.svelte';
     import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
+    
+    // Statement related imports
+    import StatementInput from '$lib/components/forms/createNode/statement/StatementInput.svelte';
+    import KeywordInput from '$lib/components/forms/createNode/statement/KeywordInput.svelte';
+    import StatementReview from '$lib/components/forms/createNode/statement/StatementReview.svelte';
 
     export let node: RenderableNode;
     
@@ -36,7 +42,9 @@
     let formData = {
         nodeType: '',
         word: '',
-        definitionText: '',  // Updated from definition to definitionText
+        definitionText: '',  // For word node
+        statement: '',       // For statement node
+        userKeywords: [],    // For statement node
         discussion: '',
         publicCredit: false
     };
@@ -148,13 +156,30 @@
         }
     }
 
-    // FIX: Better handling of style when node type is selected
+    // Set appropriate style based on node type
     $: if (formData.nodeType === 'word') {
         // For word nodes, use the blue word style from constants
         completeStyle = {
             ...baseStyle,
             colors: NODE_CONSTANTS.COLORS.WORD,
             highlightColor: COLORS.PRIMARY.BLUE
+        };
+    } else if (formData.nodeType === 'statement') {
+        // For statement nodes, use green
+        // Use type assertion to bypass TypeScript's literal type checking
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.GREEN}33`,
+                border: `${COLORS.PRIMARY.GREEN}FF`,
+                text: `${COLORS.PRIMARY.GREEN}FF`,
+                hover: `${COLORS.PRIMARY.GREEN}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.GREEN}66`,
+                    end: `${COLORS.PRIMARY.GREEN}33`
+                }
+            } as any, // Type assertion to avoid literal type checking
+            highlightColor: COLORS.PRIMARY.GREEN as any // Type assertion
         };
     } else if (formData.nodeType !== '') {
         // For other node types, use current style from the animation
@@ -164,13 +189,24 @@
         completeStyle = { ...currentStyle };
     }
 
+    // Set the title based on current step and node type
     $: stepTitle = currentStep === 1 ? 'Create New Node' :
-                   currentStep === 2 ? 'Enter Word' :
-                   currentStep === 3 ? 'Add Definition' :
-                   currentStep === 4 ? 'Start Discussion' :
-                   'Review Creation';
+                  formData.nodeType === 'word' ? 
+                    (currentStep === 2 ? 'Enter Word' :
+                     currentStep === 3 ? 'Add Definition' :
+                     currentStep === 4 ? 'Start Discussion' :
+                     'Review Creation') :
+                  formData.nodeType === 'statement' ?
+                    (currentStep === 2 ? 'Enter Statement' :
+                     currentStep === 3 ? 'Add Keywords' :
+                     currentStep === 4 ? 'Start Discussion' :
+                     'Review Creation') :
+                  'Create New Node';
 
     $: showStepIndicators = currentStep < 5;
+
+    // Max steps based on node type
+    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' ? 5 : 1;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -180,10 +216,24 @@
     }
 
     function handleNext() {
-        if (currentStep < 5) {
+        if (currentStep < maxSteps) {
             currentStep++;
             errorMessage = null;
         }
+    }
+
+    function handleNodeTypeChange(event: CustomEvent<{ type: string }>) {
+        // Reset form when changing node type
+        formData = {
+            ...formData,
+            nodeType: event.detail.type,
+            word: '',
+            definitionText: '',
+            statement: '',
+            userKeywords: [],
+            discussion: '',
+            publicCredit: false
+        };
     }
 
     onDestroy(() => {
@@ -220,9 +270,11 @@
             {/if}
         
             <!-- Error/Success Messages -->
-            <g transform="translate(0, {showStepIndicators ? 70 : 40})">
-                <MessageDisplay {errorMessage} {successMessage} />
-            </g>
+            {#if errorMessage || successMessage}
+                <g transform="translate(0, {showStepIndicators ? 70 : 40})">
+                    <MessageDisplay {errorMessage} successMessage={successMessage} />
+                </g>
+            {/if}
 
             <!-- Dynamic Form Content -->
             <g transform="translate(0, {showStepIndicators ? 100 : 60})">
@@ -231,41 +283,81 @@
                         bind:nodeType={formData.nodeType}
                         disabled={isLoading}
                         on:proceed={handleNext}
+                        on:typeChange={handleNodeTypeChange}
                     />
-                {:else if currentStep === 2}
-                <WordInput
-                    bind:word={formData.word}
-                    disabled={isLoading}
-                    on:back={handleBack}
-                    on:proceed={handleNext}
-                    on:error={e => errorMessage = e.detail.message}
-                />
-                {:else if currentStep === 3}
-                    <DefinitionInput
-                        bind:definitionText={formData.definitionText}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                {:else if currentStep === 4}
-                    <DiscussionInput
-                        bind:discussion={formData.discussion}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                {:else if currentStep === 5}
-                    <WordReview
-                        word={formData.word}
-                        definitionText={formData.definitionText} 
-                        discussion={formData.discussion}
-                        publicCredit={formData.publicCredit}
-                        userId={userData.sub}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:success={e => successMessage = e.detail.message}
-                        on:error={e => errorMessage = e.detail.message}
-                    />
+                {:else if formData.nodeType === 'word'}
+                    <!-- Word node creation flow -->
+                    {#if currentStep === 2}
+                        <WordInput
+                            bind:word={formData.word}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {:else if currentStep === 3}
+                        <DefinitionInput
+                            bind:definitionText={formData.definitionText}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <WordReview
+                            word={formData.word}
+                            definitionText={formData.definitionText} 
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'statement'}
+                    <!-- Statement node creation flow -->
+                    {#if currentStep === 2}
+                        <StatementInput
+                            bind:statement={formData.statement}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <StatementReview
+                            statement={formData.statement}
+                            userKeywords={formData.userKeywords}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
                 {/if}
             </g>
         </g>

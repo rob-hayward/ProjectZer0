@@ -37,6 +37,11 @@ declare module '$env/static/private' {
 	export const AUTH0_CLIENT_SECRET: string;
 	export const MAIN_APP_PORT: string;
 	export const VITE_API_BASE_URL: string;
+	export const PROJECT_ZERO_AI_URL: string;
+	export const KEYWORD_EXTRACTION_MAX_RETRIES: string;
+	export const KEYWORD_EXTRACTION_RETRY_DELAY: string;
+	export const KEYWORD_DEFAULT_FREQUENCY: string;
+	export const USER_KEYWORD_WEIGHT: string;
 	export const NVM_INC: string;
 	export const TERM_PROGRAM: string;
 	export const NODE: string;
@@ -144,6 +149,11 @@ declare module '$env/dynamic/private' {
 		AUTH0_CLIENT_SECRET: string;
 		MAIN_APP_PORT: string;
 		VITE_API_BASE_URL: string;
+		PROJECT_ZERO_AI_URL: string;
+		KEYWORD_EXTRACTION_MAX_RETRIES: string;
+		KEYWORD_EXTRACTION_RETRY_DELAY: string;
+		KEYWORD_DEFAULT_FREQUENCY: string;
+		USER_KEYWORD_WEIGHT: string;
 		NVM_INC: string;
 		TERM_PROGRAM: string;
 		NODE: string;

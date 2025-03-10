@@ -25,6 +25,38 @@ export interface WordNode {
     };
 }
 
+// Statement Node related interfaces
+export interface Keyword {
+    word: string;
+    frequency: number;
+    source: 'user' | 'ai';
+}
+
+export interface RelatedStatement {
+    nodeId: string;
+    statement: string;
+    sharedWord: string;
+    strength: number;
+}
+
+export interface StatementNode {
+    id: string;
+    statement: string;
+    createdBy: string;
+    publicCredit: boolean;
+    initialComment?: string;
+    createdAt: string;
+    updatedAt: string;
+    positiveVotes: number;
+    negativeVotes: number;
+    keywords?: Keyword[];
+    relatedStatements?: RelatedStatement[];
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
 // Common types
 export type VoteStatus = 'agree' | 'disagree' | 'none';
 

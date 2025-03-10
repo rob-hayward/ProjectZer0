@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { StatementSchema } from '../../neo4j/schemas/statement.schema';
 import { KeywordExtractionService } from '../../services/keyword-extraction/keyword-extraction.service';
+import { WordService } from '../word/word.service';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class StatementService {
   constructor(
     private readonly statementSchema: StatementSchema,
     private readonly keywordExtractionService: KeywordExtractionService,
+    private readonly wordService: WordService, // Add WordService dependency
   ) {}
 
   async createStatement(statementData: {
@@ -35,6 +37,43 @@ export class StatementService {
         `Extracted ${extractionResult.keywords.length} keywords for statement`,
       );
 
+      // Check for new keywords and create word nodes for them
+      const newWordPromises = extractionResult.keywords.map(async (keyword) => {
+        try {
+          const wordExists = await this.wordService.checkWordExistence(
+            keyword.word,
+          );
+
+          if (!wordExists) {
+            this.logger.log(
+              `Creating new word node for keyword: ${keyword.word}`,
+            );
+
+            // Use existing word creation flow which includes:
+            // - Getting definition from Free Dictionary API
+            // - Creating definition node
+            // - Creating empty discussion
+            await this.wordService.createWord({
+              word: keyword.word,
+              createdBy: statementData.createdBy,
+              publicCredit: statementData.publicCredit,
+              // The word service will handle fetching a definition automatically
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Error creating word for keyword "${keyword.word}": ${error.message}`,
+          );
+          // Continue with other keywords even if one fails
+        }
+      });
+
+      // Wait for all word creation processes to complete
+      await Promise.all(newWordPromises);
+      this.logger.log(
+        `Finished creating any necessary word nodes for keywords`,
+      );
+
       // Create statement with extracted keywords
       const statementWithId = {
         ...statementData,
@@ -42,6 +81,9 @@ export class StatementService {
         keywords: extractionResult.keywords,
       };
 
+      this.logger.log(
+        `Creating statement with ${extractionResult.keywords.length} keywords`,
+      );
       return this.statementSchema.createStatement(statementWithId);
     } catch (error) {
       this.logger.error(
@@ -72,6 +114,12 @@ export class StatementService {
       try {
         this.logger.log(`Re-extracting keywords for updated statement text`);
 
+        // Get the original statement for creator info
+        const originalStatement = await this.statementSchema.getStatement(id);
+        if (!originalStatement) {
+          throw new Error(`Statement with ID ${id} not found`);
+        }
+
         const extractionResult =
           await this.keywordExtractionService.extractKeywords({
             text: updateData.statement,
@@ -81,6 +129,39 @@ export class StatementService {
         this.logger.log(
           `Extracted ${extractionResult.keywords.length} keywords for updated statement`,
         );
+
+        // Check for new keywords and create word nodes for them
+        const newWordPromises = extractionResult.keywords.map(
+          async (keyword) => {
+            try {
+              const wordExists = await this.wordService.checkWordExistence(
+                keyword.word,
+              );
+
+              if (!wordExists) {
+                this.logger.log(
+                  `Creating new word node for keyword: ${keyword.word}`,
+                );
+
+                await this.wordService.createWord({
+                  word: keyword.word,
+                  createdBy: originalStatement.createdBy,
+                  publicCredit:
+                    updateData.publicCredit !== undefined
+                      ? updateData.publicCredit
+                      : originalStatement.publicCredit,
+                });
+              }
+            } catch (error) {
+              this.logger.warn(
+                `Error creating word for keyword "${keyword.word}": ${error.message}`,
+              );
+            }
+          },
+        );
+
+        // Wait for all word creation processes to complete
+        await Promise.all(newWordPromises);
 
         return this.statementSchema.updateStatement(id, {
           ...updateData,

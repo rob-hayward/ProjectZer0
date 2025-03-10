@@ -3,9 +3,10 @@ import { StatementController } from './statement.controller';
 import { StatementService } from './statement.service';
 import { StatementSchema } from '../../neo4j/schemas/statement.schema';
 import { KeywordExtractionModule } from '../../services/keyword-extraction/keyword-extraction.module';
+import { WordModule } from '../word/word.module';
 
 @Module({
-  imports: [KeywordExtractionModule],
+  imports: [KeywordExtractionModule, WordModule],
   controllers: [StatementController],
   providers: [StatementService, StatementSchema],
   exports: [StatementService],

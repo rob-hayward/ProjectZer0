@@ -22,78 +22,90 @@ export class StatementSchema {
       `Creating statement with ${statementData.keywords.length} keywords`,
     );
 
-    const result = await this.neo4jService.write(
-      `
-      // Create the statement node
-      CREATE (s:StatementNode {
-        id: $id,
-        createdBy: $createdBy,
-        publicCredit: $publicCredit,
-        statement: $statement,
-        initialComment: $initialComment,
-        createdAt: datetime(),
-        updatedAt: datetime()
-      })
-      
-      // Process each keyword
-      WITH s
-      UNWIND $keywords as keyword
-      
-      // Find or create word node for each keyword
-      MERGE (w:WordNode {word: keyword.word})
-      ON CREATE SET 
-        w.id = apoc.create.uuid(),
-        w.createdAt = datetime(),
-        w.createdBy = 'StatementKeywordExtraction'
-      
-      // Create TAGGED relationship with frequency and source
-      CREATE (s)-[:TAGGED {
-        frequency: keyword.frequency,
-        source: keyword.source
-      }]->(w)
-      
-      // Connect to other statements that share this keyword
-      WITH s, w, keyword
-      MATCH (o:StatementNode)-[t:TAGGED]->(w)
-      WHERE o.id <> s.id
-      
-      // Create SHARED_TAG relationships between statements
-      MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
-      ON CREATE SET st.strength = keyword.frequency * t.frequency
-      ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-      
-      // Create discussion node and initial comment
-      WITH DISTINCT s
-      CREATE (d:DiscussionNode {
-        id: apoc.create.uuid(),
-        createdAt: datetime(),
-        createdBy: $createdBy,
-        visibilityStatus: true
-      })
-      CREATE (s)-[:HAS_DISCUSSION]->(d)
-      
-      WITH s, d
-      CREATE (c:CommentNode {
-        id: apoc.create.uuid(),
-        createdBy: $createdBy,
-        commentText: $initialComment,
-        createdAt: datetime(),
-        updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0,
-        visibilityStatus: true
-      })
-      CREATE (d)-[:HAS_COMMENT]->(c)
-      
-      RETURN s
-      `,
-      statementData,
-    );
+    try {
+      const result = await this.neo4jService.write(
+        `
+        // Create the statement node
+        CREATE (s:StatementNode {
+          id: $id,
+          createdBy: $createdBy,
+          publicCredit: $publicCredit,
+          statement: $statement,
+          initialComment: $initialComment,
+          createdAt: datetime(),
+          updatedAt: datetime()
+        })
+        
+        // Process each keyword
+        WITH s
+        UNWIND $keywords as keyword
+        
+        // Find word node for each keyword (don't create - already done by WordService)
+        MATCH (w:WordNode {word: keyword.word})
+        
+        // Create TAGGED relationship with frequency and source
+        CREATE (s)-[:TAGGED {
+          frequency: keyword.frequency,
+          source: keyword.source
+        }]->(w)
+        
+        // Connect to other statements that share this keyword
+        WITH s, w, keyword
+        MATCH (o:StatementNode)-[t:TAGGED]->(w)
+        WHERE o.id <> s.id
+        
+        // Create SHARED_TAG relationships between statements
+        MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
+        ON CREATE SET st.strength = keyword.frequency * t.frequency
+        ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+        
+        // Create discussion node and initial comment
+        WITH DISTINCT s
+        CREATE (d:DiscussionNode {
+          id: apoc.create.uuid(),
+          createdAt: datetime(),
+          createdBy: $createdBy,
+          visibilityStatus: true
+        })
+        CREATE (s)-[:HAS_DISCUSSION]->(d)
+        
+        WITH s, d
+        CREATE (c:CommentNode {
+          id: apoc.create.uuid(),
+          createdBy: $createdBy,
+          commentText: $initialComment,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          positiveVotes: 0,
+          negativeVotes: 0,
+          visibilityStatus: true
+        })
+        CREATE (d)-[:HAS_COMMENT]->(c)
+        
+        RETURN s
+        `,
+        statementData,
+      );
 
-    const createdStatement = result.records[0].get('s').properties;
-    this.logger.log(`Created statement: ${createdStatement.id}`);
+      const createdStatement = result.records[0].get('s').properties;
+      this.logger.log(`Created statement: ${createdStatement.id}`);
 
-    return createdStatement;
+      return createdStatement;
+    } catch (error) {
+      this.logger.error(
+        `Error in createStatement: ${error.message}`,
+        error.stack,
+      );
+
+      // Handle the specific case of missing word nodes
+      if (error.message.includes('not found')) {
+        throw new Error(
+          `Some keywords don't have corresponding word nodes. Ensure all keywords exist as words before creating the statement.`,
+        );
+      }
+
+      throw error;
+    }
   }
 
   async getStatement(id: string) {
@@ -136,65 +148,77 @@ export class StatementSchema {
   ) {
     // If keywords are provided, update the relationships
     if (updateData.keywords && updateData.keywords.length > 0) {
-      const result = await this.neo4jService.write(
-        `
-        // Match the statement to update
-        MATCH (s:StatementNode {id: $id})
-        
-        // Set updated properties
-        SET s += $updateProperties,
-            s.updatedAt = datetime()
-        
-        // Remove existing TAGGED relationships
-        WITH s
-        OPTIONAL MATCH (s)-[r:TAGGED]->()
-        DELETE r
-        
-        // Remove existing SHARED_TAG relationships
-        WITH s
-        OPTIONAL MATCH (s)-[st:SHARED_TAG]->()
-        DELETE st
-        
-        // Process updated keywords
-        WITH s
-        UNWIND $keywords as keyword
-        
-        // Find or create word node for each keyword
-        MERGE (w:WordNode {word: keyword.word})
-        ON CREATE SET 
-          w.id = apoc.create.uuid(),
-          w.createdAt = datetime(),
-          w.createdBy = 'StatementKeywordExtraction'
-        
-        // Create new TAGGED relationship
-        CREATE (s)-[:TAGGED {
-          frequency: keyword.frequency,
-          source: keyword.source
-        }]->(w)
-        
-        // Reconnect to other statements that share this keyword
-        WITH s, w, keyword
-        MATCH (o:StatementNode)-[t:TAGGED]->(w)
-        WHERE o.id <> s.id
-        
-        // Create new SHARED_TAG relationships
-        MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
-        ON CREATE SET st.strength = keyword.frequency * t.frequency
-        ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-        
-        RETURN s
-        `,
-        {
-          id,
-          updateProperties: {
-            statement: updateData.statement,
-            publicCredit: updateData.publicCredit,
+      try {
+        const result = await this.neo4jService.write(
+          `
+          // Match the statement to update
+          MATCH (s:StatementNode {id: $id})
+          
+          // Set updated properties
+          SET s += $updateProperties,
+              s.updatedAt = datetime()
+          
+          // Remove existing TAGGED relationships
+          WITH s
+          OPTIONAL MATCH (s)-[r:TAGGED]->()
+          DELETE r
+          
+          // Remove existing SHARED_TAG relationships
+          WITH s
+          OPTIONAL MATCH (s)-[st:SHARED_TAG]->()
+          DELETE st
+          
+          // Process updated keywords
+          WITH s
+          UNWIND $keywords as keyword
+          
+          // Find word node for each keyword (don't create - already done by WordService)
+          MATCH (w:WordNode {word: keyword.word})
+          
+          // Create new TAGGED relationship
+          CREATE (s)-[:TAGGED {
+            frequency: keyword.frequency,
+            source: keyword.source
+          }]->(w)
+          
+          // Reconnect to other statements that share this keyword
+          WITH s, w, keyword
+          MATCH (o:StatementNode)-[t:TAGGED]->(w)
+          WHERE o.id <> s.id
+          
+          // Create new SHARED_TAG relationships
+          MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
+          ON CREATE SET st.strength = keyword.frequency * t.frequency
+          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+          
+          RETURN s
+          `,
+          {
+            id,
+            updateProperties: {
+              statement: updateData.statement,
+              publicCredit: updateData.publicCredit,
+            },
+            keywords: updateData.keywords,
           },
-          keywords: updateData.keywords,
-        },
-      );
+        );
 
-      return result.records[0].get('s').properties;
+        return result.records[0].get('s').properties;
+      } catch (error) {
+        this.logger.error(
+          `Error in updateStatement: ${error.message}`,
+          error.stack,
+        );
+
+        // Handle the specific case of missing word nodes
+        if (error.message.includes('not found')) {
+          throw new Error(
+            `Some keywords don't have corresponding word nodes. Ensure all keywords exist as words before updating the statement.`,
+          );
+        }
+
+        throw error;
+      }
     } else {
       // Simple update without changing relationships
       const result = await this.neo4jService.write(

@@ -1,20 +1,20 @@
 // src/lib/types/graph/enhanced.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
 // View and group types
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-alternative';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement';
 export type LinkType = 'live' | 'alternative';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
 export interface NodeMetadata {
     centralRadius?: number;
-    group: 'central' | 'word' | 'definition' | 'navigation';
+    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement';
     fixed?: boolean;
     isDetail?: boolean;
     votes?: number;
@@ -28,7 +28,7 @@ export interface NodeMetadata {
 export interface GraphNode {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
     group: NodeGroup;
     mode?: NodeMode;
 }
@@ -46,7 +46,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -97,7 +97,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -208,6 +208,9 @@ export const isDefinitionData = (data: any): data is Definition =>
 export const isNavigationData = (data: any): data is NavigationOption =>
     data && 'label' in data && 'icon' in data;
 
+export const isStatementData = (data: any): data is StatementNode =>
+    data && 'statement' in data && typeof data.statement === 'string';
+
 // Node type guards
 export const isDashboardNode = (node: RenderableNode): node is RenderableNode & { data: UserProfile } =>
     node.type === 'dashboard' && isUserProfileData(node.data);
@@ -227,10 +230,12 @@ export const isDefinitionNode = (node: RenderableNode): node is RenderableNode &
 export const isNavigationNode = (node: RenderableNode): node is RenderableNode & { data: NavigationOption } =>
     node.type === 'navigation' && isNavigationData(node.data);
 
+export const isStatementNode = (node: RenderableNode): node is RenderableNode & { data: StatementNode } =>
+    node.type === 'statement' && isStatementData(node.data);
+
 // Link type guards
 export const isLiveLink = (link: RenderableLink): boolean =>
     link.type === 'live';
 
 export const isAlternativeLink = (link: RenderableLink): boolean =>
     link.type === 'alternative';
-
