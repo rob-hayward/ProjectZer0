@@ -14,6 +14,7 @@ import type {
     LinkType
 } from '$lib/types/graph/enhanced';
 import { getWordData } from '$lib/services/word';
+import { getStatementData } from '$lib/services/statement';
 
 export const ssr = false;
 
@@ -55,6 +56,8 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
     }
 
     let wordData = null;
+    let statementData = null;
+    
     // Handle both 'word' and 'create-alternative' views that need word data
     if (view === 'word' || view === 'create-alternative') {
         const wordParam = url.searchParams.get('word');
@@ -85,17 +88,52 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
             throw redirect(307, '/graph/dashboard');
         }
     }
+    
+    // Handle statement view
+    else if (view === 'statement') {
+        const idParam = url.searchParams.get('id');
+        console.debug('[INIT-3] +page.ts: Statement view detected', { idParam });
+
+        if (!idParam) {
+            console.debug('[INIT-3a] +page.ts: No statement ID parameter, redirecting to dashboard');
+            throw redirect(307, '/graph/dashboard');
+        }
+
+        try {
+            console.debug('[INIT-4] +page.ts: Fetching statement data', { idParam });
+            statementData = await getStatementData(idParam);
+            
+            if (!statementData) {
+                console.debug('[INIT-4a] +page.ts: No statement data found, redirecting to dashboard');
+                throw new Error('No statement data found');
+            }
+
+            console.debug('[INIT-5] +page.ts: Statement data loaded successfully', {
+                statementId: statementData.id,
+                statement: statementData.statement,
+                keywordCount: statementData.keywords?.length,
+                viewType: view
+            });
+
+        } catch (error) {
+            console.debug('[INIT-4b] +page.ts: Error loading statement data, redirecting to dashboard', { error });
+            throw redirect(307, '/graph/dashboard');
+        }
+    }
 
     console.debug('[INIT-6] +page.ts: Returning page data', { 
         view,
         hasWordData: !!wordData,
-        wordId: wordData?.id
+        wordId: wordData?.id,
+        hasStatementData: !!statementData,
+        statementId: statementData?.id
     });
 
     return {
         view,
         viewType: view,
         wordData,
+        statementData,
         _routeKey: Math.random().toString(36).substring(2) // Add random key for forcing re-renders
     };
 }) satisfies PageLoad;
