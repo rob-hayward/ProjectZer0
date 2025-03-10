@@ -789,6 +789,11 @@ export class GraphManager {
             return node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+        } else if (node.type === 'statement') {
+            // For statement nodes, use definition sizes for now or define specific ones
+            return node.mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         } else if (node.type === 'navigation') {
             return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {
@@ -796,10 +801,10 @@ export class GraphManager {
         }
     }
 
-    private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" {
+    private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
         if (node.group === 'central') return 'central';
         if (node.group === 'live-definition' || node.group === 'alternative-definition') return 'definition';
-        return node.type as "word" | "navigation";
+        return node.type as "word" | "navigation" | "statement";
     }
 
     private getNodeVotes(node: GraphNode): number {
@@ -831,6 +836,20 @@ export class GraphManager {
             
             return posVotes - negVotes;
         }
+        else if (node.type === 'statement' && 'data' in node) {
+            const statement = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = this.getNeo4jNumber(statement.positiveVotes);
+            const negVotes = this.getNeo4jNumber(statement.negativeVotes);
+            
+            console.debug(`[GraphManager:${this.managerId}] Vote calculation for statement:`, {
+                id: node.id,
+                posVotes,
+                negVotes,
+                netVotes: posVotes - negVotes
+            });
+            
+            return posVotes - negVotes;
+        }
         return 0;
     }
     
@@ -852,6 +871,8 @@ export class GraphManager {
                 return node.subtype === 'live' ? 
                     COLORS.PRIMARY.BLUE : 
                     COLORS.PRIMARY.PURPLE;
+            case 'statement':
+                return COLORS.PRIMARY.GREEN; // Add statement node color
             case 'navigation':
                 return 'transparent'; // Remove the colored border
             case 'dashboard':

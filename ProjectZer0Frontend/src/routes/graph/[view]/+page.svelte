@@ -35,6 +35,7 @@
         ViewType,
         LinkType
     } from '$lib/types/graph/enhanced';
+    import type { Keyword, RelatedStatement } from '$lib/types/domain/nodes';
     import {
         isDashboardNode,
         isEditProfileNode,
@@ -268,7 +269,22 @@
             return { nodes: [], links: [] };
         }
 
-        const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
+        // Debug central node
+        console.debug('[DATA] Central node details:', {
+            id: centralNode.id, 
+            type: centralNode.type,
+            mode: centralNode.type === 'statement' ? statementNodeMode : undefined
+        });
+
+        // Always explicitly set the mode on the central node
+        const centralNodeWithCorrectMode = {
+            ...centralNode,
+            mode: centralNode.type === 'statement' ? statementNodeMode as NodeMode : 
+                  centralNode.type === 'word' ? wordNodeMode as NodeMode :
+                  centralNode.mode
+        };
+
+        const baseNodes = [centralNodeWithCorrectMode, ...navigationNodes] as GraphNode[];
         
         // Handle word view with definitions
         if (wordData && wordData.definitions && wordData.definitions.length > 0 && view === 'word') {
@@ -301,7 +317,7 @@
 
             // Define pure relationship links
             const definitionLinks: GraphLink[] = sortedDefinitions.map((definition, index) => ({
-                id: `${centralNode.id}-${definition.id}`,
+                id: `${centralNode.id}-${definition.id}-${Date.now()}-${index}`,
                 source: centralNode.id,
                 target: definition.id,
                 type: (index === 0 ? 'live' : 'alternative') as LinkType
@@ -317,67 +333,114 @@
                 links: definitionLinks
             };
         } 
-        // Handle statement view with connected keywords
-        else if (statementData && statementData.keywords && statementData.keywords.length > 0 && view === 'statement') {
+        // Handle statement view - UPDATED to fix duplicate issues
+        else if (statementData && view === 'statement') {
             console.log('[DATA] Creating statement view data', {
                 statementId: statementData.id,
-                keywordCount: statementData.keywords.length,
+                statement: statementData.statement,
+                keywordCount: statementData.keywords?.length || 0,
                 statementNodeMode
             });
             
-            // Create statement node with mode
-            const nodesWithModes: GraphNode[] = baseNodes.map(node => 
-                node.type === 'statement' ? {
-                    ...node,
-                    mode: statementNodeMode as NodeMode
-                } : node
-            );
+            // Make sure we have a clean set of base nodes
+            // IMPORTANT: We're going to explicitly set the mode for all nodes to avoid any ambiguity
+            const baseNodesCopy = baseNodes.map(node => {
+                // For statement nodes, force the correct mode
+                if (node.id === statementData.id) {
+                    return {
+                        ...node,
+                        mode: statementNodeMode as NodeMode,
+                        // Force expanded flag to match mode
+                        expanded: statementNodeMode === 'detail'
+                    };
+                }
+                return node;
+            });
             
-            // Create keyword nodes (word nodes) with preview mode
-            const keywordNodes: GraphNode[] = statementData.keywords.map(keyword => ({
-                id: `keyword-${keyword.word}`, // Create a unique ID for each keyword
-                type: 'word' as NodeType,
-                data: { 
-                    id: `keyword-${keyword.word}`,
-                    word: keyword.word,
-                    // Add minimal required properties for word nodes
-                    createdBy: statementData.createdBy,
-                    createdAt: statementData.createdAt,
-                    updatedAt: statementData.updatedAt,
-                    definitions: [],
-                    positiveVotes: 0,
-                    negativeVotes: 0,
-                    publicCredit: false
-                },
-                group: 'word' as NodeGroup,
-                mode: 'preview' as NodeMode
-            }));
+            // Extra logging to help debug node state
+            console.debug('[DATA] Central statement node:', baseNodesCopy.find(n => n.id === statementData.id));
             
-            // Define keyword links
-            const keywordLinks: GraphLink[] = statementData.keywords.map(keyword => ({
-                id: `${centralNode.id}-keyword-${keyword.word}`,
-                source: centralNode.id,
-                target: `keyword-${keyword.word}`,
-                type: 'live' as LinkType // Using 'live' as the link type for keywords
-            }));
+            // Debug all nodes with modes
+            console.debug('[DATA] All nodes with modes:', baseNodesCopy.map(n => ({
+                id: n.id,
+                type: n.type,
+                group: n.group,
+                mode: n.mode,
+                expanded: n.expanded
+            })));
             
-            // If there are related statements, add those too
+            // Initialize arrays for all node and link types
+            const keywordNodes: GraphNode[] = [];
+            const keywordLinks: GraphLink[] = [];
             const relatedStatementNodes: GraphNode[] = [];
             const relatedStatementLinks: GraphLink[] = [];
             
+            // Track used keyword IDs to prevent duplicates
+            const usedKeywordIds = new Set<string>();
+            
+            // Add keyword nodes only if keywords exist
+            if (statementData.keywords && statementData.keywords.length > 0) {
+                // Create keyword nodes (word nodes) with preview mode
+                statementData.keywords.forEach((keyword: Keyword, index: number) => {
+                    // Ensure unique keyword IDs
+                    let keywordId = `keyword-${keyword.word}-${index}`;
+                    if (usedKeywordIds.has(keywordId)) {
+                        keywordId = `keyword-${keyword.word}-${index}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+                    }
+                    usedKeywordIds.add(keywordId);
+                    
+                    keywordNodes.push({
+                        id: keywordId,
+                        type: 'word' as NodeType,
+                        data: { 
+                            id: keywordId,
+                            word: keyword.word,
+                            createdBy: statementData.createdBy,
+                            createdAt: statementData.createdAt,
+                            updatedAt: statementData.createdAt,
+                            definitions: [],
+                            positiveVotes: 0,
+                            negativeVotes: 0,
+                            publicCredit: false
+                        },
+                        group: 'word' as NodeGroup,
+                        mode: 'preview' as NodeMode
+                    });
+                    
+                    // Use a guaranteed unique ID format for links
+                    const uniqueLinkId = `link-kw-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 9)}`;
+                    keywordLinks.push({
+                        id: uniqueLinkId,
+                        source: centralNode.id,
+                        target: keywordId,
+                        type: 'live' as LinkType
+                    });
+                });
+            }
+            
+            // Track used statement IDs to prevent duplicates
+            const usedStatementIds = new Set<string>();
+            
+            // Add related statements if they exist
             if (statementData.relatedStatements && statementData.relatedStatements.length > 0) {
-                statementData.relatedStatements.forEach(relatedStatement => {
-                    // Add related statement node
+                statementData.relatedStatements.forEach((relatedStatement: RelatedStatement, index: number) => {
+                    // Ensure statement ID is unique
+                    const statementNodeId = relatedStatement.nodeId;
+                    if (usedStatementIds.has(statementNodeId)) {
+                        console.warn('Duplicate related statement ID detected:', statementNodeId);
+                        return; // Skip this duplicate
+                    }
+                    usedStatementIds.add(statementNodeId);
+                    
                     relatedStatementNodes.push({
-                        id: relatedStatement.nodeId,
+                        id: statementNodeId,
                         type: 'statement' as NodeType,
                         data: {
-                            id: relatedStatement.nodeId,
+                            id: statementNodeId,
                             statement: relatedStatement.statement,
-                            // Add minimal required properties for statement nodes
                             createdBy: '',
-                            createdAt: '',
-                            updatedAt: '',
+                            createdAt: statementData.createdAt,
+                            updatedAt: statementData.createdAt, 
                             positiveVotes: 0,
                             negativeVotes: 0,
                             publicCredit: false
@@ -386,23 +449,27 @@
                         mode: 'preview' as NodeMode
                     });
                     
-                    // Add link to related statement
+                    // Use a guaranteed unique link ID format
+                    const uniqueLinkId = `link-stmt-${Date.now()}-${index}-${Math.random().toString(36).substring(2, 9)}`;
                     relatedStatementLinks.push({
-                        id: `${centralNode.id}-${relatedStatement.nodeId}`,
+                        id: uniqueLinkId,
                         source: centralNode.id,
-                        target: relatedStatement.nodeId,
-                        type: 'live' as LinkType // Using 'live' as the link type for related statements
+                        target: statementNodeId,
+                        type: 'live' as LinkType
                     });
                 });
             }
             
+            // Log details about all link IDs to help debugging
+            console.debug('Link IDs created:', [...keywordLinks.map(l => l.id), ...relatedStatementLinks.map(l => l.id)]);
+            
             console.log('[DATA] Created graph structure for statement view', {
-                nodeCount: nodesWithModes.length + keywordNodes.length + relatedStatementNodes.length,
+                nodeCount: baseNodesCopy.length + keywordNodes.length + relatedStatementNodes.length,
                 linkCount: keywordLinks.length + relatedStatementLinks.length
             });
             
             return {
-                nodes: [...nodesWithModes, ...keywordNodes, ...relatedStatementNodes],
+                nodes: [...baseNodesCopy, ...keywordNodes, ...relatedStatementNodes],
                 links: [...keywordLinks, ...relatedStatementLinks]
             };
         }

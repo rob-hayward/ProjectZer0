@@ -59,6 +59,9 @@
     };
     let initialized = false;
     let showDebug = false;
+    
+    // Add a flag to track if we've already applied preferences
+    let preferencesApplied = false;
 
     // Constants
     const worldDimensions = {
@@ -280,14 +283,14 @@
     });
 
     // When the graph data changes or we navigate to a new page,
-    // make sure preferences are applied
+    // make sure preferences are applied (but only once)
     afterUpdate(() => {
-        if (data && graphStore) {
+        if (data && graphStore && !preferencesApplied) {
             console.log('[Graph] afterUpdate: Ensuring preferences are applied');
-            // Small delay to ensure graph has processed the data
-            setTimeout(() => {
-                applyVisibilityPreferences();
-            }, 50);
+            preferencesApplied = true; // Set the flag to prevent loops
+            
+            // Apply preferences immediately without timeout
+            applyVisibilityPreferences();
         }
     });
 
@@ -306,6 +309,11 @@
     });
 
     // Reactive declarations
+    
+    // When data changes, reset the preferences flag
+    $: if (data) {
+        preferencesApplied = false;
+    }
     
     // When viewType changes
     $: if (initialized && graphStore && viewType !== graphStore.getViewType()) {

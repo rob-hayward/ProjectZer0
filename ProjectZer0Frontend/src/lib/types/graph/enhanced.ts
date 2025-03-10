@@ -179,6 +179,7 @@ export interface GraphPageData {
     view: ViewType;
     viewType: ViewType;
     wordData: WordNode | null;
+    statementData: StatementNode | null; // Add this line
     nodes?: GraphNode[];
     links?: GraphLink[];
     _routeKey?: string; // Added for forcing re-renders on navigation

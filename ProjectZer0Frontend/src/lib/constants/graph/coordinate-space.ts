@@ -26,6 +26,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,
                 PREVIEW: 320
             },
+            STATEMENT: {  
+                DETAIL: 600,
+                PREVIEW: 320
+            },
             NAVIGATION: 80,
             HIDDEN: 100
         },

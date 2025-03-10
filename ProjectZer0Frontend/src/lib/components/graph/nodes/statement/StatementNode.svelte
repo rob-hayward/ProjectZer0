@@ -276,7 +276,7 @@
             </text>
      
             <!-- Main Statement Display -->
-            <g class="statement-display" transform="translate(0, {-radius/2})">
+            <g class="statement-display" transform={`translate(0, ${-radius/2})`}>
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
@@ -288,7 +288,7 @@
     
             <!-- Keywords Display -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform="translate(0, -radius/2 + 110)">
+                <g transform={`translate(0, ${-radius/2 + 110})`}>
                     <text 
                         x={METRICS_SPACING.labelX} 
                         class="keywords-label left-align"
@@ -314,7 +314,7 @@
             {/if}
      
             <!-- User Context -->
-            <g transform="translate(0, -50)">
+            <g transform={`translate(0, -50)`}>
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -331,7 +331,7 @@
             </g>
      
             <!-- Vote Buttons -->
-            <g transform="translate(0, 0)">
+            <g transform={`translate(0, 0)`}>
                 <foreignObject x={-160} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -373,13 +373,13 @@
             </g>
      
             <!-- Vote Stats -->
-            <g transform="translate(0, 60)">
+            <g transform={`translate(0, 60)`}>
                 <text x={METRICS_SPACING.labelX} class="stats-label left-align">
                     Vote Data:
                 </text>
                 
                 <!-- User's current vote -->
-                <g transform="translate(0, 30)">
+                <g transform={`translate(0, 30)`}>
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         {userName}
                     </text>
@@ -392,7 +392,7 @@
                 </g>
      
                 <!-- Total agree votes -->
-                <g transform="translate(0, 55)">
+                <g transform={`translate(0, 55)`}>
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Total Agree
                     </text>
@@ -405,7 +405,7 @@
                 </g>
      
                 <!-- Total disagree votes -->
-                <g transform="translate(0, 80)">
+                <g transform={`translate(0, 80)`}>
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Total Disagree
                     </text>
@@ -418,7 +418,7 @@
                 </g>
      
                 <!-- Net votes -->
-                <g transform="translate(0, 105)">
+                <g transform={`translate(0, 105)`}>
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Net 
                     </text>
@@ -430,8 +430,8 @@
                     </text>
                 </g>
      
-                <!-- Statement status -->
-                <g transform="translate(0, 130)">
+                <!-- Word status -->
+                <g transform={`translate(0, 130)`}>
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Statement Status
                     </text>
@@ -446,7 +446,7 @@
             
             <!-- Creator credits -->
             {#if data.createdBy}
-                <g transform="translate(0, {radius - 55})">
+                <g transform={`translate(0, ${radius - 55})`}>
                     <text class="creator-label">
                         created by: {getDisplayName(data.createdBy, creatorDetails, !data.publicCredit)}
                     </text>
@@ -478,8 +478,7 @@
 
         <svelte:fragment slot="content" let:radius>
             <text
-                y={-radius/4 - 35}
-                x={-radius + 35}
+                y={10}
                 class="content left-aligned"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.word.size}
