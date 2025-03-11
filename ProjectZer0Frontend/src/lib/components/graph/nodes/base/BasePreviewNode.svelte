@@ -33,34 +33,14 @@
     }
 
     function handleButtonClick() {
-        console.log(`[BasePreviewNode] Button clicked for node:`, {
-            id: node.id,
-            type: node.type,
-            mode: node.mode,
-            radius: node.radius
-        });
+        // Removed logging to avoid loops
         dispatch('click');
     }
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        console.log(`[BasePreviewNode] Mode change event:`, {
-            nodeId: node.id,
-            newMode: event.detail.mode
-        });
+        // Removed logging to avoid loops
         dispatch('modeChange', event.detail);
     }
-    
-    // Track radius changes
-    $: console.log(`[BasePreviewNode] Node radius is:`, node.radius, "mode:", node.mode);
-    
-    onMount(() => {
-        console.log(`[BasePreviewNode] Mounted for node:`, {
-            id: node.id,
-            type: node.type,
-            mode: node.mode,
-            radius: node.radius
-        });
-    });
 </script>
 
 <g 

@@ -125,6 +125,8 @@
 <style>
     .visibility-button {
         cursor: pointer;
+        z-index: 100;
+        pointer-events: all;
     }
 
     .button-circle {
@@ -145,15 +147,18 @@
         fill: none;
         stroke: rgba(170, 170, 170, 0.8);
         stroke-width: 1.5;
+        pointer-events: none;
     }
     
     .pupil {
         fill: rgba(170, 170, 170, 0.8);
+        pointer-events: none;
     }
     
     .slash-line {
         stroke: rgba(170, 170, 170, 0.8);
         stroke-width: 1.5;
+        pointer-events: none;
     }
 
     .button-text {
@@ -161,5 +166,6 @@
         fill: rgba(170, 170, 170, 0.9);
         dominant-baseline: middle;
         user-select: none;
+        pointer-events: none;
     }
 </style>

@@ -33,13 +33,6 @@
             gradientId: string;
         };
     }
-    
-    // Log radius changes for debugging
-    $: console.log(`[BaseNode:${nodeId}] Node radius changed to:`, radius, 'mode:', node.mode);
-    
-    onMount(() => {
-        console.log(`[BaseNode:${nodeId}] Mounted with initial radius ${radius}`);
-    });
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -49,7 +42,6 @@
     data-node-id={nodeId}
     data-node-radius={radius}
     data-node-mode={node.mode || 'preview'}
-    style:--node-radius="{radius}px"
     on:click={handleClick}
 >
     <!-- Filter and gradient definitions -->
@@ -86,14 +78,15 @@
         </radialGradient>
     </defs>
 
-    <!-- Base node layers - Use explicit radius instead of CSS variables -->
-    <circle r={radius} class="background-layer-1" />
-    <circle r={radius - 4} class="background-layer-2" />
-    <circle r={radius - 8} class="background-layer-3" />
-    <circle r={radius - 12} class="content-background" />
+    <!-- Base node layers - Use explicit r={radius} instead of CSS vars -->
+    <circle {radius} r={radius} class="background-layer-1" />
+    <circle {radius} r={radius - 4} class="background-layer-2" />
+    <circle {radius} r={radius - 8} class="background-layer-3" />
+    <circle {radius} r={radius - 12} class="content-background" />
     
     <!-- Decorative rings with glow effect -->
     <circle
+        {radius}
         r={radius}
         class="outer-ring"
         style:stroke={highlightColor}
@@ -101,7 +94,7 @@
         filter={`url(#${filterId})`}
     />
     
-    <circle r={radius - 2} class="middle-ring" />
+    <circle {radius} r={radius - 2} class="middle-ring" />
     
     <!-- Pass relevant data to child components -->
     <slot {radius} {filterId} {gradientId} />

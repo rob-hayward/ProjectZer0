@@ -4,14 +4,11 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
-    import { COORDINATE_SPACE } from '../../../../constants/graph/coordinate-space';
-    import { COLORS } from '$lib/constants/colors';
+    import { fetchWithAuth } from '$lib/services/api';
+    import { userStore } from '$lib/stores/userStore';
+    import { getDisplayName } from '../utils/nodeUtils';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import { getDisplayName } from '../utils/nodeUtils';
-    import { userStore } from '$lib/stores/userStore';
-    import { graphStore } from '$lib/stores/graphStore';
-    import { fetchWithAuth } from '$lib/services/api';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     
     export let node: RenderableNode;
@@ -44,27 +41,6 @@
     // Reactive declaration for mode to ensure reactivity
     $: isDetail = node.mode === 'detail';
     
-    // Calculate radius based on mode - this is the key to making resizing work
-    $: radiusValue = isDetail ? 
-        COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 : 
-        COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
-    
-    // Create a key that will force re-render when mode changes
-    let renderKey = 0;
-    $: {
-        if (node.mode) {
-            renderKey++; // Force re-render when mode changes
-        }
-    }
-    
-    // Debug when mode changes
-    $: console.debug(`[StatementNode:${node.id}] Mode changed:`, { 
-        mode: node.mode, 
-        isDetail,
-        radius: node.radius,
-        calculatedRadius: radiusValue
-    });
-
     const METRICS_SPACING = {
         labelX: -200,
         equalsX: 0,
@@ -82,12 +58,6 @@
     // Function to handle expanding or collapsing the node
     function handleModeChange() {
         const newMode = isDetail ? 'preview' : 'detail';
-        console.debug(`[StatementNode:${node.id}] Mode change requested:`, { 
-            currentMode: node.mode, 
-            newMode
-        });
-        
-        // Dispatch the mode change event
         dispatch('modeChange', { mode: newMode });
     }
 
@@ -99,8 +69,7 @@
     }
 
     async function initializeVoteStatus() {
-        // Temporary initialization with defaults since backend endpoints aren't ready
-        console.log('[StatementNode] TEMPORARY: Initializing vote status with defaults');
+        // Temporary initialization with defaults
         userVoteStatus = 'none';
         data.positiveVotes = data.positiveVotes || 0;
         data.negativeVotes = data.negativeVotes || 0;
@@ -108,18 +77,10 @@
 
     async function handleVote(voteType: VoteStatus) {
         // Temporary implementation until backend is ready
-        console.warn('[StatementNode] Vote endpoints not implemented yet');
         userVoteStatus = voteType;
     }
 
     onMount(async () => {
-        console.log('[StatementNode] Mounting with statement:', {
-            id: data.id,
-            statement: statementText,
-            mode: node.mode,
-            radius: node.radius
-        });
-        
         await initializeVoteStatus();
     });
 
@@ -137,8 +98,8 @@
     $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
     $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     
-    // Size calculations for preview mode
-    $: textWidth = radiusValue * 2 - 45;
+    // Size calculations for preview mode based on the node's current radius
+    $: textWidth = node.radius * 2 - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
     // Text wrapping for preview mode
@@ -155,15 +116,13 @@
     }, ['']);
 </script>
 
-{#key renderKey}
-<g class="statement-node-wrapper" data-radius-value={radiusValue} style="--radius: {radiusValue}px">
 {#if isDetail}
     <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
             <text
-                y={-radiusValue + 40}
+                y={-radius + 40}
                 class="title"
                 style:font-family={NODE_CONSTANTS.FONTS.title.family}
                 style:font-size={NODE_CONSTANTS.FONTS.title.size}
@@ -173,7 +132,7 @@
             </text>
      
             <!-- Main Statement Display -->
-            <g class="statement-display" transform={`translate(0, ${-radiusValue/2})`}>
+            <g class="statement-display" transform="translate(0, {-radius/2})">
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
@@ -185,7 +144,7 @@
     
             <!-- Keywords Display -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform={`translate(0, ${-radiusValue/2 + 110})`}>
+                <g transform="translate(0, {-radius/2 + 110})">
                     <text 
                         x={METRICS_SPACING.labelX} 
                         class="keywords-label left-align"
@@ -211,7 +170,7 @@
             {/if}
      
             <!-- User Context -->
-            <g transform={`translate(0, -50)`}>
+            <g transform="translate(0, -50)">
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -228,7 +187,7 @@
             </g>
      
             <!-- Vote Buttons -->
-            <g transform={`translate(0, 0)`}>
+            <g transform="translate(0, 0)">
                 <foreignObject x={-160} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -270,13 +229,13 @@
             </g>
      
             <!-- Vote Stats -->
-            <g transform={`translate(0, 60)`}>
+            <g transform="translate(0, 60)">
                 <text x={METRICS_SPACING.labelX} class="stats-label left-align">
                     Vote Data:
                 </text>
                 
                 <!-- User's current vote -->
-                <g transform={`translate(0, 30)`}>
+                <g transform="translate(0, 30)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         {userName}
                     </text>
@@ -289,7 +248,7 @@
                 </g>
      
                 <!-- Total agree votes -->
-                <g transform={`translate(0, 55)`}>
+                <g transform="translate(0, 55)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Total Agree
                     </text>
@@ -302,7 +261,7 @@
                 </g>
      
                 <!-- Total disagree votes -->
-                <g transform={`translate(0, 80)`}>
+                <g transform="translate(0, 80)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Total Disagree
                     </text>
@@ -315,7 +274,7 @@
                 </g>
      
                 <!-- Net votes -->
-                <g transform={`translate(0, 105)`}>
+                <g transform="translate(0, 105)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Net 
                     </text>
@@ -328,7 +287,7 @@
                 </g>
      
                 <!-- Word status -->
-                <g transform={`translate(0, 130)`}>
+                <g transform="translate(0, 130)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Statement Status
                     </text>
@@ -343,7 +302,7 @@
             
             <!-- Creator credits -->
             {#if data.createdBy}
-                <g transform={`translate(0, ${radiusValue - 55})`}>
+                <g transform="translate(0, {radius - 55})">
                     <text class="creator-label">
                         created by: {getDisplayName(data.createdBy, creatorDetails, !data.publicCredit)}
                     </text>
@@ -353,7 +312,7 @@
             <!-- Contract button -->
             <ExpandCollapseButton 
                 mode="collapse"
-                y={radiusValue}
+                y={radius}
                 on:click={handleModeChange}
             />
         </svelte:fragment>
@@ -363,7 +322,7 @@
     <BasePreviewNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
             <text
-                y={-radiusValue + 40}
+                y={-radius + 40}
                 class="title"
                 style:font-family={NODE_CONSTANTS.FONTS.title.family}
                 style:font-size={NODE_CONSTANTS.FONTS.title.size}
@@ -383,7 +342,7 @@
             >
                 {#each lines as line, i}
                     <tspan 
-                        x={-radiusValue + 40}
+                        x={-radius + 40}
                         dy={i === 0 ? 0 : "1.2em"}
                     >
                         {line}
@@ -393,9 +352,9 @@
             
             {#if data.keywords && data.keywords.length > 0}
                 <foreignObject
-                    x={-radiusValue + 35}
+                    x={-radius + 35}
                     y={10 + (lines.length * 20)}
-                    width={radiusValue * 2 - 70}
+                    width={radius * 2 - 70}
                     height="30"
                 >
                     <div class="preview-keywords">
@@ -416,7 +375,7 @@
 
         <svelte:fragment slot="score" let:radius>
             <text
-                y={radiusValue - 30}
+                y={radius - 30}
                 class="score"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.value.size}
@@ -430,31 +389,20 @@
         <svelte:fragment slot="button" let:radius>
             <ExpandCollapseButton 
                 mode="expand"
-                y={radiusValue}
+                y={radius}
                 on:click={handleModeChange}
             />
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
-</g>
-{/key}
 
 <style>
-    .statement-node-wrapper :global(.background-layer-1),
-    .statement-node-wrapper :global(.background-layer-2),
-    .statement-node-wrapper :global(.background-layer-3),
-    .statement-node-wrapper :global(.content-background),
-    .statement-node-wrapper :global(.outer-ring),
-    .statement-node-wrapper :global(.middle-ring) {
-        r: var(--radius);
-        transition: r 0.3s ease-out;
-    }
-
     /* Base Text Styles */
     text {
         text-anchor: middle;
         font-family: 'Orbitron', sans-serif;
         fill: white;
+        pointer-events: none;
     }
 
     .title {
@@ -544,6 +492,8 @@
         display: flex;
         flex-wrap: wrap;
         gap: 4px;
+        z-index: 10;
+        position: relative;
     }
     
     :global(.preview-keyword-chip) {
