@@ -41,50 +41,59 @@
     }
 </script>
 
-<BaseNode {node}>
-    <svelte:fragment slot="default" let:radius let:filterId let:gradientId>
-        <!-- Title slot -->
-        {#if $$slots.title}
-            <slot 
-                name="title" 
-                {radius}
-                style={NODE_CONSTANTS}
-            />
-        {/if}
-
-        <!-- Content slot -->
-        {#if $$slots.content}
-            <slot 
-                name="content" 
-                {radius}
-                style={NODE_CONSTANTS}
-            />
-        {/if}
-
-        <!-- Score slot -->
-        {#if $$slots.score}
-            <slot 
-                name="score" 
-                {radius}
-                style={NODE_CONSTANTS}
-            />
-        {/if}
-
-        <!-- Expand/Collapse Button (positioned to the left) -->
-        {#if $$slots.button}
-            <slot 
-                name="button" 
-                {radius}
-                style={NODE_CONSTANTS}
-            >
-                <ExpandCollapseButton 
-                    mode="expand"
-                    y={radius}
-                    x={-20} 
-                    on:click={handleButtonClick}
-                    on:modeChange={handleModeChange}
+<g class="preview-node">
+    <BaseNode {node}>
+        <svelte:fragment slot="default" let:radius let:filterId let:gradientId>
+            <!-- Title slot -->
+            {#if $$slots.title}
+                <slot 
+                    name="title" 
+                    {radius}
+                    style={NODE_CONSTANTS}
                 />
-            </slot>
-        {/if}
-    </svelte:fragment>
-</BaseNode>
+            {/if}
+
+            <!-- Content slot -->
+            {#if $$slots.content}
+                <slot 
+                    name="content" 
+                    {radius}
+                    style={NODE_CONSTANTS}
+                />
+            {/if}
+
+            <!-- Score slot -->
+            {#if $$slots.score}
+                <slot 
+                    name="score" 
+                    {radius}
+                    style={NODE_CONSTANTS}
+                />
+            {/if}
+
+            <!-- Expand/Collapse Button (positioned to the left) -->
+            {#if $$slots.button}
+                <slot 
+                    name="button" 
+                    {radius}
+                    style={NODE_CONSTANTS}
+                >
+                    <ExpandCollapseButton 
+                        mode="expand"
+                        y={radius}
+                        x={-20} 
+                        on:click={handleButtonClick}
+                        on:modeChange={handleModeChange}
+                    />
+                </slot>
+            {/if}
+        </svelte:fragment>
+    </BaseNode>
+</g>
+
+<style>
+    .preview-node {
+        will-change: transform, opacity;
+        transition: all 0.3s ease-out;
+    }
+</style>

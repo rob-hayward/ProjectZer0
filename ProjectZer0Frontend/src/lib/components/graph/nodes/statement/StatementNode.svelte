@@ -4,6 +4,7 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { COORDINATE_SPACE } from '../../../../constants/graph/coordinate-space';
     import { COLORS } from '$lib/constants/colors';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
@@ -39,13 +40,14 @@
     
     // Compute the statement text
     $: statementText = data.statement;
-
-    // Log the data structure for debugging
-    $: console.debug(`[StatementNode] Statement data:`, {
-        id: data.id,
-        statementText,
-        keywords: data.keywords,
-        mode: node.mode
+    
+    // Reactive declaration for mode to ensure reactivity
+    $: isDetail = node.mode === 'detail';
+    
+    // Debug when mode changes
+    $: console.debug(`[StatementNode:${node.id}] Mode changed:`, { 
+        mode: node.mode, 
+        isDetail 
     });
 
     const METRICS_SPACING = {
@@ -54,44 +56,22 @@
         valueX: 30
     };
 
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 1000;
-
     let userVoteStatus: VoteStatus = 'none';
     let isVoting = false;
-    let userName: string;
-    let netVotes: number = 0;
-    let scoreDisplay: string = "0";
-    let statementStatus: string;
     let creatorDetails: any = null;
     
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
-        hover: { isHovered: boolean };
     }>();
 
+    // Function to handle expanding or collapsing the node
     function handleModeChange() {
         const newMode = isDetail ? 'preview' : 'detail';
-        console.debug(`[StatementNode] Mode change requested:`, { 
+        console.debug(`[StatementNode:${node.id}] Mode change requested:`, { 
             currentMode: node.mode, 
-            newMode,
-            isDetail
+            newMode 
         });
         dispatch('modeChange', { mode: newMode });
-    }
-    
-    function handleCollapse() {
-        console.debug(`[StatementNode] Collapse requested`);
-        dispatch('modeChange', { mode: 'preview' });
-    }
-    
-    function handleExpand() {
-        console.debug(`[StatementNode] Expand requested`);
-        dispatch('modeChange', { mode: 'detail' });
-    }
-    
-    function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
-        dispatch('hover', event.detail);
     }
 
     function getNeo4jNumber(value: any): number {
@@ -101,144 +81,41 @@
         return Number(value || 0);
     }
 
-    async function initializeVoteStatus(retryCount = 0) {
-        if (!$userStore) return;
-        
-        try {
-            console.log('[StatementNode] Fetching vote status for statement:', data.id);
-            const response = await fetchWithAuth(`/nodes/statement/${data.id}/vote`);
-            if (!response) {
-                throw new Error('No response from vote status endpoint');
-            }
-            
-            console.log('[StatementNode] Vote status response:', response);
-            
-            userVoteStatus = response.status || 'none';
-            data.positiveVotes = getNeo4jNumber(response.positiveVotes);
-            data.negativeVotes = getNeo4jNumber(response.negativeVotes);
-            
-            // Update net votes directly
-            netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
-            
-            console.log('[StatementNode] Updated vote status:', {
-                userVoteStatus,
-                positiveVotes: data.positiveVotes,
-                negativeVotes: data.negativeVotes,
-                netVotes
-            });
-            
-            // Recalculate visibility based on vote data
-            if (graphStore) {
-                console.log('[StatementNode] Recalculating node visibility based on votes');
-                graphStore.recalculateNodeVisibility(
-                    node.id, 
-                    data.positiveVotes, 
-                    data.negativeVotes
-                );
-            }
-        } catch (error) {
-            console.error('[StatementNode] Error fetching vote status:', error);
-            
-            if (retryCount < MAX_RETRIES) {
-                console.log(`[StatementNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                await initializeVoteStatus(retryCount + 1);
-            }
-        }
+    async function initializeVoteStatus() {
+        // Temporary initialization with defaults since backend endpoints aren't ready
+        console.log('[StatementNode] TEMPORARY: Initializing vote status with defaults');
+        userVoteStatus = 'none';
+        data.positiveVotes = data.positiveVotes || 0;
+        data.negativeVotes = data.negativeVotes || 0;
     }
 
     async function handleVote(voteType: VoteStatus) {
-        if (!$userStore || isVoting) return;
-        isVoting = true;
-        const oldVoteStatus = userVoteStatus;
-
-        try {
-            console.log('[StatementNode] Processing vote:', { 
-                statementId: data.id, 
-                voteType,
-                currentStatus: userVoteStatus
-            });
-
-            // Optimistic update
-            userVoteStatus = voteType;
-            
-            if (voteType === 'none') {
-                const result = await fetchWithAuth(
-                    `/nodes/statement/${data.id}/vote/remove`,
-                    { method: 'POST' }
-                );
-                
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[StatementNode] Vote removed:', result);
-            } else {
-                const result = await fetchWithAuth(
-                    `/nodes/statement/${data.id}/vote`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify({ 
-                            isPositive: voteType === 'agree'
-                        })
-                    }
-                );
-
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[StatementNode] Vote recorded:', result);
-            }
-            
-            // Recalculate visibility after vote changes
-            if (graphStore) {
-                console.log('[StatementNode] Recalculating node visibility after vote update');
-                graphStore.recalculateNodeVisibility(
-                    node.id, 
-                    data.positiveVotes, 
-                    data.negativeVotes
-                );
-            }
-        } catch (error) {
-            console.error('[StatementNode] Error processing vote:', error);
-            // Revert on error
-            userVoteStatus = oldVoteStatus;
-            // Retry vote status fetch to ensure consistency
-            await initializeVoteStatus();
-        } finally {
-            isVoting = false;
-        }
+        // Temporary implementation until backend is ready
+        console.warn('[StatementNode] Vote endpoints not implemented yet');
+        userVoteStatus = voteType;
     }
 
     onMount(async () => {
         console.log('[StatementNode] Mounting with statement:', {
             id: data.id,
             statement: statementText,
-            initialPositiveVotes: data.positiveVotes,
-            initialNegativeVotes: data.negativeVotes,
             mode: node.mode
         });
         
-        // Initialize vote counts
-        const initialPos = getNeo4jNumber(data.positiveVotes);
-        const initialNeg = getNeo4jNumber(data.negativeVotes);
-        netVotes = initialPos - initialNeg;
-
-        console.log('[StatementNode] INITIAL CALCS:', {
-            initialPos,
-            initialNeg,
-            netVotes
-        });
-
         await initializeVoteStatus();
     });
 
     // Reactive declarations
-    $: isDetail = node.mode === 'detail';
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    
+    // Calculate vote stats locally with reactive declarations
     $: positiveVotes = getNeo4jNumber(data.positiveVotes) || 0;
     $: negativeVotes = getNeo4jNumber(data.negativeVotes) || 0;
     $: netVotes = positiveVotes - negativeVotes;
     $: totalVotes = positiveVotes + negativeVotes;
     $: positivePercent = totalVotes > 0 ? Math.round((positiveVotes / totalVotes) * 100) : 0;
     $: negativePercent = totalVotes > 0 ? Math.round((negativeVotes / totalVotes) * 100) : 0;
+    
     $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
     $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     
@@ -457,7 +334,7 @@
             <ExpandCollapseButton 
                 mode="collapse"
                 y={radius}
-                on:click={handleCollapse}
+                on:click={handleModeChange}
             />
         </svelte:fragment>
     </BaseDetailNode>
@@ -534,7 +411,7 @@
             <ExpandCollapseButton 
                 mode="expand"
                 y={radius}
-                on:click={handleExpand}
+                on:click={handleModeChange}
             />
         </svelte:fragment>
     </BasePreviewNode>

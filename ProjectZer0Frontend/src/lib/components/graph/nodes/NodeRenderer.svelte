@@ -50,7 +50,7 @@
     $: transform = `translate(${posX}, ${posY})`;
     
     // Calculate net votes for the node
-    $: netVotes = node.type === 'word' || node.type === 'definition' 
+    $: netVotes = node.type === 'word' || node.type === 'definition' || node.type === 'statement'
         ? getNetVotes(node.data)
         : 0;
     
@@ -69,7 +69,7 @@
     // When component mounts, check if we have a stored visibility preference
     // for this node and apply it if needed
     onMount(() => {
-        if (node.type === 'word' || node.type === 'definition') {
+        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
                 const shouldBeHidden = !preference;
@@ -120,7 +120,7 @@
         />
         
         <!-- Add show/hide button to qualifying nodes (positioned to the right) -->
-        {#if node.type === 'word' || node.type === 'definition'}
+        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement'}
             <ShowHideButton 
                 isHidden={false}
                 y={node.radius} 

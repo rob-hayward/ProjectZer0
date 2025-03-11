@@ -108,7 +108,27 @@ export class GraphManager {
         
         // Update radius and expansion state
         const oldRadius = node.radius;
-        node.radius = this.getNodeRadius(node);
+        
+        // Explicitly update the radius based on node type and mode
+        if (node.type === 'word') {
+            node.radius = mode === 'detail' ? 
+                COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
+                COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
+        } 
+        else if (node.type === 'definition') {
+            node.radius = mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+        }
+        else if (node.type === 'statement') {
+            // Add specific handling for statement nodes
+            node.radius = mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+            
+            console.log(`[GraphManager] Updated statement node radius: ${node.radius} for mode: ${mode}`);
+        }
+        
         node.expanded = mode === 'detail';
         node.metadata.isDetail = mode === 'detail';
         
@@ -137,6 +157,24 @@ export class GraphManager {
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
         this.simulationActive = true;
+        
+        // Force an immediate update of node positions by calling forceTick
+        this.forceTick(3);
+    }
+    
+    /**
+     * Get the central node (group === 'central')
+     * This is needed for the NavigationNode to properly position itself
+     */
+    public getCentralNode(): RenderableNode | null {
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const centralNode = nodes.find(node => node.group === 'central');
+        
+        if (!centralNode) {
+            return null;
+        }
+        
+        return this.createRenderableNodes([centralNode])[0];
     }
     
     public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
@@ -790,10 +828,10 @@ export class GraphManager {
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         } else if (node.type === 'statement') {
-            // For statement nodes, use definition sizes for now or define specific ones
+            // For statement nodes, use Statement sizes from COORDINATE_SPACE
             return node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
         } else if (node.type === 'navigation') {
             return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {

@@ -69,7 +69,8 @@
 
 <style>
     .detail-node {
-        will-change: transform;
+        will-change: transform, opacity;
+        transition: all 0.3s ease-out;
     }
 
     :global(.detail-node text) {

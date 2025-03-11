@@ -20,7 +20,7 @@
     
     // Extract visual properties only - NO position info
     $: radius = node.radius;
-    $: highlightColor = style.highlightColor;
+    $: highlightColor = style.highlightColor || style.colors?.border || '#3498db';
 
     function handleClick() {
         dispatch('click');
@@ -105,18 +105,22 @@
     
     .background-layer-1 {
         fill: rgba(0, 0, 0, 0.5);
+        transition: r 0.3s ease-out;
     }
     
     .background-layer-2 {
         fill: rgba(0, 0, 0, 0.8);
+        transition: r 0.3s ease-out;
     }
     
     .background-layer-3 {
         fill: rgba(0, 0, 0, 0.9);
+        transition: r 0.3s ease-out;
     }
  
     .content-background {
         fill: rgba(0, 0, 0, 0.95);
+        transition: r 0.3s ease-out;
     }
  
     .outer-ring {
@@ -129,6 +133,7 @@
         fill: none;
         stroke: rgba(255, 255, 255, 0.15);
         stroke-width: 1;
+        transition: r 0.3s ease-out;
     }
  
     :global(.base-node *) {

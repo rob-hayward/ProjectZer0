@@ -53,6 +53,18 @@
         connectionEndpoint = calculateConnectionEndpoint();
     }
 
+    // Force recalculation on any graph update
+    // This ensures navigation nodes respond to statement node size changes
+    $: {
+        if ($graphStore) {
+            // Use setTimeout to let the store update properly first
+            setTimeout(() => {
+                connectionEndpoint = calculateConnectionEndpoint();
+                console.debug(`[NavigationNode:${navigationData.id}] Updated connection with:`, connectionEndpoint);
+            }, 10);
+        }
+    }
+
     async function handleClick() {
         // Get the target view type based on navigation option
         const targetViewType = navigationData.id === 'dashboard' ? 'dashboard' : 

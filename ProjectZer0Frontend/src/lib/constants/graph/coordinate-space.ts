@@ -28,7 +28,7 @@ export const COORDINATE_SPACE = {
             },
             STATEMENT: {  
                 DETAIL: 600,
-                PREVIEW: 320
+                PREVIEW: 320     // Match definition preview size
             },
             NAVIGATION: 80,
             HIDDEN: 100
@@ -39,7 +39,8 @@ export const COORDINATE_SPACE = {
             COLLISION: {
                 BASE: 20,          // Collision padding for central nodes
                 NAVIGATION: 5,     // Collision padding for navigation nodes
-                DEFINITION: 150    // Collision padding for definition nodes
+                DEFINITION: 150,   // Collision padding for definition nodes
+                STATEMENT: 150     // Add matching collision padding for statement nodes
             }
         }
     },
@@ -72,6 +73,7 @@ export const COORDINATE_SPACE = {
                         LIVE: -1600,
                         ALTERNATIVE: -300
                     },
+                    STATEMENT: -1600,  // Add statement charge strength
                     NAVIGATION: -50  // Reduced repulsion for navigation nodes
                 },
                 DISTANCE: {
