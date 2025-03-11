@@ -90,6 +90,7 @@ export class GraphManager {
         }
     }
 
+    // Only the specific section that handles statement nodes in updateNodeMode method:
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
         console.debug(`[GraphManager:${this.managerId}] Updating node mode`, { nodeId, mode });
         
@@ -126,7 +127,13 @@ export class GraphManager {
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
             
-            console.log(`[GraphManager] Updated statement node radius: ${node.radius} for mode: ${mode}`);
+            console.log(`[GraphManager] Statement node radius updated:`, {
+                id: node.id,
+                oldMode,
+                newMode: mode,
+                oldRadius,
+                newRadius: node.radius
+            });
         }
         
         node.expanded = mode === 'detail';
@@ -140,11 +147,8 @@ export class GraphManager {
             newRadius: node.radius
         });
         
-        // Update the nodes store to trigger rerender and link recalculation
+        // Update the nodes store to trigger rerender
         this.nodesStore.update(() => [...currentNodes]);
-        
-        // Log that this will trigger link recalculation via the derived store
-        console.debug(`[GraphManager:${this.managerId}] Node update triggered - link paths will recalculate`);
         
         // If layout strategy exists, let it handle the mode change
         if (this.currentLayoutStrategy) {
@@ -159,7 +163,12 @@ export class GraphManager {
         this.simulationActive = true;
         
         // Force an immediate update of node positions by calling forceTick
-        this.forceTick(3);
+        if (node.type === 'statement') {
+            // For statement nodes, force multiple ticks to ensure the size change is applied
+            for (let i = 0; i < 3; i++) {
+                this.simulation.tick();
+            }
+        }
     }
     
     /**
@@ -606,15 +615,15 @@ export class GraphManager {
             
             console.debug(`[GraphManager:${this.managerId}] Applied SingleNodeLayout for ${this._viewType}`);
         } 
-        else if (this._viewType === 'word') {
-            // Word definition view
+        else if (this._viewType === 'word' || this._viewType === 'statement') {
+            // Word definition view and Statement view use the same layout
             this.currentLayoutStrategy = new WordDefinitionLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
             );
             
-            console.debug(`[GraphManager:${this.managerId}] Applied WordDefinitionLayout`);
+            console.debug(`[GraphManager:${this.managerId}] Applied WordDefinitionLayout for ${this._viewType}`);
         }
         else {
             // Default to SingleNodeLayout for any other view
@@ -812,6 +821,8 @@ export class GraphManager {
         });
     }
 
+    // Update this method in GraphManager.ts to correctly handle statement nodes
+
     private getNodeRadius(node: GraphNode | EnhancedNode): number {
         // First check if node is hidden - hidden nodes have the smallest radius
         if ('isHidden' in node && node.isHidden) {
@@ -829,9 +840,17 @@ export class GraphManager {
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         } else if (node.type === 'statement') {
             // For statement nodes, use Statement sizes from COORDINATE_SPACE
-            return node.mode === 'detail' ?
+            const radius = node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+                
+            console.log(`[GraphManager] getNodeRadius for statement node:`, {
+                nodeId: node.id,
+                mode: node.mode,
+                calculatedRadius: radius
+            });
+                
+            return radius;
         } else if (node.type === 'navigation') {
             return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {

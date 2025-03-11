@@ -31,21 +31,48 @@
 
     onMount(() => {
         baseOpacity.set(1);
+        console.log(`[BaseDetailNode] Mounted for node:`, {
+            id: node.id,
+            type: node.type,
+            mode: node.mode,
+            radius: node.radius
+        });
     });
 
     function handleButtonClick() {
+        console.log(`[BaseDetailNode] Button clicked for node:`, {
+            id: node.id,
+            type: node.type,
+            mode: node.mode,
+            radius: node.radius
+        });
         dispatch('click');
     }
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        console.log(`[BaseDetailNode] Mode change event:`, {
+            nodeId: node.id,
+            newMode: event.detail.mode
+        });
         dispatch('modeChange', event.detail);
     }
+    
+    // Track radius changes
+    $: console.log(`[BaseDetailNode] Node radius:`, {
+        nodeId: node.id,
+        radius: node.radius,
+        mode: node.mode
+    });
 </script>
 
 <g 
     class="detail-node"
     style:opacity={$baseOpacity}
     style:transform-origin="center"
+    data-node-id={node.id}
+    data-node-type={node.type}
+    data-node-mode={node.mode}
+    data-node-radius={node.radius}
 >
     <BaseNode {node} {style}>
         <svelte:fragment slot="default" let:radius let:filterId let:gradientId>

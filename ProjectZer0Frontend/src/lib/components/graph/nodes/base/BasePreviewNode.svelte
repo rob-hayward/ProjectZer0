@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/base/BasePreviewNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import BaseNode from './BaseNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -33,15 +33,43 @@
     }
 
     function handleButtonClick() {
+        console.log(`[BasePreviewNode] Button clicked for node:`, {
+            id: node.id,
+            type: node.type,
+            mode: node.mode,
+            radius: node.radius
+        });
         dispatch('click');
     }
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        console.log(`[BasePreviewNode] Mode change event:`, {
+            nodeId: node.id,
+            newMode: event.detail.mode
+        });
         dispatch('modeChange', event.detail);
     }
+    
+    // Track radius changes
+    $: console.log(`[BasePreviewNode] Node radius is:`, node.radius, "mode:", node.mode);
+    
+    onMount(() => {
+        console.log(`[BasePreviewNode] Mounted for node:`, {
+            id: node.id,
+            type: node.type,
+            mode: node.mode,
+            radius: node.radius
+        });
+    });
 </script>
 
-<g class="preview-node">
+<g 
+    class="preview-node"
+    data-node-id={node.id}
+    data-node-type={node.type}
+    data-node-mode={node.mode}
+    data-node-radius={node.radius}
+>
     <BaseNode {node}>
         <svelte:fragment slot="default" let:radius let:filterId let:gradientId>
             <!-- Title slot -->
@@ -93,7 +121,7 @@
 
 <style>
     .preview-node {
-        will-change: transform, opacity;
-        transition: all 0.3s ease-out;
+        will-change: transform;
+        transition: transform 0.3s ease-out;
     }
 </style>

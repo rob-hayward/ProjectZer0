@@ -44,10 +44,25 @@
     // Reactive declaration for mode to ensure reactivity
     $: isDetail = node.mode === 'detail';
     
+    // Calculate radius based on mode - this is the key to making resizing work
+    $: radiusValue = isDetail ? 
+        COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 : 
+        COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+    
+    // Create a key that will force re-render when mode changes
+    let renderKey = 0;
+    $: {
+        if (node.mode) {
+            renderKey++; // Force re-render when mode changes
+        }
+    }
+    
     // Debug when mode changes
     $: console.debug(`[StatementNode:${node.id}] Mode changed:`, { 
         mode: node.mode, 
-        isDetail 
+        isDetail,
+        radius: node.radius,
+        calculatedRadius: radiusValue
     });
 
     const METRICS_SPACING = {
@@ -69,8 +84,10 @@
         const newMode = isDetail ? 'preview' : 'detail';
         console.debug(`[StatementNode:${node.id}] Mode change requested:`, { 
             currentMode: node.mode, 
-            newMode 
+            newMode
         });
+        
+        // Dispatch the mode change event
         dispatch('modeChange', { mode: newMode });
     }
 
@@ -99,7 +116,8 @@
         console.log('[StatementNode] Mounting with statement:', {
             id: data.id,
             statement: statementText,
-            mode: node.mode
+            mode: node.mode,
+            radius: node.radius
         });
         
         await initializeVoteStatus();
@@ -120,7 +138,7 @@
     $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     
     // Size calculations for preview mode
-    $: textWidth = node.radius * 2 - 45;
+    $: textWidth = radiusValue * 2 - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
     // Text wrapping for preview mode
@@ -137,13 +155,15 @@
     }, ['']);
 </script>
 
+{#key renderKey}
+<g class="statement-node-wrapper" data-radius-value={radiusValue} style="--radius: {radiusValue}px">
 {#if isDetail}
     <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
             <text
-                y={-radius + 40}
+                y={-radiusValue + 40}
                 class="title"
                 style:font-family={NODE_CONSTANTS.FONTS.title.family}
                 style:font-size={NODE_CONSTANTS.FONTS.title.size}
@@ -153,7 +173,7 @@
             </text>
      
             <!-- Main Statement Display -->
-            <g class="statement-display" transform={`translate(0, ${-radius/2})`}>
+            <g class="statement-display" transform={`translate(0, ${-radiusValue/2})`}>
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
@@ -165,7 +185,7 @@
     
             <!-- Keywords Display -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform={`translate(0, ${-radius/2 + 110})`}>
+                <g transform={`translate(0, ${-radiusValue/2 + 110})`}>
                     <text 
                         x={METRICS_SPACING.labelX} 
                         class="keywords-label left-align"
@@ -323,7 +343,7 @@
             
             <!-- Creator credits -->
             {#if data.createdBy}
-                <g transform={`translate(0, ${radius - 55})`}>
+                <g transform={`translate(0, ${radiusValue - 55})`}>
                     <text class="creator-label">
                         created by: {getDisplayName(data.createdBy, creatorDetails, !data.publicCredit)}
                     </text>
@@ -333,7 +353,7 @@
             <!-- Contract button -->
             <ExpandCollapseButton 
                 mode="collapse"
-                y={radius}
+                y={radiusValue}
                 on:click={handleModeChange}
             />
         </svelte:fragment>
@@ -343,7 +363,7 @@
     <BasePreviewNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
             <text
-                y={-radius + 40}
+                y={-radiusValue + 40}
                 class="title"
                 style:font-family={NODE_CONSTANTS.FONTS.title.family}
                 style:font-size={NODE_CONSTANTS.FONTS.title.size}
@@ -363,7 +383,7 @@
             >
                 {#each lines as line, i}
                     <tspan 
-                        x={-radius + 40}
+                        x={-radiusValue + 40}
                         dy={i === 0 ? 0 : "1.2em"}
                     >
                         {line}
@@ -373,9 +393,9 @@
             
             {#if data.keywords && data.keywords.length > 0}
                 <foreignObject
-                    x={-radius + 35}
-                    y={10}
-                    width={radius * 2 - 70}
+                    x={-radiusValue + 35}
+                    y={10 + (lines.length * 20)}
+                    width={radiusValue * 2 - 70}
                     height="30"
                 >
                     <div class="preview-keywords">
@@ -396,7 +416,7 @@
 
         <svelte:fragment slot="score" let:radius>
             <text
-                y={radius - 30}
+                y={radiusValue - 30}
                 class="score"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.value.size}
@@ -410,14 +430,26 @@
         <svelte:fragment slot="button" let:radius>
             <ExpandCollapseButton 
                 mode="expand"
-                y={radius}
+                y={radiusValue}
                 on:click={handleModeChange}
             />
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
+</g>
+{/key}
 
 <style>
+    .statement-node-wrapper :global(.background-layer-1),
+    .statement-node-wrapper :global(.background-layer-2),
+    .statement-node-wrapper :global(.background-layer-3),
+    .statement-node-wrapper :global(.content-background),
+    .statement-node-wrapper :global(.outer-ring),
+    .statement-node-wrapper :global(.middle-ring) {
+        r: var(--radius);
+        transition: r 0.3s ease-out;
+    }
+
     /* Base Text Styles */
     text {
         text-anchor: middle;

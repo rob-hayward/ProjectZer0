@@ -1,6 +1,6 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/base/BaseNode.svelte -->
+<!-- src/lib/components/graph/nodes/base/BaseNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     
     // Node data - contains ALL information needed for rendering
@@ -34,8 +34,12 @@
         };
     }
     
-    // Log creation for debugging
-    console.debug(`[BaseNode:${nodeId}] Created with radius ${radius}`);
+    // Log radius changes for debugging
+    $: console.log(`[BaseNode:${nodeId}] Node radius changed to:`, radius, 'mode:', node.mode);
+    
+    onMount(() => {
+        console.log(`[BaseNode:${nodeId}] Mounted with initial radius ${radius}`);
+    });
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -43,6 +47,9 @@
 <g 
     class="base-node"
     data-node-id={nodeId}
+    data-node-radius={radius}
+    data-node-mode={node.mode || 'preview'}
+    style:--node-radius="{radius}px"
     on:click={handleClick}
 >
     <!-- Filter and gradient definitions -->
@@ -79,7 +86,7 @@
         </radialGradient>
     </defs>
 
-    <!-- Base node layers - ONLY visual elements, NO positioning -->
+    <!-- Base node layers - Use explicit radius instead of CSS variables -->
     <circle r={radius} class="background-layer-1" />
     <circle r={radius - 4} class="background-layer-2" />
     <circle r={radius - 8} class="background-layer-3" />
@@ -94,7 +101,7 @@
         filter={`url(#${filterId})`}
     />
     
-    <circle r={radius} class="middle-ring" />
+    <circle r={radius - 2} class="middle-ring" />
     
     <!-- Pass relevant data to child components -->
     <slot {radius} {filterId} {gradientId} />
@@ -102,6 +109,9 @@
 
 <style>
     /* Base node styles */
+    .base-node {
+        position: relative;
+    }
     
     .background-layer-1 {
         fill: rgba(0, 0, 0, 0.5);
@@ -124,9 +134,10 @@
     }
  
     .outer-ring {
+        fill: none;
         stroke-width: 6;
         vector-effect: non-scaling-stroke;
-        transition: all 0.3s ease-out;
+        transition: r 0.3s ease-out;
     }
  
     .middle-ring {
