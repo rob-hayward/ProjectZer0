@@ -110,43 +110,15 @@ export class GraphManager {
         const oldMode = node.mode;
         const oldRadius = node.radius;
         
-        // Calculate new radius based on node type and mode
-        let newRadius: number;
-        if (node.type === 'word') {
-            newRadius = mode === 'detail' ? 
-                COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
-                COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
-        } 
-        else if (node.type === 'definition') {
-            newRadius = mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
-        }
-        else if (node.type === 'statement') {
-            newRadius = mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
-            
-            console.log(`[GraphManager] Statement node radius calculation:`, {
-                id: node.id,
-                oldMode,
-                newMode: mode,
-                oldRadius,
-                newRadius,
-                detailSize: COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2,
-                previewSize: COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2
-            });
-        } else {
-            // Default radius
-            newRadius = node.radius;
-        }
-        
         // Create a completely new node object to ensure Svelte reactivity
         const updatedNode: EnhancedNode = {
             ...node,
             mode,
             expanded: mode === 'detail',
-            radius: newRadius,
+            radius: this.getNodeRadius({
+                ...node, 
+                mode
+            }),
             metadata: {
                 ...node.metadata,
                 isDetail: mode === 'detail'
@@ -165,7 +137,7 @@ export class GraphManager {
             oldMode,
             newMode: mode,
             oldRadius,
-            newRadius,
+            newRadius: updatedNode.radius,
             nodeType: node.type
         });
         
@@ -181,8 +153,8 @@ export class GraphManager {
         // Ensure fixed positions are maintained
         this.fixNodePositions();
         
-        // Force multiple ticks to immediately update positions
-        this.forceTick(3);
+        // Force a tick to immediately update positions
+        this.forceTick();
         
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
@@ -220,12 +192,11 @@ export class GraphManager {
             return;
         }
         
-        // Get the old node and create a new one with updated properties
+        // Get the old node to compare
         const oldNode = currentNodes[nodeIndex];
         const oldHiddenState = oldNode.isHidden;
-        const oldRadius = oldNode.radius;
         
-        // Create a new node object with updated properties
+        // Create a completely new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...oldNode,
             isHidden: isHidden,
@@ -236,7 +207,7 @@ export class GraphManager {
             })
         };
         
-        // Replace the old node with the updated one
+        // Create a new nodes array with the updated node
         const updatedNodes = [...currentNodes];
         updatedNodes[nodeIndex] = updatedNode;
         
@@ -244,11 +215,11 @@ export class GraphManager {
             nodeId,
             isHidden,
             hiddenReason,
-            oldRadius,
+            oldRadius: oldNode.radius,
             newRadius: updatedNode.radius
         });
         
-        // Update the simulation and store with the new nodes array
+        // Update the simulation with the new nodes array
         this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
         
@@ -264,7 +235,7 @@ export class GraphManager {
         this.fixNodePositions();
         
         // Force a tick to immediately update positions
-        this.forceTick(3);
+        this.forceTick();
         
         // Restart simulation with low alpha for smooth transition
         if (oldHiddenState !== isHidden) {

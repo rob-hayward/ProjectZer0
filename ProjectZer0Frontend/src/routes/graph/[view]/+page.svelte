@@ -209,7 +209,7 @@
     // Enhanced route key with timestamp to ensure uniqueness
     $: routeKey = `${viewType}-${Date.now()}`;
 
-    // Event handlers - SIMPLIFIED version that doesn't directly call graphStore methods
+    // Event handlers - Clean version
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
         console.log('[MODE-CHANGE] Node mode change', {
             nodeId: event.detail.nodeId,
@@ -430,7 +430,7 @@
                 wordText={wordData.word}
                 on:modeChange={handleModeChange}
             />
-            {:else if isStatementNode(node)}
+        {:else if isStatementNode(node)}
             <StatementNode 
                 {node}
                 statementText={statementData?.statement}

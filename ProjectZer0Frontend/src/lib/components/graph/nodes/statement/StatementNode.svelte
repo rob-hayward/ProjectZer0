@@ -148,7 +148,7 @@
             </text>
      
             <!-- Main Statement Display -->
-            <g class="statement-display" transform="translate(0, {-radius/2})">
+            <g class="statement-display" transform="translate(0, {-radius/2.6})">
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
@@ -160,7 +160,7 @@
     
             <!-- Keywords Display -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform="translate(0, {-radius/2 + 110})">
+                <g transform="translate(0, {-radius/1.5})">
                     <text 
                         x={METRICS_SPACING.labelX} 
                         class="keywords-label left-align"
@@ -186,7 +186,7 @@
             {/if}
      
             <!-- User Context -->
-            <g transform="translate(0, -50)">
+            <!-- <g transform="translate(0, -50)">
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -200,10 +200,10 @@
                 >
                     You can always change your vote using the buttons below.
                 </text>
-            </g>
+            </g> -->
      
             <!-- Vote Buttons -->
-            <g transform="translate(0, 0)">
+            <g transform="translate(0, 25)">
                 <foreignObject x={-160} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -245,7 +245,7 @@
             </g>
      
             <!-- Vote Stats -->
-            <g transform="translate(0, 60)">
+            <g transform="translate(0, 85)">
                 <text x={METRICS_SPACING.labelX} class="stats-label left-align">
                     Vote Data:
                 </text>
@@ -350,7 +350,7 @@
 
         <svelte:fragment slot="content" let:radius>
             <text
-                y={10}
+                y={-70}
                 class="content left-aligned"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.word.size}
@@ -358,7 +358,7 @@
             >
                 {#each lines as line, i}
                     <tspan 
-                        x={-radius + 40}
+                        x={-radius + 30}
                         dy={i === 0 ? 0 : "1.2em"}
                     >
                         {line}
