@@ -145,7 +145,7 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
     
     /**
      * Enhanced node state change handler with proper navigation node repositioning
-     * This is the key method to handle node transitions correctly
+     * This is the key method to handle node transitions correctly for all node types
      */
     public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
         console.debug(`[SingleNodeLayout] Node state change`, { 
@@ -202,9 +202,10 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
         // Store expansion state
         this.expansionState.set(nodeId, mode === 'detail');
 
-        // For central node, we need to reposition all navigation nodes
+        // For any central node (not just dashboard/edit-profile nodes), reposition navigation nodes
+        // Since all nodes in SingleNodeLayout are central nodes, we'll explicitly check
         if (updatedNode.fixed || updatedNode.group === 'central') {
-            console.debug(`[SingleNodeLayout] Central node mode changed, repositioning navigation nodes`);
+            console.debug(`[SingleNodeLayout] Central node ${updatedNode.type} mode changed, repositioning navigation nodes`);
             
             // Reposition navigation nodes to account for new central node size
             this.navNodeDistance = NavigationNodeLayout.positionNavigationNodes(
@@ -282,7 +283,7 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Handle node visibility changes
+     * Handle node visibility changes for all node types
      */
     public handleNodeVisibilityChange(nodeId: string, isHidden: boolean): void {
         console.debug(`[SingleNodeLayout] Node visibility change`, {
@@ -329,9 +330,9 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
             type: updatedNode.type
         });
         
-        // For central node, we need to reposition all navigation nodes
+        // For any central node, reposition navigation nodes
         if (updatedNode.fixed || updatedNode.group === 'central') {
-            console.debug(`[SingleNodeLayout] Central node visibility changed, repositioning navigation nodes`);
+            console.debug(`[SingleNodeLayout] Central node ${updatedNode.type} visibility changed, repositioning navigation nodes`);
             
             // Reposition navigation nodes to account for new central node size
             NavigationNodeLayout.positionNavigationNodes(

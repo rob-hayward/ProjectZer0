@@ -187,6 +187,7 @@ export class CoordinateSystem {
         // Infer central node mode based on navigation node distance
         let centralNodeMode: NodeMode = 'detail';
         
+        // For word view, determine mode based on distance
         if (viewType === 'word') {
             const ourDistance = Math.sqrt(nodePosition.x * nodePosition.x + nodePosition.y * nodePosition.y);
             const detailModeDistance = COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 + 
@@ -198,6 +199,25 @@ export class CoordinateSystem {
                 centralNodeMode = 'preview';
             }
         }
+        // For statement view, determine mode based on distance
+        else if (viewType === 'statement') {
+            const ourDistance = Math.sqrt(nodePosition.x * nodePosition.x + nodePosition.y * nodePosition.y);
+            const detailModeDistance = COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 + 
+                                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE;
+            const previewModeDistance = COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2 + 
+                                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE;
+                                
+            if (Math.abs(ourDistance - previewModeDistance) < Math.abs(ourDistance - detailModeDistance)) {
+                centralNodeMode = 'preview';
+            }
+            
+            console.debug('[CoordinateSystem] Inferring statement node mode:', {
+                ourDistance,
+                detailModeDistance,
+                previewModeDistance,
+                inferredMode: centralNodeMode
+            });
+        }
         
         // Get appropriate radius based on view type and inferred mode
         let centralNodeRadius;
@@ -205,7 +225,18 @@ export class CoordinateSystem {
             centralNodeRadius = centralNodeMode === 'preview' 
                 ? COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2
                 : COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2;
-        } else {
+        } 
+        else if (viewType === 'statement') {
+            centralNodeRadius = centralNodeMode === 'preview' 
+                ? COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2
+                : COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2;
+                
+            console.debug('[CoordinateSystem] Using statement node radius:', {
+                mode: centralNodeMode,
+                radius: centralNodeRadius
+            });
+        }
+        else {
             centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
         

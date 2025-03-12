@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/navigation/NavigationNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher, onMount } from 'svelte';
+    import { createEventDispatcher, onMount, afterUpdate } from 'svelte';
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
     import { handleNavigation } from '$lib/services/navigation';
@@ -39,7 +39,19 @@
         
         // Let the coordinate system handle the calculation
         const viewType = graphStore.getViewType();
-        return coordinateSystem.calculateNavigationConnectionEndpoint(node.position, viewType);
+        
+        // Debug the inputs
+        console.debug(`[NavigationNode:${navigationData.id}] Calculating connection point:`, { 
+            position: node.position,
+            viewType,
+            nodeId: node.id
+        });
+        
+        const endpoint = coordinateSystem.calculateNavigationConnectionEndpoint(node.position, viewType);
+        
+        console.debug(`[NavigationNode:${navigationData.id}] Connection point calculated:`, endpoint);
+        
+        return endpoint;
     }
 
     // Ensure endpoint is calculated on component initialization
@@ -51,19 +63,14 @@
     // Recalculate on store changes
     $: if ($graphStore) {
         connectionEndpoint = calculateConnectionEndpoint();
+        console.debug(`[NavigationNode:${navigationData.id}] Store updated, new connection point:`, connectionEndpoint);
     }
-
-    // Force recalculation on any graph update
-    // This ensures navigation nodes respond to statement node size changes
-    $: {
-        if ($graphStore) {
-            // Use setTimeout to let the store update properly first
-            setTimeout(() => {
-                connectionEndpoint = calculateConnectionEndpoint();
-                console.debug(`[NavigationNode:${navigationData.id}] Updated connection with:`, connectionEndpoint);
-            }, 10);
-        }
-    }
+    
+    // Force recalculation after any update
+    afterUpdate(() => {
+        connectionEndpoint = calculateConnectionEndpoint();
+        console.debug(`[NavigationNode:${navigationData.id}] After update, new connection point:`, connectionEndpoint);
+    });
 
     async function handleClick() {
         // Get the target view type based on navigation option

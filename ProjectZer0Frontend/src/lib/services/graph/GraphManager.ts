@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/lib/services/graph/GraphManager.ts
+// src/lib/services/graph/GraphManager.ts
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
 import type { 
@@ -25,6 +25,7 @@ export class GraphManager {
     private managerId: string;
     private simulationActive = false;
     private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | null = null;
+    private isUpdatingStore = writable(false);
 
     // Public derived stores for renderable data
     public readonly renderableNodes: Readable<RenderableNode[]>;
@@ -94,7 +95,13 @@ export class GraphManager {
      * Update node mode (preview/detail) and ensure store is properly updated
      */
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
-        console.debug(`[GraphManager:${this.managerId}] Updating node mode`, { nodeId, mode });
+        console.debug(`[GraphManager:${this.managerId}] Updating node mode start`, { 
+            nodeId, 
+            mode,
+            viewType: this._viewType 
+        });
+        
+        this.isUpdatingStore.set(true);
         
         // Get current nodes
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -102,6 +109,7 @@ export class GraphManager {
         
         if (nodeIndex === -1) {
             console.warn(`[GraphManager:${this.managerId}] Node not found for mode update`, { nodeId });
+            this.isUpdatingStore.set(false);
             return;
         }
         
@@ -109,6 +117,7 @@ export class GraphManager {
         const node = currentNodes[nodeIndex];
         const oldMode = node.mode;
         const oldRadius = node.radius;
+        const oldNodeForDebug = { ...node }; // Copy for debugging
         
         // Create a completely new node object to ensure Svelte reactivity
         const updatedNode: EnhancedNode = {
@@ -129,24 +138,30 @@ export class GraphManager {
         const updatedNodes = [...currentNodes];
         updatedNodes[nodeIndex] = updatedNode;
         
-        // Update the simulation with the new nodes array
-        this.simulation.nodes(updatedNodes);
-        
         console.debug(`[GraphManager:${this.managerId}] Node mode updated`, {
             nodeId,
             oldMode,
             newMode: mode,
             oldRadius,
             newRadius: updatedNode.radius,
-            nodeType: node.type
+            nodeType: node.type,
+            isCentral: node.fixed || node.group === 'central'
         });
+        
+        // Update the simulation with the new nodes array
+        this.simulation.nodes(updatedNodes);
         
         // CRITICAL: Create a completely new nodes array and set it to the store
         // This ensures Svelte's reactivity system detects the change
-        this.nodesStore.set(updatedNodes);
+        this.nodesStore.set([...updatedNodes]);
         
         // If layout strategy exists, let it handle the mode change
         if (this.currentLayoutStrategy) {
+            console.debug(`[GraphManager:${this.managerId}] Calling layout strategy's handleNodeStateChange`, {
+                strategyType: this.currentLayoutStrategy.constructor.name,
+                nodeId,
+                mode
+            });
             this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
         }
         
@@ -154,11 +169,22 @@ export class GraphManager {
         this.fixNodePositions();
         
         // Force a tick to immediately update positions
-        this.forceTick();
+        console.debug(`[GraphManager:${this.managerId}] Force ticking simulation`);
+        this.forceTick(3); // Force 3 ticks to ensure changes apply
         
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
         this.simulationActive = true;
+        
+        // Force another update to the nodes store to ensure reactivity
+        this.nodesStore.set([...this.simulation.nodes() as unknown as EnhancedNode[]]);
+        
+        console.debug(`[GraphManager:${this.managerId}] Node mode update complete`, { 
+            nodeId, 
+            mode 
+        });
+        
+        this.isUpdatingStore.set(false);
     }
     
     /**
@@ -262,8 +288,8 @@ export class GraphManager {
             return;
         }
         
-        // Only perform calculation for word and definition nodes
-        if (node.type !== 'word' && node.type !== 'definition') {
+        // Only perform calculation for word, definition, and statement nodes
+        if (node.type !== 'word' && node.type !== 'definition' && node.type !== 'statement') {
             return;
         }
         
@@ -518,16 +544,17 @@ export class GraphManager {
         // Select appropriate layout strategy
         if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
-            this._viewType === 'create-node') {
-            // Single central node views
+            this._viewType === 'create-node' ||
+            this._viewType === 'statement') {
+            // Single central node views - including statement view
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
             );
         } 
-        else if (this._viewType === 'word' || this._viewType === 'statement') {
-            // Word definition view and Statement view use the same layout
+        else if (this._viewType === 'word') {
+            // Word definition view
             this.currentLayoutStrategy = new WordDefinitionLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -573,7 +600,7 @@ export class GraphManager {
             const netVotes = this.getNodeVotes(node);
             
             // Determine if node should be hidden based on community standard
-            const isHidden = (node.type === 'word' || node.type === 'definition') && 
+            const isHidden = (node.type === 'word' || node.type === 'definition' || node.type === 'statement') && 
                 netVotes < 0;
                 
             const enhancedNode: EnhancedNode = {
