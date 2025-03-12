@@ -302,7 +302,7 @@
             {/if}
      
             <!-- User Context -->
-            <g transform="translate(0, -50)">
+            <!-- <g transform="translate(0, -50)">
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -316,7 +316,7 @@
                 >
                     You can always change your vote using the buttons below.
                 </text>
-            </g>
+            </g> -->
      
             <!-- Vote Buttons -->
             <g transform="translate(0, 25)">
@@ -482,7 +482,7 @@
                 {/each}
             </text>
             
-            {#if data.keywords && data.keywords.length > 0}
+            <!-- {#if data.keywords && data.keywords.length > 0}
                 <foreignObject
                     x={-radius + 35}
                     y={10 + (lines.length * 20)}
@@ -502,7 +502,7 @@
                         {/if}
                     </div>
                 </foreignObject>
-            {/if}
+            {/if} -->
         </svelte:fragment>
 
         <svelte:fragment slot="score" let:radius>
@@ -553,10 +553,10 @@
         fill: rgba(255, 255, 255, 0.7);
     }
 
-    .context-text {
+    /* .context-text {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.9);
-    }
+    } */
 
     .keywords-label {
         font-size: 14px;

@@ -221,16 +221,22 @@ export class CoordinateSystem {
         
         // Get appropriate radius based on view type and inferred mode
         let centralNodeRadius;
+        
+        // Explicit mapping for each view type and mode
         if (viewType === 'word') {
-            centralNodeRadius = centralNodeMode === 'preview' 
-                ? COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2
-                : COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2;
+            if (centralNodeMode === 'preview') {
+                centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
+            } else {
+                centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2;
+            }
         } 
         else if (viewType === 'statement') {
-            centralNodeRadius = centralNodeMode === 'preview' 
-                ? COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2
-                : COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2;
-                
+            if (centralNodeMode === 'preview') {
+                centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+            } else {
+                centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2;
+            }
+            
             console.debug('[CoordinateSystem] Using statement node radius:', {
                 mode: centralNodeMode,
                 radius: centralNodeRadius
@@ -240,13 +246,35 @@ export class CoordinateSystem {
             centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
         
-        // Get appropriate scaling factor
-        const scalingFactor = centralNodeMode === 'preview'
-            ? COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.PREVIEW_MODE
-            : COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.DETAIL_MODE;
+        // Get appropriate scaling factor - use specific factors for statement nodes
+        let scalingFactor;
+        
+        if (viewType === 'statement') {
+            // Use different scaling factors for statement nodes to fix link penetration
+            if (centralNodeMode === 'preview') {
+                // Higher factor for preview mode to make links shorter
+                scalingFactor = 1/3.25; 
+            } else {
+                // Smaller factor for detail mode
+                scalingFactor = 1/4.35;  
+            }
+        } else {
+            // Default factors for other node types
+            scalingFactor = centralNodeMode === 'preview'
+                ? COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.PREVIEW_MODE
+                : COORDINATE_SPACE.LAYOUT.NAVIGATION.CONNECTION_SCALING.DETAIL_MODE;
+        }
         
         // Calculate effective radius
         const effectiveRadius = centralNodeRadius * scalingFactor;
+        
+        console.debug('[CoordinateSystem] Connection endpoint calculation:', {
+            viewType,
+            centralNodeMode,
+            centralNodeRadius,
+            scalingFactor,
+            effectiveRadius
+        });
         
         return {
             x: unitX * effectiveRadius,
