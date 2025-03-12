@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { StatementSchema } from '../../neo4j/schemas/statement.schema';
 import { KeywordExtractionService } from '../../services/keyword-extraction/keyword-extraction.service';
 import { WordService } from '../word/word.service';
+import { VoteSchema } from '../../neo4j/schemas/vote.schema';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 import { v4 as uuidv4 } from 'uuid';
 
 @Injectable()
@@ -11,7 +13,8 @@ export class StatementService {
   constructor(
     private readonly statementSchema: StatementSchema,
     private readonly keywordExtractionService: KeywordExtractionService,
-    private readonly wordService: WordService, // Add WordService dependency
+    private readonly wordService: WordService,
+    private readonly voteSchema: VoteSchema,
   ) {}
 
   async createStatement(statementData: {
@@ -193,5 +196,108 @@ export class StatementService {
   async getVisibilityStatus(id: string) {
     this.logger.log(`Getting visibility status for statement: ${id}`);
     return this.statementSchema.getVisibilityStatus(id);
+  }
+
+  async voteStatement(
+    id: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
+    this.logger.log(
+      `Voting on statement: ${id} by user: ${sub}, isPositive: ${isPositive}`,
+    );
+    try {
+      const result = await this.voteSchema.vote(
+        'StatementNode',
+        { id },
+        sub,
+        isPositive,
+      );
+      this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Error in voteStatement: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to vote on statement: ${error.message}`);
+    }
+  }
+
+  async getStatementVoteStatus(
+    id: string,
+    sub: string,
+  ): Promise<VoteStatus | null> {
+    this.logger.log(
+      `Getting vote status for statement: ${id} and user: ${sub}`,
+    );
+    try {
+      const status = await this.voteSchema.getVoteStatus(
+        'StatementNode',
+        { id },
+        sub,
+      );
+      this.logger.log(
+        `Vote status for statement ${id} and user ${sub}: ${JSON.stringify(status, null, 2)}`,
+      );
+      return status;
+    } catch (error) {
+      this.logger.error(
+        `Error in getStatementVoteStatus: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get statement vote status: ${error.message}`);
+    }
+  }
+
+  async removeStatementVote(id: string, sub: string): Promise<VoteResult> {
+    this.logger.log(`Removing vote on statement: ${id} by user: ${sub}`);
+    try {
+      const result = await this.voteSchema.removeVote(
+        'StatementNode',
+        { id },
+        sub,
+      );
+      this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Error in removeStatementVote: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to remove statement vote: ${error.message}`);
+    }
+  }
+
+  async getStatementVotes(id: string): Promise<VoteResult | null> {
+    this.logger.log(`Getting votes for statement: ${id}`);
+    try {
+      const voteStatus = await this.voteSchema.getVoteStatus(
+        'StatementNode',
+        { id },
+        '', // Empty string as we don't need user-specific status
+      );
+
+      if (!voteStatus) {
+        this.logger.log(`No votes found for statement: ${id}`);
+        return null;
+      }
+
+      const votes = {
+        positiveVotes: voteStatus.positiveVotes,
+        negativeVotes: voteStatus.negativeVotes,
+      };
+
+      this.logger.log(
+        `Votes for statement ${id}: ${JSON.stringify(votes, null, 2)}`,
+      );
+      return votes;
+    } catch (error) {
+      this.logger.error(
+        `Error in getStatementVotes: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get statement votes: ${error.message}`);
+    }
   }
 }

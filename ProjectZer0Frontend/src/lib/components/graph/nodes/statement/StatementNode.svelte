@@ -7,6 +7,7 @@
     import { fetchWithAuth } from '$lib/services/api';
     import { userStore } from '$lib/stores/userStore';
     import { getDisplayName } from '../utils/nodeUtils';
+    import { graphStore } from '$lib/stores/graphStore';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -76,19 +77,134 @@
         return Number(value || 0);
     }
 
-    async function initializeVoteStatus() {
-        // Temporary initialization with defaults
-        userVoteStatus = 'none';
-        data.positiveVotes = data.positiveVotes || 0;
-        data.negativeVotes = data.negativeVotes || 0;
+    async function initializeVoteStatus(retryCount = 0) {
+        if (!$userStore) return;
+        
+        try {
+            console.log('[StatementNode] Fetching vote status for statement:', node.id);
+            const response = await fetchWithAuth(`/nodes/statement/${node.id}/vote`);
+            if (!response) {
+                throw new Error('No response from vote status endpoint');
+            }
+            
+            console.log('[StatementNode] Vote status response:', response);
+            
+            userVoteStatus = response.status || 'none';
+            data.positiveVotes = getNeo4jNumber(response.positiveVotes);
+            data.negativeVotes = getNeo4jNumber(response.negativeVotes);
+            
+            console.log('[StatementNode] Updated vote status:', {
+                userVoteStatus,
+                positiveVotes: data.positiveVotes,
+                negativeVotes: data.negativeVotes,
+                netVotes
+            });
+            
+            // Recalculate visibility based on vote data
+            if (graphStore) {
+                console.log('[StatementNode] Recalculating node visibility based on votes');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    data.positiveVotes, 
+                    data.negativeVotes
+                );
+            }
+        } catch (error) {
+            console.error('[StatementNode] Error fetching vote status:', error);
+            
+            const MAX_RETRIES = 3;
+            const RETRY_DELAY = 1000;
+            if (retryCount < MAX_RETRIES) {
+                console.log(`[StatementNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+                await initializeVoteStatus(retryCount + 1);
+            }
+        }
     }
 
     async function handleVote(voteType: VoteStatus) {
-        // Temporary implementation until backend is ready
-        userVoteStatus = voteType;
+        if (!$userStore || isVoting) return;
+        isVoting = true;
+        const oldVoteStatus = userVoteStatus;
+
+        try {
+            console.log('[StatementNode] Processing vote:', { 
+                statementId: node.id, 
+                voteType,
+                currentStatus: userVoteStatus
+            });
+
+            // Optimistic update
+            userVoteStatus = voteType;
+            
+            if (voteType === 'none') {
+                const result = await fetchWithAuth(
+                    `/nodes/statement/${node.id}/vote/remove`,
+                    { method: 'POST' }
+                );
+                
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
+                console.log('[StatementNode] Vote removed:', result);
+            } else {
+                const result = await fetchWithAuth(
+                    `/nodes/statement/${node.id}/vote`,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            isPositive: voteType === 'agree'
+                        })
+                    }
+                );
+
+                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
+                console.log('[StatementNode] Vote recorded:', result);
+            }
+            
+            // Recalculate visibility after vote changes
+            if (graphStore) {
+                console.log('[StatementNode] Recalculating node visibility after vote update');
+                graphStore.recalculateNodeVisibility(
+                    node.id, 
+                    data.positiveVotes, 
+                    data.negativeVotes
+                );
+            }
+            
+        } catch (error) {
+            console.error('[StatementNode] Error processing vote:', error);
+            // Revert on error
+            userVoteStatus = oldVoteStatus;
+            // Retry vote status fetch to ensure consistency
+            await initializeVoteStatus();
+        } finally {
+            isVoting = false;
+        }
     }
 
     onMount(async () => {
+        console.debug('[StatementNode] Mounting with statement ID:', node.id);
+        
+        // Fetch creator details (could be added later if needed)
+        // if (data.createdBy && data.createdBy !== 'ProjectZeroAI') {
+        //     try {
+        //         creatorDetails = await getUserDetails(data.createdBy);
+        //     } catch (e) {
+        //         console.error('[StatementNode] Error fetching creator details:', e);
+        //     }
+        // }
+        
+        // Initialize vote status and counts
+        const initialPos = getNeo4jNumber(data.positiveVotes);
+        const initialNeg = getNeo4jNumber(data.negativeVotes);
+        
+        console.log('[StatementNode] Initial vote counts:', {
+            initialPos,
+            initialNeg,
+            netVotes: initialPos - initialNeg
+        });
+        
         await initializeVoteStatus();
         console.debug('[StatementNode] Mounted with radius:', node.radius);
     });
@@ -186,7 +302,7 @@
             {/if}
      
             <!-- User Context -->
-            <!-- <g transform="translate(0, -50)">
+            <g transform="translate(0, -50)">
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -200,7 +316,7 @@
                 >
                     You can always change your vote using the buttons below.
                 </text>
-            </g> -->
+            </g>
      
             <!-- Vote Buttons -->
             <g transform="translate(0, 25)">
