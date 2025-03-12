@@ -30,7 +30,7 @@ export interface GraphStore {
     getViewType: () => ViewType;
     fixNodePositions: () => void;
     stopSimulation: () => void;
-    forceTick: () => void;
+    forceTick: (ticks?: number) => void; // Updated to accept an optional parameter
     dispose: () => void;
 }
 
@@ -102,8 +102,8 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             manager.stopSimulation();
         },
         
-        forceTick: () => {
-            manager.forceTick();
+        forceTick: (ticks = 1) => { // Updated to accept a parameter with default value
+            manager.forceTick(ticks);
         },
 
         dispose: () => {

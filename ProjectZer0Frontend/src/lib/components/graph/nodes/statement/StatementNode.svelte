@@ -12,6 +12,8 @@
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     
     export let node: RenderableNode;
+    // Add statementText prop for consistency with WordNode/DefinitionNode pattern
+    export let statementText: string = '';
     
     // Type guard for statement data
     function isStatementData(data: any): data is {
@@ -35,8 +37,8 @@
     // Statement data
     const data = node.data;
     
-    // Compute the statement text
-    $: statementText = data.statement;
+    // Use provided statementText prop if available, otherwise fall back to node data
+    $: displayStatementText = statementText || data.statement;
     
     // Reactive declaration for mode to ensure reactivity
     $: isDetail = node.mode === 'detail';
@@ -58,6 +60,12 @@
     // Function to handle expanding or collapsing the node
     function handleModeChange() {
         const newMode = isDetail ? 'preview' : 'detail';
+        console.debug(`[StatementNode] Mode change requested:`, { 
+            currentMode: node.mode, 
+            newMode: newMode,
+            nodeId: node.id,
+            nodeRadius: node.radius
+        });
         dispatch('modeChange', { mode: newMode });
     }
 
@@ -82,6 +90,7 @@
 
     onMount(async () => {
         await initializeVoteStatus();
+        console.debug('[StatementNode] Mounted with radius:', node.radius);
     });
 
     // Reactive declarations
@@ -103,7 +112,7 @@
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
     // Text wrapping for preview mode
-    $: lines = statementText.split(' ').reduce((acc, word) => {
+    $: lines = displayStatementText.split(' ').reduce((acc, word) => {
         const currentLine = acc[acc.length - 1] || '';
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
         
@@ -114,6 +123,13 @@
         }
         return acc;
     }, ['']);
+    
+    // Debug radius when it changes
+    $: console.debug(`[StatementNode] Radius updated:`, {
+        nodeId: node.id,
+        radius: node.radius,
+        mode: node.mode
+    });
 </script>
 
 {#if isDetail}
@@ -138,7 +154,7 @@
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
                     height="100"
                 >
-                    <div class="statement-text">{statementText}</div>
+                    <div class="statement-text">{displayStatementText}</div>
                 </foreignObject>
             </g>
     

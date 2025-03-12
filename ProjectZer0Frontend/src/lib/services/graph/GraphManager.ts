@@ -110,53 +110,67 @@ export class GraphManager {
         const oldMode = node.mode;
         const oldRadius = node.radius;
         
-        // Update node mode
-        node.mode = mode;
-        
-        // Update related properties
-        node.expanded = mode === 'detail';
-        if (node.metadata) {
-            node.metadata.isDetail = mode === 'detail';
-        }
-        
-        // Explicitly update the radius based on node type and mode
+        // Calculate new radius based on node type and mode
+        let newRadius: number;
         if (node.type === 'word') {
-            node.radius = mode === 'detail' ? 
+            newRadius = mode === 'detail' ? 
                 COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
                 COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
         } 
         else if (node.type === 'definition') {
-            node.radius = mode === 'detail' ?
+            newRadius = mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         }
         else if (node.type === 'statement') {
-            const newRadius = mode === 'detail' ?
+            newRadius = mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
             
-            console.log(`[GraphManager] Statement node radius updated:`, {
+            console.log(`[GraphManager] Statement node radius calculation:`, {
                 id: node.id,
                 oldMode,
                 newMode: mode,
                 oldRadius,
-                newRadius
+                newRadius,
+                detailSize: COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2,
+                previewSize: COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2
             });
-            
-            node.radius = newRadius;
+        } else {
+            // Default radius
+            newRadius = node.radius;
         }
+        
+        // Create a completely new node object to ensure Svelte reactivity
+        const updatedNode: EnhancedNode = {
+            ...node,
+            mode,
+            expanded: mode === 'detail',
+            radius: newRadius,
+            metadata: {
+                ...node.metadata,
+                isDetail: mode === 'detail'
+            }
+        };
+        
+        // Replace the node in the array
+        const updatedNodes = [...currentNodes];
+        updatedNodes[nodeIndex] = updatedNode;
+        
+        // Update the simulation with the new nodes array
+        this.simulation.nodes(updatedNodes);
         
         console.debug(`[GraphManager:${this.managerId}] Node mode updated`, {
             nodeId,
             oldMode,
             newMode: mode,
             oldRadius,
-            newRadius: node.radius
+            newRadius,
+            nodeType: node.type
         });
         
-        // CRITICAL FIX: Create a completely new nodes array and set it to the store
+        // CRITICAL: Create a completely new nodes array and set it to the store
         // This ensures Svelte's reactivity system detects the change
-        const updatedNodes = [...currentNodes];
         this.nodesStore.set(updatedNodes);
         
         // If layout strategy exists, let it handle the mode change
@@ -167,8 +181,8 @@ export class GraphManager {
         // Ensure fixed positions are maintained
         this.fixNodePositions();
         
-        // Force a tick to immediately update positions
-        this.forceTick(1);
+        // Force multiple ticks to immediately update positions
+        this.forceTick(3);
         
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
@@ -206,27 +220,36 @@ export class GraphManager {
             return;
         }
         
-        // Update the node
-        const node = currentNodes[nodeIndex];
-        const oldHiddenState = node.isHidden;
-        node.isHidden = isHidden;
-        node.hiddenReason = hiddenReason; // Use the provided reason
+        // Get the old node and create a new one with updated properties
+        const oldNode = currentNodes[nodeIndex];
+        const oldHiddenState = oldNode.isHidden;
+        const oldRadius = oldNode.radius;
         
-        // Update node radius based on new visibility
-        const oldRadius = node.radius;
-        node.radius = this.getNodeRadius(node);
+        // Create a new node object with updated properties
+        const updatedNode: EnhancedNode = {
+            ...oldNode,
+            isHidden: isHidden,
+            hiddenReason: hiddenReason,
+            radius: this.getNodeRadius({
+                ...oldNode,
+                isHidden: isHidden
+            })
+        };
+        
+        // Replace the old node with the updated one
+        const updatedNodes = [...currentNodes];
+        updatedNodes[nodeIndex] = updatedNode;
         
         console.debug(`[GraphManager:${this.managerId}] Node visibility updated`, {
             nodeId,
             isHidden,
             hiddenReason,
             oldRadius,
-            newRadius: node.radius
+            newRadius: updatedNode.radius
         });
         
-        // CRITICAL FIX: Create a completely new nodes array and set it to the store
-        // This ensures Svelte's reactivity system detects the change
-        const updatedNodes = [...currentNodes];
+        // Update the simulation and store with the new nodes array
+        this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
         
         // If layout strategy exists, let it handle the visibility change
@@ -241,7 +264,7 @@ export class GraphManager {
         this.fixNodePositions();
         
         // Force a tick to immediately update positions
-        this.forceTick(1);
+        this.forceTick(3);
         
         // Restart simulation with low alpha for smooth transition
         if (oldHiddenState !== isHidden) {

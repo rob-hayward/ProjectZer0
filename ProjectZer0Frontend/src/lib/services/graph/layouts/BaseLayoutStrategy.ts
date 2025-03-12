@@ -233,6 +233,11 @@ export abstract class BaseLayoutStrategy {
             return node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+        } else if (node.type === 'statement') {
+            // Add explicit handling for statement nodes
+            return node.mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
         } else if (node.type === 'navigation') {
             return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {

@@ -99,7 +99,8 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
             
             console.debug(`[SingleNodeLayout] Positioned central node at origin`, {
                 id: centralNode.id,
-                type: centralNode.type
+                type: centralNode.type,
+                radius: centralNode.radius
             });
         }
 
@@ -154,55 +155,76 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
         
         // Get current nodes from simulation
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const node = nodes.find(n => n.id === nodeId);
         
-        if (!node) {
+        // Find the target node with its original properties
+        const nodeIndex = nodes.findIndex(n => n.id === nodeId);
+        if (nodeIndex === -1) {
             console.warn(`[SingleNodeLayout] Node not found for state change:`, nodeId);
             return;
         }
-
-        // Update node mode and store old values for comparison
+        
+        const node = nodes[nodeIndex];
+        
+        // Store old values for comparison and logging
         const oldMode = node.mode;
         const oldRadius = node.radius;
         
-        // Update node properties
-        node.mode = mode;
-        node.expanded = mode === 'detail';
-        
-        // Update metadata
-        if (node.metadata) {
-            node.metadata.isDetail = mode === 'detail';
-        }
-        
         // Calculate new radius based on node type and mode
-        node.radius = this.getNodeRadius(node);
+        let newRadius = this.getNodeRadius({
+            ...node,
+            mode: mode
+        });
         
-        console.debug(`[SingleNodeLayout] Node mode updated`, {
+        // Create a completely new node object to ensure reactivity
+        const updatedNode = {
+            ...node,
+            mode: mode,
+            expanded: mode === 'detail',
+            metadata: {
+                ...node.metadata,
+                isDetail: mode === 'detail'
+            },
+            radius: newRadius
+        };
+        
+        // Replace the old node with the updated one
+        nodes[nodeIndex] = updatedNode;
+        
+        console.debug(`[SingleNodeLayout] Node updated with new properties`, {
             nodeId,
             oldMode,
             newMode: mode,
             oldRadius,
-            newRadius: node.radius,
-            type: node.type
+            newRadius,
+            nodeType: updatedNode.type
         });
         
         // Store expansion state
         this.expansionState.set(nodeId, mode === 'detail');
 
         // For central node, we need to reposition all navigation nodes
-        if (node.fixed || node.group === 'central') {
+        if (updatedNode.fixed || updatedNode.group === 'central') {
             console.debug(`[SingleNodeLayout] Central node mode changed, repositioning navigation nodes`);
             
             // Reposition navigation nodes to account for new central node size
-            NavigationNodeLayout.positionNavigationNodes(
+            this.navNodeDistance = NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
                 this.getNodeRadius.bind(this)
             );
         }
         
+        // Update the simulation with the new node array
+        // Critical: Replace the entire nodes array in the simulation
+        this.simulation.nodes(nodes);
+        
         // CRITICAL: Stop simulation and enforce fixed positions
         this.simulation.stop();
         this.enforceFixedPositions();
+        
+        // Force tick to immediately apply changes
+        for (let i = 0; i < 3; i++) {
+            this.simulation.tick();
+        }
         
         // Restart with very minimal alpha to avoid movement
         this.simulation.alpha(0.01).restart();
@@ -223,6 +245,13 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
             centralNode.fy = 0;
             centralNode.vx = 0;
             centralNode.vy = 0;
+            
+            console.debug('[SingleNodeLayout] Enforced central node position', {
+                id: centralNode.id,
+                type: centralNode.type,
+                radius: centralNode.radius,
+                position: { x: 0, y: 0 }
+            });
         }
         
         // Ensure navigation nodes maintain their positions
@@ -242,7 +271,9 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
                 console.debug('[SingleNodeLayout] Node expansion state changed:', {
                     nodeId: node.id,
                     from: wasExpanded,
-                    to: isExpanded
+                    to: isExpanded,
+                    type: node.type,
+                    radius: node.radius
                 });
             }
             
@@ -260,31 +291,46 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
         });
         
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const node = nodes.find(n => n.id === nodeId);
+        const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
-        if (!node) {
+        if (nodeIndex === -1) {
             console.warn(`[SingleNodeLayout] Node not found for visibility change:`, nodeId);
             return;
         }
 
+        const node = nodes[nodeIndex];
+        
         // Update node visibility
         const oldHiddenState = node.isHidden;
-        node.isHidden = isHidden;
-        
-        // Update radius based on new visibility
         const oldRadius = node.radius;
-        node.radius = this.getNodeRadius(node);
+        
+        // Calculate new radius
+        const newRadius = this.getNodeRadius({
+            ...node,
+            isHidden: isHidden
+        });
+        
+        // Create a completely new node object to ensure reactivity
+        const updatedNode = {
+            ...node,
+            isHidden: isHidden,
+            radius: newRadius
+        };
+        
+        // Replace the old node with the updated one
+        nodes[nodeIndex] = updatedNode;
 
         console.debug(`[SingleNodeLayout] Node visibility updated`, {
             nodeId,
             oldHiddenState,
             newHiddenState: isHidden,
             oldRadius,
-            newRadius: node.radius
+            newRadius: updatedNode.radius,
+            type: updatedNode.type
         });
         
         // For central node, we need to reposition all navigation nodes
-        if (node.fixed || node.group === 'central') {
+        if (updatedNode.fixed || updatedNode.group === 'central') {
             console.debug(`[SingleNodeLayout] Central node visibility changed, repositioning navigation nodes`);
             
             // Reposition navigation nodes to account for new central node size
@@ -294,9 +340,17 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
             );
         }
         
+        // Update the simulation with the new node array
+        this.simulation.nodes(nodes);
+        
         // CRITICAL: Stop simulation and enforce fixed positions
         this.simulation.stop();
         this.enforceFixedPositions();
+        
+        // Force tick to immediately apply changes
+        for (let i = 0; i < 3; i++) {
+            this.simulation.tick();
+        }
         
         // Restart with very minimal alpha to avoid movement
         this.simulation.alpha(0.01).restart();
