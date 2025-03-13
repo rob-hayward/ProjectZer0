@@ -148,4 +148,61 @@ export class StatementController {
     );
     return votes;
   }
+
+  /**
+   * Create a statement directly related to an existing statement
+   */
+  @Post(':id/related')
+  async createRelatedStatement(
+    @Param('id') existingId: string,
+    @Body() statementData: CreateStatementDto,
+    @Request() req: any,
+  ) {
+    this.logger.log(
+      `Received request to create statement related to ${existingId}`,
+    );
+    return this.statementService.createRelatedStatement(existingId, {
+      ...statementData,
+      createdBy: req.user.sub, // Use the authenticated user's ID from JWT
+    });
+  }
+
+  /**
+   * Create a direct relationship between two existing statements
+   */
+  @Post(':id1/relationship/:id2')
+  async createDirectRelationship(
+    @Param('id1') id1: string,
+    @Param('id2') id2: string,
+  ) {
+    this.logger.log(
+      `Received request to create relationship between ${id1} and ${id2}`,
+    );
+    return this.statementService.createDirectRelationship(id1, id2);
+  }
+
+  /**
+   * Remove a direct relationship between two statements
+   */
+  @Delete(':id1/relationship/:id2')
+  async removeDirectRelationship(
+    @Param('id1') id1: string,
+    @Param('id2') id2: string,
+  ) {
+    this.logger.log(
+      `Received request to remove relationship between ${id1} and ${id2}`,
+    );
+    return this.statementService.removeDirectRelationship(id1, id2);
+  }
+
+  /**
+   * Get all statements directly related to the given statement
+   */
+  @Get(':id/related')
+  async getDirectlyRelatedStatements(@Param('id') id: string) {
+    this.logger.log(
+      `Received request to get statements directly related to ${id}`,
+    );
+    return this.statementService.getDirectlyRelatedStatements(id);
+  }
 }

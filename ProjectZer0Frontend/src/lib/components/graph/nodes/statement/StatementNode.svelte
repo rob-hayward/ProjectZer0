@@ -301,23 +301,6 @@
                 </g>
             {/if}
      
-            <!-- User Context -->
-            <!-- <g transform="translate(0, -50)">
-                <text 
-                    x={METRICS_SPACING.labelX} 
-                    class="context-text left-align"
-                >
-                    Please vote on whether you agree with this statement. 
-                </text>
-                <text 
-                    x={METRICS_SPACING.labelX} 
-                    y="20" 
-                    class="context-text left-align"
-                >
-                    You can always change your vote using the buttons below.
-                </text>
-            </g> -->
-     
             <!-- Vote Buttons -->
             <g transform="translate(0, 25)">
                 <foreignObject x={-160} width="100" height="45">
@@ -481,28 +464,6 @@
                     </tspan>
                 {/each}
             </text>
-            
-            <!-- {#if data.keywords && data.keywords.length > 0}
-                <foreignObject
-                    x={-radius + 35}
-                    y={10 + (lines.length * 20)}
-                    width={radius * 2 - 70}
-                    height="30"
-                >
-                    <div class="preview-keywords">
-                        {#each data.keywords.slice(0, 3) as keyword}
-                            <span class="preview-keyword-chip">
-                                {keyword.word}
-                            </span>
-                        {/each}
-                        {#if data.keywords.length > 3}
-                            <span class="preview-keyword-chip more">
-                                +{data.keywords.length - 3}
-                            </span>
-                        {/if}
-                    </div>
-                </foreignObject>
-            {/if} -->
         </svelte:fragment>
 
         <svelte:fragment slot="score" let:radius>
@@ -552,11 +513,6 @@
     .score {
         fill: rgba(255, 255, 255, 0.7);
     }
-
-    /* .context-text {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.9);
-    } */
 
     .keywords-label {
         font-size: 14px;

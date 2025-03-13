@@ -112,8 +112,16 @@ export class StatementSchema {
     const result = await this.neo4jService.read(
       `
       MATCH (s:StatementNode {id: $id})
+      
+      // Get keywords
       OPTIONAL MATCH (s)-[t:TAGGED]->(w:WordNode)
+      
+      // Get statements with shared keywords
       OPTIONAL MATCH (s)-[st:SHARED_TAG]->(o:StatementNode)
+      
+      // Get directly related statements
+      OPTIONAL MATCH (s)-[:RELATED_TO]-(r:StatementNode)
+      
       RETURN s,
              collect(DISTINCT {
                word: w.word, 
@@ -125,15 +133,24 @@ export class StatementSchema {
                statement: o.statement,
                sharedWord: st.word,
                strength: st.strength
-             }) as relatedStatements
+             }) as relatedStatements,
+             collect(DISTINCT {
+               nodeId: r.id,
+               statement: r.statement,
+               relationshipType: 'direct'
+             }) as directlyRelatedStatements
       `,
       { id },
     );
+
     if (result.records.length === 0) return null;
 
     const statement = result.records[0].get('s').properties;
     statement.keywords = result.records[0].get('keywords');
     statement.relatedStatements = result.records[0].get('relatedStatements');
+    statement.directlyRelatedStatements = result.records[0].get(
+      'directlyRelatedStatements',
+    );
 
     return statement;
   }
@@ -272,5 +289,99 @@ export class StatementSchema {
       { id },
     );
     return result.records[0]?.get('s.visibilityStatus') ?? true;
+  }
+
+  /**
+   * Creates a direct, undirected relationship between two statements
+   */
+  async createDirectRelationship(statementId1: string, statementId2: string) {
+    if (statementId1 === statementId2) {
+      throw new Error(
+        'Cannot create a relationship between a statement and itself',
+      );
+    }
+
+    try {
+      // Don't assign to unused 'result' variable
+      await this.neo4jService.write(
+        `
+      MATCH (s1:StatementNode {id: $statementId1})
+      MATCH (s2:StatementNode {id: $statementId2})
+      
+      // Create relationship in one direction
+      MERGE (s1)-[r:RELATED_TO]->(s2)
+      
+      // Set properties if needed (could add created date, strength, etc.)
+      ON CREATE SET r.createdAt = datetime()
+      `,
+        { statementId1, statementId2 },
+      );
+
+      this.logger.log(
+        `Created direct relationship between statements ${statementId1} and ${statementId2}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error creating direct relationship: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Removes a direct relationship between two statements
+   */
+  async removeDirectRelationship(statementId1: string, statementId2: string) {
+    try {
+      await this.neo4jService.write(
+        `
+        MATCH (s1:StatementNode {id: $statementId1})-[r:RELATED_TO]-(s2:StatementNode {id: $statementId2})
+        DELETE r
+        `,
+        { statementId1, statementId2 },
+      );
+
+      this.logger.log(
+        `Removed direct relationship between statements ${statementId1} and ${statementId2}`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error removing direct relationship: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Gets all statements directly related to the given statement
+   */
+  async getDirectlyRelatedStatements(statementId: string) {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (s:StatementNode {id: $statementId})-[:RELATED_TO]-(r:StatementNode)
+        RETURN collect({
+          id: r.id,
+          statement: r.statement,
+          createdBy: r.createdBy,
+          createdAt: r.createdAt,
+          publicCredit: r.publicCredit
+        }) as relatedStatements
+        `,
+        { statementId },
+      );
+
+      return result.records[0].get('relatedStatements');
+    } catch (error) {
+      this.logger.error(
+        `Error getting directly related statements: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 }

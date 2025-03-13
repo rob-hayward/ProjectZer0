@@ -300,4 +300,114 @@ export class StatementService {
       throw new Error(`Failed to get statement votes: ${error.message}`);
     }
   }
+
+  /**
+   * Creates a direct relationship between two statements
+   */
+  async createDirectRelationship(statementId1: string, statementId2: string) {
+    this.logger.log(
+      `Creating direct relationship between statements ${statementId1} and ${statementId2}`,
+    );
+    try {
+      // Verify both statements exist
+      const statement1 = await this.getStatement(statementId1);
+      const statement2 = await this.getStatement(statementId2);
+
+      if (!statement1 || !statement2) {
+        throw new Error(
+          `One or both statements not found: ${statementId1}, ${statementId2}`,
+        );
+      }
+
+      return await this.statementSchema.createDirectRelationship(
+        statementId1,
+        statementId2,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in createDirectRelationship: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to create direct relationship: ${error.message}`);
+    }
+  }
+
+  /**
+   * Removes a direct relationship between two statements
+   */
+  async removeDirectRelationship(statementId1: string, statementId2: string) {
+    this.logger.log(
+      `Removing direct relationship between statements ${statementId1} and ${statementId2}`,
+    );
+    try {
+      return await this.statementSchema.removeDirectRelationship(
+        statementId1,
+        statementId2,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in removeDirectRelationship: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to remove direct relationship: ${error.message}`);
+    }
+  }
+
+  /**
+   * Gets all statements directly related to the given statement
+   */
+  async getDirectlyRelatedStatements(statementId: string) {
+    this.logger.log(`Getting directly related statements for ${statementId}`);
+    try {
+      return await this.statementSchema.getDirectlyRelatedStatements(
+        statementId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error in getDirectlyRelatedStatements: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(
+        `Failed to get directly related statements: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Creates a new statement directly related to an existing statement
+   */
+  async createRelatedStatement(
+    existingStatementId: string,
+    statementData: {
+      createdBy: string;
+      publicCredit: boolean;
+      statement: string;
+      userKeywords?: string[];
+      initialComment: string;
+    },
+  ) {
+    this.logger.log(`Creating new statement related to ${existingStatementId}`);
+
+    try {
+      // First validate that the existing statement exists
+      const existingStatement = await this.getStatement(existingStatementId);
+      if (!existingStatement) {
+        throw new Error(`Statement with ID ${existingStatementId} not found`);
+      }
+
+      // Create the new statement normally
+      const newStatement = await this.createStatement(statementData);
+
+      // Create the direct relationship between the statements
+      await this.createDirectRelationship(existingStatementId, newStatement.id);
+
+      return newStatement;
+    } catch (error) {
+      this.logger.error(
+        `Error in createRelatedStatement: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to create related statement: ${error.message}`);
+    }
+  }
 }
