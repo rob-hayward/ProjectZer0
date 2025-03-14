@@ -38,3 +38,30 @@ export async function createStatement(statementData: {
         throw error;
     }
 }
+
+/**
+ * Fetch multiple statements for the statement network view
+ */
+export async function getStatementNetwork(options?: {
+    limit?: number;
+    offset?: number;
+    keywords?: string[];
+    userId?: string;
+    sortBy?: string;
+    sortDirection?: string;
+}): Promise<StatementNode[]> {
+    // Build query parameters
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    if (options?.keywords?.length) {
+        options.keywords.forEach(k => params.append('keyword', k));
+    }
+    if (options?.userId) params.append('userId', options.userId);
+    if (options?.sortBy) params.append('sortBy', options.sortBy);
+    if (options?.sortDirection) params.append('sortDirection', options.sortDirection);
+    
+    // Make API request
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return fetchWithAuth(`/nodes/statement/network${queryString}`);
+}

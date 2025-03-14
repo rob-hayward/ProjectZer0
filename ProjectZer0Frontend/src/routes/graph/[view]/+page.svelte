@@ -22,6 +22,7 @@
     import { wordStore } from '$lib/stores/wordStore';
     import { statementStore } from '$lib/stores/statementStore';
     import { graphStore } from '$lib/stores/graphStore';
+    import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
     import type { 
         GraphData, 
@@ -69,6 +70,15 @@
     $: statementNodeMode = $page ?
         ($page.params.view === 'statement' ? 'detail' : 'preview')
         : 'preview';
+    
+    // Statement network data
+    $: statements = $statementNetworkStore?.statements || [];
+    
+    // Load statement network data when view is statement-network
+    $: if (viewType === 'statement-network' && isReady) {
+        console.log('[NETWORK] Loading statement network data');
+        loadStatementNetworkData();
+    }
 
     // Check for alternative definition mode (separate from view type)
     $: isAlternativeDefinitionsMode = false; // NOTE: alternative-definitions is a mode, not a view type
@@ -88,6 +98,7 @@
     // View type checks
     $: isWordView = view === 'word';
     $: isStatementView = view === 'statement';
+    $: isStatementNetworkView = view === 'statement-network';
     
     // Only true word views need word data for the central node
     $: needsWordDataForCentralNode = isWordView;
@@ -113,6 +124,22 @@
             
             // Force render with new route key
             routeKey = `${newViewType}-${Date.now()}`;
+        }
+    }
+
+    // Load statement network data
+    async function loadStatementNetworkData() {
+        if (!$userStore) return;
+        
+        try {
+            // Load statements using the network store
+            await statementNetworkStore.loadStatements({
+                limit: 50 // Start with a reasonable limit
+            });
+            
+            console.log('[NETWORK] Loaded statement data:', $statementNetworkStore.statements.length);
+        } catch (error) {
+            console.error('[NETWORK] Error loading statement network data:', error);
         }
     }
 
@@ -168,6 +195,12 @@
                         statementStore.set(loadedStatement);
                     }
                 }
+            }
+            
+            // Handle statement network data
+            if (isStatementNetworkView) {
+                console.log(`[INIT] ${view} view detected, loading statement network data`);
+                await loadStatementNetworkData();
             }
             
             console.log('[INIT] Data initialization complete');
@@ -235,7 +268,7 @@
         }
     }
 
-    // Updated central node type handling
+    // Updated central node type handling - only for views that need a central node
     $: centralNode = isReady && $userStore && (
         needsWordDataForCentralNode && wordData ? {
             // Word node as central for word views
@@ -253,11 +286,11 @@
             group: 'central' as const,
             mode: statementNodeMode
         } : {
-            // User profile for all other views including create-alternative
+            // User profile for other views (except statement-network)
             id: $userStore.sub,
-            // IMPORTANT: Using 'create-node' type for both create-node and create-alternative views
-            // We'll differentiate in the component rendering based on isCreateAlternative flag
-            type: isCreateAlternative ? 'create-node' as const : view as NodeType,
+            type: isCreateAlternative ? 'create-node' as const : 
+                  isStatementNetworkView ? 'dashboard' as const : // Fallback type for statement-network
+                  view as NodeType,
             data: $userStore,
             group: 'central' as const
         }
@@ -265,6 +298,55 @@
 
     // Create graph data
     function createGraphData(): GraphData {
+        // For statement network view - special case with no central node
+        if (view === 'statement-network') {
+            console.log('[DATA] Creating statement network view data', {
+                statementCount: statements.length
+            });
+
+            // Create statement nodes - ALL in preview mode initially
+            const statementNodes: GraphNode[] = statements.map(statement => ({
+                id: statement.id,
+                type: 'statement' as NodeType,
+                data: statement,
+                group: 'statement' as NodeGroup, // Not 'central'
+                mode: 'preview' as NodeMode
+            }));
+
+            // Create links between statements based on shared keywords and direct relationships
+            const statementLinks: GraphLink[] = [];
+            
+            // Add links based on relatedStatements from each statement
+            statements.forEach(statement => {
+                if (statement.relatedStatements && statement.relatedStatements.length > 0) {
+                    statement.relatedStatements.forEach(related => {
+                        // Check if target statement exists in our data
+                        const targetExists = statements.some(s => s.id === related.nodeId);
+                        if (targetExists) {
+                            statementLinks.push({
+                                id: `${statement.id}-${related.nodeId}-${related.sharedWord}`,
+                                source: statement.id,
+                                target: related.nodeId,
+                                type: related.sharedWord === 'direct' ? 'related' as LinkType : 'alternative' as LinkType
+                            });
+                        }
+                    });
+                }
+            });
+
+            console.log('[DATA] Created statement network structure', {
+                nodeCount: navigationNodes.length + statementNodes.length,
+                linkCount: statementLinks.length
+            });
+
+            // Return ONLY navigation nodes and statement nodes - NO central node
+            return {
+                nodes: [...navigationNodes, ...statementNodes],
+                links: statementLinks
+            };
+        }
+
+        // For all other views, use the central node approach
         if (!centralNode) {
             return { nodes: [], links: [] };
         }
@@ -380,6 +462,7 @@
         isWordView ? NavigationContext.WORD :
         isStatementView ? NavigationContext.WORD : // For now, use word context for statement view too
         view === 'create-alternative' ? NavigationContext.WORD : // Use word context for alternative definition
+        view === 'statement-network' ? NavigationContext.DASHBOARD : // Use dashboard context for statement network
         NavigationContext.DASHBOARD;
 
     $: navigationNodes = getNavigationOptions(context)
@@ -433,7 +516,7 @@
         {:else if isStatementNode(node)}
             <StatementNode 
                 {node}
-                statementText={statementData?.statement}
+                statementText={isStatementView && statementData ? statementData.statement : node.data.statement}
                 on:modeChange={handleModeChange}
             />
         {:else if isDashboardNode(node)}

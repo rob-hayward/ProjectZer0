@@ -40,7 +40,8 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
         'edit-profile', 
         'network', 
         'statement',
-        'create-alternative' // Added create-alternative as a valid view
+        'create-alternative',
+        'statement-network'
     ];
     
     const view = params.view as ViewType;

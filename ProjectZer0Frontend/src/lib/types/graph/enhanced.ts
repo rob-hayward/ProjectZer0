@@ -5,10 +5,10 @@ import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-alternative';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-alternative' | 'statement-network';
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement';
-export type LinkType = 'live' | 'alternative';
+export type LinkType = 'live' | 'alternative' | 'related';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
@@ -80,6 +80,7 @@ export type EnhancedLink = {
     type: LinkType;
     strength?: number;
     index?: number;
+    relationshipType?: 'direct' | 'keyword'; // Added for statement relationships
 };
 
 // Position type for consistent positioning
@@ -115,7 +116,8 @@ export interface RenderableLink {
     path: string;
     sourcePosition: NodePosition;
     targetPosition: NodePosition;
-    strength?: number; // Added for consistent access
+    strength?: number; 
+    relationshipType?: 'direct' | 'keyword'; // Added for statement relationships
 }
 
 export interface LayoutNode {
@@ -240,3 +242,6 @@ export const isLiveLink = (link: RenderableLink): boolean =>
 
 export const isAlternativeLink = (link: RenderableLink): boolean =>
     link.type === 'alternative';
+
+export const isRelatedLink = (link: RenderableLink): boolean =>
+    link.type === 'related';

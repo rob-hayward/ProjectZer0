@@ -16,6 +16,7 @@ import { COORDINATE_SPACE, NODE_CONSTANTS } from '$lib/constants/graph';
 import { COLORS } from '$lib/constants/colors';
 import { SingleNodeLayout } from './layouts/SingleNodeLayout';
 import { WordDefinitionLayout } from './layouts/WordDefinitionLayout';
+import { StatementNetworkLayout } from './layouts/StatementNetworkLayout';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -24,7 +25,7 @@ export class GraphManager {
     private _viewType: ViewType;
     private managerId: string;
     private simulationActive = false;
-    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | null = null;
+    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | null = null;
     private isUpdatingStore = writable(false);
 
     // Public derived stores for renderable data
@@ -561,6 +562,14 @@ export class GraphManager {
                 this._viewType
             );
         }
+        else if (this._viewType === 'statement-network') {
+            // Statement network view
+            this.currentLayoutStrategy = new StatementNetworkLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        }
         else {
             // Default to SingleNodeLayout for any other view
             this.currentLayoutStrategy = new SingleNodeLayout(
@@ -658,10 +667,11 @@ export class GraphManager {
             const targetId = typeof link.target === 'string' ? link.target : link.target.id;
             
             return {
-                id: `${sourceId}-${targetId}`, // Add unique ID for each link
+                id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
                 source: sourceId,
                 target: targetId,
                 type: link.type,
+                relationshipType: link.type === 'related' ? 'direct' : 'keyword', // Add relationship type based on link type
                 strength: link.type === 'live' ? 0.7 : 0.3
             };
         });
@@ -745,12 +755,14 @@ export class GraphManager {
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         } else if (node.type === 'statement') {
+            // Add explicit handling for statement nodes
             return node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
         } else if (node.type === 'navigation') {
             return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {
+            // Dashboard, edit-profile, etc.
             return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
     }
@@ -832,7 +844,7 @@ export class GraphManager {
             const path = this.calculateLinkPath(source, target);
             
             return {
-                id: `${source.id}-${target.id}`,
+                id: link.id,
                 type: link.type,
                 sourceId: source.id,
                 targetId: target.id,
@@ -849,7 +861,8 @@ export class GraphManager {
                     y: target.y ?? 0,
                     svgTransform: `translate(${target.x ?? 0}, ${target.y ?? 0})`
                 },
-                strength: link.strength
+                strength: link.strength,
+                relationshipType: link.relationshipType
             };
         }).filter(Boolean) as RenderableLink[];
     }

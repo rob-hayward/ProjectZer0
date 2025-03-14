@@ -38,8 +38,8 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.CREATE_NODE]: 'create-node',
     [NavigationOptionId.EDIT_PROFILE]: 'edit-profile',
     [NavigationOptionId.NETWORK]: 'network',
-    // Add create-alternative mapping
-    [NavigationOptionId.CREATE_ALTERNATIVE]: 'create-alternative'
+    [NavigationOptionId.CREATE_ALTERNATIVE]: 'create-alternative',
+    [NavigationOptionId.EXPLORE]: 'statement-network', // Added mapping for EXPLORE
 };
 
 // Helper to update graph store without TypeScript errors
@@ -76,7 +76,9 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
         window.location.href = '/graph/edit-profile';
     },
     [NavigationOptionId.EXPLORE]: () => {
-        window.location.href = '/explore';
+        // Updated to navigate to statement-network view
+        updateGraphStore('statement-network');
+        window.location.href = '/graph/statement-network';
     },
     [NavigationOptionId.NETWORK]: () => {
         updateGraphStore('network');
