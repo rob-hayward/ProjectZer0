@@ -17,6 +17,28 @@ export class StatementService {
     private readonly voteSchema: VoteSchema,
   ) {}
 
+  async getStatementNetwork(options: {
+    limit?: number;
+    offset?: number;
+    sortBy?: string;
+    sortDirection?: string;
+    keywords?: string[];
+    userId?: string;
+  }): Promise<any[]> {
+    this.logger.log(
+      `Getting statement network with options: ${JSON.stringify(options)}`,
+    );
+    try {
+      return this.statementSchema.getStatementNetwork(options);
+    } catch (error) {
+      this.logger.error(
+        `Error in getStatementNetwork: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get statement network: ${error.message}`);
+    }
+  }
+
   async createStatement(statementData: {
     createdBy: string;
     publicCredit: boolean;
@@ -408,6 +430,19 @@ export class StatementService {
         error.stack,
       );
       throw new Error(`Failed to create related statement: ${error.message}`);
+    }
+  }
+
+  async checkStatements(): Promise<{ count: number }> {
+    this.logger.log('Checking if statements exist in database');
+    try {
+      return this.statementSchema.checkStatements();
+    } catch (error) {
+      this.logger.error(
+        `Error in checkStatements: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to check statements: ${error.message}`);
     }
   }
 }

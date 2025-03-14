@@ -1,6 +1,6 @@
 <!-- src/routes/graph/[view]/+page.svelte -->
 <script lang="ts">
-    import { onMount, afterUpdate } from 'svelte';
+    import { onMount, onDestroy, afterUpdate } from 'svelte';
     import { page } from '$app/stores';
     import * as auth0 from '$lib/services/auth0';
     import type { UserActivity } from '$lib/services/userActivity';
@@ -54,6 +54,10 @@
     let authInitialized = false;
     let dataInitialized = false;
     let userActivity: UserActivity | undefined;
+    
+    // Statement network loading state
+    let networkNodesLoading = true;
+    let networkLoadingTimeout: NodeJS.Timeout;
 
     // Use data from page data for initial state
     $: initialWordData = data.wordData;
@@ -72,7 +76,7 @@
         : 'preview';
     
     // Statement network data
-    $: statements = $statementNetworkStore?.statements || [];
+    $: statements = $statementNetworkStore?.filteredStatements || [];
     
     // Load statement network data when view is statement-network
     $: if (viewType === 'statement-network' && isReady) {
@@ -132,14 +136,32 @@
         if (!$userStore) return;
         
         try {
+            // Set loading state
+            networkNodesLoading = true;
+            
             // Load statements using the network store
-            await statementNetworkStore.loadStatements({
-                limit: 50 // Start with a reasonable limit
+            await statementNetworkStore.loadStatements();
+            
+            console.log('[NETWORK] Loaded statement data:', {
+                total: $statementNetworkStore.allStatements.length,
+                filtered: $statementNetworkStore.filteredStatements.length
             });
             
-            console.log('[NETWORK] Loaded statement data:', $statementNetworkStore.statements.length);
+            // Add a delay before showing the nodes to let the force simulation settle
+            if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
+            networkLoadingTimeout = setTimeout(() => {
+                // Only set loading to false after a delay to let forces settle
+                networkNodesLoading = false;
+            }, 800); // Delay showing nodes to reduce visual flickering
+            
         } catch (error) {
             console.error('[NETWORK] Error loading statement network data:', error);
+            
+            // Show empty state even on error, after a delay
+            if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
+            networkLoadingTimeout = setTimeout(() => {
+                networkNodesLoading = false;
+            }, 800);
         }
     }
 
@@ -217,6 +239,10 @@
     onMount(() => {
         initializeData();
         console.log('[NAVIGATION] Mounted, listening for URL changes');
+    });
+    
+    onDestroy(() => {
+        if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
     });
     
     // Ensure graph store stays in sync with URL
@@ -301,8 +327,18 @@
         // For statement network view - special case with no central node
         if (view === 'statement-network') {
             console.log('[DATA] Creating statement network view data', {
-                statementCount: statements.length
+                statementCount: statements.length,
+                loading: networkNodesLoading
             });
+
+            // Only include navigation nodes during loading to avoid flickering
+            if (networkNodesLoading) {
+                console.log('[DATA] Network in loading state, showing only navigation nodes');
+                return {
+                    nodes: [...navigationNodes],
+                    links: []
+                };
+            }
 
             // Create statement nodes - ALL in preview mode initially
             const statementNodes: GraphNode[] = statements.map(statement => ({
@@ -320,11 +356,11 @@
             statements.forEach(statement => {
                 if (statement.relatedStatements && statement.relatedStatements.length > 0) {
                     statement.relatedStatements.forEach(related => {
-                        // Check if target statement exists in our data
+                        // Check if target statement exists in our filtered data
                         const targetExists = statements.some(s => s.id === related.nodeId);
                         if (targetExists) {
                             statementLinks.push({
-                                id: `${statement.id}-${related.nodeId}-${related.sharedWord}`,
+                                id: `${statement.id}-${related.nodeId}-${related.sharedWord || 'unknown'}`,
                                 source: statement.id,
                                 target: related.nodeId,
                                 type: related.sharedWord === 'direct' ? 'related' as LinkType : 'alternative' as LinkType

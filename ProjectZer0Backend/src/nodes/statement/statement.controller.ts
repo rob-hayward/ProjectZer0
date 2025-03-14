@@ -9,6 +9,7 @@ import {
   UseGuards,
   Logger,
   Request,
+  Query,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { StatementService } from './statement.service';
@@ -35,6 +36,35 @@ export class StatementController {
   private readonly logger = new Logger(StatementController.name);
 
   constructor(private readonly statementService: StatementService) {}
+
+  @Get('network')
+  async getStatementNetwork(
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+    @Query('sortBy') sortBy = 'netPositive',
+    @Query('sortDirection') sortDirection = 'desc',
+    @Query('keyword') keywords?: string[],
+    @Query('userId') userId?: string,
+  ): Promise<any[]> {
+    this.logger.log(
+      `Received request to get statement network with params: ${JSON.stringify({
+        limit,
+        offset,
+        sortBy,
+        sortDirection,
+        keywords,
+        userId,
+      })}`,
+    );
+    return this.statementService.getStatementNetwork({
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+      sortBy,
+      sortDirection,
+      keywords,
+      userId,
+    });
+  }
 
   @Post()
   async createStatement(
@@ -204,5 +234,11 @@ export class StatementController {
       `Received request to get statements directly related to ${id}`,
     );
     return this.statementService.getDirectlyRelatedStatements(id);
+  }
+
+  @Get('check')
+  async checkStatements(): Promise<{ count: number }> {
+    this.logger.log('Received request to check if statements exist');
+    return this.statementService.checkStatements();
   }
 }

@@ -10,6 +10,280 @@ export class StatementSchema {
 
   constructor(private readonly neo4jService: Neo4jService) {}
 
+  // Update the getStatementNetwork method in statement.schema.ts
+
+  async getStatementNetwork(options: {
+    limit?: number;
+    offset?: number;
+    sortBy?: string;
+    sortDirection?: string;
+    keywords?: string[];
+    userId?: string;
+  }): Promise<any[]> {
+    const {
+      limit = null, // Default to null to get all statements
+      offset = 0,
+      sortBy = 'netPositive',
+      sortDirection = 'desc',
+      keywords,
+      userId,
+    } = options;
+
+    this.logger.log(
+      `[StatementSchema] Getting statement network with options: ${JSON.stringify(options)}`,
+    );
+
+    // First, let's check if we have any statements in the database
+    try {
+      const countResult = await this.neo4jService.read(
+        `MATCH (s:StatementNode) RETURN count(s) as count`,
+      );
+      const statementCount = countResult.records[0].get('count').toNumber();
+      this.logger.log(
+        `[StatementSchema] Database contains ${statementCount} statements`,
+      );
+
+      // If no statements exist, return empty array early
+      if (statementCount === 0) {
+        this.logger.log(
+          `[StatementSchema] No statements found in database, returning empty array`,
+        );
+        return [];
+      }
+    } catch (error) {
+      this.logger.error(
+        `[StatementSchema] Error counting statements: ${error.message}`,
+      );
+    }
+
+    // Build a simplified query first to ensure we can retrieve basic statement data
+    const simpleQuery = `
+    MATCH (s:StatementNode)
+    WHERE 1=1
+    ${
+      keywords && keywords.length > 0
+        ? `AND EXISTS {
+      MATCH (s)-[:TAGGED]->(w:WordNode)
+      WHERE w.word IN $keywords
+    }`
+        : ''
+    }
+    ${userId ? `AND s.createdBy = $userId` : ''}
+    RETURN s.id as id, s.statement as statement, s.createdBy as createdBy, 
+           s.publicCredit as publicCredit, s.createdAt as createdAt, 
+           s.updatedAt as updatedAt
+    LIMIT 10
+  `;
+
+    try {
+      this.logger.log(
+        `[StatementSchema] Executing simple query to test statement retrieval`,
+      );
+      const testResult = await this.neo4jService.read(simpleQuery, {
+        keywords,
+        userId,
+      });
+
+      this.logger.log(
+        `[StatementSchema] Simple query returned ${testResult.records.length} statements`,
+      );
+
+      // Log the first statement if available
+      if (testResult.records.length > 0) {
+        const firstStatement = {
+          id: testResult.records[0].get('id'),
+          statement: testResult.records[0].get('statement'),
+          createdBy: testResult.records[0].get('createdBy'),
+        };
+        this.logger.log(
+          `[StatementSchema] First statement: ${JSON.stringify(firstStatement)}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[StatementSchema] Error in simple query: ${error.message}`,
+        error.stack,
+      );
+    }
+
+    // Now try the full query
+    let query = `
+    MATCH (s:StatementNode)
+    WHERE s.visibilityStatus <> false OR s.visibilityStatus IS NULL
+  `;
+
+    // Add keyword filter if specified
+    if (keywords && keywords.length > 0) {
+      query += `
+      AND EXISTS {
+        MATCH (s)-[:TAGGED]->(w:WordNode)
+        WHERE w.word IN $keywords
+      }
+    `;
+    }
+
+    // Add user filter if specified
+    if (userId) {
+      query += `
+      AND s.createdBy = $userId
+    `;
+    }
+
+    // Get all related statements and their connections
+    query += `
+    // Get keywords
+    OPTIONAL MATCH (s)-[t:TAGGED]->(w:WordNode)
+    
+    // Get statements with shared keywords
+    OPTIONAL MATCH (s)-[st:SHARED_TAG]->(o:StatementNode)
+    WHERE o.visibilityStatus <> false OR o.visibilityStatus IS NULL
+    
+    // Get directly related statements
+    OPTIONAL MATCH (s)-[:RELATED_TO]-(r:StatementNode)
+    WHERE r.visibilityStatus <> false OR r.visibilityStatus IS NULL
+    
+    // Get vote counts
+    OPTIONAL MATCH (s)<-[pv:VOTED_ON {status: 'agree'}]-()
+    OPTIONAL MATCH (s)<-[nv:VOTED_ON {status: 'disagree'}]-()
+    
+    WITH s,
+         COUNT(DISTINCT pv) as positiveVotes,
+         COUNT(DISTINCT nv) as negativeVotes,
+         collect(DISTINCT {
+           word: w.word, 
+           frequency: t.frequency,
+           source: t.source
+         }) as keywords,
+         collect(DISTINCT {
+           nodeId: o.id,
+           statement: o.statement,
+           sharedWord: st.word,
+           strength: st.strength
+         }) as relatedStatements,
+         collect(DISTINCT {
+           nodeId: r.id,
+           statement: r.statement,
+           relationshipType: 'direct'
+         }) as directlyRelatedStatements
+  `;
+
+    // Add sorting based on parameter
+    if (sortBy === 'netPositive') {
+      query += `
+      WITH s, keywords, relatedStatements, directlyRelatedStatements, 
+           positiveVotes, negativeVotes,
+           (positiveVotes - negativeVotes) as netVotes
+      ORDER BY netVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
+    `;
+    } else if (sortBy === 'totalVotes') {
+      query += `
+      WITH s, keywords, relatedStatements, directlyRelatedStatements, 
+           positiveVotes, negativeVotes,
+           (positiveVotes + negativeVotes) as totalVotes
+      ORDER BY totalVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
+    `;
+    } else if (sortBy === 'chronological') {
+      query += `
+      WITH s, keywords, relatedStatements, directlyRelatedStatements, 
+           positiveVotes, negativeVotes
+      ORDER BY s.createdAt ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
+    `;
+    }
+
+    // Add pagination if specified
+    if (limit !== null) {
+      query += `
+      SKIP $offset
+      LIMIT $limit
+    `;
+    }
+
+    // Return statement with all its data
+    query += `
+    RETURN s {
+      .*,
+      positiveVotes: positiveVotes,
+      negativeVotes: negativeVotes,
+      keywords: keywords,
+      relatedStatements: CASE 
+        WHEN size(relatedStatements) > 0 THEN relatedStatements
+        ELSE []
+      END,
+      directlyRelatedStatements: CASE
+        WHEN size(directlyRelatedStatements) > 0 THEN directlyRelatedStatements
+        ELSE []
+      END
+    } as statement
+  `;
+
+    try {
+      this.logger.log(`[StatementSchema] Executing full network query`);
+
+      // Log the full query for debugging
+      this.logger.debug(`[StatementSchema] Full query: ${query}`);
+      this.logger.debug(
+        `[StatementSchema] Query params: ${JSON.stringify({
+          limit,
+          offset,
+          keywords,
+          userId,
+        })}`,
+      );
+
+      // Execute the query
+      const result = await this.neo4jService.read(query, {
+        limit,
+        offset,
+        keywords,
+        userId,
+      });
+
+      this.logger.log(
+        `[StatementSchema] Full query returned ${result.records.length} statements`,
+      );
+
+      // Process the results to include both relationship types
+      const statements = result.records.map((record) => {
+        const statement = record.get('statement');
+
+        // Merge the two relationship types for frontend convenience
+        if (
+          statement.directlyRelatedStatements &&
+          statement.directlyRelatedStatements.length > 0
+        ) {
+          if (!statement.relatedStatements) statement.relatedStatements = [];
+
+          // Add any direct relationships not already in relatedStatements
+          statement.directlyRelatedStatements.forEach((direct) => {
+            const exists = statement.relatedStatements.some(
+              (rel) => rel.nodeId === direct.nodeId,
+            );
+            if (!exists) {
+              statement.relatedStatements.push({
+                ...direct,
+                sharedWord: 'direct',
+                strength: 1.0, // Direct relationships have maximum strength
+              });
+            }
+          });
+        }
+
+        // Remove the redundant property to clean up the response
+        delete statement.directlyRelatedStatements;
+
+        return statement;
+      });
+
+      return statements;
+    } catch (error) {
+      this.logger.error(
+        `[StatementSchema] Error getting statement network: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
   async createStatement(statementData: {
     id: string;
     createdBy: string;
@@ -379,6 +653,23 @@ export class StatementSchema {
     } catch (error) {
       this.logger.error(
         `Error getting directly related statements: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  async checkStatements(): Promise<{ count: number }> {
+    try {
+      const result = await this.neo4jService.read(
+        `MATCH (s:StatementNode) RETURN count(s) as count`,
+      );
+      const count = result.records[0].get('count').toNumber();
+      this.logger.log(`Found ${count} statements in database`);
+      return { count };
+    } catch (error) {
+      this.logger.error(
+        `Error checking statements: ${error.message}`,
         error.stack,
       );
       throw error;
