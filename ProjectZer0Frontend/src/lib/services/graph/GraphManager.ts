@@ -58,8 +58,17 @@ export class GraphManager {
         console.debug(`[GraphManager:${this.managerId}] Setting data`, {
             nodeCount: data.nodes.length,
             linkCount: data.links?.length || 0,
+            viewType: this._viewType,
             config
         });
+        
+        // Count node types for debugging
+        const nodeTypes = data.nodes.reduce((acc, node) => {
+            acc[node.type] = (acc[node.type] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+        
+        console.debug(`[GraphManager:${this.managerId}] Node types in data:`, nodeTypes);
         
         // Stop any running simulation
         this.stopSimulation();
@@ -67,6 +76,17 @@ export class GraphManager {
         // Transform input data
         const enhancedNodes = this.transformNodes(data.nodes);
         const enhancedLinks = this.transformLinks(data.links || []);
+        
+        // Debug statement nodes specifically
+        const statementNodes = enhancedNodes.filter(n => n.type === 'statement');
+        if (statementNodes.length > 0) {
+            console.debug(`[GraphManager:${this.managerId}] Found ${statementNodes.length} statement nodes`);
+            console.debug(`[GraphManager:${this.managerId}] First statement node:`, {
+                id: statementNodes[0].id,
+                mode: statementNodes[0].mode,
+                group: statementNodes[0].group
+            });
+        }
         
         // Update stores
         this.nodesStore.set(enhancedNodes);
@@ -171,7 +191,9 @@ export class GraphManager {
         
         // Force a tick to immediately update positions
         console.debug(`[GraphManager:${this.managerId}] Force ticking simulation`);
-        this.forceTick(3); // Force 3 ticks to ensure changes apply
+        // Use more ticks for statement network view
+        const tickCount = this._viewType === 'statement-network' ? 5 : 3;
+        this.forceTick(tickCount);
         
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
@@ -542,8 +564,18 @@ export class GraphManager {
             this.currentLayoutStrategy.stop();
         }
         
+        console.debug(`[GraphManager:${this.managerId}] Applying layout strategy for ${this._viewType} view`);
+        
         // Select appropriate layout strategy
-        if (this._viewType === 'dashboard' || 
+        if (this._viewType === 'statement-network') {
+            console.debug(`[GraphManager:${this.managerId}] Creating StatementNetworkLayout`);
+            this.currentLayoutStrategy = new StatementNetworkLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        }
+        else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
             this._viewType === 'create-node' ||
             this._viewType === 'statement') {
@@ -557,14 +589,6 @@ export class GraphManager {
         else if (this._viewType === 'word') {
             // Word definition view
             this.currentLayoutStrategy = new WordDefinitionLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-        }
-        else if (this._viewType === 'statement-network') {
-            // Statement network view
-            this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
@@ -587,6 +611,12 @@ export class GraphManager {
             // Get links if available
             const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
             const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
+            
+            // Debug statement nodes before applying layout
+            const statementNodes = nodes.filter(n => n.type === 'statement');
+            if (statementNodes.length > 0) {
+                console.debug(`[GraphManager:${this.managerId}] Positioning ${statementNodes.length} statement nodes`);
+            }
             
             // Set the simulation for the strategy
             this.currentLayoutStrategy.setSimulation(this.simulation as any);
@@ -638,7 +668,8 @@ export class GraphManager {
                     group: this.getLayoutGroup(node),
                     fixed: node.group === 'central',
                     isDetail: node.mode === 'detail',
-                    votes: node.type === 'definition' ? this.getNodeVotes(node) : undefined,
+                    votes: node.type === 'definition' || node.type === 'statement' ? 
+                        this.getNodeVotes(node) : undefined,
                     createdAt: 'createdAt' in node.data ? 
                         (node.data.createdAt instanceof Date ? 
                             node.data.createdAt.toISOString() : 
@@ -662,17 +693,30 @@ export class GraphManager {
     }
 
     private transformLinks(links: GraphLink[]): EnhancedLink[] {
+        console.debug(`[GraphManager:${this.managerId}] Transforming ${links.length} links`);
+        
         return links.map(link => {
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
             const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            
+            // Determine relationship type and strength based on link type
+            let relationshipType: 'direct' | 'keyword' = 'keyword';
+            let strength = 0.3;
+            
+            if (link.type === 'related') {
+                relationshipType = 'direct';
+                strength = 0.7; // Stronger connections for direct relationships
+            } else if (link.type === 'live') {
+                strength = 0.7;
+            }
             
             return {
                 id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
                 source: sourceId,
                 target: targetId,
                 type: link.type,
-                relationshipType: link.type === 'related' ? 'direct' : 'keyword', // Add relationship type based on link type
-                strength: link.type === 'live' ? 0.7 : 0.3
+                relationshipType: relationshipType,
+                strength: strength
             };
         });
     }

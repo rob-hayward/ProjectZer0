@@ -63,17 +63,20 @@ function updateGraphStore(viewType: ViewType): void {
 
 // Navigation action handlers
 const navigationHandlers: Record<NavigationOptionId, () => void> = {
+    // Updated to navigate to the direct routes
     [NavigationOptionId.DASHBOARD]: () => {
         updateGraphStore('dashboard');
         window.location.href = '/graph/dashboard';
     },
-    [NavigationOptionId.CREATE_NODE]: () => {
-        updateGraphStore('create-node');
-        window.location.href = '/graph/create-node';
-    },
+    
     [NavigationOptionId.EDIT_PROFILE]: () => {
         updateGraphStore('edit-profile');
         window.location.href = '/graph/edit-profile';
+    },
+    
+    [NavigationOptionId.CREATE_NODE]: () => {
+        updateGraphStore('create-node');
+        window.location.href = '/graph/create-node';
     },
     [NavigationOptionId.EXPLORE]: () => {
         // Updated to navigate to statement-network view

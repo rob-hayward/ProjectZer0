@@ -6,24 +6,15 @@
     import type { UserActivity } from '$lib/services/userActivity';
     import { getUserActivity } from '$lib/services/userActivity';
     import { getWordData } from '$lib/services/word'; 
-    import { getStatementData } from '$lib/services/statement';
     import Graph from '$lib/components/graph/Graph.svelte';
-    import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
-    import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
-    import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
     import CreateAlternativeDefinitionNode from '$lib/components/graph/nodes/createNode/CreateAlternativeDefinitionNode.svelte';
-    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
-    import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
-    import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import { getNavigationOptions } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
-    import { statementStore } from '$lib/stores/statementStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
-    import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
     import type { 
         GraphData, 
         GraphNode, 
@@ -36,16 +27,9 @@
         ViewType,
         LinkType
     } from '$lib/types/graph/enhanced';
-    import type { Keyword, RelatedStatement } from '$lib/types/domain/nodes';
+    import type { RelatedStatement } from '$lib/types/domain/nodes';
     import {
-        isDashboardNode,
-        isEditProfileNode,
-        isCreateNodeNode,
-        isWordNode,
-        isDefinitionNode,
-        isNavigationNode,
-        isStatementNode,
-        isWordNodeData
+        isNavigationNode
     } from '$lib/types/graph/enhanced';
     
     export let data: GraphPageData;
@@ -61,19 +45,10 @@
 
     // Use data from page data for initial state
     $: initialWordData = data.wordData;
-    $: initialStatementData = data.statementData;
     
     // Derive viewType directly from URL parameters
     $: viewType = $page.params.view as ViewType;
     $: view = viewType;
-    
-    // Node mode handling
-    $: wordNodeMode = $page ? 
-        ($page.params.view === 'word' ? 'detail' : 'preview')
-        : 'preview';
-    $: statementNodeMode = $page ?
-        ($page.params.view === 'statement' ? 'detail' : 'preview')
-        : 'preview';
     
     // Statement network data
     $: statements = $statementNetworkStore?.filteredStatements || [];
@@ -84,34 +59,14 @@
         loadStatementNetworkData();
     }
 
-    // Check for alternative definition mode (separate from view type)
-    $: isAlternativeDefinitionsMode = false; // NOTE: alternative-definitions is a mode, not a view type
-    
-    // Preview mode handling
-    $: isPreviewMode = isAlternativeDefinitionsMode ? 
-        wordNodeMode === 'preview' : 
-        view === 'word' ? 
-            wordNodeMode === 'preview' : 
-            view === 'statement' ?
-                statementNodeMode === 'preview' :
-                false;
-            
     // Check for alternative definition creation view
     $: isCreateAlternative = view === 'create-alternative';
     
     // View type checks
-    $: isWordView = view === 'word';
-    $: isStatementView = view === 'statement';
     $: isStatementNetworkView = view === 'statement-network';
     
-    // Only true word views need word data for the central node
-    $: needsWordDataForCentralNode = isWordView;
-    
     // But we still need to load word data for create-alternative
-    $: needsWordDataLoaded = isWordView || isCreateAlternative;
-    
-    // Statement view needs statement data for the central node
-    $: needsStatementDataForCentralNode = isStatementView;
+    $: needsWordDataLoaded = isCreateAlternative;
 
     // Force immediate graph updates on navigation
     function forceGraphUpdate(newViewType: ViewType) {
@@ -184,7 +139,7 @@
             userStore.set(fetchedUser);
             userActivity = await getUserActivity();
             
-            // Handle word data for both word view and create-alternative view
+            // Handle word data for create-alternative view
             if (needsWordDataLoaded) {
                 console.log(`[INIT] ${view} view detected, loading word data`);
                 const wordParam = new URL(window.location.href).searchParams.get('word');
@@ -197,24 +152,6 @@
                             view
                         });
                         wordStore.set(loadedWord);
-                    }
-                }
-            }
-            
-            // Handle statement data for statement view
-            if (isStatementView) {
-                console.log(`[INIT] ${view} view detected, loading statement data`);
-                const idParam = new URL(window.location.href).searchParams.get('id');
-                if (idParam) {
-                    const loadedStatement = await getStatementData(idParam);
-                    if (loadedStatement) {
-                        console.log('[INIT] Setting statement data', {
-                            statementId: loadedStatement.id,
-                            statement: loadedStatement.statement,
-                            keywordCount: loadedStatement.keywords?.length,
-                            view
-                        });
-                        statementStore.set(loadedStatement);
                     }
                 }
             }
@@ -237,6 +174,7 @@
     }
 
     onMount(() => {
+        console.log("✅ USING UNIVERSAL COMPONENT");
         initializeData();
         console.log('[NAVIGATION] Mounted, listening for URL changes');
     });
@@ -262,56 +200,22 @@
 
     // Data reactivity
     $: wordData = needsWordDataLoaded ? ($wordStore || initialWordData) : null;
-    $: statementData = isStatementView ? ($statementStore || initialStatementData) : null;
     $: isReady = authInitialized && dataInitialized;
     
     // Enhanced route key with timestamp to ensure uniqueness
     $: routeKey = `${viewType}-${Date.now()}`;
 
-    // Event handlers - Clean version
+    // Event handlers (not used for statement node mode changes anymore)
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
         console.log('[MODE-CHANGE] Node mode change', {
             nodeId: event.detail.nodeId,
             newMode: event.detail.mode
         });
-        
-        // Handle word node mode changes specifically
-        if (wordData && event.detail.nodeId === wordData.id) {
-            console.log('[MODE-CHANGE] Word node mode change', {
-                from: wordNodeMode,
-                to: event.detail.mode
-            });
-            wordNodeMode = event.detail.mode;
-        }
-        
-        // Handle statement node mode changes specifically
-        if (statementData && event.detail.nodeId === statementData.id) {
-            console.log('[MODE-CHANGE] Statement node mode change', {
-                from: statementNodeMode,
-                to: event.detail.mode
-            });
-            statementNodeMode = event.detail.mode;
-        }
     }
 
     // Updated central node type handling - only for views that need a central node
     $: centralNode = isReady && $userStore && (
-        needsWordDataForCentralNode && wordData ? {
-            // Word node as central for word views
-            id: wordData.id,
-            type: 'word' as const,
-            data: wordData,
-            group: 'central' as const,
-            mode: wordNodeMode
-        } : 
-        needsStatementDataForCentralNode && statementData ? {
-            // Statement node as central for statement views
-            id: statementData.id,
-            type: 'statement' as const,
-            data: statementData,
-            group: 'central' as const,
-            mode: statementNodeMode
-        } : {
+        {
             // User profile for other views (except statement-network)
             id: $userStore.sub,
             type: isCreateAlternative ? 'create-node' as const : 
@@ -390,113 +294,22 @@
         // Debug central node
         console.debug('[DATA] Central node details:', {
             id: centralNode.id, 
-            type: centralNode.type,
-            mode: centralNode.type === 'statement' ? statementNodeMode : undefined
+            type: centralNode.type
         });
 
-        // Always explicitly set the mode on the central node
-        const centralNodeWithCorrectMode = {
-            ...centralNode,
-            mode: centralNode.type === 'statement' ? statementNodeMode as NodeMode : 
-                  centralNode.type === 'word' ? wordNodeMode as NodeMode :
-                  centralNode.mode
-        };
-
-        const baseNodes = [centralNodeWithCorrectMode, ...navigationNodes] as GraphNode[];
+        const baseNodes = [centralNode, ...navigationNodes] as GraphNode[];
         
-        // Handle word view with definitions
-        if (wordData && wordData.definitions && wordData.definitions.length > 0 && view === 'word') {
-            console.log('[DATA] Creating word view data', {
-                definitionCount: wordData.definitions.length,
-                wordNodeMode
-            });
-
-            // Sort definitions by votes to establish rank order
-            const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
-                getNetVotes(b) - getNetVotes(a)
-            );
-
-            // Create word node with mode
-            const nodesWithModes: GraphNode[] = baseNodes.map(node => 
-                node.type === 'word' ? {
-                    ...node,
-                    mode: wordNodeMode as NodeMode
-                } : node
-            );
-
-            // Create definition nodes with their rank-based grouping
-            const definitionNodes: GraphNode[] = sortedDefinitions.map((definition, index) => ({
-                id: definition.id,
-                type: 'definition' as NodeType,
-                data: definition,
-                group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
-                mode: 'preview' as NodeMode
-            }));
-
-            // Define pure relationship links
-            const definitionLinks: GraphLink[] = sortedDefinitions.map((definition, index) => ({
-                id: `${centralNode.id}-${definition.id}-${Date.now()}-${index}`,
-                source: centralNode.id,
-                target: definition.id,
-                type: (index === 0 ? 'live' : 'alternative') as LinkType
-            }));
-
-            console.log('[DATA] Created graph structure for word view', {
-                nodeCount: nodesWithModes.length + definitionNodes.length,
-                linkCount: definitionLinks.length
-            });
-
-            return {
-                nodes: [...nodesWithModes, ...definitionNodes],
-                links: definitionLinks
-            };
-        } 
-        // Handle statement view - SIMPLIFIED implementation
-        else if (statementData && view === 'statement') {
-            console.log('[DATA] Creating simplified statement view data', {
-                statementId: statementData.id,
-                statement: statementData.statement,
-                statementNodeMode
-            });
-            
-            // Make sure the central node (statement) has the correct mode
-            const nodesWithCorrectMode = baseNodes.map(node => {
-                if (node.id === statementData.id) {
-                    return {
-                        ...node,
-                        mode: statementNodeMode as NodeMode
-                    };
-                }
-                return node;
-            });
-            
-            console.log('[DATA] Created simplified graph structure for statement view', {
-                nodeCount: nodesWithCorrectMode.length,
-                linkCount: 0
-            });
-            
-            // Return only the basic nodes (central statement + navigation)
-            return {
-                nodes: nodesWithCorrectMode,
-                links: []
-            };
-        }
         // Default case for all other views
-        else {
-            console.log('[DATA] Created base graph structure', {
-                nodeCount: baseNodes.length
-            });
-            return { nodes: baseNodes, links: [] };
-        }
+        console.log('[DATA] Created base graph structure', {
+            nodeCount: baseNodes.length
+        });
+        return { nodes: baseNodes, links: [] };
     }
 
     // Define navigation context based on the current view
     $: context = 
-        view === 'dashboard' ? NavigationContext.DASHBOARD :
         view === 'create-node' ? NavigationContext.CREATE_NODE :
         view === 'edit-profile' ? NavigationContext.EDIT_PROFILE :
-        isWordView ? NavigationContext.WORD :
-        isStatementView ? NavigationContext.WORD : // For now, use word context for statement view too
         view === 'create-alternative' ? NavigationContext.WORD : // Use word context for alternative definition
         view === 'statement-network' ? NavigationContext.DASHBOARD : // Use dashboard context for statement network
         NavigationContext.DASHBOARD;
@@ -530,55 +343,12 @@
     on:modechange={handleNodeModeChange}
 >
     <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isWordNode(node) && wordData}
-            <WordNode 
-                {node}
-                wordText={wordData.word}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isWordNode(node) && (!wordData && isStatementView)}
-            <!-- Handle keyword nodes in statement view -->
-            <WordNode 
-                {node}
-                wordText={node.data.word} 
-                on:modeChange={handleModeChange}
-            />
-        {:else if isDefinitionNode(node) && wordData}
-            <DefinitionNode 
-                {node}
-                wordText={wordData.word}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isStatementNode(node)}
-            <StatementNode 
-                {node}
-                statementText={isStatementView && statementData ? statementData.statement : node.data.statement}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isDashboardNode(node)}
-            <DashboardNode 
-                {node}
-                {userActivity}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isEditProfileNode(node)}
-            <EditProfileNode 
+        {#if isCreateAlternative && wordData && node.type === 'create-node'}
+            <!-- Create alternative definition node handling kept for now -->
+            <CreateAlternativeDefinitionNode 
                 {node}
                 on:modeChange={handleModeChange}
             />
-        {:else if isCreateNodeNode(node)}
-            {#if isCreateAlternative && wordData}
-                <!-- When in create-alternative view and have word data, render CreateAlternativeDefinitionNode -->
-                <CreateAlternativeDefinitionNode 
-                    {node}
-                    on:modeChange={handleModeChange}
-                />
-            {:else}
-                <CreateNodeNode 
-                    {node}
-                    on:modeChange={handleModeChange}
-                />
-            {/if}
         {:else if isNavigationNode(node)}
             <NavigationNode 
                 {node}

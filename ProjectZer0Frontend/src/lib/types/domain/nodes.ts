@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/lib/types/domain/nodes.ts
+// src/lib/types/domain/nodes.ts
 export interface Definition {
     id: string;
     definitionText: string;  // Changed from text to definitionText
@@ -51,6 +51,8 @@ export interface StatementNode {
     negativeVotes: number;
     keywords?: Keyword[];
     relatedStatements?: RelatedStatement[];
+    // We don't need directlyRelatedStatements since we'll detect direct relationships
+    // from the relatedStatements array based on sharedWord === 'direct'
     discussion?: {
         id: string;
         comments: Comment[];

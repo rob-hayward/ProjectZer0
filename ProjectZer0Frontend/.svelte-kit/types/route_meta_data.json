@@ -1,5 +1,20 @@
 {
 	"/": [],
+	"/graph/create-node": [
+		"src/routes/graph/create-node/+page.ts"
+	],
+	"/graph/dashboard": [
+		"src/routes/graph/dashboard/+page.ts"
+	],
+	"/graph/edit-profile": [
+		"src/routes/graph/edit-profile/+page.ts"
+	],
+	"/graph/statement": [
+		"src/routes/graph/statement/+page.ts"
+	],
+	"/graph/word": [
+		"src/routes/graph/word/+page.ts"
+	],
 	"/graph/[view]": [
 		"src/routes/graph/[view]/+page.ts"
 	]

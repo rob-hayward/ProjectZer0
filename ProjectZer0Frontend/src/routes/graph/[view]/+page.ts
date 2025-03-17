@@ -14,7 +14,6 @@ import type {
     LinkType
 } from '$lib/types/graph/enhanced';
 import { getWordData } from '$lib/services/word';
-import { getStatementData } from '$lib/services/statement';
 
 export const ssr = false;
 
@@ -51,16 +50,53 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
         isValid: validViews.includes(view) 
     });
 
+    // Redirect migrated view types to their standalone routes
+    if (view === 'dashboard') {
+        console.debug('[INIT-2a] +page.ts: Redirecting dashboard to standalone route');
+        throw redirect(307, '/graph/dashboard');
+    }
+    
+    if (view === 'edit-profile') {
+        console.debug('[INIT-2a] +page.ts: Redirecting edit-profile to standalone route');
+        throw redirect(307, '/graph/edit-profile');
+    }
+    
+    if (view === 'create-node') {
+        console.debug('[INIT-2a] +page.ts: Redirecting create-node to standalone route');
+        throw redirect(307, '/graph/create-node');
+    }
+    
+    if (view === 'word') {
+        console.debug('[INIT-2a] +page.ts: Redirecting word view to standalone route');
+        const wordParam = url.searchParams.get('word');
+        if (wordParam) {
+            const redirectUrl = `/graph/word?word=${encodeURIComponent(wordParam)}`;
+            throw redirect(307, redirectUrl);
+        } else {
+            throw redirect(307, '/graph/dashboard');
+        }
+    }
+    
+    if (view === 'statement') {
+        console.debug('[INIT-2a] +page.ts: Redirecting statement view to standalone route');
+        const idParam = url.searchParams.get('id');
+        if (idParam) {
+            const redirectUrl = `/graph/statement?id=${encodeURIComponent(idParam)}`;
+            throw redirect(307, redirectUrl);
+        } else {
+            throw redirect(307, '/graph/dashboard');
+        }
+    }
+
     if (!view || !validViews.includes(view)) {
-        console.debug('[INIT-2a] +page.ts: Invalid view, redirecting to dashboard');
+        console.debug('[INIT-2b] +page.ts: Invalid view, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 
     let wordData = null;
-    let statementData = null;
     
-    // Handle both 'word' and 'create-alternative' views that need word data
-    if (view === 'word' || view === 'create-alternative') {
+    // Handle the 'create-alternative' view that needs word data
+    if (view === 'create-alternative') {
         const wordParam = url.searchParams.get('word');
         console.debug(`[INIT-3] +page.ts: ${view} view detected`, { wordParam });
 
@@ -85,39 +121,7 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
             });
 
         } catch (error) {
-            console.debug('[INIT-4b] +page.ts: Error loading word data, redirecting to dashboard', { error });
-            throw redirect(307, '/graph/dashboard');
-        }
-    }
-    
-    // Handle statement view
-    else if (view === 'statement') {
-        const idParam = url.searchParams.get('id');
-        console.debug('[INIT-3] +page.ts: Statement view detected', { idParam });
-
-        if (!idParam) {
-            console.debug('[INIT-3a] +page.ts: No statement ID parameter, redirecting to dashboard');
-            throw redirect(307, '/graph/dashboard');
-        }
-
-        try {
-            console.debug('[INIT-4] +page.ts: Fetching statement data', { idParam });
-            statementData = await getStatementData(idParam);
-            
-            if (!statementData) {
-                console.debug('[INIT-4a] +page.ts: No statement data found, redirecting to dashboard');
-                throw new Error('No statement data found');
-            }
-
-            console.debug('[INIT-5] +page.ts: Statement data loaded successfully', {
-                statementId: statementData.id,
-                statement: statementData.statement,
-                keywordCount: statementData.keywords?.length,
-                viewType: view
-            });
-
-        } catch (error) {
-            console.debug('[INIT-4b] +page.ts: Error loading statement data, redirecting to dashboard', { error });
+            console.debug('[INIT-4b] +page.ts: Error loading word data, redirecting to dashboard');
             throw redirect(307, '/graph/dashboard');
         }
     }
@@ -126,15 +130,14 @@ export const load = (async ({ params, url }: LoadEvent): Promise<GraphPageData> 
         view,
         hasWordData: !!wordData,
         wordId: wordData?.id,
-        hasStatementData: !!statementData,
-        statementId: statementData?.id
     });
 
+    // Return data with null statementData 
     return {
         view,
         viewType: view,
         wordData,
-        statementData,
+        statementData: null, // Now explicitly set to null
         _routeKey: Math.random().toString(36).substring(2) // Add random key for forcing re-renders
     };
 }) satisfies PageLoad;
