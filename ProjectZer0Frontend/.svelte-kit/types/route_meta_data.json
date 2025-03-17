@@ -1,5 +1,8 @@
 {
 	"/": [],
+	"/graph/create-definition": [
+		"src/routes/graph/create-definition/+page.ts"
+	],
 	"/graph/create-node": [
 		"src/routes/graph/create-node/+page.ts"
 	],
@@ -9,6 +12,9 @@
 	"/graph/edit-profile": [
 		"src/routes/graph/edit-profile/+page.ts"
 	],
+	"/graph/statement-network": [
+		"src/routes/graph/statement-network/+page.ts"
+	],
 	"/graph/statement": [
 		"src/routes/graph/statement/+page.ts"
 	],
@@ -17,5 +23,8 @@
 	],
 	"/graph/[view]": [
 		"src/routes/graph/[view]/+page.ts"
+	],
+	"/graph/[...catchAll]": [
+		"src/routes/graph/[...catchAll]/+page.ts"
 	]
 }

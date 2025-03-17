@@ -5,7 +5,7 @@ import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-alternative' | 'statement-network';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network';
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement';
 export type LinkType = 'live' | 'alternative' | 'related';

@@ -1,4 +1,4 @@
-<!-- src/routes/graph/[view]/+page.svelte -->
+<!-- src/routes/graph/[view]/+page.svelte
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate } from 'svelte';
     import { page } from '$app/stores';
@@ -7,7 +7,6 @@
     import { getUserActivity } from '$lib/services/userActivity';
     import { getWordData } from '$lib/services/word'; 
     import Graph from '$lib/components/graph/Graph.svelte';
-    import CreateAlternativeDefinitionNode from '$lib/components/graph/nodes/createNode/CreateAlternativeDefinitionNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import { getNavigationOptions } from '$lib/services/navigation';
     import { NavigationContext } from '$lib/services/navigation';
@@ -59,14 +58,11 @@
         loadStatementNetworkData();
     }
 
-    // Check for alternative definition creation view
-    $: isCreateAlternative = view === 'create-alternative';
-    
     // View type checks
     $: isStatementNetworkView = view === 'statement-network';
     
-    // But we still need to load word data for create-alternative
-    $: needsWordDataLoaded = isCreateAlternative;
+    // No longer need to handle create-alternative/create-definition in this component
+    $: needsWordDataLoaded = false;
 
     // Force immediate graph updates on navigation
     function forceGraphUpdate(newViewType: ViewType) {
@@ -139,23 +135,6 @@
             userStore.set(fetchedUser);
             userActivity = await getUserActivity();
             
-            // Handle word data for create-alternative view
-            if (needsWordDataLoaded) {
-                console.log(`[INIT] ${view} view detected, loading word data`);
-                const wordParam = new URL(window.location.href).searchParams.get('word');
-                if (wordParam) {
-                    const loadedWord = await getWordData(wordParam);
-                    if (loadedWord) {
-                        console.log('[INIT] Setting word data', {
-                            wordId: loadedWord.id,
-                            definitionCount: loadedWord.definitions?.length,
-                            view
-                        });
-                        wordStore.set(loadedWord);
-                    }
-                }
-            }
-            
             // Handle statement network data
             if (isStatementNetworkView) {
                 console.log(`[INIT] ${view} view detected, loading statement network data`);
@@ -218,8 +197,7 @@
         {
             // User profile for other views (except statement-network)
             id: $userStore.sub,
-            type: isCreateAlternative ? 'create-node' as const : 
-                  isStatementNetworkView ? 'dashboard' as const : // Fallback type for statement-network
+            type: isStatementNetworkView ? 'dashboard' as const : // Fallback type for statement-network
                   view as NodeType,
             data: $userStore,
             group: 'central' as const
@@ -310,7 +288,6 @@
     $: context = 
         view === 'create-node' ? NavigationContext.CREATE_NODE :
         view === 'edit-profile' ? NavigationContext.EDIT_PROFILE :
-        view === 'create-alternative' ? NavigationContext.WORD : // Use word context for alternative definition
         view === 'statement-network' ? NavigationContext.DASHBOARD : // Use dashboard context for statement network
         NavigationContext.DASHBOARD;
 
@@ -343,20 +320,14 @@
     on:modechange={handleNodeModeChange}
 >
     <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isCreateAlternative && wordData && node.type === 'create-node'}
-            <!-- Create alternative definition node handling kept for now -->
-            <CreateAlternativeDefinitionNode 
-                {node}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isNavigationNode(node)}
+        {#if isNavigationNode(node)}
             <NavigationNode 
                 {node}
                 on:hover={() => {}} 
             />
         {:else}
-            <!-- Fallback for unrecognized node types -->
-            <g>
+             Fallback for unrecognized node types -->
+            <!-- <g>
                 <text 
                     dy="-10" 
                     class="error-text"
@@ -420,4 +391,4 @@
             transform: rotate(360deg);
         }
     }
-</style>
+</style> --> 

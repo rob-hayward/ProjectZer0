@@ -16,7 +16,7 @@ export const NavigationOptionId = {
     CREATIONS: 'creations',
     LOGOUT: 'logout',
     ALTERNATIVE_DEFINITIONS: 'alternative-definitions',
-    CREATE_ALTERNATIVE: 'create-alternative',
+    CREATE_DEFINITION: 'create-definition', // Renamed from CREATE_ALTERNATIVE
     DISCUSS: 'discuss'
 } as const;
 
@@ -38,7 +38,7 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.CREATE_NODE]: 'create-node',
     [NavigationOptionId.EDIT_PROFILE]: 'edit-profile',
     [NavigationOptionId.NETWORK]: 'network',
-    [NavigationOptionId.CREATE_ALTERNATIVE]: 'create-alternative',
+    [NavigationOptionId.CREATE_DEFINITION]: 'create-definition', // Updated to use new name
     [NavigationOptionId.EXPLORE]: 'statement-network', // Added mapping for EXPLORE
 };
 
@@ -95,19 +95,31 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     },
     [NavigationOptionId.LOGOUT]: () => auth0.logout(),
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => navigateWithWord('/graph/alternative-definitions'),
-    // Updated handler for CREATE_ALTERNATIVE
-    [NavigationOptionId.CREATE_ALTERNATIVE]: () => {
+    // Updated handler for CREATE_DEFINITION
+    [NavigationOptionId.CREATE_DEFINITION]: () => {
         const currentWord = get(wordStore);
+        console.log(`[Navigation] CREATE_DEFINITION handler called, currentWord:`, currentWord);
+        
         if (currentWord) {
             // First update graph state
-            updateGraphStore('create-alternative');
+            updateGraphStore('create-definition');
             
             // Then navigate with current word
-            console.log(`[Navigation] Navigating to create alternative for word: ${currentWord.word}`);
-            window.location.href = `/graph/create-alternative?word=${encodeURIComponent(currentWord.word)}`;
+            console.log(`[Navigation] Navigating to create definition for word: ${currentWord.word}`);
+            window.location.href = `/graph/create-definition?word=${encodeURIComponent(currentWord.word)}`;
         } else {
-            console.warn('[Navigation] Cannot create alternative: No word found in store');
-            window.location.href = '/graph/dashboard';
+            // Try to get word from URL if we're already in a word view
+            console.warn('[Navigation] No word in store, checking URL for word parameter');
+            const url = new URL(window.location.href);
+            const wordParam = url.searchParams.get('word');
+            
+            if (wordParam) {
+                console.log(`[Navigation] Found word parameter in URL: ${wordParam}`);
+                window.location.href = `/graph/create-definition?word=${encodeURIComponent(wordParam)}`;
+            } else {
+                console.warn('[Navigation] Cannot create definition: No word found in store or URL');
+                window.location.href = '/graph/dashboard';
+            }
         }
     },
     [NavigationOptionId.DISCUSS]: () => navigateWithWord('/graph/discuss')
@@ -134,7 +146,7 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.CREATIONS]: 'stars',
     [NavigationOptionId.DASHBOARD]: 'home',
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: 'format_list_bulleted',
-    [NavigationOptionId.CREATE_ALTERNATIVE]: 'playlist_add_circle',
+    [NavigationOptionId.CREATE_DEFINITION]: 'playlist_add_circle',
     [NavigationOptionId.DISCUSS]: 'forum'
 };
 
@@ -173,7 +185,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.CREATE_NODE,
         NavigationOptionId.ALTERNATIVE_DEFINITIONS,
         NavigationOptionId.LOGOUT,
-        NavigationOptionId.CREATE_ALTERNATIVE,
+        NavigationOptionId.CREATE_DEFINITION, // Updated to use new name
         NavigationOptionId.DISCUSS,
         NavigationOptionId.DASHBOARD
     ],

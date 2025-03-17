@@ -9,19 +9,25 @@ export const nodes = [
 	() => import('./nodes/5'),
 	() => import('./nodes/6'),
 	() => import('./nodes/7'),
-	() => import('./nodes/8')
+	() => import('./nodes/8'),
+	() => import('./nodes/9'),
+	() => import('./nodes/10'),
+	() => import('./nodes/11')
 ];
 
 export const server_loads = [];
 
 export const dictionary = {
 		"/": [2],
-		"/graph/create-node": [4],
-		"/graph/dashboard": [5],
-		"/graph/edit-profile": [6],
-		"/graph/statement": [7],
-		"/graph/word": [8],
-		"/graph/[view]": [3]
+		"/graph/create-definition": [5],
+		"/graph/create-node": [6],
+		"/graph/dashboard": [7],
+		"/graph/edit-profile": [8],
+		"/graph/statement-network": [10],
+		"/graph/statement": [9],
+		"/graph/word": [11],
+		"/graph/[view]": [4],
+		"/graph/[...catchAll]": [3]
 	};
 
 export const hooks = {
