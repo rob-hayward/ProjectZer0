@@ -5,9 +5,11 @@
     import Graph from '$lib/components/graph/Graph.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
+    import GraphControls from '$lib/components/graph/controls/GraphControls.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
+    import { graphFilterStore, type FilterOperator, type SortDirection } from '$lib/stores/graphFilterStore';
     import { graphStore } from '$lib/stores/graphStore';
     import type { 
         GraphData, 
@@ -27,8 +29,12 @@
     } from '$lib/types/graph/enhanced';
     import type { RelatedStatement } from '$lib/types/domain/nodes';
 
-    export const data: GraphPageData = undefined; // Changed to const to avoid unused warning
-
+    // Define view type
+    const viewType: ViewType = 'statement-network';
+    
+    // Create a unique key for forcing re-renders
+    let routeKey = `${viewType}-${Date.now()}`;
+    
     // Initialization states
     let authInitialized = false;
     let dataInitialized = false;
@@ -37,15 +43,13 @@
     let networkNodesLoading = true;
     let networkLoadingTimeout: NodeJS.Timeout;
     
-    // Define view type
-    const viewType: ViewType = 'statement-network';
-    
-    // Create a unique key for forcing re-renders
-    let routeKey = `${viewType}-${Date.now()}`;
-    
     // Get statements from the store
     $: statements = $statementNetworkStore?.filteredStatements || [];
-
+    
+    // Calculate available keywords for filtering
+    $: availableKeywords = statementNetworkStore ? 
+        statementNetworkStore.getUniqueKeywords() : [];
+    
     // Initialize data and authenticate user
     async function initializeData() {
         console.log('[STATEMENT-NETWORK] Starting data initialization');
@@ -65,6 +69,9 @@
             
             authInitialized = true;
             userStore.set(fetchedUser);
+            
+            // Initialize the graph filter store
+            graphFilterStore.setViewType('statement-network', true);
             
             // Load statement network data
             await loadStatementNetworkData();
@@ -124,6 +131,43 @@
                 networkNodesLoading = false;
             }, 800);
         }
+    }
+
+    // Handle filter/sort changes
+    async function handleControlChange(event: CustomEvent<{
+        sortType: string;
+        sortDirection: string;
+        keywords: string[];
+        keywordOperator: string;
+        nodeTypes: string[];
+        nodeTypeOperator: string;
+        showOnlyMyItems: boolean;
+    }>) {
+        console.log('[STATEMENT-NETWORK] Control change event:', event.detail);
+        
+        // Update filters through the graph filter store
+        await graphFilterStore.applyConfiguration({
+            sortType: event.detail.sortType,
+            sortDirection: event.detail.sortDirection as SortDirection,
+            keywords: event.detail.keywords,
+            keywordOperator: event.detail.keywordOperator as FilterOperator,
+            nodeTypes: event.detail.nodeTypes,
+            nodeTypeOperator: event.detail.nodeTypeOperator as FilterOperator,
+            userId: event.detail.showOnlyMyItems ? $userStore?.sub : undefined
+        });
+        
+        // Update layout in graph manager if needed
+        if (graphStore) {
+            updateNetworkLayout();
+        }
+    }
+    
+    // Update the network layout based on current sort settings
+    function updateNetworkLayout() {
+        if (!graphStore || !isReady) return;
+        
+        // Force a tick to refresh positions after sorting/filtering
+        graphStore.forceTick(10);
     }
 
     // Event handlers
@@ -243,43 +287,51 @@
         <div class="loading-text">No statements found</div>
     </div>
 {:else}
-    {#if statements.length > 0}
-        {@const _ = console.log('[STATEMENT-NETWORK] Rendering Graph with statements:', {
-            count: statements.length,
-            first: statements[0]?.id
-        })}
-    {/if}
-{#key routeKey}
-<Graph 
-    data={graphData}
-    viewType={viewType}
-    on:modechange={handleNodeModeChange}
->
-    <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isStatementNode(node)}
-            <StatementNode 
-                {node}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isNavigationNode(node)}
-            <NavigationNode 
-                {node}
-                on:hover={() => {}} 
-            />
-        {:else}
-            <!-- Fallback for unrecognized node types -->
-            <g>
-                <text 
-                    dy="-10" 
-                    class="error-text"
-                >
-                    Unknown node type: {node.type}
-                </text>
-            </g>
-        {/if}
-    </svelte:fragment>
-</Graph>
-{/key}
+    <!-- Use our reusable graph controls component -->
+    <GraphControls
+        viewType="statement-network"
+        enableSorting={true}
+        enableKeywordFilter={true}
+        enableUserFilter={true}
+        enableNodeTypeFilter={false}
+        initialSortType="netPositive"
+        initialSortDirection="desc"
+        {availableKeywords}
+        on:change={handleControlChange}
+    />
+    
+    <!-- Graph visualization -->
+    {#key routeKey}
+    <Graph 
+        data={graphData}
+        viewType={viewType}
+        on:modechange={handleNodeModeChange}
+    >
+        <svelte:fragment slot="default" let:node let:handleModeChange>
+            {#if isStatementNode(node)}
+                <StatementNode 
+                    {node}
+                    on:modeChange={handleModeChange}
+                />
+            {:else if isNavigationNode(node)}
+                <NavigationNode 
+                    {node}
+                    on:hover={() => {}} 
+                />
+            {:else}
+                <!-- Fallback for unrecognized node types -->
+                <g>
+                    <text 
+                        dy="-10" 
+                        class="error-text"
+                    >
+                        Unknown node type: {node.type}
+                    </text>
+                </g>
+            {/if}
+        </svelte:fragment>
+    </Graph>
+    {/key}
 {/if}
 
 <style>
