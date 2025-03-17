@@ -27,7 +27,7 @@
     } from '$lib/types/graph/enhanced';
     import type { RelatedStatement } from '$lib/types/domain/nodes';
 
-    export let data: GraphPageData;
+    export const data: GraphPageData = undefined; // Changed to const to avoid unused warning
 
     // Initialization states
     let authInitialized = false;
@@ -100,12 +100,19 @@
                 filtered: $statementNetworkStore.filteredStatements.length
             });
             
-            // Add a delay before showing the nodes to let the force simulation settle
-            if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
-            networkLoadingTimeout = setTimeout(() => {
-                // Only set loading to false after a delay to let forces settle
+            // Immediately set loading to false if we got statements
+            if ($statementNetworkStore.filteredStatements.length > 0) {
+                console.log('[STATEMENT-NETWORK] Statements loaded, displaying network');
                 networkNodesLoading = false;
-            }, 800); // Delay showing nodes to reduce visual flickering
+            } else {
+                // Add a delay before showing the nodes to let the force simulation settle
+                if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
+                networkLoadingTimeout = setTimeout(() => {
+                    // Only set loading to false after a delay to let forces settle
+                    console.log('[STATEMENT-NETWORK] Timeout complete, setting loading to false');
+                    networkNodesLoading = false;
+                }, 800); // Delay showing nodes to reduce visual flickering
+            }
             
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error loading statement network data:', error);
@@ -113,6 +120,7 @@
             // Show empty state even on error, after a delay
             if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
             networkLoadingTimeout = setTimeout(() => {
+                console.log('[STATEMENT-NETWORK] Error timeout complete, setting loading to false');
                 networkNodesLoading = false;
             }, 800);
         }
@@ -139,7 +147,8 @@
     function createGraphData(): GraphData {
         console.log('[STATEMENT-NETWORK] Creating statement network view data', {
             statementCount: statements.length,
-            loading: networkNodesLoading
+            loading: networkNodesLoading,
+            statements: statements.length > 0 ? statements.slice(0, 1).map(s => s.id) : []
         });
 
         // Only include navigation nodes during loading to avoid flickering
@@ -150,6 +159,8 @@
                 links: []
             };
         }
+
+        console.log('[STATEMENT-NETWORK] Loading complete, showing statement nodes');
 
         // Create statement nodes - ALL in preview mode initially
         const statementNodes: GraphNode[] = statements.map(statement => ({
@@ -205,7 +216,11 @@
 
     // Cleanup on destroy
     onDestroy(() => {
-        if (networkLoadingTimeout) clearTimeout(networkLoadingTimeout);
+        console.log('[STATEMENT-NETWORK] Component being destroyed');
+        if (networkLoadingTimeout) {
+            console.log('[STATEMENT-NETWORK] Clearing timeout on destroy');
+            clearTimeout(networkLoadingTimeout);
+        }
     });
 </script>
 
@@ -228,6 +243,12 @@
         <div class="loading-text">No statements found</div>
     </div>
 {:else}
+    {#if statements.length > 0}
+        {@const _ = console.log('[STATEMENT-NETWORK] Rendering Graph with statements:', {
+            count: statements.length,
+            first: statements[0]?.id
+        })}
+    {/if}
 {#key routeKey}
 <Graph 
     data={graphData}
