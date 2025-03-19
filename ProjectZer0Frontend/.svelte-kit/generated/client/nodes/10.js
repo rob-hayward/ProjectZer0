@@ -1,3 +1,3 @@
-import * as universal from "../../../../src/routes/graph/statement-network/+page.ts";
+import * as universal from "../../../../src/routes/graph/word/+page.ts";
 export { universal };
-export { default as component } from "../../../../src/routes/graph/statement-network/+page.svelte";
+export { default as component } from "../../../../src/routes/graph/word/+page.svelte";

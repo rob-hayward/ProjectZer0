@@ -21,9 +21,6 @@
 	"/graph/word": [
 		"src/routes/graph/word/+page.ts"
 	],
-	"/graph/[view]": [
-		"src/routes/graph/[view]/+page.ts"
-	],
 	"/graph/[...catchAll]": [
 		"src/routes/graph/[...catchAll]/+page.ts"
 	]

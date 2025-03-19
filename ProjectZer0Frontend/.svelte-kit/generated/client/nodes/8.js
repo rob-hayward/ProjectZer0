@@ -1,3 +1,3 @@
-import * as universal from "../../../../src/routes/graph/edit-profile/+page.ts";
+import * as universal from "../../../../src/routes/graph/statement/+page.ts";
 export { universal };
-export { default as component } from "../../../../src/routes/graph/edit-profile/+page.svelte";
+export { default as component } from "../../../../src/routes/graph/statement/+page.svelte";

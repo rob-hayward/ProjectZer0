@@ -11,22 +11,20 @@ export const nodes = [
 	() => import('./nodes/7'),
 	() => import('./nodes/8'),
 	() => import('./nodes/9'),
-	() => import('./nodes/10'),
-	() => import('./nodes/11')
+	() => import('./nodes/10')
 ];
 
 export const server_loads = [];
 
 export const dictionary = {
 		"/": [2],
-		"/graph/create-definition": [5],
-		"/graph/create-node": [6],
-		"/graph/dashboard": [7],
-		"/graph/edit-profile": [8],
-		"/graph/statement-network": [10],
-		"/graph/statement": [9],
-		"/graph/word": [11],
-		"/graph/[view]": [4],
+		"/graph/create-definition": [4],
+		"/graph/create-node": [5],
+		"/graph/dashboard": [6],
+		"/graph/edit-profile": [7],
+		"/graph/statement-network": [9],
+		"/graph/statement": [8],
+		"/graph/word": [10],
 		"/graph/[...catchAll]": [3]
 	};
 
