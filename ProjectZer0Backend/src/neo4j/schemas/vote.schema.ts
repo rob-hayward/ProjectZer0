@@ -1,3 +1,4 @@
+// ProjectZer0Backend/src/neo4j/schemas/vote.schema.ts
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 
@@ -5,11 +6,13 @@ export interface VoteStatus {
   status: 'agree' | 'disagree' | null;
   positiveVotes: number;
   negativeVotes: number;
+  netVotes: number;
 }
 
 export interface VoteResult {
   positiveVotes: number;
   negativeVotes: number;
+  netVotes: number;
 }
 
 @Injectable()
@@ -37,6 +40,7 @@ export class VoteSchema {
       OPTIONAL MATCH (u:User {sub: $sub})-[v:VOTED_ON]->(n)
       RETURN n.positiveVotes as positiveVotes,
              n.negativeVotes as negativeVotes,
+             n.netVotes as netVotes,
              v.status as status,
              u IS NOT NULL as userExists
       `,
@@ -58,12 +62,14 @@ export class VoteSchema {
       status,
       positiveVotes: record.get('positiveVotes'),
       negativeVotes: record.get('negativeVotes'),
+      netVotes: record.get('netVotes'),
     });
 
     return {
       status: status as 'agree' | 'disagree' | null,
       positiveVotes: record.get('positiveVotes') || 0,
       negativeVotes: record.get('negativeVotes') || 0,
+      netVotes: record.get('netVotes') || 0,
     };
   }
 
@@ -94,8 +100,10 @@ export class VoteSchema {
       SET v.status = $status,
           v.createdAt = datetime(),
           n.positiveVotes = COALESCE(n.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END,
-          n.negativeVotes = COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END
-      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes
+          n.negativeVotes = COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END,
+          n.netVotes = COALESCE(n.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END - 
+                       (COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END)
+      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes, n.netVotes as netVotes
       `,
       {
         nodeValue,
@@ -108,6 +116,7 @@ export class VoteSchema {
     const voteResult = {
       positiveVotes: result.records[0].get('positiveVotes') || 0,
       negativeVotes: result.records[0].get('negativeVotes') || 0,
+      netVotes: result.records[0].get('netVotes') || 0,
     };
 
     this.logger.log(`Vote result: ${JSON.stringify(voteResult)}`);
@@ -135,8 +144,9 @@ export class VoteSchema {
            CASE WHEN v.status = 'disagree' THEN -1 ELSE 0 END as negAdjust
       DELETE v
       SET n.positiveVotes = COALESCE(n.positiveVotes, 0) + posAdjust,
-          n.negativeVotes = COALESCE(n.negativeVotes, 0) + negAdjust
-      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes
+          n.negativeVotes = COALESCE(n.negativeVotes, 0) + negAdjust,
+          n.netVotes = COALESCE(n.positiveVotes, 0) + posAdjust - (COALESCE(n.negativeVotes, 0) + negAdjust)
+      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes, n.netVotes as netVotes
       `,
       { nodeValue, sub },
     );
@@ -144,6 +154,7 @@ export class VoteSchema {
     const voteResult = {
       positiveVotes: result.records[0].get('positiveVotes') || 0,
       negativeVotes: result.records[0].get('negativeVotes') || 0,
+      netVotes: result.records[0].get('netVotes') || 0,
     };
 
     this.logger.log(`Remove vote result: ${JSON.stringify(voteResult)}`);

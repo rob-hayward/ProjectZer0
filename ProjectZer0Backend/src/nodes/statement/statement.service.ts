@@ -308,6 +308,7 @@ export class StatementService {
       const votes = {
         positiveVotes: voteStatus.positiveVotes,
         negativeVotes: voteStatus.negativeVotes,
+        netVotes: voteStatus.netVotes,
       };
 
       this.logger.log(

@@ -167,7 +167,7 @@
         if (!graphStore || !isReady) return;
         
         // Force a tick to refresh positions after sorting/filtering
-        graphStore.forceTick(10);
+        graphStore.forceTick(5);
     }
 
     // Event handlers
@@ -215,6 +215,8 @@
             mode: 'preview' as NodeMode
         }));
 
+        console.log(`[STATEMENT-NETWORK] Created ${statementNodes.length} statement nodes`);
+
         // Create links between statements based on shared keywords and direct relationships
         const statementLinks: GraphLink[] = [];
         
@@ -241,7 +243,7 @@
             linkCount: statementLinks.length
         });
 
-        // Return ONLY navigation nodes and statement nodes - NO central node
+        // Return navigation nodes and statement nodes 
         return {
             nodes: [...navigationNodes, ...statementNodes],
             links: statementLinks

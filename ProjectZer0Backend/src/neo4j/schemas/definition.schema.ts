@@ -52,6 +52,7 @@ export class DefinitionSchema {
           updatedAt: datetime(),
           positiveVotes: 0,
           negativeVotes: 0,
+          netVotes: 0,
           visibilityStatus: true
       })
       CREATE (w)-[:HAS_DEFINITION]->(d)
@@ -164,6 +165,7 @@ export class DefinitionSchema {
     return {
       positiveVotes: voteStatus.positiveVotes,
       negativeVotes: voteStatus.negativeVotes,
+      netVotes: voteStatus.netVotes,
     };
   }
 

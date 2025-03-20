@@ -12,6 +12,9 @@ import type {
     GraphLink
 } from '$lib/types/graph/enhanced';
 import { COORDINATE_SPACE } from '../../../constants/graph';
+import { get } from 'svelte/store';
+// Import statementNetworkStore directly if possible
+// import { statementNetworkStore } from '../../../stores/statementNetworkStore';
 
 /**
  * Layout strategy for displaying multiple statement nodes in a network view
@@ -43,40 +46,51 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      */
     private subscribeToStoreChanges(): void {
         try {
-            // Import it here to avoid circular dependencies
-            const { statementNetworkStore } = require('../../../stores/statementNetworkStore');
-            
-            // Subscribe to the store
-            this.storeSubscription = statementNetworkStore.subscribe((state: any) => {
-                // Only update if sort settings have changed
-                if (this.sortType !== state.sortType || this.sortDirection !== state.sortDirection) {
-                    console.debug('[StatementNetworkLayout] Sort settings changed in store:', {
-                        oldType: this.sortType,
-                        newType: state.sortType,
-                        oldDirection: this.sortDirection,
-                        newDirection: state.sortDirection
+            // Import directly using ES imports (at the top of file)
+            // Instead of trying to use require, we'll access the store from the window
+            // This approach works in browser environments
+            if (typeof window !== 'undefined' && 'statementNetworkStore' in window) {
+                // @ts-ignore - Access the globally available store
+                const store = window.statementNetworkStore;
+                
+                if (store && typeof store.subscribe === 'function') {
+                    this.storeSubscription = store.subscribe((state: any) => {
+                        // Only update if sort settings have changed
+                        if (this.sortType !== state.sortType || this.sortDirection !== state.sortDirection) {
+                            console.debug('[StatementNetworkLayout] Sort settings changed in store:', {
+                                oldType: this.sortType,
+                                newType: state.sortType,
+                                oldDirection: this.sortDirection,
+                                newDirection: state.sortDirection
+                            });
+                            
+                            this.sortType = state.sortType;
+                            this.sortDirection = state.sortDirection;
+                            
+                            // Only reconfigure if we have an active simulation
+                            if (this.simulation) {
+                                // Reconfigure forces with new sort settings
+                                this.configureForces();
+                                
+                                // Force several ticks to immediately apply the new layout
+                                for (let i = 0; i < 10; i++) {
+                                    this.simulation.tick();
+                                }
+                                
+                                // Restart simulation with low alpha for smooth transition
+                                this.simulation.alpha(0.1).restart();
+                            }
+                        }
                     });
                     
-                    this.sortType = state.sortType;
-                    this.sortDirection = state.sortDirection;
-                    
-                    // Only reconfigure if we have an active simulation
-                    if (this.simulation) {
-                        // Reconfigure forces with new sort settings
-                        this.configureForces();
-                        
-                        // Force several ticks to immediately apply the new layout
-                        for (let i = 0; i < 20; i++) {
-                            this.simulation.tick();
-                        }
-                        
-                        // Restart simulation with low alpha for smooth transition
-                        this.simulation.alpha(0.3).restart();
-                    }
+                    console.debug('[StatementNetworkLayout] Successfully subscribed to statementNetworkStore');
+                } else {
+                    console.warn('[StatementNetworkLayout] statementNetworkStore exists but lacks subscribe method');
                 }
-            });
-            
-            console.debug('[StatementNetworkLayout] Successfully subscribed to statementNetworkStore');
+            } else {
+                // Graceful fallback if store is not available
+                console.warn('[StatementNetworkLayout] statementNetworkStore not available on window, using default settings');
+            }
         } catch (error) {
             console.error('[StatementNetworkLayout] Error subscribing to statementNetworkStore:', error);
         }
@@ -108,7 +122,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // List all forces that might be present
         const potentialForceNames = [
             'link', 'charge', 'collision', 'center', 'x', 'y',
-            'manyBody', 'radial', 'positioning', 'custom'
+            'manyBody', 'radial', 'positioning', 'custom',
+            'positionX', 'positionY'
         ];
         
         // Remove all forces
@@ -174,20 +189,18 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             const angle = (i / navigationNodes.length) * Math.PI * 2;
             
             // Scale navigation node radius based on statement node count
-            // More statement nodes = navigation nodes moved closer in
+            // More statement nodes = navigation nodes moved further out
             const statementNodes = nodes.filter(n => n.type === 'statement');
             const nodeCount = statementNodes.length;
             
-            // Adaptive radius calculation:
-            // - For few nodes (<10), keep navigation nodes farther out (600)
-            // - For many nodes (50+), bring navigation nodes closer (450)
-            // - Scale smoothly between these values
-            const minRadius = 450; // Minimum radius for navigation nodes
-            const maxRadius = 600; // Maximum radius for navigation nodes
+            // Adaptive radius calculation - increased to give more space
+            // Larger radius for all cases to reduce crowding
+            const minRadius = 600; // Minimum radius for navigation nodes
+            const maxRadius = 750; // Maximum radius for navigation nodes
             const radiusRange = maxRadius - minRadius;
             
-            // Inverse logarithmic scaling - more nodes = closer navigation
-            const scaleFactor = Math.max(0, 1 - (Math.log(nodeCount + 1) / Math.log(60)));
+            // Inverse logarithmic scaling - more nodes = further out navigation
+            const scaleFactor = Math.min(1, Math.log(nodeCount + 1) / Math.log(60));
             const radius = minRadius + (radiusRange * scaleFactor);
             
             node.x = Math.cos(angle) * radius;
@@ -196,100 +209,124 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             node.fy = node.y;
         });
         
-        // Position statement nodes based on the number of nodes
+        // Position statement nodes using the deterministic concentric layout
         const statementNodes = nodes.filter(n => n.type === 'statement');
-        const nodeCount = statementNodes.length;
+        this.positionNodesInConcentric(statementNodes);
+    }
+    
+    /**
+     * Position nodes in a deterministic concentric layout based on net votes
+     * This ensures nodes with higher votes are ALWAYS closer to the center
+     */
+    private positionNodesInConcentric(nodes: EnhancedNode[]): void {
+        // 1. First, sort nodes strictly by net votes (descending)
+        const sortedNodes = [...nodes].sort((a, b) => {
+            const aVotes = this.getNetVotes(a);
+            const bVotes = this.getNetVotes(b);
+            return bVotes - aVotes; // Higher votes first
+        });
         
-        // Create a more adaptive layout based on node count
-        // For fewer nodes (< 20), use a more spread-out arrangement
-        // For many nodes (> 20), use a more compact grid-like arrangement
-        if (nodeCount <= 20) {
-            this.positionNodesInSpiral(statementNodes);
-        } else {
-            this.positionNodesInGrid(statementNodes);
+        console.debug('[StatementNetworkLayout] Positioning nodes in concentric layout');
+        console.debug('[StatementNetworkLayout] Top 3 nodes by votes:', 
+            sortedNodes.slice(0, 3).map(n => ({
+                id: n.id.substring(0, 8),
+                netVotes: this.getNetVotes(n)
+            }))
+        );
+
+        // 2. Configure spacing parameters
+        const nodeCount = nodes.length;
+        // Increase base spacing to reduce overcrowding
+        const baseSpacing = Math.max(60, 250 - Math.log(nodeCount) * 30);
+        
+        // 3. Calculate nodes per ring to create a balanced layout
+        const nodesPerRing = [1, 6, 12, 18, 24, 32, 48, 64]; // Increasing capacity per ring
+        const rings: number[] = [];
+        let remaining = sortedNodes.length;
+        let ringIndex = 0;
+        
+        // Create rings with appropriate capacity
+        while (remaining > 0) {
+            const capacity = ringIndex < nodesPerRing.length 
+                ? nodesPerRing[ringIndex] 
+                : Math.floor(15 * Math.PI * (ringIndex + 1)); // Approximate circumference scaling
+                
+            rings.push(Math.min(capacity, remaining));
+            remaining -= capacity;
+            ringIndex++;
+        }
+        
+        // 4. Position each node in its correct ring based on vote ranking
+        let nodeIndex = 0;
+        for (let r = 0; r < rings.length; r++) {
+            const ring = rings[r];
+            const radius = r === 0 ? 0 : baseSpacing * Math.pow(r, 1.2); // Non-linear radius scaling
+            
+            // Position nodes in this ring
+            for (let i = 0; i < ring; i++) {
+                const node = sortedNodes[nodeIndex];
+                
+                if (r === 0) {
+                    // Highest voted node at exact center
+                    node.x = 0;
+                    node.y = 0;
+                } else {
+                    // Position around the circle
+                    const angle = (i / ring) * 2 * Math.PI; // Evenly spaced around circle
+                    node.x = Math.cos(angle) * radius;
+                    node.y = Math.sin(angle) * radius;
+                    
+                    // Add small jitter to reduce perfect circle artifact
+                    const jitterRadius = radius * 0.05; // 5% jitter
+                    node.x += (Math.random() - 0.5) * jitterRadius;
+                    node.y += (Math.random() - 0.5) * jitterRadius;
+                }
+                
+                // Store the ring number in metadata for future use
+                if (node.metadata) {
+                    // Use a type assertion to add the custom property
+                    (node.metadata as any).ring = r;
+                }
+                
+                nodeIndex++;
+            }
+        }
+        
+        // 5. Log the placement of highest and lowest voted nodes for verification
+        if (sortedNodes.length > 0) {
+            const highest = sortedNodes[0];
+            const lowest = sortedNodes[sortedNodes.length - 1];
+            
+            console.debug('[StatementNetworkLayout] Highest voted node placement:', {
+                id: highest.id.substring(0, 8),
+                netVotes: this.getNetVotes(highest),
+                position: { 
+                    x: highest.x ?? 0, 
+                    y: highest.y ?? 0 
+                },
+                distance: Math.sqrt(
+                    (highest.x ?? 0) * (highest.x ?? 0) + 
+                    (highest.y ?? 0) * (highest.y ?? 0)
+                )
+            });
+            
+            console.debug('[StatementNetworkLayout] Lowest voted node placement:', {
+                id: lowest.id.substring(0, 8),
+                netVotes: this.getNetVotes(lowest),
+                position: { 
+                    x: lowest.x ?? 0, 
+                    y: lowest.y ?? 0 
+                },
+                distance: Math.sqrt(
+                    (lowest.x ?? 0) * (lowest.x ?? 0) + 
+                    (lowest.y ?? 0) * (lowest.y ?? 0)
+                )
+            });
         }
     }
     
     /**
-     * Position nodes in a spiral pattern - good for smaller datasets
-     */
-    private positionNodesInSpiral(nodes: EnhancedNode[]): void {
-        const nodeCount = nodes.length;
-        // Ultra-compact base radius - significantly tighter than before
-        const baseRadius = Math.min(100, 80 + Math.sqrt(nodeCount) * 3);
-        
-        nodes.forEach((node, i) => {
-            // Use golden ratio for pleasing distribution
-            const goldenRatio = (1 + Math.sqrt(5)) / 2;
-            const goldenAngle = (2 - goldenRatio) * (2 * Math.PI);
-            const angle = i * goldenAngle;
-            
-            // Create an extremely compact spiral with logarithmic scaling
-            // Much slower radius growth than before
-            const spiralFactor = Math.log(i + 1) * 10;
-            const radius = baseRadius + spiralFactor;
-            
-            // Assign position with spiral pattern
-            node.x = Math.cos(angle) * radius;
-            node.y = Math.sin(angle) * radius;
-            
-            // Store the golden angle in metadata for possible future use
-            if (node.metadata) {
-                node.metadata.golden = angle;
-            }
-        });
-    }
-    
-    /**
-     * Position nodes in a grid pattern - better for larger datasets
-     */
-    private positionNodesInGrid(nodes: EnhancedNode[]): void {
-        const nodeCount = nodes.length;
-        
-        // Calculate optimal grid dimensions with fewer rows for better visibility
-        // Rectangular grid with more columns than rows for better screen fit
-        const aspectRatio = 1.5; // Wider than tall
-        const approxCols = Math.ceil(Math.sqrt(nodeCount * aspectRatio));
-        const cols = approxCols;
-        const rows = Math.ceil(nodeCount / cols);
-        
-        // Calculate ultra-compact spacing based on node count
-        // Dramatically reduced spacing for maximum density
-        // Inverse logarithmic scaling - more nodes = much tighter packing
-        const minSpacing = 45; // Absolute minimum spacing
-        const spacingMultiplier = 300 / Math.log(nodeCount + 10);
-        const baseSpacing = Math.max(minSpacing, spacingMultiplier);
-        
-        // Use slightly wider horizontal spacing for better readability
-        const xSpacing = baseSpacing * 1.2;
-        const ySpacing = baseSpacing;
-        
-        // Calculate total grid dimensions
-        const gridWidth = cols * xSpacing;
-        const gridHeight = rows * ySpacing;
-        
-        // Position nodes in grid, starting from top-left
-        nodes.forEach((node, i) => {
-            // Calculate row and column
-            const col = i % cols;
-            const row = Math.floor(i / cols);
-            
-            // Calculate position, centered on origin
-            const x = (col * xSpacing) - (gridWidth / 2) + (xSpacing / 2);
-            const y = (row * ySpacing) - (gridHeight / 2) + (ySpacing / 2);
-            
-            // Minimal jitter to break grid perfection but maintain density
-            const jitterX = (Math.random() - 0.5) * (xSpacing * 0.15);
-            const jitterY = (Math.random() - 0.5) * (ySpacing * 0.15);
-            
-            // Assign position
-            node.x = x + jitterX;
-            node.y = y + jitterY;
-        });
-    }
-    
-    /**
-     * Configure forces for this layout with optimized parameters
+     * Configure forces for improved animations
      */
     configureForces(): void {
         console.debug(`[StatementNetworkLayout] Configuring forces`);
@@ -307,137 +344,160 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Get links
         const links = this.getForceLinks();
         
-        // Link force with ultra-minimal distances for maximum density
+        // Link force - optimized for deterministic, fixed layout with more pleasing animations
         const linkForce = d3.forceLink<any, any>()
             .id((d: any) => d.id)
             .links(links)
             .distance(link => {
-                // Get count of statement nodes for adaptive sizing
-                const statementNodes = this.simulation.nodes().filter((n: any) => n.type === 'statement');
-                const nodeCount = statementNodes.length;
+                // Keep links at a reasonable distance for a spacious layout
+                const baseDist = isLargeNetwork ? 80 : 100; // Increased for more space
                 
-                // Scale base distance inversely with node count
-                // More nodes = shorter links to maintain density
-                let baseDist;
-                if (nodeCount > 50) {
-                    baseDist = 40; // Ultra-short for very large networks
-                } else if (isLargeNetwork) {
-                    baseDist = 50; // Very short for large networks
-                } else {
-                    baseDist = 70; // Short for small networks
-                }
-                
-                // Direct relationships (statement-to-statement) should be closer
+                // Direct relationships should be closer
                 if ((link as EnhancedLink).relationshipType === 'direct' || 
                     (link as EnhancedLink).type === 'related') {
-                    return baseDist * 0.8;
+                    return baseDist * 0.85;
                 }
                 
-                // Keyword relationships - scale distance by strength
-                const strength = (link as EnhancedLink).strength || 0.1;
-                return baseDist - (strength * baseDist * 0.5);
+                // Default for keyword relationships
+                return baseDist;
             })
-            .strength(link => {
-                // Very strong links to keep connected nodes close together
-                // Scale strength based on network size
-                const nodeCount = this.simulation.nodes().length;
-                let baseStrength;
-                
-                if (nodeCount > 50) {
-                    baseStrength = 1.0; // Maximum strength for very large networks
-                } else if (isLargeNetwork) {
-                    baseStrength = 0.9; // Very strong for large networks
-                } else {
-                    baseStrength = 0.8; // Strong for small networks
-                }
-                
-                // Direct relationships get maximum strength
-                if ((link as EnhancedLink).relationshipType === 'direct' || 
-                    (link as EnhancedLink).type === 'related') {
-                    return Math.min(1.0, baseStrength + 0.1); // Cap at 1.0
-                }
-                
-                // Keyword relationships strength
-                return baseStrength * ((link as EnhancedLink).strength || 0.5);
-            });
+            .strength(0.5); // Moderate strength for gentler animations
 
-        // Charge force - minimal repulsion for ultra-dense layout
+        // Charge force - minimal to preserve deterministic layout but allow some movement
         const chargeForce = d3.forceManyBody()
-            .strength(d => {
+            .strength((d: any) => {
                 const node = d as EnhancedNode;
                 if (node.type === 'navigation') {
-                    return -30; // Minimal repulsion for navigation nodes
+                    return -20; // Very weak repulsion for navigation nodes
                 }
                 
-                // Dramatically reduced repulsion forces for maximum density
-                // Scale repulsion inversely with node count - more nodes = less repulsion
-                const nodeCount = this.simulation.nodes().length;
-                const baseRepulsion = isLargeNetwork ? -150 : -200;
-                
-                // For very large networks (>50 nodes), reduce repulsion even further
-                if (nodeCount > 50) {
-                    return baseRepulsion * 0.8; // 20% less repulsion
-                }
-                
-                return baseRepulsion;
+                // Moderate repulsion for statements to allow natural spacing
+                return isLargeNetwork ? -60 : -80;
             })
-            .distanceMin(15) // Ultra-small minimum distance for maximum density
-            .distanceMax(isLargeNetwork ? 400 : 500); // Reduced maximum effect distance
+            .distanceMin(15) 
+            .distanceMax(250); // Reduced max distance for better local behavior
 
-        // Collision force - ultra-minimal padding for maximum density
+        // Collision force - firm to prevent overlap but allow some flexibility
         const collisionForce = d3.forceCollide()
-            .radius(d => {
+            .radius((d: any) => {
                 const node = d as EnhancedNode;
                 
                 if (node.type === 'navigation') {
-                    // Keep normal padding for navigation nodes
                     return node.radius + COORDINATE_SPACE.NODES.PADDING.COLLISION.NAVIGATION;
                 }
                 
-                // For statement nodes, use absolute minimum padding
-                // This allows nodes to be positioned extremely close while still avoiding overlap
-                // Scale padding inversely with node count - more nodes = less padding
-                const basePadding = isLargeNetwork ? 
-                    COORDINATE_SPACE.NODES.PADDING.COLLISION.STATEMENT * 0.25 : // 75% reduction for large networks
-                    COORDINATE_SPACE.NODES.PADDING.COLLISION.STATEMENT * 0.4;   // 60% reduction for small networks
+                // Increased padding to reduce crowding, with extra for high-vote nodes
+                const basePadding = COORDINATE_SPACE.NODES.PADDING.COLLISION.STATEMENT * 0.7;
                 
-                // For very large networks, scale padding down even further
-                const statementNodes = this.simulation.nodes().filter((n: any) => n.type === 'statement');
-                if (statementNodes.length > 50) {
-                    return node.radius + basePadding * 0.8; // Extra 20% reduction for very large networks
+                // Slightly larger collision radius for higher voted nodes
+                if (node.type === 'statement') {
+                    const netVotes = this.getNetVotes(node);
+                    if (netVotes > 0) {
+                        const voteFactor = Math.min(1.3, 1 + Math.log(netVotes + 1) / 15);
+                        return node.radius + (basePadding * voteFactor);
+                    }
                 }
                 
                 return node.radius + basePadding;
             })
-            .strength(0.9) // Slightly reduced to allow minimal overlap if needed for density
-            .iterations(isLargeNetwork ? 1 : 2); // Minimum iterations for performance
+            .strength(0.7) // Strong but not rigid, allows some flexibility
+            .iterations(2); // Fewer iterations for better performance
 
-        // Center force - strong centering for dense packing
+        // Center force - light to maintain overall centering
         const centerForce = d3.forceCenter(0, 0)
-            .strength(isLargeNetwork ? 0.15 : 0.12); // Very strong centering force
+            .strength(0.03); // Very weak to preserve deterministic layout
+            
+        // Position preservation force - modified to allow more natural movement
+        // This preserves vote-based ordering while allowing pleasing animations
+        const positioningForceX = d3.forceX()
+            .x((d: any) => {
+                const node = d as EnhancedNode;
+                
+                // If it's a statement node, we want to maintain the relative distances
+                // but allow some flexibility for more natural spacing
+                if (node.type === 'statement') {
+                    // Return the node's initial x position with a weakening factor
+                    // This allows nodes to move a bit from their assigned positions
+                    const weakening = 0.8; // 80% pull toward assigned position
+                    return (node.x || 0) * weakening;
+                }
+                
+                // Return exact position for navigation and other nodes
+                return node.x || 0;
+            })
+            .strength((d: any) => {
+                const node = d as EnhancedNode;
+                
+                // Higher strength for navigation nodes (fixed)
+                if (node.type === 'navigation') {
+                    return 0.7;
+                }
+                
+                // For statement nodes, use weaker forces to allow natural movement
+                // But adjust based on vote count - important nodes stay closer to assigned positions
+                if (node.type === 'statement') {
+                    const netVotes = this.getNetVotes(node);
+                    if (netVotes > 10) {
+                        return 0.25; // Stronger positioning for high-vote nodes
+                    }
+                    
+                    return 0.15; // Weaker positioning for low-vote nodes
+                }
+                
+                return 0.1; // Default
+            });
+            
+        const positioningForceY = d3.forceY()
+            .y((d: any) => {
+                const node = d as EnhancedNode;
+                
+                // Same approach as X force
+                if (node.type === 'statement') {
+                    const weakening = 0.8;
+                    return (node.y || 0) * weakening;
+                }
+                
+                return node.y || 0;
+            })
+            .strength((d: any) => {
+                const node = d as EnhancedNode;
+                
+                if (node.type === 'navigation') {
+                    return 0.7;
+                }
+                
+                if (node.type === 'statement') {
+                    const netVotes = this.getNetVotes(node);
+                    if (netVotes > 10) {
+                        return 0.25;
+                    }
+                    
+                    return 0.15;
+                }
+                
+                return 0.1;
+            });
 
         // Apply forces to simulation
         this.simulation
             .force('link', linkForce)
             .force('charge', chargeForce)
             .force('collision', collisionForce)
-            .force('center', centerForce);
-            
-        // Apply sorting forces and additional forces
-        this.applySortingForces();
+            .force('center', centerForce)
+            .force('positionX', positioningForceX)
+            .force('positionY', positioningForceY);
+    
+        // Optimize simulation parameters for good animations
+        this.simulation.alphaDecay(0.03); // Medium decay for better animations
+        this.simulation.velocityDecay(0.45); // Medium damping for natural movement
         
-        // Higher alphaDacay for faster convergence
-        this.simulation.alphaDecay(isLargeNetwork ? 0.04 : 0.03); // Default is 0.02
-        this.simulation.velocityDecay(isLargeNetwork ? 0.5 : 0.4); // Default is 0.4
+        // Run minimal ticks for initial positioning
+        const tickCount = 5;
+        console.debug(`[StatementNetworkLayout] Running ${tickCount} initial force ticks`);
         
-        // Run many ticks immediately to force quick convergence
-        const tickCount = isLargeNetwork ? 100 : 60;
         for (let i = 0; i < tickCount; i++) {
             this.simulation.tick();
         }
-        
-        // Restart with near-settled alpha
-        this.simulation.alpha(0.1).restart();
     }
     
     /**
@@ -520,42 +580,89 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                     return isLargeNetwork ? 450 : 600;
                 }
                 
+                if (node.type !== 'statement') {
+                    return maxRadius; // Other non-statement nodes go to the outer edge
+                }
+                
                 // Calculate the radius based on sort value
                 const value = getSortValue(node);
-                // Normalize to 0-1 range
-                const normalizedValue = (value - minValue) / valueRange;
                 
-                // Apply radius based on sort direction
-                // desc: higher values closer to center (lower radius)
-                // asc: higher values farther from center (higher radius)
-                let targetRadius;
-                if (this.sortDirection === 'desc') {
-                    // Higher values (normalized closer to 1) get smaller radius
-                    targetRadius = maxRadius - (normalizedValue * (maxRadius - minRadius));
+                // Apply non-linear scaling to create more dramatic visual effect
+                // This will make high-voted statements much closer to center
+                // and negative statements much further away
+                
+                // Normalize to 0-1 range
+                let normalizedValue: number;
+                
+                if (this.sortType === 'netPositive') {
+                    // Special case for netPositive - we want to handle negative values differently
+                    // and create a more dramatic separation between positive and negative
+                    
+                    if (value >= 0) {
+                        // For positive votes, map from 0 to maxValue
+                        // Use a non-linear (sqrt) scaling to emphasize differences
+                        // Higher values = closer to center (smaller radius)
+                        const posRange = Math.max(1, maxValue);
+                        normalizedValue = Math.sqrt(value / posRange);
+                    } else {
+                        // For negative votes, map from minValue to 0
+                        // Use negative values to push further from center than neutral nodes
+                        const negRange = Math.abs(Math.min(0, minValue));
+                        if (negRange === 0) {
+                            normalizedValue = 0; // No negative values in dataset
+                        } else {
+                            normalizedValue = -0.2 * Math.sqrt(Math.abs(value) / negRange);
+                        }
+                    }
                 } else {
-                    // Higher values (normalized closer to 1) get larger radius
-                    targetRadius = minRadius + (normalizedValue * (maxRadius - minRadius));
+                    // Standard linear normalization for other sort types
+                    normalizedValue = (value - minValue) / valueRange;
+                }
+                
+                // Apply radius based on sort direction and normalized value
+                let targetRadius: number;
+                
+                if (this.sortType === 'netPositive') {
+                    if (this.sortDirection === 'desc') {
+                        // For netPositive desc - dramatic scaling
+                        if (normalizedValue >= 0) {
+                            // Positive votes - closer to center
+                            // Square root for non-linear scaling
+                            targetRadius = minRadius + ((1 - normalizedValue) * (maxRadius - minRadius) * 0.6);
+                        } else {
+                            // Negative votes - further from center than maxRadius
+                            // Push negative nodes further out
+                            targetRadius = maxRadius * (1 - normalizedValue);
+                        }
+                    } else {
+                        // For netPositive asc - reverse the logic
+                        if (normalizedValue >= 0) {
+                            // Positive votes - further from center
+                            targetRadius = minRadius + (normalizedValue * (maxRadius - minRadius) * 0.6);
+                        } else {
+                            // Negative votes - closer to center
+                            targetRadius = maxRadius * (1 + normalizedValue);
+                        }
+                    }
+                } else {
+                    // Standard linear mapping for other sort types
+                    if (this.sortDirection === 'desc') {
+                        // Higher values (normalized closer to 1) get smaller radius
+                        targetRadius = maxRadius - (normalizedValue * (maxRadius - minRadius));
+                    } else {
+                        // Higher values (normalized closer to 1) get larger radius
+                        targetRadius = minRadius + (normalizedValue * (maxRadius - minRadius));
+                    }
                 }
                 
                 // Ensure minimum radius
                 return Math.max(minRadius, targetRadius);
             },
             0, 0 // Center at origin
-        ).strength((d: any) => {
-            const node = d as EnhancedNode;
-            // Stronger force for navigation nodes, moderate for statements
-            return node.type === 'navigation' ? 1.0 : 0.4;
-        });
+        ).strength(0.2); // Reduced strength to allow position preservation forces to dominate
         
         // Apply the sorting radial force
         this.simulation.force('radial', sortingRadial);
-        
-        // For large networks, add additional forces for better clustering
-        if (isLargeNetwork) {
-            // Add mild x and y forces for large networks
-            this.simulation.force('x', d3.forceX(0).strength(0.03));
-            this.simulation.force('y', d3.forceY(0).strength(0.03));
-        }
         
         // Debug output
         console.debug(`[StatementNetworkLayout] Applied sorting forces:`, {
@@ -593,14 +700,28 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     
     /**
      * Get net votes for a node
+     * Uses the new netVotes property directly
      */
     private getNetVotes(node: EnhancedNode): number {
         if (node.type !== 'statement') return 0;
         
-        if (node.data && 'positiveVotes' in node.data && 'negativeVotes' in node.data) {
-            const positiveVotes = this.getNeo4jNumber(node.data.positiveVotes) || 0;
-            const negativeVotes = this.getNeo4jNumber(node.data.negativeVotes) || 0;
-            return positiveVotes - negativeVotes;
+        if (node.data) {
+            // Try to use the netVotes property first if available
+            if ('netVotes' in node.data) {
+                return this.getNeo4jNumber(node.data.netVotes);
+            }
+            
+            // Fall back to calculating from positive/negative votes if needed
+            if ('positiveVotes' in node.data && 'negativeVotes' in node.data) {
+                const positiveVotes = this.getNeo4jNumber(node.data.positiveVotes) || 0;
+                const negativeVotes = this.getNeo4jNumber(node.data.negativeVotes) || 0;
+                return positiveVotes - negativeVotes;
+            }
+        }
+        
+        // Try to use metadata if available
+        if (node.metadata?.votes !== undefined) {
+            return node.metadata.votes;
         }
         
         return 0;
@@ -632,7 +753,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Handle node mode changes (preview/detail)
+     * Handle node mode changes (preview/detail) with stable positioning
      */
     public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
         console.debug(`[StatementNetworkLayout] Node state change`, { 
@@ -655,6 +776,10 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Store old values for comparison
         const oldMode = node.mode;
         const oldRadius = node.radius;
+        const oldPosition = { x: node.x ?? 0, y: node.y ?? 0 };
+        
+        // Stop the simulation while we make changes
+        this.simulation.stop();
         
         // Update the node properties
         node.mode = mode;
@@ -662,7 +787,28 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         node.radius = this.getNodeRadius(node);
         
         if (node.metadata) {
-            node.metadata.isDetail = mode === 'detail';
+            (node.metadata as any).isDetail = mode === 'detail';
+        }
+        
+        // Important: Fix node position when expanding to detail view
+        if (mode === 'detail') {
+            // Fix node in place to prevent it from moving during expansion
+            node.fx = node.x;
+            node.fy = node.y;
+            
+            // Find the camera center coordinates
+            // This is for centering the view on the expanded node later
+            const centerX = node.x ?? 0;
+            const centerY = node.y ?? 0;
+            
+            console.debug(`[StatementNetworkLayout] Fixing expanded node position:`, {
+                x: centerX,
+                y: centerY
+            });
+        } else {
+            // When collapsing, release node position constraint
+            node.fx = undefined;
+            node.fy = undefined;
         }
         
         console.debug(`[StatementNetworkLayout] Node updated:`, {
@@ -670,23 +816,75 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             oldMode,
             newMode: mode,
             oldRadius,
-            newRadius: node.radius
+            newRadius: node.radius,
+            position: { x: node.x, y: node.y }
         });
         
         // Update the simulation with the new node properties
         this.simulation.nodes(nodes);
         
-        // Reconfigure forces to account for the new node size
-        this.configureForces();
+        // Reconfigure collision detection with the new node size
+        // but keep all other forces minimal to prevent chaotic movement
+        const collisionForce = d3.forceCollide()
+            .radius((d: any) => {
+                const n = d as EnhancedNode;
+                // Give expanded nodes more space
+                if (n.id === nodeId && mode === 'detail') {
+                    return n.radius * 1.1; // Extra padding for expanded node
+                }
+                return n.radius + 20; // Standard padding for other nodes
+            })
+            .strength(1) // Maximum strength to prevent overlap
+            .iterations(4); // More iterations for better collision detection
         
-        // Force tick to immediately apply changes
-        for (let i = 0; i < 5; i++) {
+        // Apply minimal forces when changing node mode
+        this.simulation
+            .force('collision', collisionForce)
+            .force('charge', d3.forceManyBody().strength(-50)) // Minimal repulsion
+            .force('x', null) // Remove x force
+            .force('y', null); // Remove y force
+        
+        // Keep existing links
+        const linkForce = this.simulation.force('link');
+        if (linkForce) {
+            // Reduce link strength to minimize movement
+            (linkForce as any).strength(0.1);
+        }
+        
+        // Run just a few ticks with very high alpha decay
+        this.simulation.alphaDecay(0.2); // Very quick decay
+        this.simulation.velocityDecay(0.8); // High damping
+        
+        // Minimal ticks for adjustment
+        for (let i = 0; i < 10; i++) {
             this.simulation.tick();
         }
+        
+        // Restore normal forces
+        this.configureForces();
+        
+        // If expanding to detail, notify that we want to center the view on this node
+        if (mode === 'detail') {
+            // This would be handled by the parent component to center the view
+            // We could emit an event or call a callback here
+            if (typeof window !== 'undefined' && window.dispatchEvent) {
+                const event = new CustomEvent('nodeExpanded', { 
+                    detail: { 
+                        nodeId, 
+                        x: node.x ?? 0, 
+                        y: node.y ?? 0
+                    } 
+                });
+                window.dispatchEvent(event);
+            }
+        }
+        
+        // Restart with very low alpha
+        this.simulation.alpha(0.05).restart();
     }
     
     /**
-     * Override updateData to set up the network layout
+     * Override updateData to set up the network layout with better animation
      */
     public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = false): void {
         console.debug(`[StatementNetworkLayout] Updating data`, {
@@ -702,41 +900,63 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }, {} as Record<string, number>);
         
         console.debug(`[StatementNetworkLayout] Node type distribution:`, nodeTypes);
-        
-        // Print breakdown of link types
-        const linkTypes = links.reduce((acc, link) => {
-            acc[link.type] = (acc[link.type] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-        
-        console.debug(`[StatementNetworkLayout] Link type distribution:`, linkTypes);
 
         // Stop any existing simulation
         this.simulation.stop();
         
-        // Initialize node positions
+        // Initialize node positions - this does the deterministic layout
         this.initializeNodePositions(nodes);
+        
+        // For animated load, we'll start with nodes in a more compact arrangement
+        // and let them expand to their proper positions for a pleasing animation
+        if (!skipAnimation) {
+            nodes.forEach(node => {
+                if (node.type === 'statement') {
+                    // Contract positions toward center by 40%
+                    if (node.x !== undefined && node.y !== undefined) {
+                        node.x *= 0.6;
+                        node.y *= 0.6;
+                    }
+                }
+            });
+        }
         
         // Update nodes in the simulation
         this.simulation.nodes(asD3Nodes(nodes));
         
-        // Configure forces with the updated data
+        // Configure forces
         this.configureForces();
         
-        // Start simulation with very low alpha for minimal animation
-        // This essentially means the layout is almost settled already
-        const alpha = skipAnimation ? 0.01 : 0.1;
-        this.simulation.alpha(alpha).restart();
-        
-        // Force additional ticks immediately to ensure settled layout
-        const tickCount = nodes.length > 20 ? 150 : 100;
-        for (let i = 0; i < tickCount; i++) {
-            this.simulation.tick();
-        }
-        
-        // Stop simulation to prevent further movement
-        // This makes the layout appear instantly settled
-        if (skipAnimation) {
+        // For animated load, use hybrid approach with two phases:
+        // 1. Quick opening animation with higher velocity
+        // 2. Gentle settling with low alpha
+        if (!skipAnimation) {
+            // Phase 1: Opening animation - faster with more energy
+            this.simulation
+                .alpha(0.3)
+                .alphaDecay(0.02) // Slower decay for more movement
+                .velocityDecay(0.4) // Lower decay for more momentum
+                .restart();
+                
+            // After a short time, transition to gentle settling phase
+            setTimeout(() => {
+                // Phase 2: Settling - restore original parameters
+                this.simulation
+                    .alphaDecay(0.05) // Higher decay to settle quickly
+                    .velocityDecay(0.6) // Higher damping
+                    .alpha(0.1) // Lower energy
+                    .restart();
+            }, 600); // 600ms is enough for opening animation
+        } else {
+            // For immediate layout, just set alpha to near zero
+            this.simulation.alpha(0.01);
+            
+            // Run a few final ticks to settle everything
+            for (let i = 0; i < 5; i++) {
+                this.simulation.tick();
+            }
+            
+            // Stop simulation completely
             this.simulation.stop();
         }
     }

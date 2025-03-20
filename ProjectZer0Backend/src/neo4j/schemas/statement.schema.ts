@@ -172,7 +172,7 @@ export class StatementSchema {
       query += `
       WITH s, keywords, relatedStatements, directlyRelatedStatements, 
            positiveVotes, negativeVotes,
-           (positiveVotes - negativeVotes) as netVotes
+           COALESCE(s.netVotes, positiveVotes - negativeVotes) as netVotes
       ORDER BY netVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
     `;
     } else if (sortBy === 'totalVotes') {
@@ -307,7 +307,10 @@ export class StatementSchema {
           statement: $statement,
           initialComment: $initialComment,
           createdAt: datetime(),
-          updatedAt: datetime()
+          updatedAt: datetime(),
+          positiveVotes: 0,
+          negativeVotes: 0,
+          netVotes: 0
         })
         
         // Process each keyword

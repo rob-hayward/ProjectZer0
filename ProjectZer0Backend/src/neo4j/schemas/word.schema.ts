@@ -69,7 +69,8 @@ export class WordSchema {
          createdAt: datetime(),
          updatedAt: datetime(),
          positiveVotes: 0,
-         negativeVotes: 0
+         negativeVotes: 0,
+         netVotes: 0
      })
 
      // Create Definition Node
@@ -79,7 +80,8 @@ export class WordSchema {
          createdBy: $createdBy,
          createdAt: datetime(),
          positiveVotes: 0,
-         negativeVotes: 0
+         negativeVotes: 0,
+         netVotes: 0
      })
 
      // Create HAS_DEFINITION relationship
@@ -138,7 +140,8 @@ export class WordSchema {
          createdBy: $createdBy,
          createdAt: datetime(),
          positiveVotes: 0,
-         negativeVotes: 0
+         negativeVotes: 0,
+         netVotes: 0
      })
      CREATE (w)-[:HAS_DEFINITION]->(d)
 
@@ -293,6 +296,7 @@ export class WordSchema {
     const votes = {
       positiveVotes: voteStatus.positiveVotes,
       negativeVotes: voteStatus.negativeVotes,
+      netVotes: voteStatus.netVotes,
     };
 
     this.logger.log(
