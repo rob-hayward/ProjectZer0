@@ -13,8 +13,9 @@ import type {
 } from '$lib/types/graph/enhanced';
 import { COORDINATE_SPACE } from '../../../constants/graph';
 import { get } from 'svelte/store';
-// Import statementNetworkStore directly if possible
-// import { statementNetworkStore } from '../../../stores/statementNetworkStore';
+// Import statementNetworkStore directly
+import { statementNetworkStore, type NetworkSortType, type NetworkSortDirection } from '../../../stores/statementNetworkStore';
+import { coordinateSystem } from '../CoordinateSystem';
 
 /**
  * Layout strategy for displaying multiple statement nodes in a network view
@@ -24,13 +25,45 @@ import { get } from 'svelte/store';
  * - Sorting based on votes (net positive towards center by default)
  * - Support for preview/detail mode transitions
  * - Dynamic link distance based on relationship strength
+ * - Performance optimizations for zooming and panning
  */
 export class StatementNetworkLayout extends BaseLayoutStrategy {
-    private sortType: 'netPositive' | 'totalVotes' | 'chronological' = 'netPositive';
-    private sortDirection: 'asc' | 'desc' = 'desc';
+    private sortType: NetworkSortType = 'netPositive';
+    private sortDirection: NetworkSortDirection = 'desc';
     // Default zoom level for initial view - tuned for optimal viewing
     private initialZoom = COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM;
     private storeSubscription: (() => void) | null = null;
+    private isZooming = false;
+    private zoomDebounceTimer: any = null;
+    private errorRetryCount = 0;
+    private maxRetries = 3;
+    
+    // Cache frequently accessed data for performance
+    private cachedNodePositions = new Map<string, {x: number, y: number}>();
+    private cachedVoteValues = new Map<string, number>();
+    private lastTickTime = 0;
+    private tickThrottleTime = 16; // ~60fps
+    
+    // Cache expanded nodes for performance and stability
+    private expandedNodes: Map<string, { 
+        previousPosition: {x: number, y: number},
+        transitioning: boolean,
+        transitionState: 'expanding' | 'expanded' | 'collapsing' | 'collapsed',
+        transitionStart: number
+    }> = new Map();
+
+    // Visibility tracking for consistent state management
+    private hiddenNodes: Map<string, boolean> = new Map();
+    
+    // Transition timing configuration
+    private readonly TRANSITION_DURATION = 300; // ms
+    
+    // Community standards constants
+    private readonly COMMUNITY_STANDARDS = {
+        NEGATIVE_VOTES_THRESHOLD: 0  // Nodes with net votes ≤ this value should be hidden
+    };
+    
+    // Last scale is tracked at the class level in the property declaration above
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(width, height, viewType);
@@ -38,63 +71,178 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         // Subscribe to the statementNetworkStore to get sort changes
         this.subscribeToStoreChanges();
+        
+        // Subscribe to zoom events to optimize performance during zooming
+        this.setupZoomOptimization();
     }
 
     /**
      * Subscribe to statementNetworkStore changes to get updates on sort settings
-     * Call this in the constructor
      */
     private subscribeToStoreChanges(): void {
         try {
-            // Import directly using ES imports (at the top of file)
-            // Instead of trying to use require, we'll access the store from the window
-            // This approach works in browser environments
-            if (typeof window !== 'undefined' && 'statementNetworkStore' in window) {
-                // @ts-ignore - Access the globally available store
-                const store = window.statementNetworkStore;
-                
-                if (store && typeof store.subscribe === 'function') {
-                    this.storeSubscription = store.subscribe((state: any) => {
-                        // Only update if sort settings have changed
-                        if (this.sortType !== state.sortType || this.sortDirection !== state.sortDirection) {
-                            console.debug('[StatementNetworkLayout] Sort settings changed in store:', {
-                                oldType: this.sortType,
-                                newType: state.sortType,
-                                oldDirection: this.sortDirection,
-                                newDirection: state.sortDirection
-                            });
-                            
-                            this.sortType = state.sortType;
-                            this.sortDirection = state.sortDirection;
-                            
-                            // Only reconfigure if we have an active simulation
-                            if (this.simulation) {
-                                // Reconfigure forces with new sort settings
-                                this.configureForces();
-                                
-                                // Force several ticks to immediately apply the new layout
-                                for (let i = 0; i < 10; i++) {
-                                    this.simulation.tick();
-                                }
-                                
-                                // Restart simulation with low alpha for smooth transition
-                                this.simulation.alpha(0.1).restart();
-                            }
+            // Direct import and subscription to the statementNetworkStore
+            if (statementNetworkStore && typeof statementNetworkStore.subscribe === 'function') {
+                this.storeSubscription = statementNetworkStore.subscribe((state) => {
+                    // Only update if sort settings have changed
+                    if (this.sortType !== state.sortType || this.sortDirection !== state.sortDirection) {
+                        console.debug('[StatementNetworkLayout] Sort settings changed in store:', {
+                            oldType: this.sortType,
+                            newType: state.sortType,
+                            oldDirection: this.sortDirection,
+                            newDirection: state.sortDirection
+                        });
+                        
+                        this.sortType = state.sortType;
+                        this.sortDirection = state.sortDirection;
+                        
+                        // Skip reconfiguration if we're currently zooming to avoid stuttering
+                        if (this.isZooming) {
+                            console.debug('[StatementNetworkLayout] Delaying sort reconfiguration until zoom completes');
+                            return;
                         }
-                    });
-                    
-                    console.debug('[StatementNetworkLayout] Successfully subscribed to statementNetworkStore');
-                } else {
-                    console.warn('[StatementNetworkLayout] statementNetworkStore exists but lacks subscribe method');
-                }
+                        
+                        // Only reconfigure if we have an active simulation
+                        if (this.simulation) {
+                            // Reconfigure forces with new sort settings
+                            this.configureForces();
+                            
+                            // Force several ticks to immediately apply the new layout
+                            for (let i = 0; i < 10; i++) {
+                                this.simulation.tick();
+                            }
+                            
+                            // Restart simulation with low alpha for smooth transition
+                            this.simulation.alpha(0.1).restart();
+                        }
+                    }
+                });
+                
+                console.debug('[StatementNetworkLayout] Successfully subscribed to statementNetworkStore');
             } else {
-                // Graceful fallback if store is not available
-                console.warn('[StatementNetworkLayout] statementNetworkStore not available on window, using default settings');
+                console.warn('[StatementNetworkLayout] statementNetworkStore not available or missing subscribe method');
+                this.scheduleRetry('subscribeToStoreChanges');
             }
         } catch (error) {
             console.error('[StatementNetworkLayout] Error subscribing to statementNetworkStore:', error);
+            this.scheduleRetry('subscribeToStoreChanges');
         }
     }
+    
+    /**
+     * Set up optimizations for zoom and pan operations
+     */
+    private setupZoomOptimization(): void {
+        // Listen for zoom events
+        if (typeof window !== 'undefined') {
+            // Listen for zoom start/end events from the coordinate system
+            window.addEventListener('zoom-start', () => {
+                this.isZooming = true;
+                
+                // Pause simulation during zooming for better performance
+                if (this.simulation) {
+                    this.simulation.stop();
+                }
+                
+                console.debug('[StatementNetworkLayout] Zoom started, optimization enabled');
+            });
+            
+            window.addEventListener('zoom-end', () => {
+                // Use debounce to prevent rapid start/stop cycles
+                if (this.zoomDebounceTimer) {
+                    clearTimeout(this.zoomDebounceTimer);
+                }
+                
+                this.zoomDebounceTimer = setTimeout(() => {
+                    this.isZooming = false;
+                    
+                    // Restart simulation at low alpha after zooming stops
+                    if (this.simulation) {
+                        this.simulation.alpha(0.1).restart();
+                    }
+                    
+                    console.debug('[StatementNetworkLayout] Zoom ended, optimization disabled');
+                }, 300); // 300ms debounce
+            });
+            
+            // Fallback in case coordinate system events aren't available
+            // Monitor transform changes directly
+            coordinateSystem.transform.subscribe((transform) => {
+                // Skip if we're already handling via explicit events
+                if (this.isZooming) return;
+                
+                // We can detect zooming by tracking transform.k changes
+                const currentScale = transform.k;
+                
+                // Store scale for comparison on next update
+                if (!this.lastScale) {
+                    this.lastScale = currentScale;
+                } else if (Math.abs(this.lastScale - currentScale) > 0.001) {
+                    // Scale changed significantly - zooming activity detected
+                    this.lastScale = currentScale;
+                    
+                    // Set zooming flag if not already set
+                    if (!this.isZooming) {
+                        this.isZooming = true;
+                        
+                        // Pause simulation during zooming
+                        if (this.simulation) {
+                            this.simulation.stop();
+                        }
+                        
+                        console.debug('[StatementNetworkLayout] Zoom detected from transform, optimization enabled');
+                        
+                        // Set up delayed check to detect when zooming stops
+                        if (this.zoomDebounceTimer) {
+                            clearTimeout(this.zoomDebounceTimer);
+                        }
+                        
+                        this.zoomDebounceTimer = setTimeout(() => {
+                            this.isZooming = false;
+                            
+                            // Restart simulation at low alpha
+                            if (this.simulation) {
+                                this.simulation.alpha(0.1).restart(); 
+                            }
+                            
+                            console.debug('[StatementNetworkLayout] No zoom activity for 300ms, optimization disabled');
+                        }, 300);
+                    }
+                }
+            });
+        }
+    }
+    
+    /**
+     * Retry a failed operation with exponential backoff
+     */
+    private scheduleRetry(operation: string): void {
+        if (this.errorRetryCount >= this.maxRetries) {
+            console.warn(`[StatementNetworkLayout] Maximum retry attempts (${this.maxRetries}) reached for ${operation}`);
+            return;
+        }
+        
+        // Exponential backoff with jitter
+        const baseDelay = 500; // 500ms
+        const delay = baseDelay * Math.pow(1.5, this.errorRetryCount) * (0.9 + Math.random() * 0.2);
+        
+        console.log(`[StatementNetworkLayout] Scheduling retry #${this.errorRetryCount + 1} for ${operation} in ${delay.toFixed(0)}ms`);
+        
+        setTimeout(() => {
+            this.errorRetryCount++;
+            
+            console.log(`[StatementNetworkLayout] Retrying ${operation} (attempt ${this.errorRetryCount}/${this.maxRetries})`);
+            
+            // Attempt the operation again
+            if (operation === 'subscribeToStoreChanges') {
+                this.subscribeToStoreChanges();
+            }
+            // Add other operations here if needed
+        }, delay);
+    }
+    
+    // Track last scale for zoom detection
+    private lastScale: number | null = null;
 
     /**
      * Clean up resources when this layout is no longer needed
@@ -105,6 +253,22 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             this.storeSubscription();
             this.storeSubscription = null;
         }
+        
+        // Clear any pending timers
+        if (this.zoomDebounceTimer) {
+            clearTimeout(this.zoomDebounceTimer);
+            this.zoomDebounceTimer = null;
+        }
+        
+        // Remove event listeners
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('zoom-start', () => {});
+            window.removeEventListener('zoom-end', () => {});
+        }
+        
+        // Clear caches
+        this.cachedNodePositions.clear();
+        this.cachedVoteValues.clear();
         
         // Stop the simulation
         this.stop();
@@ -165,6 +329,10 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         console.debug(`[StatementNetworkLayout] Node type distribution:`, nodeTypes);
         
+        // IMPORTANT: Apply visibility standards BEFORE positioning
+        // This ensures nodes that should be hidden by community standards are hidden
+        this.applyCommunityVisibilityStandards(nodes);
+        
         // Stop simulation during initialization
         this.simulation.stop();
         
@@ -207,6 +375,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             node.y = Math.sin(angle) * radius;
             node.fx = node.x; // Fix navigation nodes in place
             node.fy = node.y;
+            
+            // Cache position for quick access
+            this.cachedNodePositions.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 });
         });
         
         // Position statement nodes using the deterministic concentric layout
@@ -282,6 +453,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                     node.y += (Math.random() - 0.5) * jitterRadius;
                 }
                 
+                // Cache the position for quick access
+                this.cachedNodePositions.set(node.id, { x: node.x ?? 0, y: node.y ?? 0 });
+                
                 // Store the ring number in metadata for future use
                 if (node.metadata) {
                     // Use a type assertion to add the custom property
@@ -305,8 +479,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                     y: highest.y ?? 0 
                 },
                 distance: Math.sqrt(
-                    (highest.x ?? 0) * (highest.x ?? 0) + 
-                    (highest.y ?? 0) * (highest.y ?? 0)
+                    Math.pow(highest.x ?? 0, 2) + 
+                    Math.pow(highest.y ?? 0, 2)
                 )
             });
             
@@ -318,8 +492,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                     y: lowest.y ?? 0 
                 },
                 distance: Math.sqrt(
-                    (lowest.x ?? 0) * (lowest.x ?? 0) + 
-                    (lowest.y ?? 0) * (lowest.y ?? 0)
+                    Math.pow(lowest.x ?? 0, 2) + 
+                    Math.pow(lowest.y ?? 0, 2)
                 )
             });
         }
@@ -329,6 +503,12 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      * Configure forces for improved animations
      */
     configureForces(): void {
+        // Skip if currently zooming to reduce unnecessary calculations
+        if (this.isZooming) {
+            console.debug(`[StatementNetworkLayout] Skipping force configuration during zooming`);
+            return;
+        }
+        
         console.debug(`[StatementNetworkLayout] Configuring forces`);
         
         // Clear all existing forces
@@ -413,17 +593,23 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             .x((d: any) => {
                 const node = d as EnhancedNode;
                 
+                // Use cached positions for better performance
+                const cachedPos = this.cachedNodePositions.get(node.id);
+                
                 // If it's a statement node, we want to maintain the relative distances
                 // but allow some flexibility for more natural spacing
                 if (node.type === 'statement') {
                     // Return the node's initial x position with a weakening factor
                     // This allows nodes to move a bit from their assigned positions
                     const weakening = 0.8; // 80% pull toward assigned position
-                    return (node.x || 0) * weakening;
+                    
+                    // Use cached position if available, otherwise use current position
+                    const baseX = cachedPos ? cachedPos.x : (node.x || 0);
+                    return baseX * weakening;
                 }
                 
                 // Return exact position for navigation and other nodes
-                return node.x || 0;
+                return cachedPos ? cachedPos.x : (node.x || 0);
             })
             .strength((d: any) => {
                 const node = d as EnhancedNode;
@@ -451,13 +637,19 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             .y((d: any) => {
                 const node = d as EnhancedNode;
                 
+                // Use cached positions for better performance
+                const cachedPos = this.cachedNodePositions.get(node.id);
+                
                 // Same approach as X force
                 if (node.type === 'statement') {
                     const weakening = 0.8;
-                    return (node.y || 0) * weakening;
+                    
+                    // Use cached position if available, otherwise use current position
+                    const baseY = cachedPos ? cachedPos.y : (node.y || 0);
+                    return baseY * weakening;
                 }
                 
-                return node.y || 0;
+                return cachedPos ? cachedPos.y : (node.y || 0);
             })
             .strength((d: any) => {
                 const node = d as EnhancedNode;
@@ -505,6 +697,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      * This method positions nodes in relation to the center based on the selected sort criteria
      */
     private applySortingForces(): void {
+        // Skip if currently zooming
+        if (this.isZooming) return;
+        
         // Remove any existing positioning forces to start fresh
         this.simulation.force('positioning', null);
         this.simulation.force('radial', null);
@@ -523,10 +718,20 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         const getSortValue = (node: EnhancedNode): number => {
             if (node.type !== 'statement') return 0;
             
+            // Check if we have a cached value for better performance
+            if (this.cachedVoteValues.has(node.id) && this.sortType === 'netPositive') {
+                return this.cachedVoteValues.get(node.id) || 0;
+            }
+            
+            let value = 0;
+            
             switch (this.sortType) {
                 case 'netPositive':
                     // Higher net votes get higher value (closer to center with desc sort)
-                    return this.getNetVotes(node);
+                    value = this.getNetVotes(node);
+                    // Cache the value for performance
+                    this.cachedVoteValues.set(node.id, value);
+                    return value;
                 
                 case 'totalVotes':
                     // Higher total votes get higher value (closer to center with desc sort)
@@ -700,31 +905,105 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     
     /**
      * Get net votes for a node
-     * Uses the new netVotes property directly
+     * Uses the new netVotes property directly if available
+     * Cache results for better performance
      */
     private getNetVotes(node: EnhancedNode): number {
         if (node.type !== 'statement') return 0;
         
+        // Return cached value if available
+        if (this.cachedVoteValues.has(node.id)) {
+            return this.cachedVoteValues.get(node.id) || 0;
+        }
+        
+        let netVotes = 0;
+        
         if (node.data) {
             // Try to use the netVotes property first if available
             if ('netVotes' in node.data) {
-                return this.getNeo4jNumber(node.data.netVotes);
+                netVotes = this.getNeo4jNumber(node.data.netVotes);
             }
-            
             // Fall back to calculating from positive/negative votes if needed
-            if ('positiveVotes' in node.data && 'negativeVotes' in node.data) {
+            else if ('positiveVotes' in node.data && 'negativeVotes' in node.data) {
                 const positiveVotes = this.getNeo4jNumber(node.data.positiveVotes) || 0;
                 const negativeVotes = this.getNeo4jNumber(node.data.negativeVotes) || 0;
-                return positiveVotes - negativeVotes;
+                netVotes = positiveVotes - negativeVotes;
             }
         }
         
-        // Try to use metadata if available
-        if (node.metadata?.votes !== undefined) {
-            return node.metadata.votes;
+        // Try to use metadata if available and no direct property
+        if (netVotes === 0 && node.metadata?.votes !== undefined) {
+            netVotes = node.metadata.votes;
         }
         
-        return 0;
+        // Cache the result for future use
+        this.cachedVoteValues.set(node.id, netVotes);
+        
+        return netVotes;
+    }
+    
+    /**
+     * Check if a node should be hidden based on community standards
+     * This applies our default visibility rules (negative votes = hidden)
+     */
+    private shouldBeHiddenByCommunityStandards(node: EnhancedNode): boolean {
+        if (node.type !== 'statement') return false;
+        
+        // Get net votes for this node
+        const netVotes = this.getNetVotes(node);
+        
+        // Check if net votes are below our threshold
+        const shouldBeHidden = netVotes <= this.COMMUNITY_STANDARDS.NEGATIVE_VOTES_THRESHOLD;
+        
+        if (shouldBeHidden) {
+            console.debug(`[StatementNetworkLayout] Node ${node.id.substring(0,8)} should be hidden by community standards:`, {
+                netVotes,
+                threshold: this.COMMUNITY_STANDARDS.NEGATIVE_VOTES_THRESHOLD
+            });
+        }
+        
+        return shouldBeHidden;
+    }
+    
+    /**
+     * Apply community standards for visibility to all nodes
+     * This is a preprocessing step before layout
+     */
+    private applyCommunityVisibilityStandards(nodes: EnhancedNode[]): void {
+        console.debug('[StatementNetworkLayout] Applying community visibility standards');
+        
+        let hiddenCount = 0;
+        
+        nodes.forEach(node => {
+            if (node.type === 'statement') {
+                // Skip nodes that already have explicit visibility preferences
+                // User preferences always override community standards
+                if (node.hiddenReason === 'user') {
+                    console.debug(`[StatementNetworkLayout] Node ${node.id.substring(0,8)} has user visibility preference: ${node.isHidden}`);
+                    this.hiddenNodes.set(node.id, node.isHidden || false);
+                    return;
+                }
+                
+                // Check if node should be hidden by community standards
+                const shouldBeHidden = this.shouldBeHiddenByCommunityStandards(node);
+                
+                // Update node visibility
+                if (shouldBeHidden && !node.isHidden) {
+                    node.isHidden = true;
+                    node.hiddenReason = 'community';
+                    node.radius = this.getNodeRadius(node); // Update radius
+                    this.hiddenNodes.set(node.id, true);
+                    hiddenCount++;
+                    
+                    console.debug(`[StatementNetworkLayout] Hiding node ${node.id.substring(0,8)} based on community standards`);
+                } else {
+                    // Update tracking state without changing node
+                    this.hiddenNodes.set(node.id, node.isHidden || false);
+                }
+            }
+        });
+        
+        console.debug(`[StatementNetworkLayout] Applied community standards: ${hiddenCount} nodes hidden`);
     }
     
     /**
@@ -754,12 +1033,27 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     
     /**
      * Handle node mode changes (preview/detail) with stable positioning
+     * Implements a state machine for expansion/collapse
      */
     public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
         console.debug(`[StatementNetworkLayout] Node state change`, { 
             nodeId, 
             mode 
         });
+        
+        // Skip if currently zooming
+        if (this.isZooming) {
+            console.debug(`[StatementNetworkLayout] Delaying node state change until zoom completes`);
+            
+            // Schedule the state change for later
+            setTimeout(() => {
+                if (!this.isZooming) {
+                    this.handleNodeStateChange(nodeId, mode);
+                }
+            }, 300);
+            
+            return;
+        }
         
         // Get current nodes from simulation
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -773,15 +1067,46 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         const node = nodes[nodeIndex];
         
+        // Check if node is already in a transition
+        const transitionData = this.expandedNodes.get(nodeId);
+        if (transitionData?.transitioning) {
+            console.debug(`[StatementNetworkLayout] Node is already in transition state: ${transitionData.transitionState}`);
+            
+            // If requesting the same mode as the transition target, just ignore
+            if ((mode === 'detail' && 
+                (transitionData.transitionState === 'expanding' || transitionData.transitionState === 'expanded')) ||
+                (mode === 'preview' && 
+                (transitionData.transitionState === 'collapsing' || transitionData.transitionState === 'collapsed'))) {
+                
+                console.debug(`[StatementNetworkLayout] Ignoring redundant state change request`);
+                return;
+            }
+            
+            // If transitioning in opposite direction, let's just complete the current transition immediately
+            console.debug(`[StatementNetworkLayout] Completing current transition immediately to allow direction change`);
+            
+            // Immediately finish the current transition
+            if (transitionData.transitionState === 'expanding') {
+                // Finish expanding
+                transitionData.transitionState = 'expanded';
+            } else if (transitionData.transitionState === 'collapsing') {
+                // Finish collapsing
+                transitionData.transitionState = 'collapsed';
+            }
+            
+            transitionData.transitioning = false;
+        }
+        
         // Store old values for comparison
         const oldMode = node.mode;
         const oldRadius = node.radius;
+        // Use null coalescing operators to safely handle possibly null values
         const oldPosition = { x: node.x ?? 0, y: node.y ?? 0 };
         
         // Stop the simulation while we make changes
         this.simulation.stop();
         
-        // Update the node properties
+        // Update node properties based on requested mode
         node.mode = mode;
         node.expanded = mode === 'detail';
         node.radius = this.getNodeRadius(node);
@@ -790,25 +1115,94 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             (node.metadata as any).isDetail = mode === 'detail';
         }
         
-        // Important: Fix node position when expanding to detail view
+        // Update or create transition data
         if (mode === 'detail') {
-            // Fix node in place to prevent it from moving during expansion
-            node.fx = node.x;
-            node.fy = node.y;
+            // Fix node position when expanding to detail view
+            node.fx = node.x ?? 0;
+            node.fy = node.y ?? 0;
             
-            // Find the camera center coordinates
-            // This is for centering the view on the expanded node later
+            // Store position for reverting if needed
+            const position = { x: node.x ?? 0, y: node.y ?? 0 };
+            
+            this.expandedNodes.set(nodeId, {
+                previousPosition: position,
+                transitioning: true,
+                transitionState: 'expanding' as const,
+                transitionStart: performance.now()
+            });
+            
+            // Find the camera center coordinates for view centering
             const centerX = node.x ?? 0;
             const centerY = node.y ?? 0;
             
-            console.debug(`[StatementNetworkLayout] Fixing expanded node position:`, {
-                x: centerX,
-                y: centerY
+            console.debug(`[StatementNetworkLayout] Starting expansion transition:`, {
+                nodeId,
+                position,
+                newRadius: node.radius
             });
+            
+            // Update cached position
+            this.cachedNodePositions.set(node.id, { x: centerX, y: centerY });
+            
+            // Schedule completion of transition
+            setTimeout(() => {
+                const data = this.expandedNodes.get(nodeId);
+                if (data && data.transitionState === 'expanding') {
+                    console.debug(`[StatementNetworkLayout] Completing expansion transition for ${nodeId}`);
+                    data.transitionState = 'expanded' as const;
+                    data.transitioning = false;
+                }
+            }, this.TRANSITION_DURATION);
         } else {
-            // When collapsing, release node position constraint
-            node.fx = undefined;
-            node.fy = undefined;
+            // Get stored position data if available
+            const data = this.expandedNodes.get(nodeId) || {
+                previousPosition: oldPosition,
+                transitioning: false,
+                transitionState: 'expanded' as const,
+                transitionStart: 0
+            };
+            
+            // Update state
+            data.transitioning = true;
+            data.transitionState = 'collapsing' as const;
+            data.transitionStart = performance.now();
+            
+            this.expandedNodes.set(nodeId, data);
+            
+            console.debug(`[StatementNetworkLayout] Starting collapse transition:`, {
+                nodeId,
+                previousPosition: data.previousPosition,
+                newRadius: node.radius
+            });
+            
+            // Keep node fixed during transition to prevent flickering
+            node.fx = node.x ?? 0;
+            node.fy = node.y ?? 0;
+            
+            // Schedule release of fixed position after transition
+            setTimeout(() => {
+                const transitionData = this.expandedNodes.get(nodeId);
+                if (transitionData && transitionData.transitionState === 'collapsing') {
+                    // Get the node again in case it's changed
+                    const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+                    const node = nodes.find(n => n.id === nodeId);
+                    
+                    if (node) {
+                        // Release fixed position
+                        node.fx = undefined;
+                        node.fy = undefined;
+                        
+                        // Mark transition as complete
+                        transitionData.transitionState = 'collapsed';
+                        transitionData.transitioning = false;
+                        
+                        console.debug(`[StatementNetworkLayout] Completing collapse transition for ${nodeId}, releasing fixed position`);
+                        
+                        // Restart with minimal alpha
+                        this.simulation.alpha(0.05).restart();
+                    }
+                }
+            }, this.TRANSITION_DURATION);
         }
         
         console.debug(`[StatementNetworkLayout] Node updated:`, {
@@ -817,7 +1211,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             newMode: mode,
             oldRadius,
             newRadius: node.radius,
-            position: { x: node.x, y: node.y }
+            position: { x: node.x, y: node.y },
+            transitionState: mode === 'detail' ? 'expanding' : 'collapsing'
         });
         
         // Update the simulation with the new node properties
@@ -884,6 +1279,184 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
+     * Handle node visibility changes with proper transition management
+     */
+    public handleNodeVisibilityChange(nodeId: string, isHidden: boolean, reason: 'community' | 'user' = 'user'): void {
+        console.debug(`[StatementNetworkLayout] Node visibility change request`, {
+            nodeId,
+            isHidden,
+            reason
+        });
+        
+        // Skip if currently zooming
+        if (this.isZooming) {
+            console.debug(`[StatementNetworkLayout] Delaying visibility change until zoom completes`);
+            
+            // Schedule the visibility change for later
+            setTimeout(() => {
+                if (!this.isZooming) {
+                    this.handleNodeVisibilityChange(nodeId, isHidden, reason);
+                }
+            }, 300);
+            
+            return;
+        }
+        
+        // Get current nodes from simulation
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find the target node
+        const node = nodes.find(n => n.id === nodeId);
+        if (!node) {
+            console.warn(`[StatementNetworkLayout] Node not found for visibility change:`, nodeId);
+            return;
+        }
+        
+        // Skip if already in desired state
+        if (node.isHidden === isHidden) {
+            console.debug(`[StatementNetworkLayout] Node ${nodeId} is already in desired visibility state: ${isHidden}`);
+            return;
+        }
+        
+        // Store old values
+        const oldVisibility = node.isHidden;
+        const oldRadius = node.radius;
+        
+        // Stop simulation during change
+        this.simulation.stop();
+        
+        // Update node properties
+        node.isHidden = isHidden;
+        node.hiddenReason = reason;
+        node.radius = this.getNodeRadius(node);
+        
+        // Update our tracking
+        this.hiddenNodes.set(nodeId, isHidden);
+        
+        console.debug(`[StatementNetworkLayout] Node visibility updated:`, {
+            nodeId,
+            oldVisibility,
+            newVisibility: isHidden,
+            reason,
+            oldRadius,
+            newRadius: node.radius
+        });
+        
+        // Update simulation with modified node
+        this.simulation.nodes(nodes);
+        
+        // Create strong collision detection during transition
+        const collisionForce = d3.forceCollide()
+            .radius((d: any) => {
+                const n = d as EnhancedNode;
+                return n.radius + 20; // Standard padding for all nodes
+            })
+            .strength(1) // Maximum strength
+            .iterations(4); // More iterations for better detection
+            
+        // Apply minimal forces during transition
+        this.simulation
+            .force('collision', collisionForce)
+            .force('charge', d3.forceManyBody().strength(-30))
+            .force('x', null)
+            .force('y', null);
+            
+        // Run minimal ticks
+        for (let i = 0; i < 5; i++) {
+            this.simulation.tick();
+        }
+        
+        // Restore normal forces
+        this.configureForces();
+        
+        // Restart with very low alpha
+        this.simulation.alpha(0.05).restart();
+    }
+    
+    /**
+     * Throttled version of forceTick method
+     * Note: We're implementing our own method since BaseLayoutStrategy doesn't have a tick method
+     */
+    public forceTick(count: number = 1): void {
+        // Skip ticks during zooming
+        if (this.isZooming) return;
+        
+        // Check if enough time has passed since last tick
+        const now = performance.now();
+        if (now - this.lastTickTime < this.tickThrottleTime) {
+            return;
+        }
+        this.lastTickTime = now;
+        
+        // Run ticks manually instead of calling super
+        for (let i = 0; i < count; i++) {
+            if (this.simulation) {
+                this.simulation.tick();
+            }
+        }
+    }
+    
+    /**
+     * Apply visibility preferences from the store to nodes
+     * This should be called after node loading but before layout
+     */
+    public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
+        if (!preferences || Object.keys(preferences).length === 0) {
+            console.debug('[StatementNetworkLayout] No visibility preferences to apply');
+            return;
+        }
+        
+        console.debug(`[StatementNetworkLayout] Applying ${Object.keys(preferences).length} visibility preferences`);
+        
+        // Get current nodes
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        if (!nodes || nodes.length === 0) {
+            console.warn('[StatementNetworkLayout] No nodes to apply preferences to');
+            return;
+        }
+        
+        let appliedCount = 0;
+        
+        // Apply preferences to nodes
+        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+            const node = nodes.find(n => n.id === nodeId);
+            
+            if (node) {
+                // Calculate new hidden state (isVisible = true means not hidden)
+                const shouldBeHidden = !isVisible;
+                
+                // Skip if already in correct state
+                if (node.isHidden === shouldBeHidden) {
+                    return;
+                }
+                
+                // Apply preference
+                node.isHidden = shouldBeHidden;
+                node.hiddenReason = 'user'; // User preferences always have 'user' reason
+                node.radius = this.getNodeRadius(node); // Update radius
+                
+                // Update tracking
+                this.hiddenNodes.set(nodeId, shouldBeHidden);
+                
+                appliedCount++;
+                
+                console.debug(`[StatementNetworkLayout] Applied visibility preference for ${nodeId.substring(0,8)}: ${shouldBeHidden ? 'hidden' : 'visible'}`);
+            }
+        });
+        
+        console.debug(`[StatementNetworkLayout] Applied ${appliedCount} visibility preferences`);
+        
+        // If we actually changed any nodes, stop and restart simulation
+        if (appliedCount > 0) {
+            // Update the simulation
+            this.simulation.nodes(nodes);
+            
+            // Stop and restart with low alpha to minimize movement
+            this.simulation.alpha(0.1).restart();
+        }
+    }
+
+    /**
      * Override updateData to set up the network layout with better animation
      */
     public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = false): void {
@@ -904,7 +1477,16 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Stop any existing simulation
         this.simulation.stop();
         
+        // Reset caches
+        this.cachedNodePositions.clear();
+        this.cachedVoteValues.clear();
+        
+        // Reset transition tracking
+        this.expandedNodes.clear();
+        this.hiddenNodes.clear();
+        
         // Initialize node positions - this does the deterministic layout
+        // This also applies community visibility standards
         this.initializeNodePositions(nodes);
         
         // For animated load, we'll start with nodes in a more compact arrangement
@@ -913,10 +1495,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             nodes.forEach(node => {
                 if (node.type === 'statement') {
                     // Contract positions toward center by 40%
-                    if (node.x !== undefined && node.y !== undefined) {
-                        node.x *= 0.6;
-                        node.y *= 0.6;
-                    }
+                    // Use nullish coalescing to safely handle null/undefined values
+                    node.x = (node.x ?? 0) * 0.6;
+                    node.y = (node.y ?? 0) * 0.6;
                 }
             });
         }
@@ -940,6 +1521,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 
             // After a short time, transition to gentle settling phase
             setTimeout(() => {
+                // Skip if component was unmounted
+                if (!this.simulation) return;
+                
                 // Phase 2: Settling - restore original parameters
                 this.simulation
                     .alphaDecay(0.05) // Higher decay to settle quickly
