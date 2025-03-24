@@ -5,12 +5,13 @@
     import Graph from '$lib/components/graph/Graph.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
-    import GraphControls from '$lib/components/graph/controls/GraphControls.svelte';
+    import ControlNode from '$lib/components/graph/nodes/controls/ControlNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
-    import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
-    import { graphFilterStore, type FilterOperator, type SortDirection } from '$lib/stores/graphFilterStore';
+    import { statementNetworkStore, type NetworkSortType, type NetworkSortDirection } from '$lib/stores/statementNetworkStore';
+    import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { graphStore } from '$lib/stores/graphStore';
+    import { wordListStore } from '$lib/stores/wordListStore';
     import type { 
         GraphData, 
         GraphNode, 
@@ -21,13 +22,12 @@
         NodeGroup,
         NodeMode,
         ViewType,
-        LinkType 
+        LinkType
     } from '$lib/types/graph/enhanced';
     import { 
         isStatementNode, 
         isNavigationNode 
     } from '$lib/types/graph/enhanced';
-    import type { RelatedStatement } from '$lib/types/domain/nodes';
 
     // Define view type
     const viewType: ViewType = 'statement-network';
@@ -35,6 +35,18 @@
     // Create a unique key for forcing re-renders
     let routeKey = `${viewType}-${Date.now()}`;
     
+    // Control node settings
+    let controlNodeMode: NodeMode = 'detail'; 
+    let controlNodeId = 'graph-controls';
+    
+    // Control settings
+    let sortType: NetworkSortType = 'netPositive';
+    let sortDirection: NetworkSortDirection = 'desc';
+    let filterKeywords: string[] = [];
+    let keywordOperator: FilterOperator = 'OR';
+    let showOnlyMyItems = false;
+    let availableKeywords: string[] = [];
+
     // Initialization states
     let authInitialized = false;
     let dataInitialized = false;
@@ -45,11 +57,7 @@
     
     // Get statements from the store
     $: statements = $statementNetworkStore?.filteredStatements || [];
-    
-    // Calculate available keywords for filtering
-    $: availableKeywords = statementNetworkStore ? 
-        statementNetworkStore.getUniqueKeywords() : [];
-    
+
     // Initialize data and authenticate user
     async function initializeData() {
         console.log('[STATEMENT-NETWORK] Starting data initialization');
@@ -76,6 +84,9 @@
             // Load statement network data
             await loadStatementNetworkData();
             
+            // Load available keywords for filtering
+            await loadAvailableKeywords();
+            
             console.log('[STATEMENT-NETWORK] Data initialization complete');
             dataInitialized = true;
             
@@ -83,7 +94,7 @@
             if (graphStore) {
                 console.log('[STATEMENT-NETWORK] Setting graph store view type to statement-network');
                 graphStore.setViewType(viewType);
-                graphStore.forceTick();
+                graphStore.forceTick(3);
             }
         } catch (error) {
             console.error('[STATEMENT-NETWORK-ERROR] Error in initializeData:', error);
@@ -99,8 +110,11 @@
             // Set loading state
             networkNodesLoading = true;
             
-            // Load statements using the network store
-            await statementNetworkStore.loadStatements();
+            // Load statements using the network store with current sort settings
+            await statementNetworkStore.loadStatements({
+                sortType,
+                sortDirection
+            });
             
             console.log('[STATEMENT-NETWORK] Loaded statement data:', {
                 total: $statementNetworkStore.allStatements.length,
@@ -132,50 +146,82 @@
             }, 800);
         }
     }
+    
+    // Load available keywords
+    async function loadAvailableKeywords() {
+        try {
+            if (wordListStore && typeof wordListStore.loadAllWords === 'function') {
+                const words = await wordListStore.loadAllWords();
+                availableKeywords = words;
+                console.log('[STATEMENT-NETWORK] Loaded available keywords:', availableKeywords.length);
+            } else {
+                // Fallback: extract keywords from statements
+                availableKeywords = statementNetworkStore.getUniqueKeywords();
+                console.log('[STATEMENT-NETWORK] Using keywords from statements:', availableKeywords.length);
+            }
+        } catch (error) {
+            console.error('[STATEMENT-NETWORK] Error loading keywords:', error);
+            // Fallback to empty list
+            availableKeywords = [];
+        }
+    }
 
-    // Handle filter/sort changes
+    // Handle control node mode changes
+    function handleControlNodeModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        console.log('[STATEMENT-NETWORK] Control node mode change:', event.detail);
+        controlNodeMode = event.detail.mode;
+    }
+    
+    // Handle control settings changes
     async function handleControlChange(event: CustomEvent<{
         sortType: string;
         sortDirection: string;
         keywords: string[];
         keywordOperator: string;
-        nodeTypes: string[];
-        nodeTypeOperator: string;
         showOnlyMyItems: boolean;
     }>) {
-        console.log('[STATEMENT-NETWORK] Control change event:', event.detail);
+        console.log('[STATEMENT-NETWORK] Control settings changed:', event.detail);
         
-        // Update filters through the graph filter store
-        await graphFilterStore.applyConfiguration({
-            sortType: event.detail.sortType,
-            sortDirection: event.detail.sortDirection as SortDirection,
-            keywords: event.detail.keywords,
-            keywordOperator: event.detail.keywordOperator as FilterOperator,
-            nodeTypes: event.detail.nodeTypes,
-            nodeTypeOperator: event.detail.nodeTypeOperator as FilterOperator,
-            userId: event.detail.showOnlyMyItems ? $userStore?.sub : undefined
-        });
+        // Create properly typed values
+        const newSortType = event.detail.sortType as NetworkSortType;
+        const newSortDirection = event.detail.sortDirection as NetworkSortDirection;
         
-        // Update layout in graph manager if needed
-        if (graphStore) {
-            updateNetworkLayout();
-        }
-    }
-    
-    // Update the network layout based on current sort settings
-    function updateNetworkLayout() {
-        if (!graphStore || !isReady) return;
+        // Update local values
+        sortType = newSortType;
+        sortDirection = newSortDirection;
+        filterKeywords = [...event.detail.keywords];
+        keywordOperator = event.detail.keywordOperator as FilterOperator;
+        showOnlyMyItems = event.detail.showOnlyMyItems;
         
-        // Force a tick to refresh positions after sorting/filtering
-        graphStore.forceTick(5);
+        // Apply sorting via the store
+        await statementNetworkStore.setSorting(
+            newSortType,
+            newSortDirection
+        );
+        
+        // Apply keyword filter
+        statementNetworkStore.applyKeywordFilter(
+            filterKeywords,
+            keywordOperator
+        );
+        
+        // Apply user filter
+        statementNetworkStore.applyUserFilter(
+            showOnlyMyItems ? $userStore?.sub : undefined
+        );
     }
 
-    // Event handlers
+    // Event handlers for node events
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
         console.log('[STATEMENT-NETWORK] Node mode change', {
             nodeId: event.detail.nodeId,
             newMode: event.detail.mode
         });
+        
+        // If this is the control node, update its mode
+        if (event.detail.nodeId === controlNodeId) {
+            controlNodeMode = event.detail.mode;
+        }
     }
 
     // Get navigation options for dashboard context (fallback for network view)
@@ -186,20 +232,38 @@
             data: option,
             group: 'navigation' as const
         }));
+    
+    // Create control node for sorting and filtering
+    $: controlNode = {
+        id: controlNodeId,
+        type: 'dashboard' as NodeType, // Use dashboard type for proper styling
+        data: {
+            sub: 'controls',
+            name: 'Graph Controls',
+            email: '',
+            picture: '',
+            'https://projectzer0.co/user_metadata': {
+                handle: 'controls'
+            }
+        },
+        group: 'central' as NodeGroup,
+        mode: controlNodeMode,
+        fixed: true
+    };
 
     // Create graph data
     function createGraphData(): GraphData {
         console.log('[STATEMENT-NETWORK] Creating statement network view data', {
             statementCount: statements.length,
             loading: networkNodesLoading,
-            statements: statements.length > 0 ? statements.slice(0, 1).map(s => s.id) : []
+            controlNodeMode
         });
 
         // Only include navigation nodes during loading to avoid flickering
         if (networkNodesLoading) {
             console.log('[STATEMENT-NETWORK] Network in loading state, showing only navigation nodes');
             return {
-                nodes: [...navigationNodes],
+                nodes: [...navigationNodes, controlNode],
                 links: []
             };
         }
@@ -239,13 +303,13 @@
         });
 
         console.log('[STATEMENT-NETWORK] Created statement network structure', {
-            nodeCount: navigationNodes.length + statementNodes.length,
+            nodeCount: navigationNodes.length + statementNodes.length + 1, // +1 for control node
             linkCount: statementLinks.length
         });
 
-        // Return navigation nodes and statement nodes 
+        // Return navigation nodes, control node and statement nodes 
         return {
-            nodes: [...navigationNodes, ...statementNodes],
+            nodes: [...navigationNodes, controlNode, ...statementNodes],
             links: statementLinks
         };
     }
@@ -256,7 +320,7 @@
 
     // Initialize on mount
     onMount(() => {
-        console.log("✅ USING STATEMENT NETWORK VIEW COMPONENT");
+        console.log("✅ USING REFACTORED STATEMENT NETWORK VIEW COMPONENT");
         initializeData();
     });
 
@@ -289,20 +353,7 @@
         <div class="loading-text">No statements found</div>
     </div>
 {:else}
-    <!-- Use our reusable graph controls component -->
-    <GraphControls
-        viewType="statement-network"
-        enableSorting={true}
-        enableKeywordFilter={true}
-        enableUserFilter={true}
-        enableNodeTypeFilter={false}
-        initialSortType="netPositive"
-        initialSortDirection="desc"
-        {availableKeywords}
-        on:change={handleControlChange}
-    />
-    
-    <!-- Graph visualization -->
+    <!-- Graph visualization with central control node and statements -->
     {#key routeKey}
     <Graph 
         data={graphData}
@@ -310,7 +361,19 @@
         on:modechange={handleNodeModeChange}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
-            {#if isStatementNode(node)}
+            {#if node.id === controlNodeId}
+                <ControlNode 
+                    {node}
+                    {sortType}
+                    {sortDirection}
+                    keywords={filterKeywords}
+                    keywordOperator={keywordOperator}
+                    {showOnlyMyItems}
+                    {availableKeywords}
+                    on:modeChange={handleControlNodeModeChange}
+                    on:controlChange={handleControlChange}
+                />
+            {:else if isStatementNode(node)}
                 <StatementNode 
                     {node}
                     on:modeChange={handleModeChange}

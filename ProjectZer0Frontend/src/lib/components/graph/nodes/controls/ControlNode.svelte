@@ -1,0 +1,720 @@
+<!-- src/lib/components/graph/nodes/controls/ControlNode.svelte -->
+<script lang="ts">
+    import { onMount, createEventDispatcher } from 'svelte';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import BasePreviewNode from '../base/BasePreviewNode.svelte';
+    import BaseDetailNode from '../base/BaseDetailNode.svelte';
+    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import type { NetworkSortType, NetworkSortDirection } from '$lib/stores/statementNetworkStore';
+    
+    // Props
+    export let node: RenderableNode;
+    export let sortType: NetworkSortType = 'netPositive';
+    export let sortDirection: NetworkSortDirection = 'desc';
+    export let keywords: string[] = [];
+    export let keywordOperator: string = 'OR';
+    export let showOnlyMyItems: boolean = false;
+    export let availableKeywords: string[] = [];
+    
+    // Internal state
+    let isDetail = node.mode === 'detail';
+    let keywordInput = '';
+    let keywordSearchResults: string[] = [];
+    let keywordSearchTimeout: NodeJS.Timeout | null = null;
+    
+    // Sort options with index signature for type safety
+    const sortOptions: Record<string, string> = {
+        'netPositive': 'Net Votes',
+        'totalVotes': 'Total Activity',
+        'chronological': 'Date Created'
+    };
+    
+    // Direction options with index signature for type safety
+    const directionOptions: Record<string, string> = {
+        'desc': 'Descending',
+        'asc': 'Ascending'
+    };
+    
+    // Working copies for edit mode
+    let editSortType = sortType;
+    let editSortDirection = sortDirection;
+    let editKeywords = [...keywords];
+    let editKeywordOperator = keywordOperator;
+    let editShowOnlyMyItems = showOnlyMyItems;
+    
+    const METRICS_SPACING = {
+        labelX: -200,
+        equalsX: 0,
+        valueX: 30
+    };
+    
+    // Event dispatcher
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
+        controlChange: {
+            sortType: NetworkSortType;
+            sortDirection: NetworkSortDirection;
+            keywords: string[];
+            keywordOperator: string;
+            showOnlyMyItems: boolean;
+        };
+    }>();
+    
+    // Function to handle expanding or collapsing the node
+    function handleModeChange() {
+        const newMode = isDetail ? 'preview' : 'detail';
+        console.debug(`[ControlNode] Mode change requested:`, { 
+            currentMode: node.mode, 
+            newMode 
+        });
+        dispatch('modeChange', { mode: newMode });
+    }
+    
+    // Function to handle applying changes
+    function applyChanges() {
+        // Update working values to actual values
+        sortType = editSortType;
+        sortDirection = editSortDirection;
+        keywords = [...editKeywords];
+        keywordOperator = editKeywordOperator;
+        showOnlyMyItems = editShowOnlyMyItems;
+        
+        // Dispatch event with new values
+        dispatch('controlChange', {
+            sortType,
+            sortDirection,
+            keywords,
+            keywordOperator,
+            showOnlyMyItems
+        });
+    }
+    
+    // Function to clear all filters
+    function clearAllFilters() {
+        editKeywords = [];
+        editShowOnlyMyItems = false;
+        
+        // Apply changes immediately
+        applyChanges();
+    }
+    
+    // Functions for keyword handling
+    function handleKeywordInputChange() {
+        // Clear previous timeout
+        if (keywordSearchTimeout) {
+            clearTimeout(keywordSearchTimeout);
+        }
+        
+        // If input is empty, clear results
+        if (!keywordInput.trim()) {
+            keywordSearchResults = [];
+            return;
+        }
+        
+        // Set timeout for search
+        keywordSearchTimeout = setTimeout(() => {
+            searchKeywords(keywordInput);
+        }, 300);
+    }
+    
+    function searchKeywords(query: string) {
+        if (!query.trim()) {
+            keywordSearchResults = [];
+            return;
+        }
+        
+        const lowerQuery = query.toLowerCase();
+        
+        // Search through availableKeywords
+        // First, find keywords that start with the query
+        const startsWith = availableKeywords
+            .filter(k => k.toLowerCase().startsWith(lowerQuery))
+            .slice(0, 5);
+            
+        // Then, find keywords that contain the query but don't start with it
+        const contains = availableKeywords
+            .filter(k => !k.toLowerCase().startsWith(lowerQuery) && k.toLowerCase().includes(lowerQuery))
+            .slice(0, 5);
+            
+        // Combine results
+        keywordSearchResults = [...startsWith, ...contains];
+    }
+    
+    function addKeyword(keyword: string) {
+        if (!keyword || editKeywords.includes(keyword)) return;
+        
+        editKeywords = [...editKeywords, keyword];
+        keywordInput = '';
+        keywordSearchResults = [];
+    }
+    
+    function removeKeyword(keyword: string) {
+        editKeywords = editKeywords.filter(k => k !== keyword);
+    }
+    
+    function toggleKeywordOperator() {
+        editKeywordOperator = editKeywordOperator === 'OR' ? 'AND' : 'OR';
+    }
+    
+    function toggleUserFilter() {
+        editShowOnlyMyItems = !editShowOnlyMyItems;
+    }
+    
+    function handleKeywordInputKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' && keywordInput) {
+            // If we have search results, use the first one
+            if (keywordSearchResults.length > 0) {
+                addKeyword(keywordSearchResults[0]);
+            } else {
+                // Otherwise use the raw input
+                addKeyword(keywordInput);
+            }
+            event.preventDefault();
+        }
+    }
+</script>
+
+{#if isDetail}
+    <!-- DETAIL MODE - Shows full controls -->
+    <BaseDetailNode {node} on:modeChange={handleModeChange}>
+        <svelte:fragment slot="default" let:radius>
+            <!-- Title -->
+            <text
+                y={-radius + 40}
+                class="title"
+                style:font-family={NODE_CONSTANTS.FONTS.title.family}
+                style:font-size={NODE_CONSTANTS.FONTS.title.size}
+                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+            >
+                Graph Controls
+            </text>
+            
+            <!-- Sort Controls -->
+            <g transform="translate(0, {-radius/2})">
+                <text class="section-title">Sort statements</text>
+                
+                <!-- Sort Type Selection -->
+                <foreignObject 
+                    x={-180} 
+                    y={20} 
+                    width={170} 
+                    height={70}
+                >
+                    <div class="control-section">
+                        <label for="sort-type">Sort by</label>
+                        <select 
+                            id="sort-type"
+                            bind:value={editSortType}
+                        >
+                            {#each Object.entries(sortOptions) as [value, label]}
+                                <option {value}>{label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                </foreignObject>
+                
+                <!-- Sort Direction Selection -->
+                <foreignObject 
+                    x={10} 
+                    y={20} 
+                    width={170} 
+                    height={70}
+                >
+                    <div class="control-section">
+                        <label for="sort-direction">Direction</label>
+                        <select 
+                            id="sort-direction"
+                            bind:value={editSortDirection}
+                        >
+                            {#each Object.entries(directionOptions) as [value, label]}
+                                <option {value}>{label}</option>
+                            {/each}
+                        </select>
+                    </div>
+                </foreignObject>
+            </g>
+            
+            <!-- Keyword Filter -->
+            <g transform="translate(0, {-radius/5})">
+                <text class="section-title">Filter by Keywords</text>
+                
+                <!-- Selected Keywords Display -->
+                {#if editKeywords.length > 0}
+                    <foreignObject 
+                        x={-180} 
+                        y={20} 
+                        width={360} 
+                        height={70}
+                    >
+                        <div class="selected-keywords">
+                            {#each editKeywords as keyword}
+                                <div class="keyword-chip">
+                                    <span>{keyword}</span>
+                                    <button 
+                                        class="remove-keyword"
+                                        on:click={() => removeKeyword(keyword)}
+                                        aria-label={`Remove ${keyword} filter`}
+                                    >
+                                        <span class="material-symbols-outlined">close</span>
+                                    </button>
+                                </div>
+                            {/each}
+                            
+                            <!-- Operator Toggle -->
+                            {#if editKeywords.length > 1}
+                                <button 
+                                    class="operator-toggle"
+                                    on:click={toggleKeywordOperator}
+                                    aria-label="Toggle between AND and OR operators"
+                                >
+                                    {editKeywordOperator}
+                                </button>
+                            {/if}
+                        </div>
+                    </foreignObject>
+                {/if}
+                
+                <!-- Keyword Input -->
+                <foreignObject 
+                    x={-180} 
+                    y={editKeywords.length > 0 ? 100 : 20} 
+                    width={360} 
+                    height={60}
+                >
+                    <div class="keyword-input-container">
+                        <div class="autocomplete-wrapper">
+                            <input
+                                type="text"
+                                placeholder="Add keyword..."
+                                bind:value={keywordInput}
+                                on:input={handleKeywordInputChange}
+                                on:keydown={handleKeywordInputKeydown}
+                                autocomplete="off"
+                            />
+                            
+                            {#if keywordSearchResults.length > 0 && keywordInput}
+                                <div class="autocomplete-dropdown" role="listbox">
+                                    {#each keywordSearchResults as suggestion}
+                                        <button 
+                                            class="autocomplete-item"
+                                            role="option"
+                                            aria-selected="false"
+                                            on:click={() => addKeyword(suggestion)}
+                                            on:keydown={(e) => e.key === 'Enter' && addKeyword(suggestion)}
+                                        >
+                                            {suggestion}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                        
+                        <button 
+                            class="add-keyword"
+                            on:click={() => addKeyword(keywordInput)}
+                            disabled={!keywordInput}
+                        >
+                            Add
+                        </button>
+                    </div>
+                </foreignObject>
+            </g>
+            
+            <!-- User Filter -->
+            <g transform="translate(0, {radius/4})">
+                <text class="section-title">My Content</text>
+                
+                <foreignObject 
+                    x={-180} 
+                    y={20} 
+                    width={360} 
+                    height={60}
+                >
+                    <div class="user-filter">
+                        <label class="toggle-switch">
+                            <input 
+                                type="checkbox" 
+                                bind:checked={editShowOnlyMyItems}
+                                on:change={toggleUserFilter}
+                            />
+                            <span class="slider"></span>
+                        </label>
+                        <span class="filter-label">
+                            {editShowOnlyMyItems 
+                                ? `Showing only my statements` 
+                                : `Showing all statements`}
+                        </span>
+                    </div>
+                </foreignObject>
+            </g>
+            
+            <!-- Control Buttons -->
+            <g transform="translate(0, {radius/2})">
+                <foreignObject 
+                    x={-180} 
+                    y={0} 
+                    width={360} 
+                    height={60}
+                >
+                    <div class="button-group">
+                        {#if editKeywords.length > 0 || editShowOnlyMyItems}
+                            <button 
+                                class="clear-filters"
+                                on:click={clearAllFilters}
+                            >
+                                Clear All Filters
+                            </button>
+                        {/if}
+                        <button 
+                            class="apply-filters"
+                            on:click={applyChanges}
+                        >
+                            Apply Changes
+                        </button>
+                    </div>
+                </foreignObject>
+            </g>
+            
+            <!-- Contract button -->
+            <ExpandCollapseButton 
+                mode="collapse"
+                y={radius}
+                on:click={handleModeChange}
+            />
+        </svelte:fragment>
+    </BaseDetailNode>
+{:else}
+    <!-- PREVIEW MODE - Shows current settings -->
+    <BasePreviewNode {node} on:modeChange={handleModeChange}>
+        <svelte:fragment slot="title" let:radius>
+            <text
+                y={-radius + 40}
+                class="title"
+                style:font-family={NODE_CONSTANTS.FONTS.title.family}
+                style:font-size={NODE_CONSTANTS.FONTS.title.size}
+                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+            >
+                Graph Controls
+            </text>
+        </svelte:fragment>
+
+        <svelte:fragment slot="content" let:radius>
+            <g transform="translate(0, -20)">
+                <text 
+                    class="preview-setting"
+                >
+                    Sort: {sortOptions[sortType] || sortType}
+                </text>
+                
+                <text 
+                    y="25"
+                    class="preview-setting"
+                >
+                    Order: {directionOptions[sortDirection] || sortDirection}
+                </text>
+                
+                {#if keywords.length > 0}
+                    <text 
+                        y="50"
+                        class="preview-setting"
+                    >
+                        Filters: {keywords.length} keyword{keywords.length > 1 ? 's' : ''}
+                    </text>
+                {/if}
+                
+                {#if showOnlyMyItems}
+                    <text 
+                        y={keywords.length > 0 ? 75 : 50}
+                        class="preview-setting"
+                    >
+                        My content only
+                    </text>
+                {/if}
+            </g>
+        </svelte:fragment>
+
+        <!-- Expand Button in Preview Mode -->
+        <svelte:fragment slot="button" let:radius>
+            <ExpandCollapseButton 
+                mode="expand"
+                y={radius}
+                on:click={handleModeChange}
+            />
+        </svelte:fragment>
+    </BasePreviewNode>
+{/if}
+
+<style>
+    text {
+        text-anchor: middle;
+        font-family: 'Orbitron', sans-serif;
+        fill: white;
+        user-select: none;
+    }
+
+    .title {
+        fill: rgba(255, 255, 255, 0.7);
+    }
+    
+    .section-title {
+        font-size: 14px;
+        font-weight: 500;
+        fill: rgba(255, 255, 255, 0.9);
+    }
+    
+    .preview-setting {
+        font-size: 14px;
+        font-weight: 400;
+        fill: rgba(255, 255, 255, 0.9);
+    }
+
+    :global(.control-section) {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        width: 100%;
+    }
+    
+    :global(.control-section label) {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.6);
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(select) {
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        padding: 8px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 12px;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 8px center;
+        background-size: 16px;
+        padding-right: 30px;
+    }
+    
+    :global(.selected-keywords) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 0;
+    }
+    
+    :global(.keyword-chip) {
+        display: flex;
+        align-items: center;
+        background: rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+        border-radius: 16px;
+        padding: 4px 10px;
+        font-size: 12px;
+        color: white;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.remove-keyword) {
+        background: none;
+        border: none;
+        color: rgba(255, 255, 255, 0.8);
+        cursor: pointer;
+        padding: 0;
+        margin-left: 5px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+    }
+    
+    :global(.operator-toggle) {
+        background: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+        border-radius: 16px;
+        color: white;
+        padding: 4px 10px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.keyword-input-container) {
+        display: flex;
+        gap: 8px;
+    }
+    
+    :global(.autocomplete-wrapper) {
+        position: relative;
+        flex: 1;
+    }
+    
+    :global(input[type="text"]) {
+        width: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        padding: 8px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 12px;
+    }
+    
+    :global(.autocomplete-dropdown) {
+        position: absolute;
+        width: 100%;
+        max-height: 200px;
+        overflow-y: auto;
+        background: rgba(0, 0, 0, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        z-index: 10;
+        margin-top: 2px;
+    }
+    
+    :global(.autocomplete-item) {
+        width: 100%;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 12px;
+        transition: background 0.2s ease;
+        background: transparent;
+        border: none;
+        color: white;
+        text-align: left;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.autocomplete-item:hover),
+    :global(.autocomplete-item:focus) {
+        background: rgba(52, 152, 219, 0.2);
+        outline: none;
+    }
+    
+    :global(.add-keyword) {
+        background: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+        border-radius: 4px;
+        color: white;
+        padding: 8px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.add-keyword:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    :global(.user-filter) {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    :global(.toggle-switch) {
+        position: relative;
+        display: inline-block;
+        width: 44px;
+        height: 22px;
+    }
+    
+    :global(.toggle-switch input) {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+    
+    :global(.slider) {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        transition: .4s;
+        border-radius: 22px;
+    }
+    
+    :global(.slider:before) {
+        position: absolute;
+        content: "";
+        height: 16px;
+        width: 16px;
+        left: 3px;
+        bottom: 2px;
+        background-color: white;
+        transition: .4s;
+        border-radius: 50%;
+    }
+    
+    :global(input:checked + .slider) {
+        background-color: rgba(46, 204, 113, 0.2);
+        border-color: rgba(46, 204, 113, 0.3);
+    }
+    
+    :global(input:checked + .slider:before) {
+        transform: translateX(22px);
+    }
+    
+    :global(.filter-label) {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.8);
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.button-group) {
+        display: flex;
+        gap: 10px;
+        width: 100%;
+    }
+    
+    :global(.clear-filters) {
+        background: rgba(231, 76, 60, 0.2);
+        border: 1px solid rgba(231, 76, 60, 0.3);
+        border-radius: 4px;
+        color: white;
+        padding: 8px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+        text-align: center;
+        flex: 1;
+    }
+    
+    :global(.apply-filters) {
+        background: rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+        border-radius: 4px;
+        color: white;
+        padding: 8px 12px;
+        font-size: 14px;
+        cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+        text-align: center;
+        flex: 1;
+    }
+    
+    /* Material Icons */
+    :global(.material-symbols-outlined) {
+        font-family: 'Material Symbols Outlined';
+        font-weight: normal;
+        font-style: normal;
+        font-size: 18px;
+        line-height: 1;
+        letter-spacing: normal;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        word-wrap: normal;
+        direction: ltr;
+        /* Fix for vendor prefix issue - add standard property */
+        font-feature-settings: 'liga';
+        -webkit-font-feature-settings: 'liga';
+        -webkit-font-smoothing: antialiased;
+    }
+</style>

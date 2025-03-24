@@ -18,6 +18,10 @@ import { SingleNodeLayout } from './layouts/SingleNodeLayout';
 import { WordDefinitionLayout } from './layouts/WordDefinitionLayout';
 import { StatementNetworkLayout } from './layouts/StatementNetworkLayout';
 
+// Enable debug mode only during development - set to false for production
+const DEBUG_MODE = false;
+const debugLog = DEBUG_MODE ? console.debug : () => {};
+
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
     private nodesStore = writable<EnhancedNode[]>([]);
@@ -27,6 +31,10 @@ export class GraphManager {
     private simulationActive = false;
     private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | null = null;
     private isUpdatingStore = writable(false);
+    
+    // Caches for better performance
+    private nodeVotesCache = new Map<string, number>();
+    private nodeRadiusCache = new Map<string, number>();
 
     // Public derived stores for renderable data
     public readonly renderableNodes: Readable<RenderableNode[]>;
@@ -34,7 +42,7 @@ export class GraphManager {
 
     constructor(viewType: ViewType) {
         this.managerId = Math.random().toString(36).substring(2, 9);
-        console.debug(`[GraphManager:${this.managerId}] Creating new manager`, { viewType });
+        debugLog(`[GraphManager:${this.managerId}] Creating new manager`, { viewType });
         
         this._viewType = viewType;
         this.simulation = this.initializeSimulation();
@@ -55,38 +63,23 @@ export class GraphManager {
     }
 
     public setData(data: GraphData, config?: LayoutUpdateConfig): void {
-        console.debug(`[GraphManager:${this.managerId}] Setting data`, {
+        debugLog(`[GraphManager:${this.managerId}] Setting data`, {
             nodeCount: data.nodes.length,
             linkCount: data.links?.length || 0,
             viewType: this._viewType,
             config
         });
         
-        // Count node types for debugging
-        const nodeTypes = data.nodes.reduce((acc, node) => {
-            acc[node.type] = (acc[node.type] || 0) + 1;
-            return acc;
-        }, {} as Record<string, number>);
-        
-        console.debug(`[GraphManager:${this.managerId}] Node types in data:`, nodeTypes);
-        
         // Stop any running simulation
         this.stopSimulation();
+        
+        // Clear caches for fresh start
+        this.nodeVotesCache.clear();
+        this.nodeRadiusCache.clear();
         
         // Transform input data
         const enhancedNodes = this.transformNodes(data.nodes);
         const enhancedLinks = this.transformLinks(data.links || []);
-        
-        // Debug statement nodes specifically
-        const statementNodes = enhancedNodes.filter(n => n.type === 'statement');
-        if (statementNodes.length > 0) {
-            console.debug(`[GraphManager:${this.managerId}] Found ${statementNodes.length} statement nodes`);
-            console.debug(`[GraphManager:${this.managerId}] First statement node:`, {
-                id: statementNodes[0].id,
-                mode: statementNodes[0].mode,
-                group: statementNodes[0].group
-            });
-        }
         
         // Update stores
         this.nodesStore.set(enhancedNodes);
@@ -113,34 +106,26 @@ export class GraphManager {
     }
 
     /**
-     * Update node mode (preview/detail) and ensure store is properly updated
+     * Update node mode (preview/detail) with improved performance
      */
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
-        console.debug(`[GraphManager:${this.managerId}] Updating node mode start`, { 
-            nodeId, 
-            mode,
-            viewType: this._viewType 
-        });
-        
-        this.isUpdatingStore.set(true);
-        
         // Get current nodes
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[GraphManager:${this.managerId}] Node not found for mode update`, { nodeId });
-            this.isUpdatingStore.set(false);
             return;
         }
         
-        // Get the node and old values for debugging
+        // Get the node
         const node = currentNodes[nodeIndex];
-        const oldMode = node.mode;
-        const oldRadius = node.radius;
-        const oldNodeForDebug = { ...node }; // Copy for debugging
         
-        // Create a completely new node object to ensure Svelte reactivity
+        // Skip update if already in requested mode
+        if (node.mode === mode) {
+            return;
+        }
+        
+        // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...node,
             mode,
@@ -155,34 +140,18 @@ export class GraphManager {
             }
         };
         
-        // Replace the node in the array
+        // Create a new nodes array with the updated node
         const updatedNodes = [...currentNodes];
         updatedNodes[nodeIndex] = updatedNode;
-        
-        console.debug(`[GraphManager:${this.managerId}] Node mode updated`, {
-            nodeId,
-            oldMode,
-            newMode: mode,
-            oldRadius,
-            newRadius: updatedNode.radius,
-            nodeType: node.type,
-            isCentral: node.fixed || node.group === 'central'
-        });
         
         // Update the simulation with the new nodes array
         this.simulation.nodes(updatedNodes);
         
-        // CRITICAL: Create a completely new nodes array and set it to the store
-        // This ensures Svelte's reactivity system detects the change
-        this.nodesStore.set([...updatedNodes]);
+        // Update the store with the new nodes array
+        this.nodesStore.set(updatedNodes);
         
         // If layout strategy exists, let it handle the mode change
         if (this.currentLayoutStrategy) {
-            console.debug(`[GraphManager:${this.managerId}] Calling layout strategy's handleNodeStateChange`, {
-                strategyType: this.currentLayoutStrategy.constructor.name,
-                nodeId,
-                mode
-            });
             this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
         }
         
@@ -190,29 +159,16 @@ export class GraphManager {
         this.fixNodePositions();
         
         // Force a tick to immediately update positions
-        console.debug(`[GraphManager:${this.managerId}] Force ticking simulation`);
-        // Use more ticks for statement network view
-        const tickCount = this._viewType === 'statement-network' ? 5 : 3;
+        const tickCount = this._viewType === 'statement-network' ? 3 : 2;
         this.forceTick(tickCount);
         
         // Restart simulation with low alpha for smooth transition
-        this.simulation.alpha(0.3).restart();
+        this.simulation.alpha(0.1).restart();
         this.simulationActive = true;
-        
-        // Force another update to the nodes store to ensure reactivity
-        this.nodesStore.set([...this.simulation.nodes() as unknown as EnhancedNode[]]);
-        
-        console.debug(`[GraphManager:${this.managerId}] Node mode update complete`, { 
-            nodeId, 
-            mode 
-        });
-        
-        this.isUpdatingStore.set(false);
     }
     
     /**
      * Get the central node (group === 'central')
-     * This is needed for the NavigationNode to properly position itself
      */
     public getCentralNode(): RenderableNode | null {
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -225,25 +181,25 @@ export class GraphManager {
         return this.createRenderableNodes([centralNode])[0];
     }
     
+    /**
+     * Update node visibility with optimized handling
+     */
     public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
-        console.debug(`[GraphManager:${this.managerId}] Updating node visibility`, {
-            nodeId,
-            isHidden,
-            hiddenReason
-        });
-        
-        // Use the simulation nodes instead of trying to get from the store
+        // Use the simulation nodes directly
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[GraphManager:${this.managerId}] Node not found for visibility update`, { nodeId });
             return;
         }
         
-        // Get the old node to compare
+        // Get the old node
         const oldNode = currentNodes[nodeIndex];
-        const oldHiddenState = oldNode.isHidden;
+        
+        // Skip if already in correct state
+        if (oldNode.isHidden === isHidden) {
+            return;
+        }
         
         // Create a completely new node object with updated properties
         const updatedNode: EnhancedNode = {
@@ -260,21 +216,12 @@ export class GraphManager {
         const updatedNodes = [...currentNodes];
         updatedNodes[nodeIndex] = updatedNode;
         
-        console.debug(`[GraphManager:${this.managerId}] Node visibility updated`, {
-            nodeId,
-            isHidden,
-            hiddenReason,
-            oldRadius: oldNode.radius,
-            newRadius: updatedNode.radius
-        });
-        
         // Update the simulation with the new nodes array
         this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
         
         // If layout strategy exists, let it handle the visibility change
         if (this.currentLayoutStrategy) {
-            // Check if we have the handleNodeVisibilityChange method
             if (typeof (this.currentLayoutStrategy as any).handleNodeVisibilityChange === 'function') {
                 (this.currentLayoutStrategy as any).handleNodeVisibilityChange(nodeId, isHidden);
             }
@@ -287,10 +234,8 @@ export class GraphManager {
         this.forceTick();
         
         // Restart simulation with low alpha for smooth transition
-        if (oldHiddenState !== isHidden) {
-            this.simulation.alpha(0.3).restart();
-            this.simulationActive = true;
-        }
+        this.simulation.alpha(0.3).restart();
+        this.simulationActive = true;
     }
 
     /**
@@ -307,7 +252,6 @@ export class GraphManager {
         const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
         
         if (!node) {
-            console.warn(`[GraphManager:${this.managerId}] Node not found for visibility recalculation`, { nodeId });
             return;
         }
         
@@ -346,7 +290,7 @@ export class GraphManager {
     }
 
     /**
-     * Apply user visibility preferences to all nodes
+     * Apply visibility preferences to nodes in batch (optimized)
      */
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
         if (Object.keys(preferences).length === 0) {
@@ -357,26 +301,68 @@ export class GraphManager {
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
         let changedNodeCount = 0;
         
+        // Create a new array only if we need to modify nodes
+        let updatedNodes = [...currentNodes];
+        let needsUpdatedArray = false;
+        
         // Apply preferences to all nodes
         Object.entries(preferences).forEach(([nodeId, isVisible]) => {
-            const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
-            
-            if (node) {
+            const nodeIndex = updatedNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
+            if (nodeIndex >= 0) {
+                const node = updatedNodes[nodeIndex];
+                
                 // Only update if this would change visibility
                 const newHiddenState = !isVisible;
                 if (node.isHidden !== newHiddenState) {
-                    // Use updateNodeVisibility to ensure proper radius and layout updates
-                    this.updateNodeVisibility(nodeId, newHiddenState, 'user');
+                    // Create a new node object only if we haven't already
+                    if (!needsUpdatedArray) {
+                        needsUpdatedArray = true;
+                        updatedNodes = [...currentNodes]; // Create a new array for reactivity
+                    }
+                    
+                    // Create a new node with updated properties
+                    const updatedNode: EnhancedNode = {
+                        ...node,
+                        isHidden: newHiddenState,
+                        hiddenReason: 'user',
+                        radius: this.getNodeRadius({
+                            ...node,
+                            isHidden: newHiddenState
+                        })
+                    };
+                    
+                    // Update the node in the array
+                    updatedNodes[nodeIndex] = updatedNode;
                     changedNodeCount++;
                 }
             }
         });
+        
+        // Only update the simulation and store if changes were made
+        if (changedNodeCount > 0) {
+            debugLog(`[GraphManager] Applied visibility preferences to ${changedNodeCount} nodes`);
+            
+            // Update simulation nodes
+            this.simulation.nodes(updatedNodes);
+            
+            // Update store
+            this.nodesStore.set(updatedNodes);
+            
+            // Let the layout strategy handle visibility preferences
+            if (this.currentLayoutStrategy && typeof (this.currentLayoutStrategy as any).applyVisibilityPreferences === 'function') {
+                (this.currentLayoutStrategy as any).applyVisibilityPreferences(preferences);
+            }
+            
+            // Minimal simulation restart
+            this.simulation.alpha(0.1).restart();
+            this.simulationActive = true;
+        }
     }
 
     public updateViewType(viewType: ViewType): void {
         if (this._viewType === viewType) return;
         
-        console.debug(`[GraphManager:${this.managerId}] Updating view type`, {
+        debugLog(`[GraphManager:${this.managerId}] Updating view type`, {
             from: this._viewType,
             to: viewType
         });
@@ -488,10 +474,6 @@ export class GraphManager {
             }
         });
         
-        // Stop the simulation completely to prevent any movement
-        this.simulation.alpha(0);
-        this.simulation.alphaTarget(0);
-        
         // Update the store to reflect these fixed positions
         this.nodesStore.set([...nodes]);
         
@@ -550,8 +532,7 @@ export class GraphManager {
                 }
             });
             
-            // Update the store to trigger rerenders - use direct set instead of update
-            // to ensure consistent reactivity
+            // Update the store to trigger rerenders
             this.nodesStore.set([...nodes]);
         });
         
@@ -564,11 +545,10 @@ export class GraphManager {
             this.currentLayoutStrategy.stop();
         }
         
-        console.debug(`[GraphManager:${this.managerId}] Applying layout strategy for ${this._viewType} view`);
+        debugLog(`[GraphManager:${this.managerId}] Applying layout strategy for ${this._viewType} view`);
         
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
-            console.debug(`[GraphManager:${this.managerId}] Creating StatementNetworkLayout`);
             this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -612,12 +592,6 @@ export class GraphManager {
             const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
             const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
             
-            // Debug statement nodes before applying layout
-            const statementNodes = nodes.filter(n => n.type === 'statement');
-            if (statementNodes.length > 0) {
-                console.debug(`[GraphManager:${this.managerId}] Positioning ${statementNodes.length} statement nodes`);
-            }
-            
             // Set the simulation for the strategy
             this.currentLayoutStrategy.setSimulation(this.simulation as any);
             
@@ -633,9 +607,35 @@ export class GraphManager {
         }
     }
 
+    /**
+     * Optimized node transformation with better caching
+     */
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
+        // Reuse existing enhanced nodes when possible
+        const enhancedNodeCache = new Map<string, EnhancedNode>();
+        
+        // If we have existing nodes in the simulation, cache them by ID
+        const existingNodes = this.simulation?.nodes() as unknown as EnhancedNode[] || [];
+        existingNodes.forEach(node => {
+            enhancedNodeCache.set(node.id, node);
+        });
+        
         return nodes.map(node => {
-            // Calculate net votes for the node
+            // Check if we already have this node
+            const existing = enhancedNodeCache.get(node.id);
+            if (existing && existing.type === node.type) {
+                // Update only necessary properties
+                existing.data = node.data;
+                existing.mode = node.mode;
+                
+                // Reset cached values
+                this.nodeVotesCache.delete(node.id);
+                this.nodeRadiusCache.delete(node.id);
+                
+                return existing;
+            }
+            
+            // Get net votes for this node
             const netVotes = this.getNodeVotes(node);
             
             // Determine if node should be hidden based on community standard
@@ -669,7 +669,7 @@ export class GraphManager {
                     fixed: node.group === 'central',
                     isDetail: node.mode === 'detail',
                     votes: node.type === 'definition' || node.type === 'statement' ? 
-                        this.getNodeVotes(node) : undefined,
+                        netVotes : undefined,
                     createdAt: 'createdAt' in node.data ? 
                         (node.data.createdAt instanceof Date ? 
                             node.data.createdAt.toISOString() : 
@@ -693,8 +693,6 @@ export class GraphManager {
     }
 
     private transformLinks(links: GraphLink[]): EnhancedLink[] {
-        console.debug(`[GraphManager:${this.managerId}] Transforming ${links.length} links`);
-        
         return links.map(link => {
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
             const targetId = typeof link.target === 'string' ? link.target : link.target.id;
@@ -723,7 +721,7 @@ export class GraphManager {
 
     private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
         return nodes.map(node => {
-            // CRITICAL FIX: We always use the current node.radius instead of recalculating
+            // Use the current node.radius directly
             const radius = node.radius;
             const baseSize = radius * 2;
             
@@ -737,7 +735,7 @@ export class GraphManager {
                 group: node.group,
                 mode: node.mode,
                 data: node.data,
-                radius: radius, // Use the current radius directly
+                radius: radius,
                 isHidden: node.isHidden,
                 hiddenReason: node.hiddenReason,
                 position: {
@@ -783,32 +781,47 @@ export class GraphManager {
         });
     }
 
+    /**
+     * Get node radius with improved caching
+     */
     private getNodeRadius(node: GraphNode | EnhancedNode): number {
-        // First check if node is hidden - hidden nodes have the smallest radius
-        if ('isHidden' in node && node.isHidden) {
-            return COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+        // Generate a cache key based on node properties that affect radius
+        const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
+        
+        // Use cached value if available
+        if (this.nodeRadiusCache.has(cacheKey)) {
+            return this.nodeRadiusCache.get(cacheKey) || 0;
         }
         
+        let radius = 0;
+        
+        // First check if node is hidden - hidden nodes have the smallest radius
+        if ('isHidden' in node && node.isHidden) {
+            radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+        }
         // Then check node type and mode
-        if (node.type === 'word') {
-            return node.mode === 'detail' ? 
+        else if (node.type === 'word') {
+            radius = node.mode === 'detail' ? 
                 COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
                 COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
         } else if (node.type === 'definition') {
-            return node.mode === 'detail' ?
+            radius = node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
         } else if (node.type === 'statement') {
-            // Add explicit handling for statement nodes
-            return node.mode === 'detail' ?
+            radius = node.mode === 'detail' ?
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
         } else if (node.type === 'navigation') {
-            return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
+            radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
         } else {
             // Dashboard, edit-profile, etc.
-            return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+            radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
+        
+        // Cache the result
+        this.nodeRadiusCache.set(cacheKey, radius);
+        return radius;
     }
 
     private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
@@ -817,26 +830,39 @@ export class GraphManager {
         return node.type as "word" | "navigation" | "statement";
     }
 
+    /**
+     * Get node votes with optimized caching
+     */
     private getNodeVotes(node: GraphNode): number {
+        // Use cached value if available
+        if (this.nodeVotesCache.has(node.id)) {
+            return this.nodeVotesCache.get(node.id) || 0;
+        }
+        
+        let netVotes = 0;
+        
         if (node.type === 'definition' && 'data' in node) {
             const def = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
             const posVotes = this.getNeo4jNumber(def.positiveVotes);
             const negVotes = this.getNeo4jNumber(def.negativeVotes);
-            return posVotes - negVotes;
+            netVotes = posVotes - negVotes;
         }
         else if (node.type === 'word' && 'data' in node) {
             const word = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
             const posVotes = this.getNeo4jNumber(word.positiveVotes);
             const negVotes = this.getNeo4jNumber(word.negativeVotes);
-            return posVotes - negVotes;
+            netVotes = posVotes - negVotes;
         }
         else if (node.type === 'statement' && 'data' in node) {
             const statement = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
             const posVotes = this.getNeo4jNumber(statement.positiveVotes);
             const negVotes = this.getNeo4jNumber(statement.negativeVotes);
-            return posVotes - negVotes;
+            netVotes = posVotes - negVotes;
         }
-        return 0;
+        
+        // Cache the result
+        this.nodeVotesCache.set(node.id, netVotes);
+        return netVotes;
     }
     
     /**
@@ -858,7 +884,7 @@ export class GraphManager {
                     COLORS.PRIMARY.BLUE : 
                     COLORS.PRIMARY.PURPLE;
             case 'statement':
-                return COLORS.PRIMARY.GREEN; // Add statement node color
+                return COLORS.PRIMARY.GREEN;
             case 'navigation':
                 return 'transparent'; // Remove the colored border
             case 'dashboard':
@@ -870,6 +896,9 @@ export class GraphManager {
         }
     }
     
+    /**
+     * Calculate link path with improved performance
+     */
     private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
         return links.map(link => {
             const source = typeof link.source === 'string' 
@@ -912,36 +941,38 @@ export class GraphManager {
     }
 
     /**
-     * Calculate path for a link between two nodes
+     * Calculate path for a link with improved performance
      */
     private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
-        // Get positions
+        // Get positions with null safety
         const sourceX = source.x ?? 0;
         const sourceY = source.y ?? 0;
         const targetX = target.x ?? 0;
         const targetY = target.y ?? 0;
+        
+        // Skip calculation if nodes are at the same position
+        if (sourceX === targetX && sourceY === targetY) {
+            return '';
+        }
         
         // Calculate vector
         const dx = targetX - sourceX;
         const dy = targetY - sourceY;
         const distance = Math.sqrt(dx * dx + dy * dy);
         
-        if (distance === 0) return '';
-        
         // Calculate unit vector
         const unitX = dx / distance;
         const unitY = dy / distance;
         
-        // Apply empirical scaling factor to radii (1/9)
-        const RADIUS_SCALE_FACTOR = 1/9;
-        const sourceEffectiveRadius = source.radius * RADIUS_SCALE_FACTOR;
-        const targetEffectiveRadius = target.radius * RADIUS_SCALE_FACTOR;
+        // Simpler scaling factor calculation - use a fixed percentage of radius
+        const sourceRadius = source.radius * 0.95; // 95% of radius
+        const targetRadius = target.radius * 0.95; // 95% of radius
         
-        // Calculate points on perimeter using effective radii
-        const startX = sourceX + (unitX * sourceEffectiveRadius);
-        const startY = sourceY + (unitY * sourceEffectiveRadius);
-        const endX = targetX - (unitX * targetEffectiveRadius);
-        const endY = targetY - (unitY * targetEffectiveRadius);
+        // Calculate points on perimeter
+        const startX = sourceX + (unitX * sourceRadius);
+        const startY = sourceY + (unitY * sourceRadius);
+        const endX = targetX - (unitX * targetRadius);
+        const endY = targetY - (unitY * targetRadius);
         
         return `M${startX},${startY}L${endX},${endY}`;
     }

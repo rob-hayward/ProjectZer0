@@ -6,10 +6,8 @@
     import type { 
         GraphData, 
         ViewType, 
-        NodeMode, 
-        NodeType,
-        GraphNode,
-        GraphLink
+        NodeMode,
+        RenderableNode
     } from '$lib/types/graph/enhanced';
     import { DEFAULT_BACKGROUND_CONFIG } from '$lib/types/graph/background';
     import { SvgBackground } from './backgrounds/SvgBackground';
@@ -21,6 +19,10 @@
     import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { userStore } from '$lib/stores/userStore';
+
+    // Enable debug mode only during development - set to false for production
+    const DEBUG_MODE = false;
+    const debugLog = DEBUG_MODE ? console.debug : () => {};
 
     // Initialize visibility store as early as possible
     visibilityStore.initialize();
@@ -132,6 +134,10 @@
                 COORDINATE_SPACE.WORLD.VIEW.MIN_ZOOM,
                 COORDINATE_SPACE.WORLD.VIEW.MAX_ZOOM
             ])
+            .on('start', () => {
+                // Dispatch zoom start event
+                window.dispatchEvent(new CustomEvent('zoom-start'));
+            })
             .on('zoom', (event) => {
                 const transform = event.transform;
                 // Apply transform to SVG content groups
@@ -139,16 +145,18 @@
                 d3.select(backgroundGroup).attr('transform', transform.toString());
                 
                 // Update the coordinate system with the current transform
-                // This ensures all coordinate calculations are aware of zoom level
                 coordinateSystem.updateTransform(transform);
                 
-                // Log zoom level for debugging
-                if (showDebug) {
-                    console.debug('[Graph] Zoom updated:', {
+                if (DEBUG_MODE && showDebug) {
+                    debugLog('[Graph] Zoom updated:', {
                         scale: transform.k,
                         translate: [transform.x, transform.y]
                     });
                 }
+            })
+            .on('end', () => {
+                // Dispatch zoom end event
+                window.dispatchEvent(new CustomEvent('zoom-end'));
             });
 
         // Apply zoom behavior to SVG
@@ -170,8 +178,6 @@
      * Handle node mode change events
      */
     function handleModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.debug('[Graph] Mode change event:', event.detail);
-        
         // Notify the graph store
         if (graphStore) {
             graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
@@ -185,8 +191,6 @@
      * Handle node visibility change events
      */
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
-        console.debug('[Graph] Visibility change event:', event.detail);
-        
         // Notify the graph store
         if (graphStore) {
             graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden, 'user');
@@ -204,12 +208,11 @@
      */
     function toggleDebug() {
         showDebug = !showDebug;
-        console.debug('[Graph] Debug mode:', showDebug);
         
-        if (showDebug) {
+        if (showDebug && DEBUG_MODE) {
             // Log current coordinate system info in debug mode
             const transform = coordinateSystem.getCurrentTransform();
-            console.debug('[Graph] Current coordinate system:', {
+            debugLog('[Graph] Current coordinate system:', {
                 scale: transform.k,
                 translate: [transform.x, transform.y],
                 worldOriginInView: coordinateSystem.worldToView(0, 0)
@@ -223,7 +226,7 @@
     function initialize() {
         if (initialized) return;
         
-        console.debug('[Graph] Initializing graph component', { viewType, dataNodes: data?.nodes?.length });
+        debugLog('[Graph] Initializing graph component', { viewType, dataNodes: data?.nodes?.length });
         
         // Create graph store for this view
         graphStore = createGraphStore(viewType);
@@ -243,21 +246,19 @@
 
     /**
      * Apply visibility preferences to current nodes
-     * This function can be called both on initial load and when preferences change
      */
     function applyVisibilityPreferences() {
         if (!graphStore) return;
         
         const preferences = visibilityStore.getAllPreferences();
         if (Object.keys(preferences).length > 0) {
-            console.log('[Graph] Applying visibility preferences to graph nodes:', 
-                Object.keys(preferences).length);
+            if (DEBUG_MODE) {
+                debugLog('[Graph] Applying visibility preferences to graph nodes:', 
+                    Object.keys(preferences).length);
+            }
             
             // Use the new method to apply all preferences at once
-            // TypeScript may complain if the method is not in the type declaration
             (graphStore as any).applyVisibilityPreferences(preferences);
-        } else {
-            console.log('[Graph] No visibility preferences to apply');
         }
     }
 
@@ -270,8 +271,6 @@
             
             // Load visibility preferences when component mounts
             if ($userStore) {
-                console.log('[Graph] Loading visibility preferences...');
-                
                 // Apply any cached preferences immediately
                 applyVisibilityPreferences();
                 
@@ -286,7 +285,6 @@
     // make sure preferences are applied (but only once)
     afterUpdate(() => {
         if (data && graphStore && !preferencesApplied) {
-            console.log('[Graph] afterUpdate: Ensuring preferences are applied');
             preferencesApplied = true; // Set the flag to prevent loops
             
             // Apply preferences immediately without timeout
@@ -317,19 +315,17 @@
     
     // When viewType changes
     $: if (initialized && graphStore && viewType !== graphStore.getViewType()) {
-        console.debug('[Graph] View type changed:', { 
-            from: graphStore.getViewType(), 
-            to: viewType 
-        });
+        if (DEBUG_MODE) {
+            debugLog('[Graph] View type changed:', { 
+                from: graphStore.getViewType(), 
+                to: viewType 
+            });
+        }
         graphStore.setViewType(viewType);
     }
     
     // When data changes
     $: if (initialized && graphStore && data) {
-        console.debug('[Graph] Data changed:', { 
-            nodeCount: data.nodes.length, 
-            linkCount: data.links?.length || 0 
-        });
         graphStore.setData(data);
     }
     
