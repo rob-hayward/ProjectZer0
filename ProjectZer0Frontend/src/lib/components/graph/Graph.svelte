@@ -121,9 +121,13 @@
     function initializeZoom() {
         if (!svg || !contentGroup) return;
 
-        // Initial transform at proper zoom level
+        // Initial transform at proper zoom level - use higher initial zoom for statement network
+        const initialZoomLevel = viewType === 'statement-network' 
+            ? COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM * 1.2 // Higher zoom for statement network
+            : COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM;
+            
         initialTransform = d3.zoomIdentity
-            .scale(COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM);
+            .scale(initialZoomLevel);
             
         // Initialize the coordinate system with the initial transform
         coordinateSystem.updateTransform(initialTransform);
@@ -153,10 +157,21 @@
                         translate: [transform.x, transform.y]
                     });
                 }
+                
+                // For statement network view, enforce fixed positions during zoom
+                if (viewType === 'statement-network' && graphStore) {
+                    graphStore.fixNodePositions();
+                }
             })
             .on('end', () => {
                 // Dispatch zoom end event
                 window.dispatchEvent(new CustomEvent('zoom-end'));
+                
+                // For statement network view, enforce fixed positions after zoom
+                if (viewType === 'statement-network' && graphStore) {
+                    graphStore.fixNodePositions();
+                    graphStore.forceTick(2);
+                }
             });
 
         // Apply zoom behavior to SVG
@@ -221,6 +236,23 @@
     }
 
     /**
+     * Apply view-specific behaviors
+     * Handles special cases for statement network view
+     */
+    function applyViewSpecificBehavior() {
+        if (!graphStore) return;
+        
+        // Special handling for statement-network view
+        if (viewType === 'statement-network') {
+            // Fix positions more aggressively
+            graphStore.fixNodePositions();
+            graphStore.forceTick(3);
+            
+            // No direct simulation access needed - just ensure positions are fixed
+        }
+    }
+
+    /**
      * Initialize the component
      */
     function initialize() {
@@ -236,9 +268,19 @@
         initializeZoom();
         initializeBackground();
         
-        // Initialize with data
-        if (data) {
-            graphStore.setData(data);
+        // Special handling for statement-network to ensure stability
+        if (viewType === 'statement-network') {
+            // Initialize with data with explicit position enforcement
+            if (data) {
+                graphStore.setData(data, { skipAnimation: true });
+                graphStore.fixNodePositions();
+                graphStore.forceTick(5); // More ticks for statement network
+            }
+        } else {
+            // Normal initialization for other views
+            if (data) {
+                graphStore.setData(data);
+            }
         }
         
         initialized = true;
@@ -290,6 +332,11 @@
             // Apply preferences immediately without timeout
             applyVisibilityPreferences();
         }
+        
+        // Apply view-specific behaviors after any update
+        if (initialized && graphStore) {
+            applyViewSpecificBehavior();
+        }
     });
 
     onDestroy(() => {
@@ -322,11 +369,34 @@
             });
         }
         graphStore.setViewType(viewType);
+        
+        // Special handling for statement network view
+        if (viewType === 'statement-network') {
+            // Wait for next tick to ensure view type is fully applied
+            setTimeout(() => {
+                if (graphStore) {
+                    graphStore.fixNodePositions();
+                    graphStore.forceTick(5);
+                }
+            }, 0);
+        }
     }
     
     // When data changes
     $: if (initialized && graphStore && data) {
-        graphStore.setData(data);
+        // Use skipAnimation for statement network view
+        if (viewType === 'statement-network') {
+            graphStore.setData(data, { skipAnimation: true });
+            // Ensure positions are fixed after data is set
+            setTimeout(() => {
+                if (graphStore) {
+                    graphStore.fixNodePositions();
+                    graphStore.forceTick(5);
+                }
+            }, 0);
+        } else {
+            graphStore.setData(data);
+        }
     }
     
     // When container dimensions change

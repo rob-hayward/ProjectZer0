@@ -39,7 +39,7 @@
     let authInitialized = false;
     let dataInitialized = false;
     
-    // Control node settings - always start in detail mode
+    // Control node settings
     const controlNodeId = 'graph-controls';
     let controlNodeMode: NodeMode = 'detail'; 
     
@@ -51,9 +51,13 @@
     let showOnlyMyItems = false;
     let availableKeywords: string[] = [];
 
-    // Statement network loading state
+    // Statement network loading state - start with loading true
     let networkNodesLoading = true;
     let networkLoadingTimeout: NodeJS.Timeout;
+    
+    // Track data loading status separately from UI state
+    let statementsLoaded = false;
+    let keywordsLoaded = false;
     
     // Get statements from the store
     $: statements = $statementNetworkStore?.filteredStatements || [];
@@ -113,24 +117,7 @@
             // Initialize the graph filter store
             graphFilterStore.setViewType('statement-network', true);
             
-                    // Initialize the control node
-            controlNode = {
-                id: controlNodeId,
-                type: 'dashboard' as NodeType,
-                data: {
-                    sub: 'controls',
-                    name: 'Graph Controls',
-                    email: '',
-                    picture: '',
-                    'https://projectzer0.co/user_metadata': {
-                        handle: 'controls'
-                    }
-                },
-                group: 'central' as NodeGroup,
-                mode: controlNodeMode
-            };
-            
-            // Always load with just navigation and control node first for better UX
+            // Initialize with just navigation and control nodes immediately
             createInitialGraphData();
             dataInitialized = true;
             
@@ -138,18 +125,18 @@
             if (graphStore) {
                 console.debug('[STATEMENT-NETWORK] Setting graph store view type to statement-network');
                 graphStore.setViewType(viewType);
+                
                 // Ensure positions are fixed and central node is properly positioned
                 graphStore.fixNodePositions();
-                graphStore.forceTick(3);
+                graphStore.forceTick(5);
             }
             
-            // Load statement network data in the background
-            await Promise.all([
-                loadStatementNetworkData(),
-                loadAvailableKeywords()
-            ]);
+            // Load statement network data and keywords in parallel
+            // But handle them independently to avoid one failure blocking the other
+            loadStatementNetworkData();
+            loadAvailableKeywords();
             
-            console.debug('[STATEMENT-NETWORK] Data initialization complete');
+            console.debug('[STATEMENT-NETWORK] Data initialization started');
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error in initializeData:', error);
             auth0.login();
@@ -161,8 +148,7 @@
         if (!$userStore) return;
         
         try {
-            // Set loading state
-            networkNodesLoading = true;
+            console.debug('[STATEMENT-NETWORK] Loading statement data...');
             
             // Load statements using the network store with current sort settings
             await statementNetworkStore.loadStatements({
@@ -175,47 +161,86 @@
                 filtered: $statementNetworkStore.filteredStatements.length
             });
             
-            // Add a slight delay before showing nodes to avoid visual jumpiness
-            clearTimeout(networkLoadingTimeout);
-            networkLoadingTimeout = setTimeout(() => {
-                networkNodesLoading = false;
-                
-                // Force re-render with new data
-                routeKey = `${viewType}-${Date.now()}`;
-                
-                // Enforce control node position
-                if (graphStore) {
-                    graphStore.fixNodePositions();
-                    graphStore.forceTick(3);
-                }
-            }, 500);
+            // Mark statements as loaded
+            statementsLoaded = true;
+            
+            // Always show statements once loaded
+            showStatements();
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error loading statement network data:', error);
+            // Still consider statements loaded, even if empty
+            statementsLoaded = true;
             
-            // Show empty state even on error, after a delay
-            clearTimeout(networkLoadingTimeout);
-            networkLoadingTimeout = setTimeout(() => {
-                networkNodesLoading = false;
-            }, 500);
+            // Show whatever we have
+            showStatements();
         }
+    }
+    
+    // Separate function to update UI state when data is ready
+    function showStatements() {
+        // Clear any existing timeout
+        if (networkLoadingTimeout) {
+            clearTimeout(networkLoadingTimeout);
+        }
+        
+        // Use a short timeout to allow the UI to update
+        networkLoadingTimeout = setTimeout(() => {
+            console.debug('[STATEMENT-NETWORK] Showing statements...');
+            
+            // Stop loading spinner
+            networkNodesLoading = false;
+            
+            // Force re-render with new data
+            routeKey = `${viewType}-${Date.now()}`;
+            
+            // Enforce control node position
+            if (graphStore) {
+                graphStore.fixNodePositions();
+                graphStore.forceTick(5);
+            }
+            
+            console.debug('[STATEMENT-NETWORK] Statements visible');
+        }, 100);
     }
     
     // Load available keywords for filtering
     async function loadAvailableKeywords() {
         try {
-            // Try to load from wordListStore first
-            if (wordListStore && typeof wordListStore.loadAllWords === 'function') {
-                const words = await wordListStore.loadAllWords();
-                availableKeywords = words.map(w => w.toLowerCase());
-                console.debug('[STATEMENT-NETWORK] Loaded available keywords from wordList:', availableKeywords.length);
-            } else {
-                // Fallback: extract keywords from statements
-                availableKeywords = statementNetworkStore.getUniqueKeywords();
-                console.debug('[STATEMENT-NETWORK] Using keywords from statements:', availableKeywords.length);
+            console.debug('[STATEMENT-NETWORK] Loading keywords...');
+            
+            // Set a fallback in case the load fails
+            availableKeywords = [];
+            
+            try {
+                // Try loading from statementNetworkStore first since it's always available
+                if ($statementNetworkStore?.allStatements?.length > 0) {
+                    availableKeywords = statementNetworkStore.getUniqueKeywords();
+                    console.debug('[STATEMENT-NETWORK] Using keywords from statements:', availableKeywords.length);
+                }
+            } catch (innerError) {
+                console.warn('[STATEMENT-NETWORK] Error getting keywords from statements:', innerError);
             }
+            
+            // Try to load from wordListStore if empty
+            if (availableKeywords.length === 0 && wordListStore && typeof wordListStore.loadAllWords === 'function') {
+                try {
+                    const words = await wordListStore.loadAllWords();
+                    if (words && words.length > 0) {
+                        availableKeywords = words.map(w => w.toLowerCase());
+                        console.debug('[STATEMENT-NETWORK] Loaded available keywords from wordList:', availableKeywords.length);
+                    }
+                } catch (wordError) {
+                    console.warn('[STATEMENT-NETWORK] Error loading words from wordList:', wordError);
+                    // Continue with empty or previous keywords
+                }
+            }
+            
+            // Mark keywords as loaded
+            keywordsLoaded = true;
         } catch (error) {
-            console.error('[STATEMENT-NETWORK] Error loading keywords:', error);
-            availableKeywords = []; // Fallback to empty list
+            console.error('[STATEMENT-NETWORK] Error in loadAvailableKeywords:', error);
+            // Still mark as loaded
+            keywordsLoaded = true;
         }
     }
 
@@ -230,27 +255,27 @@
             graphStore.setData(initialData, { skipAnimation: true });
             
             // Make sure the control node is fixed at the center
-            // The GraphManager will add the fixed property internally
             graphStore.fixNodePositions();
-            graphStore.forceTick(3);
+            graphStore.forceTick(5);
         }
     }
 
     // Handle control node mode changes
-    function handleControlNodeModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        console.debug('[STATEMENT-NETWORK] Control node mode change:', event.detail);
-        controlNodeMode = event.detail.mode;
+    function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
+        console.debug('[STATEMENT-NETWORK] Node mode change', {
+            nodeId: event.detail.nodeId,
+            newMode: event.detail.mode
+        });
         
-        // Update control node
-        controlNode = {
-            ...controlNode,
-            mode: controlNodeMode
-        };
-        
-        // Force control node to stay fixed at center
-        if (graphStore) {
-            graphStore.fixNodePositions();
-            graphStore.forceTick(3);
+        // If this is the control node, update its mode
+        if (event.detail.nodeId === controlNodeId) {
+            controlNodeMode = event.detail.mode;
+            
+            // Force control node to stay fixed at center
+            if (graphStore) {
+                graphStore.fixNodePositions();
+                graphStore.forceTick(5);
+            }
         }
     }
     
@@ -296,50 +321,13 @@
                 showOnlyMyItems ? $userStore?.sub : undefined
             );
             
-            // Update after a slight delay to allow for animation
-            clearTimeout(networkLoadingTimeout);
-            networkLoadingTimeout = setTimeout(() => {
-                networkNodesLoading = false;
-                
-                // Force layout to reapply control node position
-                if (graphStore) {
-                    graphStore.fixNodePositions();
-                    graphStore.forceTick(3);
-                }
-            }, 300);
+            // Show updated statements after a short delay
+            showStatements();
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error applying control changes:', error);
             
-            // Ensure loading state is reset even on error
-            clearTimeout(networkLoadingTimeout);
-            networkLoadingTimeout = setTimeout(() => {
-                networkNodesLoading = false;
-            }, 300);
-        }
-    }
-
-    // Event handlers for node events
-    function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.debug('[STATEMENT-NETWORK] Node mode change', {
-            nodeId: event.detail.nodeId,
-            newMode: event.detail.mode
-        });
-        
-        // If this is the control node, update its mode
-        if (event.detail.nodeId === controlNodeId) {
-            controlNodeMode = event.detail.mode;
-            
-            // Force re-render of control node
-            controlNode = {
-                ...controlNode,
-                mode: controlNodeMode
-            };
-            
-            // Ensure control node stays fixed
-            if (graphStore) {
-                graphStore.fixNodePositions();
-                graphStore.forceTick(3);
-            }
+            // Still show whatever we have
+            showStatements();
         }
     }
 
@@ -348,11 +336,12 @@
         console.debug('[STATEMENT-NETWORK] Creating statement network view data', {
             statementCount: statements.length,
             loading: networkNodesLoading,
+            statementsLoaded,
             controlNodeMode
         });
 
-        // Only include navigation nodes and control node during loading
-        if (networkNodesLoading) {
+        // During loading (or if no statements loaded yet), only include navigation and control nodes
+        if (networkNodesLoading || !statementsLoaded) {
             return {
                 nodes: [...navigationNodes, controlNode],
                 links: []
@@ -371,42 +360,46 @@
         // Create links between statements
         const statementLinks: GraphLink[] = [];
         
-        // Add links based on relatedStatements from each statement
-        statements.forEach(statement => {
-            if (statement.relatedStatements && statement.relatedStatements.length > 0) {
-                statement.relatedStatements.forEach(related => {
-                    // Check if target statement exists in our filtered data
-                    const targetExists = statements.some(s => s.id === related.nodeId);
-                    if (targetExists) {
-                        statementLinks.push({
-                            id: `${statement.id}-${related.nodeId}-${related.sharedWord || 'unknown'}`,
-                            source: statement.id,
-                            target: related.nodeId,
-                            type: related.sharedWord === 'direct' ? 'related' as LinkType : 'alternative' as LinkType
-                        });
-                    }
-                });
-            }
-        });
+        // Only process links if we have more than one statement
+        if (statements.length > 1) {
+            // Add links based on relatedStatements from each statement
+            statements.forEach(statement => {
+                if (statement.relatedStatements && statement.relatedStatements.length > 0) {
+                    statement.relatedStatements.forEach(related => {
+                        // Check if target statement exists in our filtered data
+                        const targetExists = statements.some(s => s.id === related.nodeId);
+                        if (targetExists) {
+                            statementLinks.push({
+                                id: `${statement.id}-${related.nodeId}-${related.sharedWord || 'unknown'}`,
+                                source: statement.id,
+                                target: related.nodeId,
+                                type: related.sharedWord === 'direct' ? 'related' as LinkType : 'alternative' as LinkType
+                            });
+                        }
+                    });
+                }
+            });
+        }
 
         console.debug('[STATEMENT-NETWORK] Created statement network structure', {
             nodeCount: navigationNodes.length + statementNodes.length + 1,
             linkCount: statementLinks.length
         });
 
-        // Always ensure control node is present
+        // Always ensure control node is present with correct mode
+        const updatedControlNode = {
+            ...controlNode,
+            mode: controlNodeMode
+        };
+
         return {
-            nodes: [...navigationNodes, controlNode, ...statementNodes],
+            nodes: [...navigationNodes, updatedControlNode, ...statementNodes],
             links: statementLinks
         };
     }
 
     // Compute graph data for rendering
-    $: graphData = isReady ? 
-        (networkNodesLoading ? 
-            { nodes: [...navigationNodes, controlNode], links: [] } : 
-            createGraphData()) 
-        : { nodes: [], links: [] };
+    $: graphData = isReady ? createGraphData() : { nodes: [], links: [] };
 
     // Initialize on mount
     onMount(() => {
@@ -453,9 +446,9 @@
                     {sortDirection}
                     keywords={filterKeywords}
                     keywordOperator={keywordOperator}
-                    {showOnlyMyItems}
+                    showOnlyMyItems={showOnlyMyItems}
                     {availableKeywords}
-                    on:modeChange={handleControlNodeModeChange}
+                    on:modeChange={handleModeChange}
                     on:controlChange={handleControlChange}
                 />
             {:else if isStatementNode(node)}
@@ -492,7 +485,7 @@
     {/if}
     
     <!-- Empty state message (only shown if no statements and not loading) -->
-    {#if !networkNodesLoading && statements.length === 0 && dataInitialized}
+    {#if !networkNodesLoading && statements.length === 0 && statementsLoaded && dataInitialized}
         <div class="empty-state-container">
             <div class="empty-state-box">
                 <span class="empty-state-text">No statements found</span>
@@ -554,8 +547,8 @@
     }
     
     .loading-spinner.small {
-        width: 100px;
-        height: 100px;
+        width: 80px;
+        height: 80px;
         border-width: 2px;
     }
 

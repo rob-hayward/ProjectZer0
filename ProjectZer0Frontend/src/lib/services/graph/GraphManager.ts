@@ -97,7 +97,7 @@ export class GraphManager {
         this.applyLayoutStrategy();
         
         // Ensure fixed positions are maintained
-        this.fixNodePositions();
+        this.enforceFixedPositionsStrict();
         
         // Start simulation unless skipAnimation is true
         if (!config?.skipAnimation) {
@@ -125,6 +125,9 @@ export class GraphManager {
             return;
         }
         
+        // Stop simulation before updating
+        this.simulation.alpha(0).alphaTarget(0);
+        
         // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...node,
@@ -150,19 +153,33 @@ export class GraphManager {
         // Update the store with the new nodes array
         this.nodesStore.set(updatedNodes);
         
+        // If this is a central node, ensure its position is exactly at center
+        if (node.group === 'central' || node.fixed) {
+            updatedNode.x = 0;
+            updatedNode.y = 0;
+            updatedNode.fx = 0;
+            updatedNode.fy = 0;
+            updatedNode.vx = 0;
+            updatedNode.vy = 0;
+        }
+        
         // If layout strategy exists, let it handle the mode change
         if (this.currentLayoutStrategy) {
             this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
         }
         
         // Ensure fixed positions are maintained
-        this.fixNodePositions();
+        this.enforceFixedPositionsStrict();
         
-        // Force a tick to immediately update positions
-        const tickCount = this._viewType === 'statement-network' ? 3 : 2;
-        this.forceTick(tickCount);
+        // Force several ticks to immediately update positions
+        // More ticks for statement network view
+        const tickCount = this._viewType === 'statement-network' ? 5 : 2;
+        for (let i = 0; i < tickCount; i++) {
+            this.simulation.tick();
+            this.enforceFixedPositionsStrict();
+        }
         
-        // Restart simulation with low alpha for smooth transition
+        // Restart simulation with minimal alpha for smooth transition
         this.simulation.alpha(0.1).restart();
         this.simulationActive = true;
     }
@@ -228,10 +245,10 @@ export class GraphManager {
         }
         
         // Ensure fixed positions are maintained
-        this.fixNodePositions();
+        this.enforceFixedPositionsStrict();
         
-        // Force a tick to immediately update positions
-        this.forceTick();
+        // Force multiple ticks to immediately update positions
+        this.forceTick(5);
         
         // Restart simulation with low alpha for smooth transition
         this.simulation.alpha(0.3).restart();
@@ -353,6 +370,12 @@ export class GraphManager {
                 (this.currentLayoutStrategy as any).applyVisibilityPreferences(preferences);
             }
             
+            // Ensure fixed positions are maintained
+            this.enforceFixedPositionsStrict();
+            
+            // Force simulation ticks to immediately update positions
+            this.forceTick(5);
+            
             // Minimal simulation restart
             this.simulation.alpha(0.1).restart();
             this.simulationActive = true;
@@ -373,7 +396,7 @@ export class GraphManager {
         this.applyLayoutStrategy();
         
         // Ensure fixed positions are maintained
-        this.fixNodePositions();
+        this.enforceFixedPositionsStrict();
         
         // Restart simulation
         this.startSimulation();
@@ -413,26 +436,19 @@ export class GraphManager {
      * Force simulation ticks for immediate position updates
      */
     public forceTick(ticks: number = 1): void {
+        // Stop any current animation
+        this.simulation.alpha(0).alphaTarget(0);
+        
         for (let i = 0; i < ticks; i++) {
-            // Before each tick, ensure central node positions are fixed
-            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-            nodes.forEach(node => {
-                if (node.fixed || node.group === 'central') {
-                    node.x = 0;
-                    node.y = 0;
-                    node.fx = 0;
-                    node.fy = 0;
-                    node.vx = 0;
-                    node.vy = 0;
-                }
-            });
+            // Before each tick, ensure fixed positions
+            this.enforceFixedPositionsStrict();
             
             // Tick the simulation
             this.simulation.tick();
+            
+            // After each tick, enforce positions again
+            this.enforceFixedPositionsStrict();
         }
-        
-        // After all ticks, fix node positions again
-        this.fixNodePositions();
         
         // Update the store after manual ticks
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -440,15 +456,17 @@ export class GraphManager {
     }
 
     /**
-     * Ensure all fixed nodes stay fixed
+     * Enhanced fixed position enforcement
+     * Ensure all fixed nodes stay fixed with aggressive position setting
      */
-    public fixNodePositions(): void {
+    public enforceFixedPositionsStrict(): void {
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        let fixedNodeCount = 0;
         
         // Force fixed nodes to stay at their assigned positions
         nodes.forEach(node => {
             if (node.fixed || node.group === 'central') {
-                // Central nodes always at origin with VERY explicit position setting
+                // CRITICAL: Set ALL position properties for central nodes
                 node.x = 0;
                 node.y = 0;
                 node.fx = 0;
@@ -459,6 +477,9 @@ export class GraphManager {
                 
                 // Flag as fixed to be extra sure
                 node.fixed = true;
+                node.metadata.fixed = true;
+                
+                fixedNodeCount++;
             } else if (node.type === 'navigation') {
                 // Navigation nodes fixed at their assigned positions
                 if (node.fx !== null && node.fx !== undefined) {
@@ -471,22 +492,50 @@ export class GraphManager {
                 // Ensure zero velocity for all navigation nodes
                 node.vx = 0;
                 node.vy = 0;
+                
+                fixedNodeCount++;
+            } else if (node.mode === 'detail' && !node.isHidden) {
+                // Detail mode nodes should also be fixed (like WordDefinitionLayout)
+                if (node.fx === undefined || node.fy === undefined) {
+                    node.fx = node.x;
+                    node.fy = node.y;
+                } else {
+                    node.x = node.fx;
+                    node.y = node.fy;
+                }
+                node.vx = 0;
+                node.vy = 0;
+                
+                fixedNodeCount++;
             }
         });
+        
+        // Force zero alpha to prevent unwanted movement
+        this.simulation.alpha(0).alphaTarget(0);
         
         // Update the store to reflect these fixed positions
         this.nodesStore.set([...nodes]);
         
-        // If we have a WordDefinitionLayout, call its enforceFixedPositions method too
-        if (this.currentLayoutStrategy instanceof WordDefinitionLayout) {
-            (this.currentLayoutStrategy as WordDefinitionLayout).enforceFixedPositions();
+        // Debug log for tracking fixed node count
+        if (DEBUG_MODE) {
+            debugLog(`[GraphManager] Enforced fixed positions for ${fixedNodeCount} nodes out of ${nodes.length}`);
         }
+    }
+
+    /**
+     * Ensure all fixed nodes stay fixed
+     * Less aggressive version for backward compatibility
+     */
+    public fixNodePositions(): void {
+        this.enforceFixedPositionsStrict();
     }
 
     private startSimulation(): void {
         if (this.simulationActive) return;
         
-        this.simulation.alpha(1).restart();
+        // Use lower alpha for statement network view
+        const alpha = this._viewType === 'statement-network' ? 0.3 : 1;
+        this.simulation.alpha(alpha).restart();
         this.simulationActive = true;
     }
 
@@ -530,6 +579,14 @@ export class GraphManager {
                     node.vx = 0;
                     node.vy = 0;
                 }
+                
+                // For detail mode nodes, maintain fixed positions if set
+                if (node.mode === 'detail' && node.fx !== undefined && node.fy !== undefined) {
+                    node.x = node.fx;
+                    node.y = node.fy;
+                    node.vx = 0;
+                    node.vy = 0;
+                }
             });
             
             // Update the store to trigger rerenders
@@ -549,11 +606,23 @@ export class GraphManager {
         
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
+            console.debug(`[GraphManager:${this.managerId}] Creating StatementNetworkLayout`);
             this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
             );
+            
+            // Apply extra strictness for statement network
+            this.simulation.force('charge', null);
+            this.simulation.force('collision', null);
+            this.simulation.force('center', null);
+            this.simulation.velocityDecay(0.8); // Higher value to dampen movement
+            
+            // Add a tick handler specifically for statement network view
+            this.simulation.on('tick.fixedPosition', () => {
+                this.enforceFixedPositionsStrict();
+            });
         }
         else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
@@ -602,8 +671,8 @@ export class GraphManager {
             // Update simulation with strategy-applied nodes
             this.simulation.nodes(asD3Nodes(nodes));
             
-            // Call fixNodePositions to ensure fixed positions
-            this.fixNodePositions();
+            // Call enforceFixedPositionsStrict to ensure fixed positions
+            this.enforceFixedPositionsStrict();
         }
     }
 
@@ -782,6 +851,65 @@ export class GraphManager {
     }
 
     /**
+     * Optimized createRenderableLinks - faster path calculation
+     */
+    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
+        // Skip link calculation entirely if we have no nodes or links
+        if (nodes.length === 0 || links.length === 0) {
+            return [];
+        }
+        
+        // Create a node lookup map for faster access
+        const nodeMap = new Map<string, EnhancedNode>();
+        nodes.forEach(node => {
+            nodeMap.set(node.id, node);
+        });
+        
+        return links.map(link => {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            
+            // Look up nodes in our map
+            const source = nodeMap.get(sourceId);
+            const target = nodeMap.get(targetId);
+            
+            if (!source || !target) {
+                return null;
+            }
+            
+            // Skip calculation if either node is hidden
+            if (source.isHidden || target.isHidden) {
+                return null;
+            }
+            
+            // Calculate link path
+            const path = this.calculateLinkPath(source, target);
+            
+            return {
+                id: link.id,
+                type: link.type,
+                sourceId: source.id,
+                targetId: target.id,
+                sourceType: source.type,
+                targetType: target.type,
+                path,
+                sourcePosition: { 
+                    x: source.x ?? 0, 
+                    y: source.y ?? 0,
+                    svgTransform: `translate(${source.x ?? 0}, ${source.y ?? 0})`
+                },
+                targetPosition: { 
+                    x: target.x ?? 0, 
+                    y: target.y ?? 0,
+                    svgTransform: `translate(${target.x ?? 0}, ${target.y ?? 0})`
+                },
+                strength: link.strength,
+                relationshipType: link.relationshipType
+            };
+        }).filter(Boolean) as RenderableLink[];
+    }
+
+    /**
      * Get node radius with improved caching
      */
     private getNodeRadius(node: GraphNode | EnhancedNode): number {
@@ -793,30 +921,46 @@ export class GraphManager {
             return this.nodeRadiusCache.get(cacheKey) || 0;
         }
         
-        let radius = 0;
-        
         // First check if node is hidden - hidden nodes have the smallest radius
         if ('isHidden' in node && node.isHidden) {
-            radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+            const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+            this.nodeRadiusCache.set(cacheKey, radius);
+            return radius;
         }
-        // Then check node type and mode
-        else if (node.type === 'word') {
-            radius = node.mode === 'detail' ? 
-                COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
-                COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
-        } else if (node.type === 'definition') {
-            radius = node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
-        } else if (node.type === 'statement') {
-            radius = node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
-        } else if (node.type === 'navigation') {
-            radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
-        } else {
-            // Dashboard, edit-profile, etc.
-            radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+        
+        // If not hidden, calculate based on type and mode
+        let radius = 0;
+        switch(node.type) {
+            case 'word':
+                radius = node.mode === 'detail' ? 
+                    COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
+                    COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
+                break;
+                    
+            case 'definition':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+                break;
+                    
+            case 'statement':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+                break;
+                    
+            case 'navigation':
+                radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
+                break;
+                
+            case 'dashboard':
+            case 'edit-profile':
+            case 'create-node':
+                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+                break;
+                
+            default:
+                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
         
         // Cache the result
@@ -896,50 +1040,6 @@ export class GraphManager {
         }
     }
     
-    /**
-     * Calculate link path with improved performance
-     */
-    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
-        return links.map(link => {
-            const source = typeof link.source === 'string' 
-                ? nodes.find(n => n.id === link.source) 
-                : link.source as EnhancedNode;
-                
-            const target = typeof link.target === 'string' 
-                ? nodes.find(n => n.id === link.target)
-                : link.target as EnhancedNode;
-            
-            if (!source || !target) {
-                return null;
-            }
-            
-            // Calculate link path
-            const path = this.calculateLinkPath(source, target);
-            
-            return {
-                id: link.id,
-                type: link.type,
-                sourceId: source.id,
-                targetId: target.id,
-                sourceType: source.type,
-                targetType: target.type,
-                path,
-                sourcePosition: { 
-                    x: source.x ?? 0, 
-                    y: source.y ?? 0,
-                    svgTransform: `translate(${source.x ?? 0}, ${source.y ?? 0})`
-                },
-                targetPosition: { 
-                    x: target.x ?? 0, 
-                    y: target.y ?? 0,
-                    svgTransform: `translate(${target.x ?? 0}, ${target.y ?? 0})`
-                },
-                strength: link.strength,
-                relationshipType: link.relationshipType
-            };
-        }).filter(Boolean) as RenderableLink[];
-    }
-
     /**
      * Calculate path for a link with improved performance
      */
