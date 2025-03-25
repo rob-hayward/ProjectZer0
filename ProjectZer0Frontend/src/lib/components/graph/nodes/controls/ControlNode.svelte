@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/node-styling';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -21,28 +21,30 @@
     let isDetail = node.mode === 'detail';
     let keywordInput = '';
     let keywordSearchResults: string[] = [];
-    let keywordSearchTimeout: NodeJS.Timeout | null = null;
+    let searchTimeout: NodeJS.Timeout | null = null;
+    let pendingChanges = false;
     
-    // Sort options with index signature for type safety
+    // Sort options
     const sortOptions: Record<string, string> = {
         'netPositive': 'Net Votes',
         'totalVotes': 'Total Activity',
         'chronological': 'Date Created'
     };
     
-    // Direction options with index signature for type safety
+    // Direction options
     const directionOptions: Record<string, string> = {
         'desc': 'Descending',
         'asc': 'Ascending'
     };
     
-    // Working copies for edit mode
+    // Working copies of props
     let editSortType = sortType;
     let editSortDirection = sortDirection;
     let editKeywords = [...keywords];
     let editKeywordOperator = keywordOperator;
     let editShowOnlyMyItems = showOnlyMyItems;
     
+    // Layout constants 
     const METRICS_SPACING = {
         labelX: -200,
         equalsX: 0,
@@ -68,19 +70,24 @@
             currentMode: node.mode, 
             newMode 
         });
+        
+        // Apply any pending changes on collapse
+        if (isDetail && pendingChanges) {
+            applyChanges();
+        }
+        
+        isDetail = newMode === 'detail';
         dispatch('modeChange', { mode: newMode });
     }
     
-    // Function to handle applying changes
+    // Apply changes to parent component
     function applyChanges() {
-        // Update working values to actual values
         sortType = editSortType;
         sortDirection = editSortDirection;
         keywords = [...editKeywords];
         keywordOperator = editKeywordOperator;
         showOnlyMyItems = editShowOnlyMyItems;
         
-        // Dispatch event with new values
         dispatch('controlChange', {
             sortType,
             sortDirection,
@@ -88,36 +95,38 @@
             keywordOperator,
             showOnlyMyItems
         });
+        
+        pendingChanges = false;
     }
     
-    // Function to clear all filters
+    // Clear all filters
     function clearAllFilters() {
         editKeywords = [];
         editShowOnlyMyItems = false;
+        pendingChanges = true;
         
         // Apply changes immediately
         applyChanges();
     }
     
-    // Functions for keyword handling
+    // Handle keyword input changes with debounce
     function handleKeywordInputChange() {
-        // Clear previous timeout
-        if (keywordSearchTimeout) {
-            clearTimeout(keywordSearchTimeout);
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
         }
         
-        // If input is empty, clear results
         if (!keywordInput.trim()) {
             keywordSearchResults = [];
             return;
         }
         
-        // Set timeout for search
-        keywordSearchTimeout = setTimeout(() => {
+        searchTimeout = setTimeout(() => {
             searchKeywords(keywordInput);
-        }, 300);
+            searchTimeout = null;
+        }, 250);
     }
     
+    // Search keywords
     function searchKeywords(query: string) {
         if (!query.trim()) {
             keywordSearchResults = [];
@@ -125,58 +134,92 @@
         }
         
         const lowerQuery = query.toLowerCase();
+        const keywords = availableKeywords || [];
         
-        // Search through availableKeywords
-        // First, find keywords that start with the query
-        const startsWith = availableKeywords
+        // First, keywords that start with the query
+        const startsWith = keywords
             .filter(k => k.toLowerCase().startsWith(lowerQuery))
             .slice(0, 5);
             
-        // Then, find keywords that contain the query but don't start with it
-        const contains = availableKeywords
+        // Then, keywords that contain but don't start with the query
+        const contains = keywords
             .filter(k => !k.toLowerCase().startsWith(lowerQuery) && k.toLowerCase().includes(lowerQuery))
             .slice(0, 5);
             
-        // Combine results
         keywordSearchResults = [...startsWith, ...contains];
     }
     
+    // Add keyword
     function addKeyword(keyword: string) {
         if (!keyword || editKeywords.includes(keyword)) return;
         
         editKeywords = [...editKeywords, keyword];
         keywordInput = '';
         keywordSearchResults = [];
+        pendingChanges = true;
     }
     
+    // Remove keyword
     function removeKeyword(keyword: string) {
         editKeywords = editKeywords.filter(k => k !== keyword);
+        pendingChanges = true;
     }
     
+    // Toggle keyword operator (AND/OR)
     function toggleKeywordOperator() {
         editKeywordOperator = editKeywordOperator === 'OR' ? 'AND' : 'OR';
+        pendingChanges = true;
     }
     
+    // Toggle user filter
     function toggleUserFilter() {
         editShowOnlyMyItems = !editShowOnlyMyItems;
+        pendingChanges = true;
     }
     
+    // Monitor for changes
+    function markPendingChanges() {
+        pendingChanges = true;
+    }
+    
+    // Handle keyboard input
     function handleKeywordInputKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' && keywordInput) {
-            // If we have search results, use the first one
             if (keywordSearchResults.length > 0) {
                 addKeyword(keywordSearchResults[0]);
             } else {
-                // Otherwise use the raw input
                 addKeyword(keywordInput);
             }
             event.preventDefault();
         }
     }
+    
+    onMount(() => {
+        console.debug('[ControlNode] Mounted control node:', {
+            id: node.id,
+            mode: node.mode,
+            radius: node.radius,
+            position: node.position
+        });
+        
+        editSortType = sortType;
+        editSortDirection = sortDirection;
+        editKeywords = [...keywords];
+        editKeywordOperator = keywordOperator;
+        editShowOnlyMyItems = showOnlyMyItems;
+    });
+    
+    // Keep track of mode changes
+    $: if (node.mode !== undefined) {
+        isDetail = node.mode === 'detail';
+    }
+    
+    // Size calculations for preview mode
+    $: textWidth = node.radius * 2 - 45;
 </script>
 
 {#if isDetail}
-    <!-- DETAIL MODE - Shows full controls -->
+    <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
@@ -189,7 +232,7 @@
             >
                 Graph Controls
             </text>
-            
+     
             <!-- Sort Controls -->
             <g transform="translate(0, {-radius/2})">
                 <text class="section-title">Sort statements</text>
@@ -206,6 +249,7 @@
                         <select 
                             id="sort-type"
                             bind:value={editSortType}
+                            on:change={markPendingChanges}
                         >
                             {#each Object.entries(sortOptions) as [value, label]}
                                 <option {value}>{label}</option>
@@ -226,6 +270,7 @@
                         <select 
                             id="sort-direction"
                             bind:value={editSortDirection}
+                            on:change={markPendingChanges}
                         >
                             {#each Object.entries(directionOptions) as [value, label]}
                                 <option {value}>{label}</option>
@@ -369,6 +414,7 @@
                         <button 
                             class="apply-filters"
                             on:click={applyChanges}
+                            disabled={!pendingChanges}
                         >
                             Apply Changes
                         </button>
@@ -385,7 +431,7 @@
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
-    <!-- PREVIEW MODE - Shows current settings -->
+    <!-- PREVIEW MODE -->
     <BasePreviewNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
             <text
@@ -434,6 +480,15 @@
             </g>
         </svelte:fragment>
 
+        <svelte:fragment slot="score" let:radius>
+            <text
+                y={radius - 30}
+                class="hint-text"
+            >
+                Click to configure
+            </text>
+        </svelte:fragment>
+
         <!-- Expand Button in Preview Mode -->
         <svelte:fragment slot="button" let:radius>
             <ExpandCollapseButton 
@@ -467,6 +522,11 @@
         font-size: 14px;
         font-weight: 400;
         fill: rgba(255, 255, 255, 0.9);
+    }
+    
+    .hint-text {
+        font-size: 14px;
+        fill: rgba(255, 255, 255, 0.5);
     }
 
     :global(.control-section) {
@@ -699,6 +759,11 @@
         flex: 1;
     }
     
+    :global(.apply-filters:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
     /* Material Icons */
     :global(.material-symbols-outlined) {
         font-family: 'Material Symbols Outlined';
@@ -712,7 +777,6 @@
         white-space: nowrap;
         word-wrap: normal;
         direction: ltr;
-        /* Fix for vendor prefix issue - add standard property */
         font-feature-settings: 'liga';
         -webkit-font-feature-settings: 'liga';
         -webkit-font-smoothing: antialiased;

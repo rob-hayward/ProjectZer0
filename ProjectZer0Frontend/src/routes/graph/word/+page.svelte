@@ -1,17 +1,17 @@
-<!-- src/routes/graph/word/+page.svelte -->
+<!-- src/routes/graph/statement-network/+page.svelte -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
-    import { getWordData } from '$lib/services/word';
     import Graph from '$lib/components/graph/Graph.svelte';
-    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
-    import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
+    import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
+    import ControlNode from '$lib/components/graph/nodes/controls/ControlNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
-    import { wordStore } from '$lib/stores/wordStore';
+    import { statementNetworkStore, type NetworkSortType, type NetworkSortDirection } from '$lib/stores/statementNetworkStore';
+    import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { graphStore } from '$lib/stores/graphStore';
-    import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
+    import { wordListStore } from '$lib/stores/wordListStore';
     import type { 
         GraphData, 
         GraphNode, 
@@ -25,8 +25,7 @@
         LinkType
     } from '$lib/types/graph/enhanced';
     import { 
-        isWordNode, 
-        isDefinitionNode, 
+        isStatementNode, 
         isNavigationNode 
     } from '$lib/types/graph/enhanced';
 
@@ -36,185 +35,317 @@
     let authInitialized = false;
     let dataInitialized = false;
     
-    // Get initial word data from the page data
-    let initialWordData = data.wordData;
-    
     // Define view type
-    const viewType: ViewType = 'word';
+    const viewType: ViewType = 'statement-network';
     
     // Create a unique key for forcing re-renders
     let routeKey = `${viewType}-${Date.now()}`;
     
-    // Node mode handling for word node (starts in detail mode)
-    let wordNodeMode: NodeMode = 'detail'; 
+    // Control node settings - start in detail mode (like word node)
+    let controlNodeMode: NodeMode = 'detail';
+    const controlNodeId = 'graph-controls';
+    
+    // Control settings
+    let sortType: NetworkSortType = 'netPositive';
+    let sortDirection: NetworkSortDirection = 'desc';
+    let filterKeywords: string[] = [];
+    let keywordOperator: FilterOperator = 'OR';
+    let showOnlyMyItems = false;
+    let availableKeywords: string[] = [];
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[WORD-VIEW] Starting data initialization');
+        console.log('[STATEMENT-NETWORK] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[WORD-VIEW] No user found, redirecting to login');
+                console.log('[STATEMENT-NETWORK] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
             
-            console.log('[WORD-VIEW] User authenticated', {
+            console.log('[STATEMENT-NETWORK] User authenticated', {
                 userId: fetchedUser.sub
             });
             
             authInitialized = true;
             userStore.set(fetchedUser);
             
-            // Load word data if needed
-            if (!initialWordData) {
-                console.log('[WORD-VIEW] No initial word data, loading from URL parameter');
-                const wordParam = new URL(window.location.href).searchParams.get('word');
-                if (wordParam) {
-                    const loadedWord = await getWordData(wordParam);
-                    if (loadedWord) {
-                        console.log('[WORD-VIEW] Setting word data', {
-                            wordId: loadedWord.id,
-                            definitionCount: loadedWord.definitions?.length
-                        });
-                        wordStore.set(loadedWord);
-                    } else {
-                        console.error('[WORD-VIEW] Word data not found for:', wordParam);
-                        window.location.href = '/graph/dashboard';
-                        return;
-                    }
-                } else {
-                    console.error('[WORD-VIEW] No word parameter in URL');
-                    window.location.href = '/graph/dashboard';
-                    return;
-                }
-            } else {
-                console.log('[WORD-VIEW] Using initial word data from page data');
-                wordStore.set(initialWordData);
-            }
+            // Initialize the graph filter store
+            graphFilterStore.setViewType('statement-network', true);
             
-            console.log('[WORD-VIEW] Data initialization complete');
-            dataInitialized = true;
+            // Pre-create the central control node and navigation nodes
+            const initialData = createInitialGraphData();
             
-            // Set the correct view type in graph store and force update
+            // Apply to graph store to show something immediately
             if (graphStore) {
-                console.log('[WORD-VIEW] Setting graph store view type to word');
+                graphStore.setData(initialData, { skipAnimation: true });
                 graphStore.setViewType(viewType);
-                graphStore.forceTick();
+                graphStore.fixNodePositions();
+                graphStore.forceTick(3);
             }
+            
+            // Pre-load statements in background
+            loadStatementsInBackground();
+            
+            // Mark as initialized to show nodes immediately
+            dataInitialized = true;
         } catch (error) {
-            console.error('[WORD-VIEW-ERROR] Error in initializeData:', error);
+            console.error('[STATEMENT-NETWORK-ERROR] Error in initializeData:', error);
             auth0.login();
         }
     }
 
-    // Event handlers
+    // Load statements in background while showing initial UI
+    async function loadStatementsInBackground() {
+        try {
+            // Load statements using the network store
+            await statementNetworkStore.loadStatements({
+                sortType,
+                sortDirection
+            });
+            
+            console.log('[STATEMENT-NETWORK] Loaded statement data:', {
+                total: $statementNetworkStore.allStatements.length,
+                filtered: $statementNetworkStore.filteredStatements.length
+            });
+            
+            // Also load available keywords
+            loadAvailableKeywords();
+            
+            // Force update to show statements
+            routeKey = `${viewType}-${Date.now()}`;
+            
+            // Ensure control node is positioned correctly
+            if (graphStore) {
+                graphStore.fixNodePositions();
+                graphStore.forceTick(3);
+            }
+        } catch (error) {
+            console.error('[STATEMENT-NETWORK] Error loading statement data:', error);
+        }
+    }
+    
+    // Load available keywords for filtering
+    async function loadAvailableKeywords() {
+        try {
+            if (wordListStore && typeof wordListStore.loadAllWords === 'function') {
+                const words = await wordListStore.loadAllWords();
+                availableKeywords = words.map(w => w.toLowerCase());
+                console.log('[STATEMENT-NETWORK] Loaded available keywords:', availableKeywords.length);
+            } else {
+                // Fallback: extract keywords from statements
+                availableKeywords = statementNetworkStore.getUniqueKeywords();
+                console.log('[STATEMENT-NETWORK] Using keywords from statements:', availableKeywords.length);
+            }
+        } catch (error) {
+            console.error('[STATEMENT-NETWORK] Error loading keywords:', error);
+            availableKeywords = [];
+        }
+    }
+
+    // Handle control settings changes
+    async function handleControlChange(event: CustomEvent<{
+        sortType: string;
+        sortDirection: string;
+        keywords: string[];
+        keywordOperator: string;
+        showOnlyMyItems: boolean;
+    }>) {
+        console.log('[STATEMENT-NETWORK] Control settings changed:', event.detail);
+        
+        // Create properly typed values
+        const newSortType = event.detail.sortType as NetworkSortType;
+        const newSortDirection = event.detail.sortDirection as NetworkSortDirection;
+        
+        // Update local values
+        sortType = newSortType;
+        sortDirection = newSortDirection;
+        filterKeywords = [...event.detail.keywords];
+        keywordOperator = event.detail.keywordOperator as FilterOperator;
+        showOnlyMyItems = event.detail.showOnlyMyItems;
+        
+        try {
+            // Apply sorting via the store
+            await statementNetworkStore.setSorting(
+                newSortType,
+                newSortDirection
+            );
+            
+            // Apply keyword filter
+            statementNetworkStore.applyKeywordFilter(
+                filterKeywords,
+                keywordOperator
+            );
+            
+            // Apply user filter
+            statementNetworkStore.applyUserFilter(
+                showOnlyMyItems ? $userStore?.sub : undefined
+            );
+            
+            // Force re-render with updated data
+            routeKey = `${viewType}-${Date.now()}`;
+            
+            // Ensure control node stays fixed
+            if (graphStore) {
+                graphStore.fixNodePositions();
+                graphStore.forceTick(3);
+            }
+        } catch (error) {
+            console.error('[STATEMENT-NETWORK] Error applying control changes:', error);
+        }
+    }
+
+    // Event handlers for node events
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.log('[WORD-VIEW] Node mode change', {
+        console.log('[STATEMENT-NETWORK] Node mode change', {
             nodeId: event.detail.nodeId,
             newMode: event.detail.mode
         });
         
-        // Handle word node mode changes specifically
-        if (wordData && event.detail.nodeId === wordData.id) {
-            console.log('[WORD-VIEW] Word node mode change', {
-                from: wordNodeMode,
+        // If this is the control node, update its mode
+        if (event.detail.nodeId === controlNodeId) {
+            console.log('[STATEMENT-NETWORK] Control node mode change', {
+                from: controlNodeMode,
                 to: event.detail.mode
             });
-            wordNodeMode = event.detail.mode;
+            controlNodeMode = event.detail.mode;
         }
     }
 
-    // Get word data from store or initial data
-    $: wordData = $wordStore || initialWordData;
-    
-    // Create central word node
-    $: centralWordNode = isReady && wordData ? {
-        id: wordData.id,
-        type: 'word' as NodeType,
-        data: wordData,
-        group: 'central' as NodeGroup,
-        mode: wordNodeMode
-    } : null;
-
-    // Get navigation options for word context
-    $: navigationNodes = getNavigationOptions(NavigationContext.WORD)
-        .map(option => ({
-            id: option.id,
-            type: 'navigation' as const,
-            data: option,
-            group: 'navigation' as const
-        }));
-
-    // Create graph data
-    function createGraphData(): GraphData {
-        if (!centralWordNode || !wordData) {
-            return { nodes: [], links: [] };
-        }
-
-        console.log('[WORD-VIEW] Creating word view data', {
-            definitionCount: wordData.definitions?.length,
-            wordNodeMode
-        });
-
-        // Sort definitions by votes to establish rank order
-        const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
-            getNetVotes(b) - getNetVotes(a)
-        );
-
-        // Create word node with mode
-        const baseNodes = [
-            {
-                ...centralWordNode,
-                mode: wordNodeMode  // Ensure mode is set correctly
+    // Create initial graph data with just control and navigation nodes
+    function createInitialGraphData(): GraphData {
+        // Get navigation options for dashboard context
+        const navNodes = getNavigationOptions(NavigationContext.DASHBOARD)
+            .map(option => ({
+                id: option.id,
+                type: 'navigation' as const,
+                data: option,
+                group: 'navigation' as const
+            }));
+            
+        // Create control node
+        const controlNode = {
+            id: controlNodeId,
+            type: 'dashboard' as NodeType,
+            data: {
+                sub: 'controls',
+                name: 'Graph Controls',
+                email: '',
+                picture: '',
+                'https://projectzer0.co/user_metadata': {
+                    handle: 'controls'
+                }
             },
-            ...navigationNodes
-        ] as GraphNode[];
+            group: 'central' as NodeGroup,
+            mode: controlNodeMode
+        };
+        
+        return {
+            nodes: [...navNodes, controlNode],
+            links: []
+        };
+    }
 
-        // Create definition nodes with their rank-based grouping
-        const definitionNodes: GraphNode[] = sortedDefinitions.map((definition, index) => ({
-            id: definition.id,
-            type: 'definition' as NodeType,
-            data: definition,
-            group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
+    // Get statements from the store
+    $: statements = $statementNetworkStore?.filteredStatements || [];
+
+    // Create full graph data including statement nodes
+    function createGraphData(): GraphData {
+        // Get navigation options for dashboard context
+        const navNodes = getNavigationOptions(NavigationContext.DASHBOARD)
+            .map(option => ({
+                id: option.id,
+                type: 'navigation' as const,
+                data: option,
+                group: 'navigation' as const
+            }));
+            
+        // Create control node with current mode
+        const controlNode = {
+            id: controlNodeId,
+            type: 'dashboard' as NodeType,
+            data: {
+                sub: 'controls',
+                name: 'Graph Controls',
+                email: '',
+                picture: '',
+                'https://projectzer0.co/user_metadata': {
+                    handle: 'controls'
+                }
+            },
+            group: 'central' as NodeGroup,
+            mode: controlNodeMode
+        };
+
+        // If no statements, just return base nodes
+        if (statements.length === 0) {
+            console.log('[STATEMENT-NETWORK] No statements available, showing base nodes only');
+            return {
+                nodes: [...navNodes, controlNode],
+                links: []
+            };
+        }
+        
+        console.log('[STATEMENT-NETWORK] Creating statement network view with', statements.length, 'statements');
+
+        // Create statement nodes - all in preview mode initially
+        const statementNodes: GraphNode[] = statements.map(statement => ({
+            id: statement.id,
+            type: 'statement' as NodeType,
+            data: statement,
+            group: 'statement' as NodeGroup,
             mode: 'preview' as NodeMode
         }));
 
-        // Define relationship links between word and definition nodes
-        const definitionLinks: GraphLink[] = sortedDefinitions.map((definition, index) => ({
-            id: `${centralWordNode.id}-${definition.id}-${Date.now()}-${index}`,
-            source: centralWordNode.id,
-            target: definition.id,
-            type: (index === 0 ? 'live' : 'alternative') as LinkType
-        }));
+        // Create links between statements based on related statements
+        const statementLinks: GraphLink[] = [];
+        
+        // Add links based on relatedStatements from each statement
+        statements.forEach(statement => {
+            if (statement.relatedStatements && statement.relatedStatements.length > 0) {
+                statement.relatedStatements.forEach(related => {
+                    // Check if target statement exists in our filtered data
+                    const targetExists = statements.some(s => s.id === related.nodeId);
+                    if (targetExists) {
+                        statementLinks.push({
+                            id: `${statement.id}-${related.nodeId}-${related.sharedWord || 'unknown'}`,
+                            source: statement.id,
+                            target: related.nodeId,
+                            type: related.sharedWord === 'direct' ? 'related' as LinkType : 'alternative' as LinkType
+                        });
+                    }
+                });
+            }
+        });
 
-        console.log('[WORD-VIEW] Created graph structure for word view', {
-            nodeCount: baseNodes.length + definitionNodes.length,
-            linkCount: definitionLinks.length
+        console.log('[STATEMENT-NETWORK] Created statement network structure', {
+            nodeCount: navNodes.length + statementNodes.length + 1, // +1 for control node
+            linkCount: statementLinks.length
         });
 
         return {
-            nodes: [...baseNodes, ...definitionNodes],
-            links: definitionLinks
+            nodes: [...navNodes, controlNode, ...statementNodes],
+            links: statementLinks
         };
     }
 
     // Initialize variables & create graph data
     $: isReady = authInitialized && dataInitialized;
-    $: graphData = isReady && wordData ? createGraphData() : { nodes: [], links: [] };
+    $: graphData = isReady ? createGraphData() : { nodes: [], links: [] };
 
     // Initialize on mount
     onMount(() => {
-        console.log("✅ USING NEW WORD VIEW COMPONENT");
+        console.log("✅ USING ALIGNED STATEMENT NETWORK VIEW");
         initializeData();
     });
 
-    // Force update when wordStore changes
-    $: if ($wordStore && isReady) {
-        console.log('[WORD-VIEW] Word store updated, rebuilding graph data');
-        routeKey = `${viewType}-${Date.now()}`;
+    // Force update when statementNetworkStore changes
+    $: if ($statementNetworkStore && isReady) {
+        console.log('[STATEMENT-NETWORK] Statement store updated, consider rebuilding graph data');
+        // No automatic rebuild here to avoid flicker - control changes will force rebuilds
     }
 </script>
 
@@ -227,49 +358,60 @@
     <div class="loading-container">
         <div class="loading-text">Authentication required</div>
     </div>
-{:else if !wordData}
-    <div class="loading-container">
-        <div class="loading-text">Word data not found</div>
-    </div>
 {:else}
-{#key routeKey}
-<Graph 
-    data={graphData}
-    viewType={viewType}
-    on:modechange={handleNodeModeChange}
->
-    <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isWordNode(node)}
-            <WordNode 
-                {node}
-                wordText={wordData.word}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isDefinitionNode(node)}
-            <DefinitionNode 
-                {node}
-                wordText={wordData.word}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isNavigationNode(node)}
-            <NavigationNode 
-                {node}
-                on:hover={() => {}} 
-            />
-        {:else}
-            <!-- Fallback for unrecognized node types -->
-            <g>
-                <text 
-                    dy="-10" 
-                    class="error-text"
-                >
-                    Unknown node type: {node.type}
-                </text>
-            </g>
-        {/if}
-    </svelte:fragment>
-</Graph>
-{/key}
+    {#key routeKey}
+    <Graph 
+        data={graphData}
+        viewType={viewType}
+        on:modechange={handleNodeModeChange}
+    >
+        <svelte:fragment slot="default" let:node let:handleModeChange>
+            {#if node.id === controlNodeId}
+                <ControlNode 
+                    {node}
+                    {sortType}
+                    {sortDirection}
+                    keywords={filterKeywords}
+                    keywordOperator={keywordOperator}
+                    {showOnlyMyItems}
+                    {availableKeywords}
+                    on:modeChange={handleModeChange}
+                    on:controlChange={handleControlChange}
+                />
+            {:else if isStatementNode(node)}
+                <StatementNode 
+                    {node}
+                    on:modeChange={handleModeChange}
+                />
+            {:else if isNavigationNode(node)}
+                <NavigationNode 
+                    {node}
+                    on:hover={() => {}} 
+                />
+            {:else}
+                <!-- Fallback for unrecognized node types -->
+                <g>
+                    <text 
+                        dy="-10" 
+                        class="error-text"
+                    >
+                        Unknown node type: {node.type}
+                    </text>
+                </g>
+            {/if}
+        </svelte:fragment>
+    </Graph>
+    {/key}
+
+    <!-- Empty state message (only shown if no statements) -->
+    {#if statements.length === 0}
+        <div class="empty-state-container">
+            <div class="empty-state-box">
+                <span class="empty-state-text">No statements found</span>
+                <span class="empty-state-subtext">Try adjusting your filters or creating a statement</span>
+            </div>
+        </div>
+    {/if}
 {/if}
 
 <style>
@@ -294,6 +436,7 @@
         background: black;
         color: rgba(255, 255, 255, 0.8);
         gap: 1rem;
+        z-index: 100;
     }
 
     .loading-spinner {
@@ -308,6 +451,43 @@
     .loading-text {
         font-family: 'Orbitron', sans-serif;
         font-size: 1.2rem;
+    }
+    
+    .empty-state-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        z-index: 10;
+    }
+    
+    .empty-state-box {
+        background: rgba(0, 0, 0, 0.7);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 8px;
+        padding: 1.5rem 2rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    
+    .empty-state-text {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.2rem;
+        color: rgba(255, 255, 255, 0.9);
+    }
+    
+    .empty-state-subtext {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.9rem;
+        color: rgba(255, 255, 255, 0.6);
     }
 
     /* Add styling for the error text via CSS instead of inline attributes */

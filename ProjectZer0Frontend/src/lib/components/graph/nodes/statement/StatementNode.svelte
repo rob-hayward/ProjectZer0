@@ -3,46 +3,29 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
+    import { isStatementData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
-    import { fetchWithAuth } from '$lib/services/api';
-    import { userStore } from '$lib/stores/userStore';
-    import { getDisplayName } from '../utils/nodeUtils';
-    import { graphStore } from '$lib/stores/graphStore';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
+    import { getDisplayName } from '../utils/nodeUtils';
+    import { userStore } from '$lib/stores/userStore';
+    import { graphStore } from '$lib/stores/graphStore';
+    import { fetchWithAuth } from '$lib/services/api';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     
     export let node: RenderableNode;
-    // Add statementText prop for consistency with WordNode/DefinitionNode pattern
     export let statementText: string = '';
     
     // Type guard for statement data
-    function isStatementData(data: any): data is {
-        id: string;
-        statement: string;
-        createdBy: string;
-        publicCredit: boolean;
-        positiveVotes: number;
-        negativeVotes: number;
-        keywords?: Array<{word: string; frequency: number; source: string}>;
-        initialComment?: string;
-        createdAt: string;
-    } {
-        return data && typeof data.statement === 'string';
-    }
-    
     if (!isStatementData(node.data)) {
         throw new Error('Invalid node data type for StatementNode');
     }
 
-    // Statement data
+    // Extract data from node
     const data = node.data;
     
-    // Use provided statementText prop if available, otherwise fall back to node data
+    // Use statementText prop if provided, otherwise fall back to node data
     $: displayStatementText = statementText || data.statement;
-    
-    // Reactive declaration for mode to ensure reactivity
-    $: isDetail = node.mode === 'detail';
     
     const METRICS_SPACING = {
         labelX: -200,
@@ -50,24 +33,43 @@
         valueX: 30
     };
 
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000;
+
     let userVoteStatus: VoteStatus = 'none';
     let isVoting = false;
-    let creatorDetails: any = null;
+    let userName: string;
+    let netVotes: number = 0;
+    let scoreDisplay: string = "0";
+    let statementStatus: string;
     
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
+        hover: { isHovered: boolean };
     }>();
 
-    // Function to handle expanding or collapsing the node
     function handleModeChange() {
         const newMode = isDetail ? 'preview' : 'detail';
         console.debug(`[StatementNode] Mode change requested:`, { 
             currentMode: node.mode, 
-            newMode: newMode,
-            nodeId: node.id,
-            nodeRadius: node.radius
+            newMode,
+            isDetail
         });
         dispatch('modeChange', { mode: newMode });
+    }
+    
+    function handleCollapse() {
+        console.debug(`[StatementNode] Collapse requested`);
+        dispatch('modeChange', { mode: 'preview' });
+    }
+    
+    function handleExpand() {
+        console.debug(`[StatementNode] Expand requested`);
+        dispatch('modeChange', { mode: 'detail' });
+    }
+    
+    function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
+        dispatch('hover', event.detail);
     }
 
     function getNeo4jNumber(value: any): number {
@@ -81,19 +83,22 @@
         if (!$userStore) return;
         
         try {
-            console.log('[StatementNode] Fetching vote status for statement:', node.id);
+            console.debug('[StatementNode] Fetching vote status for statement:', node.id);
             const response = await fetchWithAuth(`/nodes/statement/${node.id}/vote`);
             if (!response) {
                 throw new Error('No response from vote status endpoint');
             }
             
-            console.log('[StatementNode] Vote status response:', response);
+            console.debug('[StatementNode] Vote status response:', response);
             
             userVoteStatus = response.status || 'none';
             data.positiveVotes = getNeo4jNumber(response.positiveVotes);
             data.negativeVotes = getNeo4jNumber(response.negativeVotes);
             
-            console.log('[StatementNode] Updated vote status:', {
+            // Update net votes directly
+            netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
+            
+            console.debug('[StatementNode] Updated vote status:', {
                 userVoteStatus,
                 positiveVotes: data.positiveVotes,
                 negativeVotes: data.negativeVotes,
@@ -102,7 +107,7 @@
             
             // Recalculate visibility based on vote data
             if (graphStore) {
-                console.log('[StatementNode] Recalculating node visibility based on votes');
+                console.debug('[StatementNode] Recalculating node visibility based on votes');
                 graphStore.recalculateNodeVisibility(
                     node.id, 
                     data.positiveVotes, 
@@ -112,10 +117,8 @@
         } catch (error) {
             console.error('[StatementNode] Error fetching vote status:', error);
             
-            const MAX_RETRIES = 3;
-            const RETRY_DELAY = 1000;
             if (retryCount < MAX_RETRIES) {
-                console.log(`[StatementNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+                console.debug(`[StatementNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                 await initializeVoteStatus(retryCount + 1);
             }
@@ -128,7 +131,7 @@
         const oldVoteStatus = userVoteStatus;
 
         try {
-            console.log('[StatementNode] Processing vote:', { 
+            console.debug('[StatementNode] Processing vote:', { 
                 statementId: node.id, 
                 voteType,
                 currentStatus: userVoteStatus
@@ -145,7 +148,7 @@
                 
                 data.positiveVotes = getNeo4jNumber(result.positiveVotes);
                 data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[StatementNode] Vote removed:', result);
+                console.debug('[StatementNode] Vote removed:', result);
             } else {
                 const result = await fetchWithAuth(
                     `/nodes/statement/${node.id}/vote`,
@@ -159,19 +162,18 @@
 
                 data.positiveVotes = getNeo4jNumber(result.positiveVotes);
                 data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[StatementNode] Vote recorded:', result);
+                console.debug('[StatementNode] Vote recorded:', result);
             }
             
             // Recalculate visibility after vote changes
             if (graphStore) {
-                console.log('[StatementNode] Recalculating node visibility after vote update');
+                console.debug('[StatementNode] Recalculating node visibility after vote update');
                 graphStore.recalculateNodeVisibility(
                     node.id, 
                     data.positiveVotes, 
                     data.negativeVotes
                 );
             }
-            
         } catch (error) {
             console.error('[StatementNode] Error processing vote:', error);
             // Revert on error
@@ -183,47 +185,7 @@
         }
     }
 
-    onMount(async () => {
-        console.debug('[StatementNode] Mounting with statement ID:', node.id);
-        
-        // Fetch creator details (could be added later if needed)
-        // if (data.createdBy && data.createdBy !== 'ProjectZeroAI') {
-        //     try {
-        //         creatorDetails = await getUserDetails(data.createdBy);
-        //     } catch (e) {
-        //         console.error('[StatementNode] Error fetching creator details:', e);
-        //     }
-        // }
-        
-        // Initialize vote status and counts
-        const initialPos = getNeo4jNumber(data.positiveVotes);
-        const initialNeg = getNeo4jNumber(data.negativeVotes);
-        
-        console.log('[StatementNode] Initial vote counts:', {
-            initialPos,
-            initialNeg,
-            netVotes: initialPos - initialNeg
-        });
-        
-        await initializeVoteStatus();
-        console.debug('[StatementNode] Mounted with radius:', node.radius);
-    });
-
-    // Reactive declarations
-    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    
-    // Calculate vote stats locally with reactive declarations
-    $: positiveVotes = getNeo4jNumber(data.positiveVotes) || 0;
-    $: negativeVotes = getNeo4jNumber(data.negativeVotes) || 0;
-    $: netVotes = positiveVotes - negativeVotes;
-    $: totalVotes = positiveVotes + negativeVotes;
-    $: positivePercent = totalVotes > 0 ? Math.round((positiveVotes / totalVotes) * 100) : 0;
-    $: negativePercent = totalVotes > 0 ? Math.round((negativeVotes / totalVotes) * 100) : 0;
-    
-    $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
-    $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
-    
-    // Size calculations for preview mode based on the node's current radius
+    // Size calculations for preview mode
     $: textWidth = node.radius * 2 - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
 
@@ -239,13 +201,36 @@
         }
         return acc;
     }, ['']);
-    
-    // Debug radius when it changes
-    $: console.debug(`[StatementNode] Radius updated:`, {
-        nodeId: node.id,
-        radius: node.radius,
-        mode: node.mode
+
+    onMount(async () => {
+        console.debug('[StatementNode] Mounting with statement:', {
+            id: node.id,
+            statement: displayStatementText,
+            initialPositiveVotes: data.positiveVotes,
+            initialNegativeVotes: data.negativeVotes,
+            mode: node.mode
+        });
+        
+        // Initialize vote counts
+        const initialPos = getNeo4jNumber(data.positiveVotes);
+        const initialNeg = getNeo4jNumber(data.negativeVotes);
+        netVotes = initialPos - initialNeg;
+
+        console.debug('[StatementNode] Initial vote calculations:', {
+            initialPos,
+            initialNeg,
+            netVotes
+        });
+
+        await initializeVoteStatus();
     });
+
+    // Reactive declarations
+    $: isDetail = node.mode === 'detail';
+    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    $: netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
+    $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
+    $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
 </script>
 
 {#if isDetail}
@@ -262,21 +247,23 @@
             >
                 Statement
             </text>
-     
-            <!-- Main Statement Display -->
-            <g class="statement-display" transform="translate(0, {-radius/2.6})">
+
+            <!-- Statement Display -->
+            <g class="statement-display" transform="translate(0, {-radius/2 - 55})">
                 <foreignObject 
                     x={METRICS_SPACING.labelX}
                     width={Math.abs(METRICS_SPACING.labelX) * 2}
                     height="100"
                 >
-                    <div class="statement-text">{displayStatementText}</div>
+                    <div class="statement-text">
+                        {displayStatementText}
+                    </div>
                 </foreignObject>
             </g>
-    
-            <!-- Keywords Display -->
+
+            <!-- Keywords Display (if any) -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform="translate(0, {-radius/1.5})">
+                <g transform="translate(0, {-radius/4})">
                     <text 
                         x={METRICS_SPACING.labelX} 
                         class="keywords-label left-align"
@@ -300,9 +287,33 @@
                     </foreignObject>
                 </g>
             {/if}
-     
+            
+            <!-- User Context -->
+            <g transform="translate(0, -50)">
+                <text 
+                    x={METRICS_SPACING.labelX} 
+                    class="context-text left-align"
+                >
+                    Please vote on whether you agree with this statement
+                </text>
+                <text 
+                    x={METRICS_SPACING.labelX} 
+                    y="20" 
+                    class="context-text left-align"
+                >
+                    for inclusion in ProjectZer0.
+                </text>
+                <text 
+                    x={METRICS_SPACING.labelX} 
+                    y="40" 
+                    class="context-text left-align"
+                >
+                    You can always change your vote using the buttons below.
+                </text>
+            </g>
+
             <!-- Vote Buttons -->
-            <g transform="translate(0, 25)">
+            <g transform="translate(0, 0)">
                 <foreignObject x={-160} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -315,7 +326,7 @@
                         </button>
                     </div>
                 </foreignObject>
-     
+
                 <foreignObject x={-50} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -328,7 +339,7 @@
                         </button>
                     </div>
                 </foreignObject>
-     
+
                 <foreignObject x={60} width="100" height="45">
                     <div class="button-wrapper">
                         <button 
@@ -342,9 +353,9 @@
                     </div>
                 </foreignObject>
             </g>
-     
+
             <!-- Vote Stats -->
-            <g transform="translate(0, 85)">
+            <g transform="translate(0, 70)">
                 <text x={METRICS_SPACING.labelX} class="stats-label left-align">
                     Vote Data:
                 </text>
@@ -361,7 +372,7 @@
                         {userVoteStatus}
                     </text>
                 </g>
-     
+
                 <!-- Total agree votes -->
                 <g transform="translate(0, 55)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -371,10 +382,10 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {positiveVotes}
+                        {data.positiveVotes || 0}
                     </text>
                 </g>
-     
+
                 <!-- Total disagree votes -->
                 <g transform="translate(0, 80)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -384,10 +395,10 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {negativeVotes}
+                        {data.negativeVotes || 0}
                     </text>
                 </g>
-     
+
                 <!-- Net votes -->
                 <g transform="translate(0, 105)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
@@ -400,8 +411,8 @@
                         {netVotes}
                     </text>
                 </g>
-     
-                <!-- Word status -->
+
+                <!-- Statement status -->
                 <g transform="translate(0, 130)">
                     <text x={METRICS_SPACING.labelX} class="stats-text left-align">
                         Statement Status
@@ -419,28 +430,28 @@
             {#if data.createdBy}
                 <g transform="translate(0, {radius - 55})">
                     <text class="creator-label">
-                        created by: {getDisplayName(data.createdBy, creatorDetails, !data.publicCredit)}
+                        created by: {getDisplayName(data.createdBy, null, !data.publicCredit)}
                     </text>
                 </g>
             {/if}
-     
-            <!-- Contract button -->
+
+            <!-- Collapse button -->
             <ExpandCollapseButton 
                 mode="collapse"
                 y={radius}
-                on:click={handleModeChange}
+                on:click={handleCollapse}
             />
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange}>
+    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover}>
         <svelte:fragment slot="title" let:radius>
             <text
                 y={-radius + 40}
-                class="title"
+                class="title centered"
                 style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
+                style:font-size="12px"
                 style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
             >
                 Statement
@@ -449,7 +460,8 @@
 
         <svelte:fragment slot="content" let:radius>
             <text
-                y={-70}
+                y={-radius/4 - 35}
+                x={-radius + 35}
                 class="content left-aligned"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.word.size}
@@ -457,7 +469,7 @@
             >
                 {#each lines as line, i}
                     <tspan 
-                        x={-radius + 30}
+                        x={-radius + 40}
                         dy={i === 0 ? 0 : "1.2em"}
                     >
                         {line}
@@ -483,7 +495,7 @@
             <ExpandCollapseButton 
                 mode="expand"
                 y={radius}
-                on:click={handleModeChange}
+                on:click={handleExpand}
             />
         </svelte:fragment>
     </BasePreviewNode>
@@ -502,6 +514,10 @@
         fill: rgba(255, 255, 255, 0.7);
     }
 
+    .centered {
+        text-anchor: middle;
+    }
+
     .left-aligned, .left-align {
         text-anchor: start;
     }
@@ -515,6 +531,11 @@
     }
 
     .keywords-label {
+        font-size: 14px;
+        fill: rgba(255, 255, 255, 0.9);
+    }
+
+    .context-text {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.9);
     }
@@ -575,36 +596,10 @@
         border: 1px solid rgba(46, 204, 113, 0.3);
     }
 
-    /* Preview Mode Styling */
-    :global(.preview-keywords) {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        z-index: 10;
-        position: relative;
-    }
-    
-    :global(.preview-keyword-chip) {
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
-        border-radius: 10px;
-        padding: 0px 6px;
-        font-size: 9px;
-        color: white;
-        font-family: 'Orbitron', sans-serif;
-    }
-    
-    :global(.preview-keyword-chip.more) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }
-
     /* Button Styling */
     :global(.button-wrapper) {
         padding-top: 4px;
-        padding-bottom: 4px;
-        height: auto !important;
-        min-height: 45px;
+        height: 100%;
     }
 
     :global(.vote-button) {
