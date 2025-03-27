@@ -247,8 +247,6 @@
             // Fix positions more aggressively
             graphStore.fixNodePositions();
             graphStore.forceTick(3);
-            
-            // No direct simulation access needed - just ensure positions are fixed
         }
     }
 
@@ -258,7 +256,7 @@
     function initialize() {
         if (initialized) return;
         
-        debugLog('[Graph] Initializing graph component', { viewType, dataNodes: data?.nodes?.length });
+        debugLog(`[Graph] Initializing graph component`, { viewType, dataNodes: data?.nodes?.length });
         
         // Create graph store for this view
         graphStore = createGraphStore(viewType);

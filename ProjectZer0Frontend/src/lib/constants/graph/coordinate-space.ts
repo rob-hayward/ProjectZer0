@@ -27,7 +27,7 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 320
             },
             STATEMENT: {  
-                DETAIL: 600,
+                DETAIL: 600,     // IMPORTANT: Match definition size exactly
                 PREVIEW: 320     // Match definition preview size
             },
             NAVIGATION: 80,
@@ -40,7 +40,7 @@ export const COORDINATE_SPACE = {
                 BASE: 20,          // Collision padding for central nodes
                 NAVIGATION: 5,     // Collision padding for navigation nodes
                 DEFINITION: 150,   // Collision padding for definition nodes
-                STATEMENT: 150     // Add matching collision padding for statement nodes
+                STATEMENT: 150     // Match definition collision padding
             }
         }
     },
@@ -62,7 +62,7 @@ export const COORDINATE_SPACE = {
             // Scaling factors for connection endpoints
             CONNECTION_SCALING: {
                 DETAIL_MODE: 1/4.35,  // Scaling factor for detail mode endpoints 
-                PREVIEW_MODE: 1/1.38 // Scaling factor for preview mode endpoints
+                PREVIEW_MODE: 1/1.38  // Scaling factor for preview mode endpoints
             }
         },
         FORCES: {
@@ -73,7 +73,7 @@ export const COORDINATE_SPACE = {
                         LIVE: -1600,
                         ALTERNATIVE: -300
                     },
-                    STATEMENT: -1600,  // Add statement charge strength
+                    STATEMENT: -1600,  // IMPORTANT: Match definition charge strength
                     NAVIGATION: -50  // Reduced repulsion for navigation nodes
                 },
                 DISTANCE: {
