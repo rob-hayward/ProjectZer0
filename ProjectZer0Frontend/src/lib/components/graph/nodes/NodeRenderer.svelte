@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/NodeRenderer.svelte -->
+<!-- src/lib/components/graph/nodes/NodeRenderer.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -18,7 +18,6 @@
     
     // Handle mode change events from child components
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        console.debug(`[NodeRenderer] Mode change event from node ${node.id}:`, event.detail);
         // Include the nodeId in the dispatched event
         dispatch('modeChange', { 
             nodeId: node.id, 
@@ -28,8 +27,6 @@
     
     // Handle visibility change events
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-        console.debug(`[NodeRenderer] Visibility change for node ${node.id}:`, event.detail);
-        
         // Dispatch event to update local state
         dispatch('visibilityChange', { 
             nodeId: node.id, 
@@ -49,22 +46,17 @@
     $: posY = node.position.y;
     $: transform = `translate(${posX}, ${posY})`;
     
+    // Special handling for central node - override position to ensure it's exactly at (0,0)
+    $: if (node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')) {
+        posX = 0;
+        posY = 0;
+        transform = 'translate(0, 0)';
+    }
+    
     // Calculate net votes for the node
     $: netVotes = node.type === 'word' || node.type === 'definition' || node.type === 'statement'
         ? getNetVotes(node.data)
         : 0;
-    
-    // Log positioning info for debugging
-    $: {
-        console.debug(`[NodeRenderer:${rendererId}] Position:`, {
-            id: node.id,
-            type: node.type,
-            x: posX,
-            y: posY,
-            transform,
-            isHidden: node.isHidden
-        });
-    }
     
     // When component mounts, check if we have a stored visibility preference
     // for this node and apply it if needed
@@ -76,12 +68,6 @@
                 
                 // Only update if different from current state
                 if (node.isHidden !== shouldBeHidden) {
-                    console.debug(`[NodeRenderer:${rendererId}] Applying stored visibility preference:`, {
-                        nodeId: node.id,
-                        isVisible: preference,
-                        shouldBeHidden
-                    });
-                    
                     // Dispatch event to update the node state
                     dispatch('visibilityChange', {
                         nodeId: node.id,
@@ -93,7 +79,7 @@
     });
 </script>
 
-<!-- Apply node position transform - THIS COMPONENT HANDLES ONLY POSITIONING -->
+<!-- Apply node position transform using SVG transform attribute -->
 <g 
     class="node-wrapper" 
     data-node-id={node.id}
@@ -101,8 +87,13 @@
     data-node-mode={node.mode || 'preview'}
     data-node-group={node.group}
     data-node-hidden={node.isHidden ? 'true' : 'false'}
-    {transform}
+    transform={transform}
 >
+    <!-- If this is the central control node, add a special debug marker -->
+    {#if node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')}
+        <circle cx="0" cy="0" r="3" fill="yellow" stroke="black" stroke-width="1" />
+    {/if}
+
     {#if node.isHidden}
         <!-- Render hidden node -->
         <HiddenNode 
@@ -130,12 +121,3 @@
         {/if}
     {/if}
 </g>
-
-<style>
-    .node-wrapper {
-        transform-origin: center;
-        transform-box: fill-box;
-        will-change: transform;
-        transition: transform 0.3s ease;
-    }
-</style>

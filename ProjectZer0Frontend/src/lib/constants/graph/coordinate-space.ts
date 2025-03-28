@@ -1,13 +1,13 @@
 // src/lib/constants/graph/coordinate-space.ts
 export const COORDINATE_SPACE = {
-    // World dimensions
+    // World dimensions - using smaller, more reasonable values
     WORLD: {
-        WIDTH: 200000,
-        HEIGHT: 200000,
+        WIDTH: 2000,     // Reduced from 200000
+        HEIGHT: 2000,    // Reduced from 200000
         VIEW: {
             MIN_ZOOM: 0.05,   // Keep this for full view
-            MAX_ZOOM: 400,     // Increase significantly from 4
-            INITIAL_ZOOM: 250  // New constant for our preferred starting zoom
+            MAX_ZOOM: 6.0,     // Adjusted for smaller coordinate space
+            INITIAL_ZOOM: 2.5  // Adjusted for smaller coordinate space
         }
     },
 
@@ -45,10 +45,10 @@ export const COORDINATE_SPACE = {
         }
     },
 
-    // Layout distances and spacing
+    // Layout distances and spacing - adjusted for smaller coordinate space
     LAYOUT: {
         RING_SPACING: {
-            INITIAL: 650,         // Base spacing for first ring
+            INITIAL: 650,         // do not change
             INCREMENT: 0.2,        // Increase per ring
             DEFINITION_EXPANSION_BUFFER: 80, // Additional buffer when definitions expand
             PREVIEW_MODE_BUFFER: 60, // Buffer for preview mode
@@ -68,23 +68,24 @@ export const COORDINATE_SPACE = {
         FORCES: {
             CHARGE: {
                 STRENGTH: {
-                    WORD: -9000,
+                    // Adjusted force strengths for smaller coordinate space
+                    WORD: -900,         // Reduced from -9000
                     DEFINITION: {
-                        LIVE: -1600,
-                        ALTERNATIVE: -300
+                        LIVE: -300,     // Reduced from -1600
+                        ALTERNATIVE: -100  // Reduced from -300
                     },
-                    STATEMENT: -1600,  // IMPORTANT: Match definition charge strength
-                    NAVIGATION: -50  // Reduced repulsion for navigation nodes
+                    STATEMENT: -300,    // Reduced from -1600
+                    NAVIGATION: -20     // Reduced from -50
                 },
                 DISTANCE: {
-                    MIN: 200,
-                    MAX: 18000
+                    MIN: 50,            // Reduced from 200
+                    MAX: 1000           // Reduced from 18000
                 }
             }
         },
         CLUSTER: {
-            MIN_SIZE: 5000,        // Minimum size for a cluster
-            SPACING: 10000         // Space between clusters
+            MIN_SIZE: 500,        // Reduced from 5000
+            SPACING: 1000         // Reduced from 10000
         }
     },
 

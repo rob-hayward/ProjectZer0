@@ -59,6 +59,11 @@
     // Graph data
     let graphData: GraphData = { nodes: [], links: [] };
     
+    // Debug information for central node position
+    let centralNodePosition = { x: 0, y: 0, fx: 0, fy: 0 };
+    let centralNodeExists = false;
+    let updateCount = 0;
+    
     // Get statements from the store
     $: statements = $statementNetworkStore?.filteredStatements || [];
     $: isReady = authInitialized && dataInitialized;
@@ -107,6 +112,7 @@
                 // Fix positions and force ticks
                 graphStore.fixNodePositions();
                 graphStore.forceTick(5);
+                updateCentralNodeDebugInfo();
             }
             
             // Load statement network data
@@ -189,7 +195,36 @@
             graphStore.setData(graphData, { skipAnimation: true });
             graphStore.fixNodePositions();
             graphStore.forceTick(5);
+            updateCentralNodeDebugInfo();
         }
+    }
+    
+    // Update central node position information for debugging
+    function updateCentralNodeDebugInfo() {
+        if (!graphStore) return;
+        
+        const unsubscribe = graphStore.subscribe((state) => {
+            if (state && state.nodes) {
+                const centralNode = state.nodes.find(node => node.id === controlNodeId);
+                if (centralNode) {
+                    centralNodeExists = true;
+                    centralNodePosition = {
+                        x: centralNode.position.x,
+                        y: centralNode.position.y,
+                        fx: (centralNode as any).fx || 0,
+                        fy: (centralNode as any).fy || 0
+                    };
+                } else {
+                    centralNodeExists = false;
+                }
+            }
+        });
+        
+        // Immediately unsubscribe after getting the data
+        unsubscribe();
+        
+        // Update the counter
+        updateCount++;
     }
     
     function updateGraphWithStatements() {
@@ -210,10 +245,15 @@
             
             // Reduce the number of forced ticks
             graphStore.forceTick(3);
+            
+            // Update debug info
+            updateCentralNodeDebugInfo();
         }
-        
-        // Don't force a complete re-render
-        // routeKey = `${viewType}-${Date.now()}`; // Remove this
+    }
+    
+    // Force an immediate update of central node position
+    function forceUpdateDebugInfo() {
+        updateCentralNodeDebugInfo();
     }
     
     // Handle control settings changes
@@ -287,6 +327,7 @@
             if (graphStore) {
                 graphStore.fixNodePositions();
                 graphStore.forceTick(5);
+                updateCentralNodeDebugInfo();
             }
         }
     }
@@ -325,41 +366,65 @@
             mode: controlNodeMode
         };
         
-        // Create links between statements
-        const statementLinks: GraphLink[] = [];
+        // Create links between statements - using a Map to consolidate multiple keyword relationships
+        const linkMap = new Map<string, {
+            sourceId: string;
+            targetId: string;
+            keywords: Set<string>;
+            strength: number;
+        }>();
         
-        // First, create links from control node to each statement
-        statementNodes.forEach(statementNode => {
-            statementLinks.push({
-                id: `${controlNode.id}-${statementNode.id}`,
-                source: controlNode.id,
-                target: statementNode.id,
-                type: 'related' as LinkType
-            });
-        });
-        
-        // Then, add statement-to-statement relationships
+        // Add statement-to-statement relationships
         statements.forEach(statement => {
             if (statement.relatedStatements && statement.relatedStatements.length > 0) {
                 statement.relatedStatements.forEach((related: any) => {
                     // Check if target statement exists in our filtered data
                     const targetExists = statements.some(s => s.id === related.nodeId);
                     if (targetExists) {
-                        statementLinks.push({
-                            id: `${statement.id}-${related.nodeId}-${related.sharedWord || 'unknown'}`,
-                            source: statement.id,
-                            target: related.nodeId,
-                            type: 'related' as LinkType
-                        });
+                        // Create unique key for node pair - sort IDs to ensure uniqueness regardless of direction
+                        const [id1, id2] = [statement.id, related.nodeId].sort();
+                        const linkKey = `${id1}-${id2}`;
+                        
+                        if (!linkMap.has(linkKey)) {
+                            linkMap.set(linkKey, {
+                                sourceId: statement.id,
+                                targetId: related.nodeId,
+                                keywords: new Set([related.sharedWord || 'unknown']),
+                                strength: related.strength || 1
+                            });
+                        } else {
+                            // Update existing link with additional keyword and max strength
+                            const link = linkMap.get(linkKey)!;
+                            link.keywords.add(related.sharedWord || 'unknown');
+                            link.strength = Math.max(link.strength, related.strength || 1);
+                        }
                     }
                 });
             }
         });
+        
+        // Convert consolidated links to GraphLink objects
+        const statementLinks: GraphLink[] = Array.from(linkMap.entries()).map(([key, linkInfo]) => ({
+            id: `link-${key}`,
+            source: linkInfo.sourceId,
+            target: linkInfo.targetId,
+            type: 'related' as LinkType,
+            // Add metadata for visualization
+            metadata: {
+                keywordCount: linkInfo.keywords.size,
+                keywords: Array.from(linkInfo.keywords),
+                strength: linkInfo.strength
+            }
+        }));
 
         console.log('[STATEMENT-NETWORK] Created statement network structure', {
             nodeCount: navigationNodes.length + 1 + statementNodes.length,
             statementCount: statementNodes.length,
-            linkCount: statementLinks.length
+            linkCount: statementLinks.length,
+            // Log the difference between raw relationships and consolidated links
+            rawRelationshipCount: statements.reduce((count, s) => 
+                count + (s.relatedStatements?.length || 0), 0),
+            consolidatedLinkCount: statementLinks.length
         });
 
         return {
@@ -380,6 +445,127 @@
             clearTimeout(networkLoadingTimeout);
         }
     });
+    
+    // Special debug function to check DOM structure and transforms
+    function debugDOMStructure() {
+        // Get the SVG element
+        const svg = document.querySelector('.graph-svg');
+        if (!svg) {
+            console.warn('[DOM Debug] SVG element not found');
+            return;
+        }
+        
+        // Get key elements
+        const contentGroup = svg.querySelector('.content-layer');
+        const backgroundGroup = svg.querySelector('.background-layer');
+        const centralNodeWrapper = svg.querySelector('[data-node-id="graph-controls"]');
+        
+        console.log('[DOM Debug] SVG DOM structure:', {
+            svg: {
+                classList: Array.from(svg.classList),
+                attributes: getAttributes(svg),
+                computedStyle: extractKeyStyles(svg)
+            },
+            contentGroup: contentGroup ? {
+                classList: Array.from(contentGroup.classList),
+                attributes: getAttributes(contentGroup),
+                computedStyle: extractKeyStyles(contentGroup)
+            } : 'Not found',
+            backgroundGroup: backgroundGroup ? {
+                classList: Array.from(backgroundGroup.classList),
+                attributes: getAttributes(backgroundGroup),
+                computedStyle: extractKeyStyles(backgroundGroup)
+            } : 'Not found',
+            centralNodeWrapper: centralNodeWrapper ? {
+                classList: Array.from(centralNodeWrapper.classList),
+                attributes: getAttributes(centralNodeWrapper),
+                computedStyle: extractKeyStyles(centralNodeWrapper)
+            } : 'Not found'
+        });
+        
+        // Get all node wrappers
+        const nodeWrappers = svg.querySelectorAll('.node-wrapper');
+        console.log(`[DOM Debug] Found ${nodeWrappers.length} node wrappers`);
+        
+        // Find all transforms on all elements
+        const allElements = svg.querySelectorAll('*');
+        let transformedElements = 0;
+        
+        Array.from(allElements).forEach(el => {
+            const transform = el.getAttribute('transform');
+            if (transform) {
+                transformedElements++;
+                const parent = el.parentElement?.tagName || 'unknown';
+                console.log(`[DOM Debug] Element with transform:`, {
+                    element: el.tagName,
+                    transform,
+                    parent,
+                    classList: Array.from(el.classList)
+                });
+            }
+        });
+        
+        console.log(`[DOM Debug] Found ${transformedElements} elements with transforms`);
+        
+        // Helper function to extract specific attributes
+        function getAttributes(el: Element) {
+            const attrs: Record<string, string> = {};
+            for (const attr of el.attributes) {
+                attrs[attr.name] = attr.value;
+            }
+            return attrs;
+        }
+        
+        // Helper function to extract key styles
+        function extractKeyStyles(el: Element) {
+            const style = window.getComputedStyle(el);
+            return {
+                position: style.position,
+                transform: style.transform,
+                transformOrigin: style.transformOrigin,
+                top: style.top,
+                left: style.left,
+                width: style.width,
+                height: style.height
+            };
+        }
+    }
+    
+    // Function to force the content group to center
+    function forceContentLayerReset() {
+        // Get the SVG element and content layer
+        const svg = document.querySelector('.graph-svg');
+        const contentLayer = svg?.querySelector('.content-layer');
+        const backgroundLayer = svg?.querySelector('.background-layer g');
+        
+        if (!svg || !contentLayer) {
+            console.warn('[Reset] Could not find SVG or content layer');
+            return;
+        }
+        
+        const initialScale = 2.5; // Should match COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM
+        
+        console.log('[Reset] Forcing content layer transform reset');
+        
+        // Set transform directly
+        contentLayer.setAttribute('transform', `translate(0,0) scale(${initialScale})`);
+        
+        // Also reset background if found
+        if (backgroundLayer) {
+            backgroundLayer.setAttribute('transform', `translate(0,0) scale(${initialScale})`);
+        }
+        
+        // Check the result
+        setTimeout(() => {
+            console.log('[Reset] After reset:', {
+                contentTransform: contentLayer.getAttribute('transform'),
+                backgroundTransform: backgroundLayer?.getAttribute('transform')
+            });
+            
+            // Also update debug info
+            updateCentralNodeDebugInfo();
+        }, 100);
+    }
 </script>
 
 {#if !authInitialized}
@@ -397,7 +583,7 @@
         <span class="loading-text">Initializing graph...</span>
     </div>
 {:else}
-    <!-- Debug panel -->
+    <!-- Debug panel with central node position info -->
     <div class="debug-panel">
         <h4>Debug Panel</h4>
         <div>Statements: {statements.length}</div>
@@ -406,11 +592,22 @@
         <div>Graph nodes: {graphData.nodes.length}</div>
         <div>Graph links: {graphData.links.length}</div>
         <div>Statement nodes: {graphData.nodes.filter(n => n.type === 'statement').length}</div>
-        <button on:click={() => updateGraphWithStatements()}>Force Update</button>
+        
+        <h5>Central Node</h5>
+        <div>Exists: {centralNodeExists.toString()}</div>
+        <div>Position X: {centralNodePosition.x.toFixed(2)}</div>
+        <div>Position Y: {centralNodePosition.y.toFixed(2)}</div>
+        <div>Fixed X: {centralNodePosition.fx.toFixed(2)}</div>
+        <div>Fixed Y: {centralNodePosition.fy.toFixed(2)}</div>
+        <div>Update Count: {updateCount}</div>
+        
+        <button on:click={() => updateGraphWithStatements()}>Force Update Graph</button>
+        <button on:click={() => forceUpdateDebugInfo()}>Update Debug Info</button>
+        <button on:click={debugDOMStructure} class="special-button">Debug DOM Structure</button>
+        <button on:click={forceContentLayerReset} class="special-button">Force Content Reset</button>
     </div>
 
     <!-- Graph visualization -->
-    
     <Graph 
         data={graphData}
         viewType={viewType}
@@ -453,12 +650,11 @@
             {/if}
         </svelte:fragment>
     </Graph>
-   
 
     <!-- Loading overlay -->
     {#if networkNodesLoading && dataInitialized}
         <div class="loading-overlay">
-            <div class="loading-spinner small" />
+            <div class="loading-spinner" />
             <span class="loading-text small">Loading statements...</span>
         </div>
     {/if}
@@ -484,11 +680,18 @@
         border-radius: 5px;
         font-family: monospace;
         border: 1px solid rgba(255, 255, 255, 0.2);
+        max-width: 400px;
     }
 
     .debug-panel h4 {
         margin-top: 0;
         margin-bottom: 10px;
+    }
+    
+    .debug-panel h5 {
+        margin-top: 15px;
+        margin-bottom: 5px;
+        color: #4338ca;
     }
 
     .debug-panel button {
@@ -499,6 +702,13 @@
         padding: 5px 10px;
         border-radius: 3px;
         cursor: pointer;
+        display: block;
+        width: 100%;
+        margin-bottom: 5px;
+    }
+    
+    .debug-panel .special-button {
+        background: #e74c3c;
     }
 
     .loading-container {
@@ -535,18 +745,12 @@
     }
 
     .loading-spinner {
-        width: 650px;
-        height: 650px;
+        width: 65px;
+        height: 65px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);
         border-radius: 50%;
         animation: spin 1s linear infinite;
-    }
-    
-    .loading-spinner.small {
-        width: 80px;
-        height: 80px;
-        border-width: 2px;
     }
 
     .loading-text {

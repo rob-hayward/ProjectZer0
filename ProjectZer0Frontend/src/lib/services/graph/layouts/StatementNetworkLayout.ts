@@ -65,7 +65,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                         this.repositionStatementNodes(nodes);
                         
                         // Apply fixed positions
-                        this.enforceFixedPositions();
+                        this.enforceFixedPositionsStrict();
                         
                         // Manually tick simulation to apply new positions
                         this.forceTick(3);
@@ -174,8 +174,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 node.metadata = { group: 'statement' };
             }
         });
-        
-        console.log(`[StatementNetworkLayout] Calculated ranks for ${sortedNodes.length} nodes`);
     }
     
     /**
@@ -183,8 +181,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      * This ensures no forces can affect node positions
      */
     private clearAllForces(): void {
-        console.log('[StatementNetworkLayout] Clearing all forces');
-        
         // Get all force names
         const sim = this.simulation as any;
         
@@ -193,7 +189,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             'charge', 'collision', 'link', 'center', 'x', 'y',
             'manyBody', 'radial', 'navigationRadial', 'navigationCharge',
             'navigationCollision', 'centralCharge', 'centralCollision',
-            'positioning', 'custom', 'cluster'
+            'positioning', 'custom', 'cluster', 'centralNodeAnchor'
         ];
         
         // Remove all forces
@@ -204,32 +200,12 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 // Ignore errors
             }
         });
-        
-        // Check if there are still any forces left
-        const remainingForces = Object.keys(sim._forces || {});
-        if (remainingForces.length > 0) {
-            console.warn('[StatementNetworkLayout] Some forces still remain:', remainingForces);
-            
-            // Try to remove these as well
-            remainingForces.forEach(name => {
-                try {
-                    sim.force(name, null);
-                } catch (e) {
-                    console.warn(`[StatementNetworkLayout] Cannot remove force: ${name}`);
-                }
-            });
-        }
     }
     
     /**
      * Initialize node positions following the same pattern as WordDefinitionLayout
      */
     initializeNodePositions(nodes: EnhancedNode[]): void {
-        console.log('[StatementNetworkLayout] Initializing node positions', {
-            nodeCount: nodes.length,
-            nodeTypes: nodes.map(n => n.type).filter(t => t === 'statement').length + ' statements'
-        });
-
         // Stop simulation during initialization
         this.simulation.stop();
         
@@ -260,35 +236,29 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             this.getNodeRadius.bind(this)
         );
 
-        // Find and position central control node
+        // Find and position central control node - MOST IMPORTANT FOR STABILITY
         const centralNode = nodes.find(n => n.fixed || n.group === 'central');
-        if (!centralNode) {
-            console.warn('[StatementNetworkLayout] No central node found');
-            return;
+        if (centralNode) {
+            // Center the control node with EXPLICIT POSITION FIXING
+            centralNode.fx = 0;
+            centralNode.fy = 0;
+            centralNode.x = 0;
+            centralNode.y = 0;
+            centralNode.vx = 0;
+            centralNode.vy = 0;
+            centralNode.fixed = true; // Ensure fixed flag is set
+            
+            // Ensure metadata reflects this
+            if (centralNode.metadata) {
+                centralNode.metadata.fixed = true;
+            }
+            
+            // Store ID for future reference
+            this.controlNodeId = centralNode.id;
+            
+            // Add a specific centering force just for the central node
+            this.addCentralNodeAnchor(centralNode);
         }
-
-        // Center the control node with EXPLICIT POSITION FIXING
-        centralNode.fx = 0;
-        centralNode.fy = 0;
-        centralNode.x = 0;
-        centralNode.y = 0;
-        centralNode.vx = 0;
-        centralNode.vy = 0;
-        centralNode.fixed = true; // Ensure fixed flag is set
-        
-        // Ensure metadata reflects this
-        if (centralNode.metadata) {
-            centralNode.metadata.fixed = true;
-        }
-        
-        // Store ID for future reference
-        this.controlNodeId = centralNode.id;
-        
-        console.log('[StatementNetworkLayout] Central node positioned at center with fixed constraints', {
-            id: centralNode.id,
-            position: { x: centralNode.x, y: centralNode.y },
-            fixed: { fx: centralNode.fx, fy: centralNode.fy }
-        });
 
         // Calculate node ranks to determine layout order
         this.calculateNodeRanks(nodes);
@@ -297,7 +267,33 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         this.positionStatementNodes(nodes);
         
         // Final enforcement of fixed positions
-        this.enforceFixedPositions();
+        this.enforceFixedPositionsStrict();
+    }
+    
+    /**
+     * Add a strong centering force to the central control node
+     * This ensures it stays at (0,0) regardless of other forces
+     */
+    private addCentralNodeAnchor(centralNode: EnhancedNode): void {
+        if (!this.simulation) return;
+        
+        const sim = this.simulation as any;
+        if (sim._forces && 'centralNodeAnchor' in sim._forces) {
+            // Remove existing force if present
+            sim.force('centralNodeAnchor', null);
+        }
+        
+        // Create a custom force that explicitly fixes the node at (0,0)
+        sim.force('centralNodeAnchor', () => {
+            // This function runs on every tick
+            // Force the central node to stay exactly at (0,0)
+            centralNode.x = 0;
+            centralNode.y = 0;
+            centralNode.fx = 0;
+            centralNode.fy = 0;
+            centralNode.vx = 0;
+            centralNode.vy = 0;
+        });
     }
     
     /**
@@ -306,12 +302,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     private positionStatementNodes(nodes: EnhancedNode[]): void {
         // Get visible statement nodes
         const statementNodes = nodes.filter(n => n.type === 'statement' && !n.isHidden);
-        
-        // Log statement nodes for debugging
-        console.log('[StatementNetworkLayout] Positioning statement nodes:', {
-            totalStatementNodes: statementNodes.length,
-            rankMap: Array.from(this.rankMap.entries()).slice(0, 3)
-        });
         
         // Special handling for the top ranked statement (like "live definition")
         const topStatement = statementNodes.find(n => this.rankMap.get(n.id) === 0);
@@ -334,12 +324,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             // Set position
             node.x = position.x;
             node.y = position.y;
-            
-            console.log(`[StatementNetworkLayout] Positioned statement node rank ${rankIndex} at:`, {
-                id: node.id,
-                position: { x: position.x, y: position.y },
-                angle: position.angle * (180 / Math.PI) // Convert to degrees for readability
-            });
             
             // Fix position if node is in detail mode
             if (node.mode === 'detail') {
@@ -407,17 +391,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Calculate final position - expansion moves outward, control preview moves inward
         const posX = baseRadius + expansionAdjustment - controlAdjustment + hiddenAdjustment;
 
-        console.log('[StatementNetworkLayout] Top statement positioned:', {
-            id: node.id,
-            baseRadius,
-            expansionAdjustment,
-            controlAdjustment,
-            hiddenAdjustment,
-            finalPosition: posX,
-            isDetail: node.mode === 'detail',
-            isHidden: node.isHidden
-        });
-
         // Set position to the right of control node
         node.x = posX;
         node.y = 0;
@@ -441,10 +414,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     private repositionStatementNodes(nodes: EnhancedNode[]): void {
         // Get visible statement nodes
         const statementNodes = nodes.filter(n => n.type === 'statement' && !n.isHidden);
-        
-        console.log('[StatementNetworkLayout] Repositioning statement nodes:', {
-            statementNodeCount: statementNodes.length
-        });
         
         // Special handling for the top ranked statement (like live definition)
         const topStatement = statementNodes.find(n => this.rankMap.get(n.id) === 0);
@@ -572,14 +541,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 const wasExpanded = this.expansionState.get(node.id) || false;
                 const isExpanded = node.mode === 'detail';
                 
-                if (wasExpanded !== isExpanded) {
-                    console.log('[StatementNetworkLayout] Node expansion state changed:', {
-                        nodeId: node.id.substring(0, 8),
-                        from: wasExpanded,
-                        to: isExpanded
-                    });
-                }
-                
                 this.expansionState.set(node.id, isExpanded);
                 
                 // Also update expanded statements tracking
@@ -610,14 +571,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 const wasHidden = this.hiddenNodes.has(node.id);
                 const isHidden = node.isHidden || false;
                 
-                if (wasHidden !== isHidden) {
-                    console.log('[StatementNetworkLayout] Node hidden state changed:', {
-                        nodeId: node.id.substring(0, 8),
-                        from: wasHidden,
-                        to: isHidden
-                    });
-                }
-                
                 // Update hidden nodes tracking
                 if (isHidden) {
                     // Get rank index from rankMap
@@ -646,13 +599,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         if (!node) return;
         
-        console.log('[StatementNetworkLayout] Node mode change:', {
-            nodeId: nodeId.substring(0, 8),
-            type: node.type,
-            oldMode: node.mode,
-            newMode: mode
-        });
-        
         // Stop simulation completely during state change
         this.simulation.stop();
         this.simulation.alpha(0).alphaTarget(0);
@@ -669,8 +615,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         // For central control node, ensure it stays at center
         if (node.group === 'central' || node.id === this.controlNodeId) {
-            console.log('[StatementNetworkLayout] Control node mode change, enforcing center position');
-            
             // AGGRESSIVELY ensure control node is at the center (copied from WordDefinitionLayout)
             node.x = 0;
             node.y = 0;
@@ -679,6 +623,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             node.vx = 0;
             node.vy = 0;
             node.fixed = true;
+            
+            // Re-add the central node anchor
+            this.addCentralNodeAnchor(node);
             
             recalculatePositions = true;
         }
@@ -726,7 +673,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Force fixed positions
-        this.enforceFixedPositions();
+        this.enforceFixedPositionsStrict();
         
         // Manually tick simulation to apply changes
         this.forceTick(5);
@@ -743,13 +690,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         const node = nodes.find(n => n.id === nodeId);
         
         if (!node) return;
-        
-        console.log('[StatementNetworkLayout] Node visibility change:', {
-            nodeId: nodeId.substring(0, 8),
-            type: node.type,
-            oldHidden: node.isHidden,
-            newHidden: isHidden
-        });
         
         // Stop simulation during visibility change
         this.simulation.stop();
@@ -811,7 +751,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Force fixed positions
-        this.enforceFixedPositions();
+        this.enforceFixedPositionsStrict();
         
         // Manually tick simulation to apply changes
         this.forceTick(5);
@@ -821,25 +761,35 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Enhanced enforceFixedPositions
+     * Enhanced enforceFixedPositionsStrict
      * Ensure all fixed nodes stay at their proper positions
+     * CRITICAL: Central node must remain fixed at (0,0)
      */
-    public enforceFixedPositions(): void {
+    public enforceFixedPositionsStrict(): void {
         if (!this.simulation) return;
         
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         
-        // Find and fix control node position using controlNodeId
+        // HIGHEST PRIORITY: Find and fix control node position 
         if (this.controlNodeId) {
             const centralNode = nodes.find(n => n.id === this.controlNodeId);
             if (centralNode) {
+                // AGGRESSIVE - set all position properties
                 centralNode.x = 0;
                 centralNode.y = 0;
                 centralNode.fx = 0;
                 centralNode.fy = 0;
                 centralNode.vx = 0;
                 centralNode.vy = 0;
-                centralNode.fixed = true; // Ensure fixed flag is set
+                centralNode.fixed = true;
+                
+                // Ensure metadata reflects fixed status
+                if (centralNode.metadata) {
+                    centralNode.metadata.fixed = true;
+                }
+                
+                // Add the central node anchor force
+                this.addCentralNodeAnchor(centralNode);
             }
         }
         
@@ -891,26 +841,31 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             }
         });
         
-        // Force simulation to honor these positions
+        // Force simulation to honor these positions by zeroing alphas
         this.simulation.alpha(0).alphaTarget(0);
     }
     
     /**
-     * Configure forces - Using same approach as WordDefinitionLayout
+     * Configure forces - Using a "no forces" approach similar to WordDefinitionLayout
+     * This ensures we have complete control over node positioning
      */
     configureForces(): void {
-        console.log('[StatementNetworkLayout] Configuring forces - using NO forces approach');
-        
         // CRITICAL: Clear all forces completely
         this.clearAllForces();
         
-        // NO FORCES: Following the WordDefinitionLayout approach, we don't add any forces
-        // to the simulation, relying completely on fixed positions instead
-        
         // Add a tick handler that enforces fixed positions on EVERY tick
         this.simulation.on('tick.fixedPosition', () => {
-            this.enforceFixedPositions();
+            this.enforceFixedPositionsStrict();
         });
+        
+        // Add the central node anchor if we have a control node
+        if (this.controlNodeId) {
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            const centralNode = nodes.find(n => n.id === this.controlNodeId);
+            if (centralNode) {
+                this.addCentralNodeAnchor(centralNode);
+            }
+        }
         
         // Start with VERY minimal alpha - just like WordDefinitionLayout
         this.simulation.alpha(0.01).restart();
@@ -925,10 +880,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Get nodes
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         if (!nodes || nodes.length === 0) return;
-        
-        console.log('[StatementNetworkLayout] Applying visibility preferences:', {
-            preferenceCount: Object.keys(preferences).length
-        });
         
         // Track if any changes were made
         let changed = false;
@@ -985,8 +936,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         // Only update if changes were made
         if (changed) {
-            console.log('[StatementNetworkLayout] Visibility preferences caused changes, recalculating positions');
-            
             // Recalculate node ranks
             this.calculateNodeRanks(nodes);
             
@@ -994,7 +943,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             this.repositionStatementNodes(nodes);
             
             // Force fixed positions
-            this.enforceFixedPositions();
+            this.enforceFixedPositionsStrict();
             
             // Manually tick simulation to apply changes
             this.forceTick(5);
@@ -1008,12 +957,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      * Update data with exactly same approach as WordDefinitionLayout
      */
     public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = true): void {
-        console.log('[StatementNetworkLayout] Updating data:', {
-            nodeCount: nodes.length,
-            linkCount: links.length,
-            statementNodeCount: nodes.filter(n => n.type === 'statement').length
-        });
-        
         // Always stop simulation during update
         this.simulation.stop();
         
@@ -1046,7 +989,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Enforce fixed positions
-        this.enforceFixedPositions();
+        this.enforceFixedPositionsStrict();
         
         // ALWAYS skip animation by setting alpha to 0
         this.simulation.alpha(0).alphaTarget(0);
@@ -1056,11 +999,28 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
+     * Force multiple ticks with position enforcement between each tick
+     */
+    public forceTick(ticks: number = 1): void {
+        // Temporarily pause any running transitions
+        this.simulation.alpha(0).alphaTarget(0);
+        
+        for (let i = 0; i < ticks; i++) {
+            // Enforce fixed positions before each tick
+            this.enforceFixedPositionsStrict();
+            
+            // Perform the tick
+            this.simulation.tick();
+            
+            // Enforce fixed positions after each tick
+            this.enforceFixedPositionsStrict();
+        }
+    }
+    
+    /**
      * Clean up resources
      */
     public dispose(): void {
-        console.log('[StatementNetworkLayout] Disposing resources');
-        
         // Clean up subscription
         if (this.storeUnsubscribe) {
             this.storeUnsubscribe();
