@@ -14,7 +14,6 @@ import type { NodeMode, ViewType } from '$lib/types/graph/enhanced';
  */
 export class CoordinateSystem {
     // Empirically determined scaling factor for node radius calculations
-    // This accounts for the difference between logical size and rendered size
     private static RADIUS_SCALE_FACTOR = 1/9;
     
     // Current transform store (updated during zooming)
@@ -41,9 +40,6 @@ export class CoordinateSystem {
     
     /**
      * Convert world coordinates (D3 space) to view coordinates (SVG space)
-     * @param x X coordinate in world space
-     * @param y Y coordinate in world space
-     * @returns Coordinates in view space
      */
     public worldToView(x: number, y: number): { x: number, y: number } {
         const transform = get(this.transformStore);
@@ -55,9 +51,6 @@ export class CoordinateSystem {
     
     /**
      * Convert view coordinates (SVG space) to world coordinates (D3 space)
-     * @param x X coordinate in view space
-     * @param y Y coordinate in view space
-     * @returns Coordinates in world space
      */
     public viewToWorld(x: number, y: number): { x: number, y: number } {
         const transform = get(this.transformStore);
@@ -69,8 +62,6 @@ export class CoordinateSystem {
     
     /**
      * Convert a radius/distance in world coordinates to view coordinates
-     * @param size Size in world space
-     * @returns Size in view space
      */
     public worldToViewSize(size: number): number {
         const transform = get(this.transformStore);
@@ -79,8 +70,6 @@ export class CoordinateSystem {
     
     /**
      * Convert a radius/distance in view coordinates to world coordinates
-     * @param size Size in view space
-     * @returns Size in world space
      */
     public viewToWorldSize(size: number): number {
         const transform = get(this.transformStore);
@@ -88,13 +77,15 @@ export class CoordinateSystem {
     }
     
     /**
+     * Create SVG transform string from world coordinates
+     * This ensures transforms are consistently applied across the system
+     */
+    public createSVGTransform(x: number, y: number, scale: number = 1): string {
+        return `translate(${x}, ${y})${scale !== 1 ? ` scale(${scale})` : ''}`;
+    }
+    
+    /**
      * Calculate point on node perimeter along a line to another node
-     * @param fromX Starting X coordinate
-     * @param fromY Starting Y coordinate
-     * @param toX Target center X coordinate
-     * @param toY Target center Y coordinate
-     * @param viewRadius Radius in view coordinates
-     * @returns Point on perimeter in world coordinates
      */
     public calculatePerimeterPoint(
         fromX: number, 
@@ -128,9 +119,6 @@ export class CoordinateSystem {
     
     /**
      * Calculate connection point from a node to the dashboard perimeter
-     * @param nodePosition Position of the node in world coordinates
-     * @param dashboardViewRadius Radius of the dashboard in view coordinates
-     * @returns Point on dashboard perimeter in the node's local coordinates
      */
     public calculateDashboardConnectionPoint(
         nodePosition: { x: number, y: number },
@@ -162,10 +150,6 @@ export class CoordinateSystem {
     /**
      * Calculate the connection endpoint for a navigation node based on its position
      * and the inferred central node mode.
-     * 
-     * @param nodePosition Position of the navigation node
-     * @param viewType Current view type
-     * @returns Connection endpoint in navigation node's local coordinates
      */
     public calculateNavigationConnectionEndpoint(
         nodePosition: { x: number, y: number },
@@ -210,13 +194,6 @@ export class CoordinateSystem {
             if (Math.abs(ourDistance - previewModeDistance) < Math.abs(ourDistance - detailModeDistance)) {
                 centralNodeMode = 'preview';
             }
-            
-            console.debug('[CoordinateSystem] Inferring statement node mode:', {
-                ourDistance,
-                detailModeDistance,
-                previewModeDistance,
-                inferredMode: centralNodeMode
-            });
         }
         
         // Get appropriate radius based on view type and inferred mode
@@ -236,11 +213,6 @@ export class CoordinateSystem {
             } else {
                 centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2;
             }
-            
-            console.debug('[CoordinateSystem] Using statement node radius:', {
-                mode: centralNodeMode,
-                radius: centralNodeRadius
-            });
         }
         else {
             centralNodeRadius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
@@ -267,14 +239,6 @@ export class CoordinateSystem {
         
         // Calculate effective radius
         const effectiveRadius = centralNodeRadius * scalingFactor;
-        
-        console.debug('[CoordinateSystem] Connection endpoint calculation:', {
-            viewType,
-            centralNodeMode,
-            centralNodeRadius,
-            scalingFactor,
-            effectiveRadius
-        });
         
         return {
             x: unitX * effectiveRadius,

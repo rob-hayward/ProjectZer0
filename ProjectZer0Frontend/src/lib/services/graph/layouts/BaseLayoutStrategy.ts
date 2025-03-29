@@ -11,10 +11,7 @@ import type {
     GraphLink
 } from '$lib/types/graph/enhanced';
 import { COORDINATE_SPACE } from '../../../constants/graph';
-
-// Enable debug mode only during development - set to false for production
-const DEBUG_MODE = false;
-const debugLog = DEBUG_MODE ? console.debug : () => {};
+import { coordinateSystem } from '../CoordinateSystem';
 
 /**
  * Base class for all layout strategies
@@ -36,12 +33,6 @@ export abstract class BaseLayoutStrategy {
      */
     constructor(width: number, height: number, viewType: ViewType) {
         this.strategyId = Math.random().toString(36).substr(2, 9);
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Init] Constructor`, {
-            width: width,
-            height: height,
-            viewType
-        });
-
         this.width = width;
         this.height = height;
         this.viewType = viewType;
@@ -52,31 +43,12 @@ export abstract class BaseLayoutStrategy {
      * Initialize basic simulation with shared parameters
      */
     protected initializeBaseSimulation(): d3.Simulation<any, any> {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Init] Creating simulation`);
-
         const simulation = d3.forceSimulation()
             .velocityDecay(COORDINATE_SPACE.ANIMATION.VELOCITY_DECAY)
             .alphaDecay(COORDINATE_SPACE.ANIMATION.ALPHA_DECAY)
             .alphaMin(COORDINATE_SPACE.ANIMATION.ALPHA_MIN);
 
         simulation.on('tick', () => {
-            // Debug on lower alpha values to reduce noise
-            if (simulation.alpha() < 0.3) {
-                const nodes = simulation.nodes() as unknown as EnhancedNode[];
-                const centralNode = nodes.find(n => n.fixed || n.group === 'central');
-                if (centralNode) {
-                    debugLog(`[BaseLayoutStrategy:${this.strategyId}:Simulation] Tick`, {
-                        alpha: simulation.alpha(),
-                        centralNode: {
-                            id: centralNode.id,
-                            type: centralNode.type,
-                            position: { x: centralNode.x ?? 0, y: centralNode.y ?? 0 },
-                            fixed: { fx: centralNode.fx, fy: centralNode.fy }
-                        }
-                    });
-                }
-            }
-            
             // Ensure fixed nodes stay fixed during simulation
             const simNodes = simulation.nodes() as unknown as EnhancedNode[];
             simNodes.forEach(node => {
@@ -137,17 +109,11 @@ export abstract class BaseLayoutStrategy {
      * Provides a base implementation, derived classes may override
      */
     public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:State] Node state change`, {
-            nodeId,
-            mode
-        });
-        
         // Basic implementation - derived classes may override
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         const node = nodes.find(n => n.id === nodeId);
         
         if (!node) {
-            console.warn(`[BaseLayoutStrategy:${this.strategyId}:State] Node not found:`, nodeId);
             return;
         }
         
@@ -193,17 +159,11 @@ export abstract class BaseLayoutStrategy {
      * Provides a base implementation, derived classes may override
      */
     public handleNodeVisibilityChange(nodeId: string, isHidden: boolean): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:State] Node visibility change`, {
-            nodeId,
-            isHidden
-        });
-        
         // Basic implementation - derived classes may override
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         const node = nodes.find(n => n.id === nodeId);
         
         if (!node) {
-            console.warn(`[BaseLayoutStrategy:${this.strategyId}:State] Node not found for visibility change:`, nodeId);
             return;
         }
         
@@ -260,7 +220,6 @@ export abstract class BaseLayoutStrategy {
      * Stop the simulation
      */
     public stop(): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Lifecycle] Stopping`);
         this.simulation.stop();
         
         // Explicitly clear all forces when stopping
@@ -279,7 +238,6 @@ export abstract class BaseLayoutStrategy {
      * Restart the simulation
      */
     public restart(alpha: number = 1): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Lifecycle] Restarting with alpha: ${alpha}`);
         this.simulation.alpha(alpha).restart();
     }
 
@@ -287,11 +245,6 @@ export abstract class BaseLayoutStrategy {
      * Update dimensions
      */
     public updateDimensions(width: number, height: number): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Lifecycle] Updating dimensions`, {
-            from: { width: this.width, height: this.height },
-            to: { width, height }
-        });
-
         this.width = width;
         this.height = height;
         
@@ -396,13 +349,6 @@ export abstract class BaseLayoutStrategy {
      * This provides a consistent implementation across all layouts
      */
     public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = false): void {
-        debugLog(`[BaseLayoutStrategy:${this.strategyId}:Update] Updating data`, {
-            nodeCount: nodes.length,
-            linkCount: links.length,
-            skipAnimation,
-            viewType: this.viewType
-        });
-
         // Always stop simulation during update
         this.simulation.stop();
         
@@ -450,5 +396,12 @@ export abstract class BaseLayoutStrategy {
         if (isStatementNetwork) {
             this.forceTick(5);
         }
+    }
+    
+    /**
+     * Create SVG transform attribute string for a node
+     */
+    protected createNodeTransform(x: number, y: number, scale: number = 1): string {
+        return coordinateSystem.createSVGTransform(x, y, scale);
     }
 }

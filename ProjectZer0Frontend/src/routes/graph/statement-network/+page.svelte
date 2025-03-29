@@ -32,9 +32,6 @@
     // Define view type
     const viewType: ViewType = 'statement-network';
     
-    // Create a unique key for forcing re-renders
-    let routeKey = `${viewType}-${Date.now()}`;
-    
     // Control node settings
     const controlNodeId = 'graph-controls';
     let controlNodeMode: NodeMode = 'detail'; 
@@ -59,31 +56,20 @@
     // Graph data
     let graphData: GraphData = { nodes: [], links: [] };
     
-    // Debug information for central node position
-    let centralNodePosition = { x: 0, y: 0, fx: 0, fy: 0 };
-    let centralNodeExists = false;
-    let updateCount = 0;
-    
     // Get statements from the store
     $: statements = $statementNetworkStore?.filteredStatements || [];
     $: isReady = authInitialized && dataInitialized;
     
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[STATEMENT-NETWORK] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[STATEMENT-NETWORK] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
-            
-            console.log('[STATEMENT-NETWORK] User authenticated', {
-                userId: fetchedUser.sub
-            });
             
             authInitialized = true;
             userStore.set(fetchedUser);
@@ -106,19 +92,12 @@
             
             // Set the correct view type in graph store
             if (graphStore) {
-                console.log('[STATEMENT-NETWORK] Setting graph store view type to statement-network');
                 graphStore.setViewType(viewType);
-                
-                // Fix positions and force ticks
                 graphStore.fixNodePositions();
-                graphStore.forceTick(5);
-                updateCentralNodeDebugInfo();
             }
             
             // Load statement network data
             await loadStatementNetworkData();
-            
-            console.log('[STATEMENT-NETWORK] Data initialization complete');
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error in initializeData:', error);
             auth0.login();
@@ -130,17 +109,10 @@
         if (!$userStore) return;
         
         try {
-            console.log('[STATEMENT-NETWORK] Loading statement data...');
-            
             // Load statements using the network store
             await statementNetworkStore.loadStatements({
                 sortType,
                 sortDirection
-            });
-            
-            console.log('[STATEMENT-NETWORK] Loaded statement data:', {
-                total: $statementNetworkStore.allStatements.length,
-                filtered: $statementNetworkStore.filteredStatements.length
             });
             
             // Mark statements as loaded
@@ -194,42 +166,10 @@
         if (graphStore) {
             graphStore.setData(graphData, { skipAnimation: true });
             graphStore.fixNodePositions();
-            graphStore.forceTick(5);
-            updateCentralNodeDebugInfo();
         }
     }
     
-    // Update central node position information for debugging
-    function updateCentralNodeDebugInfo() {
-        if (!graphStore) return;
-        
-        const unsubscribe = graphStore.subscribe((state) => {
-            if (state && state.nodes) {
-                const centralNode = state.nodes.find(node => node.id === controlNodeId);
-                if (centralNode) {
-                    centralNodeExists = true;
-                    centralNodePosition = {
-                        x: centralNode.position.x,
-                        y: centralNode.position.y,
-                        fx: (centralNode as any).fx || 0,
-                        fy: (centralNode as any).fy || 0
-                    };
-                } else {
-                    centralNodeExists = false;
-                }
-            }
-        });
-        
-        // Immediately unsubscribe after getting the data
-        unsubscribe();
-        
-        // Update the counter
-        updateCount++;
-    }
-    
     function updateGraphWithStatements() {
-        console.log('[STATEMENT-NETWORK] Updating graph with statements...');
-        
         // Create complete graph data
         graphData = createGraphData();
         
@@ -237,23 +177,11 @@
         if (graphStore) {
             graphStore.setData(graphData, { 
                 skipAnimation: true,
-                // Add these if available in your implementation:
-                forceRefresh: false,
-                preservePositions: true
+                forceRefresh: true,
+                preservePositions: false
             });
             graphStore.fixNodePositions();
-            
-            // Reduce the number of forced ticks
-            graphStore.forceTick(3);
-            
-            // Update debug info
-            updateCentralNodeDebugInfo();
         }
-    }
-    
-    // Force an immediate update of central node position
-    function forceUpdateDebugInfo() {
-        updateCentralNodeDebugInfo();
     }
     
     // Handle control settings changes
@@ -264,8 +192,6 @@
         keywordOperator: string;
         showOnlyMyItems: boolean;
     }>) {
-        console.log('[STATEMENT-NETWORK] Control settings changed:', event.detail);
-        
         // Create properly typed values
         const newSortType = event.detail.sortType as NetworkSortType;
         const newSortDirection = event.detail.sortDirection as NetworkSortDirection;
@@ -314,11 +240,6 @@
 
     // Handle node mode changes
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.log('[STATEMENT-NETWORK] Node mode change', {
-            nodeId: event.detail.nodeId,
-            newMode: event.detail.mode
-        });
-        
         // If this is the control node, update its mode
         if (event.detail.nodeId === controlNodeId) {
             controlNodeMode = event.detail.mode;
@@ -326,30 +247,19 @@
             // Force control node to stay fixed at center
             if (graphStore) {
                 graphStore.fixNodePositions();
-                graphStore.forceTick(5);
-                updateCentralNodeDebugInfo();
             }
         }
     }
 
     // Create graph data with statements
     function createGraphData(): GraphData {
-        console.log('[STATEMENT-NETWORK] Creating statement network view data', {
-            statementCount: statements.length,
-            loading: networkNodesLoading,
-            statementsLoaded
-        });
-
         // During loading, only include navigation and control nodes
         if (networkNodesLoading || !statementsLoaded) {
-            console.log('[STATEMENT-NETWORK] Still loading, showing only navigation and control nodes');
             return {
                 nodes: [...navigationNodes, controlNode],
                 links: []
             };
         }
-        
-        console.log('[STATEMENT-NETWORK] Loading complete, showing statement nodes');
 
         // Create statement nodes in preview mode
         const statementNodes: GraphNode[] = statements.map(statement => ({
@@ -417,16 +327,6 @@
             }
         }));
 
-        console.log('[STATEMENT-NETWORK] Created statement network structure', {
-            nodeCount: navigationNodes.length + 1 + statementNodes.length,
-            statementCount: statementNodes.length,
-            linkCount: statementLinks.length,
-            // Log the difference between raw relationships and consolidated links
-            rawRelationshipCount: statements.reduce((count, s) => 
-                count + (s.relatedStatements?.length || 0), 0),
-            consolidatedLinkCount: statementLinks.length
-        });
-
         return {
             nodes: [...navigationNodes, updatedControlNode, ...statementNodes],
             links: statementLinks
@@ -435,7 +335,6 @@
     
     // Initialize on mount
     onMount(() => {
-        console.log("✅ USING STATEMENT NETWORK VIEW COMPONENT");
         initializeData();
     });
 
@@ -445,127 +344,6 @@
             clearTimeout(networkLoadingTimeout);
         }
     });
-    
-    // Special debug function to check DOM structure and transforms
-    function debugDOMStructure() {
-        // Get the SVG element
-        const svg = document.querySelector('.graph-svg');
-        if (!svg) {
-            console.warn('[DOM Debug] SVG element not found');
-            return;
-        }
-        
-        // Get key elements
-        const contentGroup = svg.querySelector('.content-layer');
-        const backgroundGroup = svg.querySelector('.background-layer');
-        const centralNodeWrapper = svg.querySelector('[data-node-id="graph-controls"]');
-        
-        console.log('[DOM Debug] SVG DOM structure:', {
-            svg: {
-                classList: Array.from(svg.classList),
-                attributes: getAttributes(svg),
-                computedStyle: extractKeyStyles(svg)
-            },
-            contentGroup: contentGroup ? {
-                classList: Array.from(contentGroup.classList),
-                attributes: getAttributes(contentGroup),
-                computedStyle: extractKeyStyles(contentGroup)
-            } : 'Not found',
-            backgroundGroup: backgroundGroup ? {
-                classList: Array.from(backgroundGroup.classList),
-                attributes: getAttributes(backgroundGroup),
-                computedStyle: extractKeyStyles(backgroundGroup)
-            } : 'Not found',
-            centralNodeWrapper: centralNodeWrapper ? {
-                classList: Array.from(centralNodeWrapper.classList),
-                attributes: getAttributes(centralNodeWrapper),
-                computedStyle: extractKeyStyles(centralNodeWrapper)
-            } : 'Not found'
-        });
-        
-        // Get all node wrappers
-        const nodeWrappers = svg.querySelectorAll('.node-wrapper');
-        console.log(`[DOM Debug] Found ${nodeWrappers.length} node wrappers`);
-        
-        // Find all transforms on all elements
-        const allElements = svg.querySelectorAll('*');
-        let transformedElements = 0;
-        
-        Array.from(allElements).forEach(el => {
-            const transform = el.getAttribute('transform');
-            if (transform) {
-                transformedElements++;
-                const parent = el.parentElement?.tagName || 'unknown';
-                console.log(`[DOM Debug] Element with transform:`, {
-                    element: el.tagName,
-                    transform,
-                    parent,
-                    classList: Array.from(el.classList)
-                });
-            }
-        });
-        
-        console.log(`[DOM Debug] Found ${transformedElements} elements with transforms`);
-        
-        // Helper function to extract specific attributes
-        function getAttributes(el: Element) {
-            const attrs: Record<string, string> = {};
-            for (const attr of el.attributes) {
-                attrs[attr.name] = attr.value;
-            }
-            return attrs;
-        }
-        
-        // Helper function to extract key styles
-        function extractKeyStyles(el: Element) {
-            const style = window.getComputedStyle(el);
-            return {
-                position: style.position,
-                transform: style.transform,
-                transformOrigin: style.transformOrigin,
-                top: style.top,
-                left: style.left,
-                width: style.width,
-                height: style.height
-            };
-        }
-    }
-    
-    // Function to force the content group to center
-    function forceContentLayerReset() {
-        // Get the SVG element and content layer
-        const svg = document.querySelector('.graph-svg');
-        const contentLayer = svg?.querySelector('.content-layer');
-        const backgroundLayer = svg?.querySelector('.background-layer g');
-        
-        if (!svg || !contentLayer) {
-            console.warn('[Reset] Could not find SVG or content layer');
-            return;
-        }
-        
-        const initialScale = 2.5; // Should match COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM
-        
-        console.log('[Reset] Forcing content layer transform reset');
-        
-        // Set transform directly
-        contentLayer.setAttribute('transform', `translate(0,0) scale(${initialScale})`);
-        
-        // Also reset background if found
-        if (backgroundLayer) {
-            backgroundLayer.setAttribute('transform', `translate(0,0) scale(${initialScale})`);
-        }
-        
-        // Check the result
-        setTimeout(() => {
-            console.log('[Reset] After reset:', {
-                contentTransform: contentLayer.getAttribute('transform'),
-                backgroundTransform: backgroundLayer?.getAttribute('transform')
-            });
-            
-            // Also update debug info
-            updateCentralNodeDebugInfo();
-        }, 100);
-    }
 </script>
 
 {#if !authInitialized}
@@ -583,30 +361,6 @@
         <span class="loading-text">Initializing graph...</span>
     </div>
 {:else}
-    <!-- Debug panel with central node position info -->
-    <div class="debug-panel">
-        <h4>Debug Panel</h4>
-        <div>Statements: {statements.length}</div>
-        <div>Loading: {networkNodesLoading.toString()}</div>
-        <div>Loaded: {statementsLoaded.toString()}</div>
-        <div>Graph nodes: {graphData.nodes.length}</div>
-        <div>Graph links: {graphData.links.length}</div>
-        <div>Statement nodes: {graphData.nodes.filter(n => n.type === 'statement').length}</div>
-        
-        <h5>Central Node</h5>
-        <div>Exists: {centralNodeExists.toString()}</div>
-        <div>Position X: {centralNodePosition.x.toFixed(2)}</div>
-        <div>Position Y: {centralNodePosition.y.toFixed(2)}</div>
-        <div>Fixed X: {centralNodePosition.fx.toFixed(2)}</div>
-        <div>Fixed Y: {centralNodePosition.fy.toFixed(2)}</div>
-        <div>Update Count: {updateCount}</div>
-        
-        <button on:click={() => updateGraphWithStatements()}>Force Update Graph</button>
-        <button on:click={() => forceUpdateDebugInfo()}>Update Debug Info</button>
-        <button on:click={debugDOMStructure} class="special-button">Debug DOM Structure</button>
-        <button on:click={forceContentLayerReset} class="special-button">Force Content Reset</button>
-    </div>
-
     <!-- Graph visualization -->
     <Graph 
         data={graphData}
@@ -667,48 +421,6 @@
         padding: 0;
         overflow: hidden;
         background: black;
-    }
-
-    .debug-panel {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 1000;
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
-        padding: 15px;
-        border-radius: 5px;
-        font-family: monospace;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        max-width: 400px;
-    }
-
-    .debug-panel h4 {
-        margin-top: 0;
-        margin-bottom: 10px;
-    }
-    
-    .debug-panel h5 {
-        margin-top: 15px;
-        margin-bottom: 5px;
-        color: #4338ca;
-    }
-
-    .debug-panel button {
-        margin-top: 10px;
-        background: #4338ca;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-        display: block;
-        width: 100%;
-        margin-bottom: 5px;
-    }
-    
-    .debug-panel .special-button {
-        background: #e74c3c;
     }
 
     .loading-container {

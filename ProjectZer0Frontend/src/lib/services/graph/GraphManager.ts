@@ -17,10 +17,7 @@ import { COLORS } from '$lib/constants/colors';
 import { SingleNodeLayout } from './layouts/SingleNodeLayout';
 import { WordDefinitionLayout } from './layouts/WordDefinitionLayout';
 import { StatementNetworkLayout } from './layouts/StatementNetworkLayout';
-
-// Enable debug mode only during development - set to false for production
-const DEBUG_MODE = false;
-const debugLog = DEBUG_MODE ? console.debug : () => {};
+import { coordinateSystem } from './CoordinateSystem';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -42,8 +39,6 @@ export class GraphManager {
 
     constructor(viewType: ViewType) {
         this.managerId = Math.random().toString(36).substring(2, 9);
-        debugLog(`[GraphManager:${this.managerId}] Creating new manager`, { viewType });
-        
         this._viewType = viewType;
         this.simulation = this.initializeSimulation();
 
@@ -63,13 +58,6 @@ export class GraphManager {
     }
 
     public setData(data: GraphData, config?: LayoutUpdateConfig): void {
-        debugLog(`[GraphManager:${this.managerId}] Setting data`, {
-            nodeCount: data.nodes.length,
-            linkCount: data.links?.length || 0,
-            viewType: this._viewType,
-            config
-        });
-        
         // Stop any running simulation
         this.stopSimulation();
         
@@ -105,9 +93,6 @@ export class GraphManager {
         }
     }
 
-    /**
-     * Update node mode (preview/detail) with improved performance
-     */
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
         // Get current nodes
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -184,23 +169,6 @@ export class GraphManager {
         this.simulationActive = true;
     }
     
-    /**
-     * Get the central node (group === 'central')
-     */
-    public getCentralNode(): RenderableNode | null {
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const centralNode = nodes.find(node => node.group === 'central');
-        
-        if (!centralNode) {
-            return null;
-        }
-        
-        return this.createRenderableNodes([centralNode])[0];
-    }
-    
-    /**
-     * Update node visibility with optimized handling
-     */
     public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
         // Use the simulation nodes directly
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -255,14 +223,11 @@ export class GraphManager {
         this.simulationActive = true;
     }
 
-    /**
-     * Recalculate visibility for a node based on its votes and user preferences
-     */
     public recalculateNodeVisibility(
         nodeId: string, 
         positiveVotes: number, 
         negativeVotes: number,
-        userPreference?: boolean  // Optional user preference override
+        userPreference?: boolean
     ): void {
         // Get current nodes
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -306,9 +271,6 @@ export class GraphManager {
         }
     }
 
-    /**
-     * Apply visibility preferences to nodes in batch (optimized)
-     */
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
         if (Object.keys(preferences).length === 0) {
             return;
@@ -357,8 +319,6 @@ export class GraphManager {
         
         // Only update the simulation and store if changes were made
         if (changedNodeCount > 0) {
-            debugLog(`[GraphManager] Applied visibility preferences to ${changedNodeCount} nodes`);
-            
             // Update simulation nodes
             this.simulation.nodes(updatedNodes);
             
@@ -385,11 +345,6 @@ export class GraphManager {
     public updateViewType(viewType: ViewType): void {
         if (this._viewType === viewType) return;
         
-        debugLog(`[GraphManager:${this.managerId}] Updating view type`, {
-            from: this._viewType,
-            to: viewType
-        });
-        
         this._viewType = viewType;
         
         // Apply new layout strategy
@@ -410,9 +365,6 @@ export class GraphManager {
         }
     }
 
-    /**
-     * Completely stop the simulation
-     */
     public stopSimulation(): void {
         if (!this.simulationActive) return;
         
@@ -432,9 +384,6 @@ export class GraphManager {
         this.simulationActive = false;
     }
 
-    /**
-     * Force simulation ticks for immediate position updates
-     */
     public forceTick(ticks: number = 1): void {
         // Stop any current animation
         this.simulation.alpha(0).alphaTarget(0);
@@ -455,13 +404,8 @@ export class GraphManager {
         this.nodesStore.set([...nodes]);
     }
 
-    /**
-     * Enhanced fixed position enforcement
-     * Ensure all fixed nodes stay fixed with aggressive position setting
-     */
     public enforceFixedPositionsStrict(): void {
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        let fixedNodeCount = 0;
         
         // Force fixed nodes to stay at their assigned positions
         nodes.forEach(node => {
@@ -478,8 +422,6 @@ export class GraphManager {
                 // Flag as fixed to be extra sure
                 node.fixed = true;
                 node.metadata.fixed = true;
-                
-                fixedNodeCount++;
             } else if (node.type === 'navigation') {
                 // Navigation nodes fixed at their assigned positions
                 if (node.fx !== null && node.fx !== undefined) {
@@ -492,10 +434,8 @@ export class GraphManager {
                 // Ensure zero velocity for all navigation nodes
                 node.vx = 0;
                 node.vy = 0;
-                
-                fixedNodeCount++;
             } else if (node.mode === 'detail' && !node.isHidden) {
-                // Detail mode nodes should also be fixed (like WordDefinitionLayout)
+                // Detail mode nodes should also be fixed
                 if (node.fx === undefined || node.fy === undefined) {
                     node.fx = node.x;
                     node.fy = node.y;
@@ -505,8 +445,6 @@ export class GraphManager {
                 }
                 node.vx = 0;
                 node.vy = 0;
-                
-                fixedNodeCount++;
             }
         });
         
@@ -515,17 +453,8 @@ export class GraphManager {
         
         // Update the store to reflect these fixed positions
         this.nodesStore.set([...nodes]);
-        
-        // Debug log for tracking fixed node count
-        if (DEBUG_MODE) {
-            debugLog(`[GraphManager] Enforced fixed positions for ${fixedNodeCount} nodes out of ${nodes.length}`);
-        }
     }
 
-    /**
-     * Ensure all fixed nodes stay fixed
-     * Less aggressive version for backward compatibility
-     */
     public fixNodePositions(): void {
         this.enforceFixedPositionsStrict();
     }
@@ -602,11 +531,8 @@ export class GraphManager {
             this.currentLayoutStrategy.stop();
         }
         
-        debugLog(`[GraphManager:${this.managerId}] Applying layout strategy for ${this._viewType} view`);
-        
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
-            console.debug(`[GraphManager:${this.managerId}] Creating StatementNetworkLayout`);
             this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -676,9 +602,6 @@ export class GraphManager {
         }
     }
 
-    /**
-     * Optimized node transformation with better caching
-     */
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
         // Reuse existing enhanced nodes when possible
         const enhancedNodeCache = new Map<string, EnhancedNode>();
@@ -798,6 +721,9 @@ export class GraphManager {
             const x = node.x ?? 0;
             const y = node.y ?? 0;
             
+            // Create SVG transform string using coordinateSystem helper
+            const svgTransform = coordinateSystem.createSVGTransform(x, y);
+            
             return {
                 id: node.id,
                 type: node.type,
@@ -810,7 +736,7 @@ export class GraphManager {
                 position: {
                     x,
                     y,
-                    svgTransform: `translate(${x}, ${y})`
+                    svgTransform
                 },
                 metadata: node.metadata,
                 style: {
@@ -850,9 +776,6 @@ export class GraphManager {
         });
     }
 
-    /**
-     * Optimized createRenderableLinks - faster path calculation
-     */
     private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
         // Skip link calculation entirely if we have no nodes or links
         if (nodes.length === 0 || links.length === 0) {
@@ -885,6 +808,10 @@ export class GraphManager {
             // Calculate link path
             const path = this.calculateLinkPath(source, target);
             
+            // Create SVG transform strings for source and target positions
+            const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
+            const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
+            
             return {
                 id: link.id,
                 type: link.type,
@@ -896,12 +823,12 @@ export class GraphManager {
                 sourcePosition: { 
                     x: source.x ?? 0, 
                     y: source.y ?? 0,
-                    svgTransform: `translate(${source.x ?? 0}, ${source.y ?? 0})`
+                    svgTransform: sourceTransform
                 },
                 targetPosition: { 
                     x: target.x ?? 0, 
                     y: target.y ?? 0,
-                    svgTransform: `translate(${target.x ?? 0}, ${target.y ?? 0})`
+                    svgTransform: targetTransform
                 },
                 strength: link.strength,
                 relationshipType: link.relationshipType
@@ -909,9 +836,6 @@ export class GraphManager {
         }).filter(Boolean) as RenderableLink[];
     }
 
-    /**
-     * Get node radius with improved caching
-     */
     private getNodeRadius(node: GraphNode | EnhancedNode): number {
         // Generate a cache key based on node properties that affect radius
         const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
@@ -974,9 +898,6 @@ export class GraphManager {
         return node.type as "word" | "navigation" | "statement";
     }
 
-    /**
-     * Get node votes with optimized caching
-     */
     private getNodeVotes(node: GraphNode): number {
         // Use cached value if available
         if (this.nodeVotesCache.has(node.id)) {
@@ -1009,9 +930,6 @@ export class GraphManager {
         return netVotes;
     }
     
-    /**
-     * Helper to extract number from Neo4j number objects
-     */
     private getNeo4jNumber(value: any): number {
         if (value && typeof value === 'object' && 'low' in value) {
             return Number(value.low);
@@ -1040,9 +958,6 @@ export class GraphManager {
         }
     }
     
-    /**
-     * Calculate path for a link with improved performance
-     */
     private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
         // Get positions with null safety
         const sourceX = source.x ?? 0;

@@ -16,8 +16,6 @@ import { statementNetworkStore } from '../../../stores/statementNetworkStore';
  * - Navigation nodes in a circle around the central node
  * - Top statement positioned like live definition (to the right)
  * - Other statements positioned in a golden angle spiral based on vote rank
- * - Support for expand/collapse with proper spacing adjustment
- * - Support for hidden nodes with proper positioning
  */
 export class StatementNetworkLayout extends BaseLayoutStrategy {
     private readonly GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -65,7 +63,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                         this.repositionStatementNodes(nodes);
                         
                         // Apply fixed positions
-                        this.enforceFixedPositionsStrict();
+                        this.enforceFixedPositions();
                         
                         // Manually tick simulation to apply new positions
                         this.forceTick(3);
@@ -267,7 +265,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         this.positionStatementNodes(nodes);
         
         // Final enforcement of fixed positions
-        this.enforceFixedPositionsStrict();
+        this.enforceFixedPositions();
     }
     
     /**
@@ -673,7 +671,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Force fixed positions
-        this.enforceFixedPositionsStrict();
+        this.enforceFixedPositions();
         
         // Manually tick simulation to apply changes
         this.forceTick(5);
@@ -751,7 +749,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Force fixed positions
-        this.enforceFixedPositionsStrict();
+        this.enforceFixedPositions();
         
         // Manually tick simulation to apply changes
         this.forceTick(5);
@@ -766,83 +764,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
      * CRITICAL: Central node must remain fixed at (0,0)
      */
     public enforceFixedPositionsStrict(): void {
-        if (!this.simulation) return;
-        
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        
-        // HIGHEST PRIORITY: Find and fix control node position 
-        if (this.controlNodeId) {
-            const centralNode = nodes.find(n => n.id === this.controlNodeId);
-            if (centralNode) {
-                // AGGRESSIVE - set all position properties
-                centralNode.x = 0;
-                centralNode.y = 0;
-                centralNode.fx = 0;
-                centralNode.fy = 0;
-                centralNode.vx = 0;
-                centralNode.vy = 0;
-                centralNode.fixed = true;
-                
-                // Ensure metadata reflects fixed status
-                if (centralNode.metadata) {
-                    centralNode.metadata.fixed = true;
-                }
-                
-                // Add the central node anchor force
-                this.addCentralNodeAnchor(centralNode);
-            }
-        }
-        
-        // Fix navigation node positions
-        nodes.forEach(node => {
-            if (node.type === 'navigation' && node.fx !== undefined && node.fy !== undefined) {
-                node.x = node.fx;
-                node.y = node.fy;
-                node.vx = 0;
-                node.vy = 0;
-            }
-            
-            // Fix expanded statement nodes exactly like expanded definition nodes in WordDefinitionLayout
-            if (node.type === 'statement' && node.mode === 'detail' && !node.isHidden) {
-                if (node.fx === undefined || node.fy === undefined) {
-                    // Calculate position with all adjustments
-                    const rankIndex = this.rankMap.get(node.id) || 0;
-                    const position = this.calculateStatementPosition(node, rankIndex);
-                    
-                    // Fix position at these calculated coordinates
-                    node.x = position.x;
-                    node.y = position.y;
-                    node.fx = position.x;
-                    node.fy = position.y;
-                } else {
-                    // Enforce existing fixed position
-                    node.x = node.fx;
-                    node.y = node.fy;
-                }
-                node.vx = 0;
-                node.vy = 0;
-            }
-            
-            // For preview mode statements, update position but don't fix (exactly like WordDefinitionLayout)
-            if (node.type === 'statement' && node.mode === 'preview' && !node.isHidden) {
-                const rankIndex = this.rankMap.get(node.id) || 0;
-                const position = this.calculateStatementPosition(node, rankIndex);
-                
-                // Set position but don't fix it to allow minimal movement
-                node.x = position.x;
-                node.y = position.y;
-                // Remove any fixed position
-                node.fx = undefined;
-                node.fy = undefined;
-                
-                // But still zero velocity
-                node.vx = 0;
-                node.vy = 0;
-            }
-        });
-        
-        // Force simulation to honor these positions by zeroing alphas
-        this.simulation.alpha(0).alphaTarget(0);
+        this.enforceFixedPositions();
     }
     
     /**
@@ -855,7 +777,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         // Add a tick handler that enforces fixed positions on EVERY tick
         this.simulation.on('tick.fixedPosition', () => {
-            this.enforceFixedPositionsStrict();
+            this.enforceFixedPositions();
         });
         
         // Add the central node anchor if we have a control node
@@ -870,7 +792,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Start with VERY minimal alpha - just like WordDefinitionLayout
         this.simulation.alpha(0.01).restart();
     }
-    
+
     /**
      * Apply visibility preferences
      */
@@ -943,7 +865,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             this.repositionStatementNodes(nodes);
             
             // Force fixed positions
-            this.enforceFixedPositionsStrict();
+            this.enforceFixedPositions();
             
             // Manually tick simulation to apply changes
             this.forceTick(5);
@@ -952,7 +874,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             this.simulation.alpha(0.01).restart();
         }
     }
-    
+
     /**
      * Update data with exactly same approach as WordDefinitionLayout
      */
@@ -989,7 +911,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         }
         
         // Enforce fixed positions
-        this.enforceFixedPositionsStrict();
+        this.enforceFixedPositions();
         
         // ALWAYS skip animation by setting alpha to 0
         this.simulation.alpha(0).alphaTarget(0);
@@ -1007,13 +929,13 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         
         for (let i = 0; i < ticks; i++) {
             // Enforce fixed positions before each tick
-            this.enforceFixedPositionsStrict();
+            this.enforceFixedPositions();
             
             // Perform the tick
             this.simulation.tick();
             
             // Enforce fixed positions after each tick
-            this.enforceFixedPositionsStrict();
+            this.enforceFixedPositions();
         }
     }
     

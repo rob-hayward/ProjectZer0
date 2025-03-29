@@ -34,12 +34,8 @@
         });
         
         // Save preference to store (true = visible, false = hidden)
-        // The preference store should handle persistence
         visibilityStore.setPreference(node.id, !event.detail.isHidden);
     }
-    
-    // Component ID for debugging
-    const rendererId = node.id.substring(0, 8);
     
     // Position information from node
     $: posX = node.position.x;
@@ -50,7 +46,7 @@
     $: if (node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')) {
         posX = 0;
         posY = 0;
-        transform = 'translate(0, 0)';
+        transform = 'translate(0,0)';
     }
     
     // Calculate net votes for the node
@@ -79,7 +75,7 @@
     });
 </script>
 
-<!-- Apply node position transform using SVG transform attribute -->
+<!-- Apply node position via SVG transform attribute -->
 <g 
     class="node-wrapper" 
     data-node-id={node.id}
