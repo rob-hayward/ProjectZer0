@@ -223,124 +223,132 @@ export class GraphManager {
         this.simulationActive = true;
     }
 
-    public recalculateNodeVisibility(
-        nodeId: string, 
-        positiveVotes: number, 
-        negativeVotes: number,
-        userPreference?: boolean
-    ): void {
-        // Get current nodes
-        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
-        
-        if (!node) {
-            return;
-        }
-        
-        // Only perform calculation for word, definition, and statement nodes
-        if (node.type !== 'word' && node.type !== 'definition' && node.type !== 'statement') {
-            return;
-        }
-        
-        // If user preference is provided, it overrides community visibility
-        if (userPreference !== undefined) {
-            // Only update if value would change
-            if (node.isHidden === userPreference) {
-                return;
-            }
-            
-            // Update node visibility
-            this.updateNodeVisibility(nodeId, !userPreference, 'user');
-        } else {
-            // Calculate net votes
-            const netVotes = positiveVotes - negativeVotes;
-            
-            // Update visibility based on votes
-            const shouldBeHidden = netVotes < 0;
-            
-            // If node has a user-defined visibility, don't override it
-            if (node.hiddenReason === 'user') {
-                return;
-            }
-            
-            // Only update if visibility state would change
-            if (node.isHidden !== shouldBeHidden) {
-                // Update node visibility
-                this.updateNodeVisibility(nodeId, shouldBeHidden, 'community');
-            }
-        }
+    // Update the recalculateNodeVisibility method
+public recalculateNodeVisibility(
+    nodeId: string, 
+    positiveVotes: number, 
+    negativeVotes: number,
+    userPreference?: boolean
+  ): void {
+    // Get current nodes
+    const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+    const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
+    
+    if (!node) {
+      return;
     }
-
-    public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
-        if (Object.keys(preferences).length === 0) {
-            return;
-        }
-        
-        // Get current nodes
-        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        let changedNodeCount = 0;
-        
-        // Create a new array only if we need to modify nodes
-        let updatedNodes = [...currentNodes];
-        let needsUpdatedArray = false;
-        
-        // Apply preferences to all nodes
-        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
-            const nodeIndex = updatedNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
-            if (nodeIndex >= 0) {
-                const node = updatedNodes[nodeIndex];
-                
-                // Only update if this would change visibility
-                const newHiddenState = !isVisible;
-                if (node.isHidden !== newHiddenState) {
-                    // Create a new node object only if we haven't already
-                    if (!needsUpdatedArray) {
-                        needsUpdatedArray = true;
-                        updatedNodes = [...currentNodes]; // Create a new array for reactivity
-                    }
-                    
-                    // Create a new node with updated properties
-                    const updatedNode: EnhancedNode = {
-                        ...node,
-                        isHidden: newHiddenState,
-                        hiddenReason: 'user',
-                        radius: this.getNodeRadius({
-                            ...node,
-                            isHidden: newHiddenState
-                        })
-                    };
-                    
-                    // Update the node in the array
-                    updatedNodes[nodeIndex] = updatedNode;
-                    changedNodeCount++;
-                }
-            }
-        });
-        
-        // Only update the simulation and store if changes were made
-        if (changedNodeCount > 0) {
-            // Update simulation nodes
-            this.simulation.nodes(updatedNodes);
-            
-            // Update store
-            this.nodesStore.set(updatedNodes);
-            
-            // Let the layout strategy handle visibility preferences
-            if (this.currentLayoutStrategy && typeof (this.currentLayoutStrategy as any).applyVisibilityPreferences === 'function') {
-                (this.currentLayoutStrategy as any).applyVisibilityPreferences(preferences);
-            }
-            
-            // Ensure fixed positions are maintained
-            this.enforceFixedPositionsStrict();
-            
-            // Force simulation ticks to immediately update positions
-            this.forceTick(5);
-            
-            // Minimal simulation restart
-            this.simulation.alpha(0.1).restart();
-            this.simulationActive = true;
-        }
+    
+    // Only perform calculation for word, definition, and statement nodes
+    if (node.type !== 'word' && node.type !== 'definition' && node.type !== 'statement') {
+      return;
     }
+    
+    // Calculate net votes
+    const netVotes = positiveVotes - negativeVotes;
+    
+    // Determine if node should be hidden based on community standards
+    const shouldBeHiddenByCommunity = netVotes < 0;
+    
+    // If user preference is provided, it overrides community visibility
+    if (userPreference !== undefined) {
+      // userPreference = true means "show", so !userPreference = "hide"
+      const shouldBeHidden = !userPreference;
+      
+      // Only update if visibility state would change
+      if (node.isHidden !== shouldBeHidden) {
+        // Update node visibility with 'user' as the reason
+        this.updateNodeVisibility(nodeId, shouldBeHidden, 'user');
+      }
+    } else {
+      // If node has a user-defined visibility, don't override it
+      if (node.hiddenReason === 'user') {
+        return;
+      }
+      
+      // Only update if visibility state would change
+      if (node.isHidden !== shouldBeHiddenByCommunity) {
+        // Update node visibility with 'community' as the reason
+        this.updateNodeVisibility(nodeId, shouldBeHiddenByCommunity, 'community');
+      }
+    }
+  }
+  
+  // Method to apply all visibility preferences
+  public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
+    if (Object.keys(preferences).length === 0) {
+      return;
+    }
+    
+    // Get current nodes
+    const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+    if (!currentNodes || currentNodes.length === 0) {
+      return;
+    }
+    
+    // Track if any changes were made
+    let changedNodeCount = 0;
+    
+    // Create a new array only if we need to modify nodes
+    let updatedNodes = [...currentNodes];
+    let needsUpdatedArray = false;
+    
+    // Apply preferences to all nodes
+    Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+      const nodeIndex = updatedNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
+      if (nodeIndex >= 0) {
+        const node = updatedNodes[nodeIndex];
+        
+        // Only update if this would change visibility
+        const newHiddenState = !isVisible;
+        if (node.isHidden !== newHiddenState) {
+          // Create a new node object only if we haven't already
+          if (!needsUpdatedArray) {
+            needsUpdatedArray = true;
+            updatedNodes = [...currentNodes]; // Create a new array for reactivity
+          }
+          
+          // Create a new node with updated properties
+          const updatedNode: EnhancedNode = {
+            ...node,
+            isHidden: newHiddenState,
+            hiddenReason: 'user',
+            radius: this.getNodeRadius({
+              ...node,
+              isHidden: newHiddenState
+            })
+          };
+          
+          // Update the node in the array
+          updatedNodes[nodeIndex] = updatedNode;
+          changedNodeCount++;
+        }
+      }
+    });
+    
+    // Only update the simulation and store if changes were made
+    if (changedNodeCount > 0) {
+      // Update simulation nodes
+      this.simulation.nodes(updatedNodes);
+      
+      // Update store
+      this.nodesStore.set(updatedNodes);
+      
+      // Let the layout strategy handle visibility preferences
+      if (this.currentLayoutStrategy && typeof (this.currentLayoutStrategy as any).applyVisibilityPreferences === 'function') {
+        (this.currentLayoutStrategy as any).applyVisibilityPreferences(preferences);
+      }
+      
+      // Ensure fixed positions are maintained
+      this.enforceFixedPositionsStrict();
+      
+      // Force simulation ticks to immediately update positions
+      this.forceTick(5);
+      
+      // Minimal simulation restart
+      this.simulation.alpha(0.1).restart();
+      this.simulationActive = true;
+    }
+  }
 
     public updateViewType(viewType: ViewType): void {
         if (this._viewType === viewType) return;

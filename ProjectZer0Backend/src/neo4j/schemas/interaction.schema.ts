@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
+import { VisibilityPreference } from '../../users/interactions/interaction.model';
 
 @Injectable()
 export class InteractionSchema {
+  private readonly logger = new Logger(InteractionSchema.name);
+
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async createOrUpdateInteraction(userId: string, interactionData: any) {
@@ -71,44 +74,65 @@ export class InteractionSchema {
     userId: string,
     objectId: string,
     isVisible: boolean,
-  ) {
-    // Step 1: First get the existing interaction node or create if not exists
-    const getQuery = `
-      MATCH (u:User {sub: $userId})
-      MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i.visibilityPreferences as prefs
-    `;
+  ): Promise<VisibilityPreference> {
+    this.logger.log(
+      `Setting visibility preference for user ${userId}, object ${objectId}: ${isVisible}`,
+    );
 
-    const getResult = await this.neo4jService.read(getQuery, { userId });
+    try {
+      // Step 1: First get the existing interaction node or create if not exists
+      const getQuery = `
+        MATCH (u:User {sub: $userId})
+        MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+        RETURN i.visibilityPreferences as prefs
+      `;
 
-    // Get existing preferences or initialize empty object
-    let prefs =
-      getResult.records.length > 0 && getResult.records[0].get('prefs')
-        ? getResult.records[0].get('prefs')
-        : {};
+      const getResult = await this.neo4jService.read(getQuery, { userId });
 
-    // Step 2: Update the specific preference value in JavaScript
-    prefs = { ...prefs, [objectId]: isVisible };
+      // Get existing preferences or initialize empty object
+      let prefs =
+        getResult.records.length > 0 && getResult.records[0].get('prefs')
+          ? getResult.records[0].get('prefs')
+          : {};
 
-    // Step 3: Save the updated preferences object back to Neo4j
-    const setQuery = `
-      MATCH (u:User {sub: $userId})
-      MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      SET i.visibilityPreferences = $prefs
-      RETURN i.visibilityPreferences as updatedPrefs
-    `;
+      // Step 2: Create or update the preference with enhanced data
+      const preference: VisibilityPreference = {
+        isVisible: isVisible,
+        source: 'user',
+        timestamp: Date.now(),
+      };
 
-    // Execute the query but don't assign to an unused variable
-    await this.neo4jService.write(setQuery, {
-      userId,
-      prefs,
-    });
+      prefs = { ...prefs, [objectId]: preference };
 
-    // Return the specific value we just set
-    return isVisible;
+      // Step 3: Save the updated preferences object back to Neo4j
+      const setQuery = `
+        MATCH (u:User {sub: $userId})
+        MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+        SET i.visibilityPreferences = $prefs
+        RETURN $preference as updatedPref
+      `;
+
+      const result = await this.neo4jService.write(setQuery, {
+        userId,
+        prefs,
+        preference,
+      });
+
+      // Return the specific preference we just set
+      return result.records[0]?.get('updatedPref') || preference;
+    } catch (error) {
+      this.logger.error(
+        `Error setting visibility preference: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
-  async getVisibilityPreference(userId: string, objectId: string) {
+  async getVisibilityPreference(
+    userId: string,
+    objectId: string,
+  ): Promise<boolean | undefined> {
     const query = `
       MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
       RETURN i.visibilityPreferences as prefs
@@ -120,10 +144,24 @@ export class InteractionSchema {
     }
 
     const prefs = result.records[0].get('prefs');
-    return prefs[objectId]; // Return the specific preference
+
+    // Handle both boolean and object formats
+    if (typeof prefs[objectId] === 'boolean') {
+      return prefs[objectId];
+    } else if (
+      prefs[objectId] &&
+      typeof prefs[objectId] === 'object' &&
+      'isVisible' in prefs[objectId]
+    ) {
+      return prefs[objectId].isVisible;
+    }
+
+    return undefined;
   }
 
-  async getVisibilityPreferences(userId: string) {
+  async getVisibilityPreferences(
+    userId: string,
+  ): Promise<Record<string, boolean | VisibilityPreference>> {
     const query = `
       MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
       RETURN i.visibilityPreferences as prefs

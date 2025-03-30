@@ -17,11 +17,13 @@ export interface CommentedInteraction {
 
 export interface VisibilityPreference {
   isVisible: boolean;
+  source?: 'user' | 'community';
+  timestamp?: number;
 }
 
 export interface UserInteractions {
   created?: Record<string, CreatedInteraction>;
   voted?: Record<string, VotedInteraction>;
   commented?: Record<string, CommentedInteraction>;
-  visibilityPreferences?: Record<string, VisibilityPreference>;
+  visibilityPreferences?: Record<string, VisibilityPreference | boolean>;
 }
