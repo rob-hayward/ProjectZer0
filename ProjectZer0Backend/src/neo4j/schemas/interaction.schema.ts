@@ -1,6 +1,7 @@
+// src/neo4j/schemas/interaction.schema.ts
+
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
-import { VisibilityPreference } from '../../users/interactions/interaction.model';
 
 @Injectable()
 export class InteractionSchema {
@@ -9,17 +10,29 @@ export class InteractionSchema {
   constructor(private readonly neo4jService: Neo4jService) {}
 
   async createOrUpdateInteraction(userId: string, interactionData: any) {
-    const query = `
-      MATCH (u:User {sub: $userId})
-      MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      SET i += $interactionData
-      RETURN i
-    `;
-    const result = await this.neo4jService.write(query, {
-      userId,
-      interactionData,
-    });
-    return result.records[0].get('i').properties;
+    try {
+      this.logger.log(`Creating/updating interaction for user ${userId}`);
+
+      const query = `
+        MATCH (u:User {sub: $userId})
+        MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+        SET i += $interactionData
+        RETURN i
+      `;
+
+      const result = await this.neo4jService.write(query, {
+        userId,
+        interactionData,
+      });
+
+      return result.records[0]?.get('i')?.properties || {};
+    } catch (error) {
+      this.logger.error(
+        `Error creating/updating interaction: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   async addCommentInteraction(
@@ -28,150 +41,140 @@ export class InteractionSchema {
     objectType: string,
     commentId: string,
   ) {
-    const query = `
-      MATCH (u:User {sub: $userId})
-      MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      SET i.commented = COALESCE(i.commented, {}) + {
-        $objectId: {
-          type: $objectType,
-          commentIds: COALESCE(i.commented[$objectId].commentIds, []) + $commentId,
-          lastCommentTimestamp: datetime()
-        }
-      }
-      RETURN i.commented[$objectId] as commentInteraction
-    `;
-    const result = await this.neo4jService.write(query, {
-      userId,
-      objectId,
-      objectType,
-      commentId,
-    });
-    return result.records[0].get('commentInteraction');
-  }
-
-  async getInteractions(userId: string) {
-    const query = `
-      MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i
-    `;
-    const result = await this.neo4jService.read(query, { userId });
-    return result.records[0]?.get('i').properties || {};
-  }
-
-  async getInteractedObjects(userId: string, interactionType: string) {
-    const query = `
-      MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN keys(i[$interactionType]) as objectIds
-    `;
-    const result = await this.neo4jService.read(query, {
-      userId,
-      interactionType,
-    });
-    return result.records[0]?.get('objectIds') || [];
-  }
-
-  async setVisibilityPreference(
-    userId: string,
-    objectId: string,
-    isVisible: boolean,
-  ): Promise<VisibilityPreference> {
-    this.logger.log(
-      `Setting visibility preference for user ${userId}, object ${objectId}: ${isVisible}`,
-    );
-
     try {
-      // Step 1: First get the existing interaction node or create if not exists
-      const getQuery = `
+      this.logger.log(
+        `Adding comment interaction for user ${userId}, object ${objectId}`,
+      );
+
+      // First ensure user exists
+      await this.ensureUserExists(userId);
+
+      const query = `
         MATCH (u:User {sub: $userId})
         MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-        RETURN i.visibilityPreferences as prefs
+        WITH u, i, COALESCE(i.commented, {}) as currentCommented
+        
+        // Handle the case where the object doesn't exist yet
+        WITH u, i, currentCommented,
+             CASE 
+               WHEN $objectId IN keys(currentCommented) THEN currentCommented[$objectId]
+               ELSE { type: $objectType, commentIds: [] }
+             END as existingComment
+        
+        // Handle the case where commentIds is null
+        WITH u, i, currentCommented, existingComment,
+             CASE 
+               WHEN existingComment.commentIds IS NULL THEN []
+               ELSE existingComment.commentIds
+             END as existingCommentIds
+        
+        // Create updated comment object
+        WITH u, i, currentCommented, 
+             {
+               type: $objectType,
+               commentIds: existingCommentIds + $commentId,
+               lastCommentTimestamp: datetime()
+             } as updatedComment
+        
+        // Update the interaction node
+        SET i.commented = currentCommented + { $objectId: updatedComment }
+        
+        RETURN i.commented[$objectId] as commentInteraction
       `;
 
-      const getResult = await this.neo4jService.read(getQuery, { userId });
-
-      // Get existing preferences or initialize empty object
-      let prefs =
-        getResult.records.length > 0 && getResult.records[0].get('prefs')
-          ? getResult.records[0].get('prefs')
-          : {};
-
-      // Step 2: Create or update the preference with enhanced data
-      const preference: VisibilityPreference = {
-        isVisible: isVisible,
-        source: 'user',
-        timestamp: Date.now(),
-      };
-
-      prefs = { ...prefs, [objectId]: preference };
-
-      // Step 3: Save the updated preferences object back to Neo4j
-      const setQuery = `
-        MATCH (u:User {sub: $userId})
-        MERGE (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
-        SET i.visibilityPreferences = $prefs
-        RETURN $preference as updatedPref
-      `;
-
-      const result = await this.neo4jService.write(setQuery, {
+      const result = await this.neo4jService.write(query, {
         userId,
-        prefs,
-        preference,
+        objectId,
+        objectType,
+        commentId,
       });
 
-      // Return the specific preference we just set
-      return result.records[0]?.get('updatedPref') || preference;
+      return result.records[0]?.get('commentInteraction') || null;
     } catch (error) {
       this.logger.error(
-        `Error setting visibility preference: ${error.message}`,
+        `Error adding comment interaction: ${error.message}`,
         error.stack,
       );
       throw error;
     }
   }
 
-  async getVisibilityPreference(
-    userId: string,
-    objectId: string,
-  ): Promise<boolean | undefined> {
-    const query = `
-      MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i.visibilityPreferences as prefs
-    `;
-    const result = await this.neo4jService.read(query, { userId });
+  async getInteractions(userId: string) {
+    try {
+      this.logger.log(`Getting all interactions for user ${userId}`);
 
-    if (result.records.length === 0 || !result.records[0].get('prefs')) {
-      return undefined;
-    }
+      const query = `
+        MATCH (u:User {sub: $userId})
+        OPTIONAL MATCH (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+        RETURN i
+      `;
 
-    const prefs = result.records[0].get('prefs');
+      const result = await this.neo4jService.read(query, { userId });
+      const interactions =
+        result.records.length > 0 ? result.records[0].get('i')?.properties : {};
 
-    // Handle both boolean and object formats
-    if (typeof prefs[objectId] === 'boolean') {
-      return prefs[objectId];
-    } else if (
-      prefs[objectId] &&
-      typeof prefs[objectId] === 'object' &&
-      'isVisible' in prefs[objectId]
-    ) {
-      return prefs[objectId].isVisible;
-    }
-
-    return undefined;
-  }
-
-  async getVisibilityPreferences(
-    userId: string,
-  ): Promise<Record<string, boolean | VisibilityPreference>> {
-    const query = `
-      MATCH (u:User {sub: $userId})-[:HAS_INTERACTIONS]->(i:InteractionNode)
-      RETURN i.visibilityPreferences as prefs
-    `;
-    const result = await this.neo4jService.read(query, { userId });
-
-    if (result.records.length === 0 || !result.records[0].get('prefs')) {
+      this.logger.log(`Retrieved interactions for user ${userId}`);
+      return interactions || {};
+    } catch (error) {
+      this.logger.error(
+        `Error getting interactions: ${error.message}`,
+        error.stack,
+      );
       return {};
     }
+  }
 
-    return result.records[0].get('prefs');
+  async getInteractedObjects(userId: string, interactionType: string) {
+    try {
+      this.logger.log(`Getting ${interactionType} objects for user ${userId}`);
+
+      const query = `
+        MATCH (u:User {sub: $userId})
+        OPTIONAL MATCH (u)-[:HAS_INTERACTIONS]->(i:InteractionNode)
+        RETURN CASE WHEN i IS NOT NULL AND i[$interactionType] IS NOT NULL 
+                   THEN keys(i[$interactionType]) 
+                   ELSE [] 
+               END as objectIds
+      `;
+
+      const result = await this.neo4jService.read(query, {
+        userId,
+        interactionType,
+      });
+
+      const objectIds = result.records[0]?.get('objectIds') || [];
+      this.logger.log(
+        `Retrieved ${objectIds.length} ${interactionType} objects for user ${userId}`,
+      );
+
+      return objectIds;
+    } catch (error) {
+      this.logger.error(
+        `Error getting interacted objects: ${error.message}`,
+        error.stack,
+      );
+      return [];
+    }
+  }
+
+  // Helper method to ensure user exists before setting preferences
+  private async ensureUserExists(userId: string): Promise<void> {
+    try {
+      this.logger.log(`Ensuring user ${userId} exists`);
+
+      const query = `
+        MERGE (u:User {sub: $userId})
+        RETURN u
+      `;
+
+      await this.neo4jService.write(query, { userId });
+      this.logger.log(`Confirmed user ${userId} exists`);
+    } catch (error) {
+      this.logger.error(
+        `Error ensuring user exists: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 }

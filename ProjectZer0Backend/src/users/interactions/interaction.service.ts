@@ -1,16 +1,18 @@
-// ProjectZer0Backend/src/users/interactions/interaction.service.ts
-import { Injectable } from '@nestjs/common';
+// src/users/interactions/interaction.service.ts
+
+import { Injectable, Logger } from '@nestjs/common';
 import { InteractionSchema } from '../../neo4j/schemas/interaction.schema';
 import {
   UserInteractions,
   CreatedInteraction,
   VotedInteraction,
   CommentedInteraction,
-  VisibilityPreference,
 } from './interaction.model';
 
 @Injectable()
 export class InteractionService {
+  private readonly logger = new Logger(InteractionService.name);
+
   constructor(private readonly interactionSchema: InteractionSchema) {}
 
   async addCreatedInteraction(
@@ -18,13 +20,22 @@ export class InteractionService {
     objectId: string,
     objectType: string,
   ): Promise<CreatedInteraction> {
-    const interaction: CreatedInteraction = {
-      type: objectType,
-      timestamp: new Date().toISOString(),
-    };
-    return this.interactionSchema.createOrUpdateInteraction(userId, {
-      created: { [objectId]: interaction },
-    });
+    try {
+      const interaction: CreatedInteraction = {
+        type: objectType,
+        timestamp: new Date().toISOString(),
+      };
+
+      return this.interactionSchema.createOrUpdateInteraction(userId, {
+        created: { [objectId]: interaction },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error adding created interaction: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   async addVoteInteraction(
@@ -33,14 +44,23 @@ export class InteractionService {
     objectType: string,
     voteValue: number,
   ): Promise<VotedInteraction> {
-    const interaction: VotedInteraction = {
-      type: objectType,
-      value: voteValue,
-      timestamp: new Date().toISOString(),
-    };
-    return this.interactionSchema.createOrUpdateInteraction(userId, {
-      voted: { [objectId]: interaction },
-    });
+    try {
+      const interaction: VotedInteraction = {
+        type: objectType,
+        value: voteValue,
+        timestamp: new Date().toISOString(),
+      };
+
+      return this.interactionSchema.createOrUpdateInteraction(userId, {
+        voted: { [objectId]: interaction },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error adding vote interaction: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   async addCommentInteraction(
@@ -49,42 +69,49 @@ export class InteractionService {
     objectType: string,
     commentId: string,
   ): Promise<CommentedInteraction> {
-    return this.interactionSchema.addCommentInteraction(
-      userId,
-      objectId,
-      objectType,
-      commentId,
-    );
-  }
-
-  async setVisibilityPreference(
-    userId: string,
-    objectId: string,
-    isVisible: boolean,
-  ): Promise<VisibilityPreference> {
-    // The schema method now returns a VisibilityPreference object directly
-    return this.interactionSchema.setVisibilityPreference(
-      userId,
-      objectId,
-      isVisible,
-    );
-  }
-
-  async getVisibilityPreference(
-    userId: string,
-    objectId: string,
-  ): Promise<boolean | undefined> {
-    return this.interactionSchema.getVisibilityPreference(userId, objectId);
+    try {
+      return this.interactionSchema.addCommentInteraction(
+        userId,
+        objectId,
+        objectType,
+        commentId,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error adding comment interaction: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
   }
 
   async getAllInteractions(userId: string): Promise<UserInteractions> {
-    return this.interactionSchema.getInteractions(userId);
+    try {
+      return this.interactionSchema.getInteractions(userId);
+    } catch (error) {
+      this.logger.error(
+        `Error getting all interactions: ${error.message}`,
+        error.stack,
+      );
+      return {};
+    }
   }
 
   async getInteractedObjects(
     userId: string,
     interactionType: 'created' | 'voted' | 'commented',
   ): Promise<string[]> {
-    return this.interactionSchema.getInteractedObjects(userId, interactionType);
+    try {
+      return this.interactionSchema.getInteractedObjects(
+        userId,
+        interactionType,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error getting interacted objects: ${error.message}`,
+        error.stack,
+      );
+      return [];
+    }
   }
 }

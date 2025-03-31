@@ -1,3 +1,5 @@
+// src/users/users.controller.ts
+
 import {
   Controller,
   Post,
@@ -10,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { UserAuthService } from './user-auth.service';
 import { InteractionService } from './interactions/interaction.service';
-import { VisibilityService } from './interactions/visibility.service';
+import { VisibilityService } from './visibility/visibility.service';
 import { UserSchema } from '../neo4j/schemas/user.schema';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { UserProfile } from './user.model';

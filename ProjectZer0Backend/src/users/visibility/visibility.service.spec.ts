@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { VisibilityService } from './visibility.service';
+import { VisibilityService } from '../visibility/visibility.service';
 import { InteractionSchema } from '../../neo4j/schemas/interaction.schema';
 
 describe('VisibilityService', () => {

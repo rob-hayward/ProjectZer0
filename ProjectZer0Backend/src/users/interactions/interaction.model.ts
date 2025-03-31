@@ -1,3 +1,5 @@
+// src/users/interactions/interaction.model.ts
+
 export interface CreatedInteraction {
   type: string;
   timestamp: string;
@@ -15,15 +17,8 @@ export interface CommentedInteraction {
   lastCommentTimestamp: string;
 }
 
-export interface VisibilityPreference {
-  isVisible: boolean;
-  source?: 'user' | 'community';
-  timestamp?: number;
-}
-
 export interface UserInteractions {
   created?: Record<string, CreatedInteraction>;
   voted?: Record<string, VotedInteraction>;
   commented?: Record<string, CommentedInteraction>;
-  visibilityPreferences?: Record<string, VisibilityPreference | boolean>;
 }

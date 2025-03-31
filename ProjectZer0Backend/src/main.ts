@@ -1,11 +1,13 @@
+// ProjectZer0Backend/src/main.ts
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import * as session from 'express-session';
 import * as passport from 'passport';
 import * as cookieParser from 'cookie-parser';
 import { ConfigService } from '@nestjs/config';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
+import { Neo4jExceptionFilter } from './neo4j/neo4j-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -45,8 +47,20 @@ async function bootstrap() {
     done(null, user);
   });
 
-  // Global exception filter
-  app.useGlobalFilters(new AllExceptionsFilter(logger));
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
+
+  // Global exception filters - order matters, specific filters first
+  app.useGlobalFilters(
+    new Neo4jExceptionFilter(),
+    new AllExceptionsFilter(logger),
+  );
 
   await app.listen(3000);
   logger.log('Application is running on: http://localhost:3000');
