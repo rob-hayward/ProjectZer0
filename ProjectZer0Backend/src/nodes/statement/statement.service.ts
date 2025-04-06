@@ -29,7 +29,51 @@ export class StatementService {
       `Getting statement network with options: ${JSON.stringify(options)}`,
     );
     try {
-      return this.statementSchema.getStatementNetwork(options);
+      // Get statements from the schema
+      const statements =
+        await this.statementSchema.getStatementNetwork(options);
+
+      // Force numeric conversion if vote properties are Neo4j integers
+      // This ensures we always return plain JavaScript numbers to the frontend
+      statements.forEach((statement) => {
+        // Ensure positiveVotes is a number
+        if (
+          typeof statement.positiveVotes === 'object' &&
+          statement.positiveVotes !== null
+        ) {
+          if ('low' in statement.positiveVotes) {
+            statement.positiveVotes = Number(statement.positiveVotes.low);
+          } else if ('valueOf' in statement.positiveVotes) {
+            statement.positiveVotes = Number(statement.positiveVotes.valueOf());
+          }
+        }
+
+        // Ensure negativeVotes is a number
+        if (
+          typeof statement.negativeVotes === 'object' &&
+          statement.negativeVotes !== null
+        ) {
+          if ('low' in statement.negativeVotes) {
+            statement.negativeVotes = Number(statement.negativeVotes.low);
+          } else if ('valueOf' in statement.negativeVotes) {
+            statement.negativeVotes = Number(statement.negativeVotes.valueOf());
+          }
+        }
+
+        // Ensure netVotes is a number
+        if (
+          typeof statement.netVotes === 'object' &&
+          statement.netVotes !== null
+        ) {
+          if ('low' in statement.netVotes) {
+            statement.netVotes = Number(statement.netVotes.low);
+          } else if ('valueOf' in statement.netVotes) {
+            statement.netVotes = Number(statement.netVotes.valueOf());
+          }
+        }
+      });
+
+      return statements;
     } catch (error) {
       this.logger.error(
         `Error in getStatementNetwork: ${error.message}`,
@@ -235,7 +279,6 @@ export class StatementService {
         sub,
         isPositive,
       );
-      this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
       return result;
     } catch (error) {
       this.logger.error(
@@ -259,9 +302,6 @@ export class StatementService {
         { id },
         sub,
       );
-      this.logger.log(
-        `Vote status for statement ${id} and user ${sub}: ${JSON.stringify(status, null, 2)}`,
-      );
       return status;
     } catch (error) {
       this.logger.error(
@@ -280,7 +320,6 @@ export class StatementService {
         { id },
         sub,
       );
-      this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
       return result;
     } catch (error) {
       this.logger.error(
@@ -311,9 +350,6 @@ export class StatementService {
         netVotes: voteStatus.netVotes,
       };
 
-      this.logger.log(
-        `Votes for statement ${id}: ${JSON.stringify(votes, null, 2)}`,
-      );
       return votes;
     } catch (error) {
       this.logger.error(

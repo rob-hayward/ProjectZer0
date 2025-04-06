@@ -58,13 +58,6 @@ export class VoteSchema {
       await this.neo4jService.write(`MERGE (u:User {sub: $sub})`, { sub });
     }
 
-    this.logger.log(`Vote status result for ${nodeLabel} ${nodeValue}: `, {
-      status,
-      positiveVotes: record.get('positiveVotes'),
-      negativeVotes: record.get('negativeVotes'),
-      netVotes: record.get('netVotes'),
-    });
-
     return {
       status: status as 'agree' | 'disagree' | null,
       positiveVotes: record.get('positiveVotes') || 0,
@@ -96,14 +89,24 @@ export class VoteSchema {
            CASE WHEN oldVote.status = 'agree' THEN -1 ELSE 0 END as oldPosAdjust,
            CASE WHEN oldVote.status = 'disagree' THEN -1 ELSE 0 END as oldNegAdjust
       DELETE oldVote
+      
+      // First, create new vote relationship
       CREATE (u)-[v:VOTED_ON]->(n)
       SET v.status = $status,
-          v.createdAt = datetime(),
-          n.positiveVotes = COALESCE(n.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END,
-          n.negativeVotes = COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END,
-          n.netVotes = COALESCE(n.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END - 
-                       (COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END)
-      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes, n.netVotes as netVotes
+          v.createdAt = datetime()
+      
+      // Update positive and negative vote counts
+      WITH n, u, v, oldPosAdjust, oldNegAdjust
+      SET n.positiveVotes = COALESCE(n.positiveVotes, 0) + oldPosAdjust + CASE WHEN $isPositive THEN 1 ELSE 0 END,
+          n.negativeVotes = COALESCE(n.negativeVotes, 0) + oldNegAdjust + CASE WHEN $isPositive THEN 0 ELSE 1 END
+      
+      // Calculate net votes based on the updated positive and negative counts
+      WITH n
+      SET n.netVotes = n.positiveVotes - n.negativeVotes
+      
+      RETURN n.positiveVotes as positiveVotes, 
+             n.negativeVotes as negativeVotes, 
+             n.netVotes as netVotes
       `,
       {
         nodeValue,
@@ -113,13 +116,13 @@ export class VoteSchema {
       },
     );
 
+    // Handle numeric conversions for Neo4j integers
     const voteResult = {
-      positiveVotes: result.records[0].get('positiveVotes') || 0,
-      negativeVotes: result.records[0].get('negativeVotes') || 0,
-      netVotes: result.records[0].get('netVotes') || 0,
+      positiveVotes: this.toNumber(result.records[0].get('positiveVotes')) || 0,
+      negativeVotes: this.toNumber(result.records[0].get('negativeVotes')) || 0,
+      netVotes: this.toNumber(result.records[0].get('netVotes')) || 0,
     };
 
-    this.logger.log(`Vote result: ${JSON.stringify(voteResult)}`);
     return voteResult;
   }
 
@@ -142,22 +145,52 @@ export class VoteSchema {
       WITH n, v, 
            CASE WHEN v.status = 'agree' THEN -1 ELSE 0 END as posAdjust,
            CASE WHEN v.status = 'disagree' THEN -1 ELSE 0 END as negAdjust
+      
+      // Delete the vote relationship
       DELETE v
+      
+      // Update positive and negative vote counts
       SET n.positiveVotes = COALESCE(n.positiveVotes, 0) + posAdjust,
-          n.negativeVotes = COALESCE(n.negativeVotes, 0) + negAdjust,
-          n.netVotes = COALESCE(n.positiveVotes, 0) + posAdjust - (COALESCE(n.negativeVotes, 0) + negAdjust)
-      RETURN n.positiveVotes as positiveVotes, n.negativeVotes as negativeVotes, n.netVotes as netVotes
+          n.negativeVotes = COALESCE(n.negativeVotes, 0) + negAdjust
+      
+      // Calculate net votes based on the updated positive and negative counts
+      WITH n
+      SET n.netVotes = n.positiveVotes - n.negativeVotes
+      
+      RETURN n.positiveVotes as positiveVotes, 
+             n.negativeVotes as negativeVotes, 
+             n.netVotes as netVotes
       `,
       { nodeValue, sub },
     );
 
+    // Handle numeric conversions for Neo4j integers
     const voteResult = {
-      positiveVotes: result.records[0].get('positiveVotes') || 0,
-      negativeVotes: result.records[0].get('negativeVotes') || 0,
-      netVotes: result.records[0].get('netVotes') || 0,
+      positiveVotes: this.toNumber(result.records[0].get('positiveVotes')) || 0,
+      negativeVotes: this.toNumber(result.records[0].get('negativeVotes')) || 0,
+      netVotes: this.toNumber(result.records[0].get('netVotes')) || 0,
     };
 
-    this.logger.log(`Remove vote result: ${JSON.stringify(voteResult)}`);
     return voteResult;
+  }
+
+  /**
+   * Helper method to convert Neo4j integer values to JavaScript numbers
+   */
+  private toNumber(value: any): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    // Handle Neo4j integer objects
+    if (typeof value === 'object' && value !== null) {
+      if ('low' in value) {
+        return Number(value.low);
+      } else if ('valueOf' in value) {
+        return Number(value.valueOf());
+      }
+    }
+
+    return Number(value);
   }
 }

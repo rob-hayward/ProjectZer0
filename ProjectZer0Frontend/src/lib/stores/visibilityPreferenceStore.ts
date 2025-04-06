@@ -59,7 +59,7 @@ function createVisibilityStore() {
         timestamp: Date.now()
       }));
     } catch (error) {
-      console.error('[VisibilityStore] Error saving to localStorage:', error);
+      console.error('Error saving to localStorage:', error);
     }
   }
 
@@ -70,14 +70,15 @@ function createVisibilityStore() {
       const storedData = localStorage.getItem(STORAGE_KEY);
       if (storedData) {
         const parsed = JSON.parse(storedData);
-        console.log('[VisibilityStore] Loaded preferences from localStorage:', parsed);
+        console.log('Loaded preferences from localStorage:', 
+          { count: Object.keys(parsed.preferences || {}).length });
         return {
           preferences: parsed.preferences || {},
           details: parsed.details || {}
         };
       }
     } catch (error) {
-      console.error('[VisibilityStore] Error loading from localStorage:', error);
+      console.error('Error loading from localStorage:', error);
     }
     return { preferences: {}, details: {} };
   }
@@ -98,7 +99,7 @@ function createVisibilityStore() {
             lastUpdated: Date.now()
           }));
           
-          console.log('[VisibilityStore] Initialized with cached preferences');
+          console.log('Initialized with cached preferences');
         }
       }
     },
@@ -185,9 +186,11 @@ function createVisibilityStore() {
           };
         });
         
-        console.log('[VisibilityStore] Loaded preferences from backend:', response);
+        console.log('Loaded preferences from backend:', {
+          count: Object.keys(preferences).length
+        });
       } catch (error) {
-        console.error('[VisibilityStore] Error loading preferences:', error);
+        console.error('Error loading preferences:', error);
         update(state => ({ 
           ...state, 
           isLoading: false,
@@ -256,7 +259,7 @@ function createVisibilityStore() {
       // Only save user preferences to backend
       if (source === 'user') {
         try {
-          console.log(`[VisibilityStore] Saving preference for ${nodeId}: ${isVisible}`);
+          console.log(`Saving preference for ${nodeId}: ${isVisible}`);
           
           const response = await fetchWithAuth('/users/visibility-preferences', {
             method: 'POST',
@@ -266,10 +269,10 @@ function createVisibilityStore() {
             })
           });
           
-          console.log(`[VisibilityStore] Successfully saved preference for ${nodeId}:`, response);
+          console.log(`Successfully saved preference for ${nodeId}`);
           return isVisible;
         } catch (error) {
-          console.error(`[VisibilityStore] Error saving preference for ${nodeId}:`, error);
+          console.error(`Error saving preference for ${nodeId}:`, error);
           
           // Update error state but don't revert the optimistic update
           update(state => ({

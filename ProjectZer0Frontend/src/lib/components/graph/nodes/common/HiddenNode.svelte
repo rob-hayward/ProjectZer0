@@ -1,11 +1,12 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/nodes/common/HiddenNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import { isWordNodeData, isDefinitionData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
     import { COORDINATE_SPACE } from '../../../../constants/graph/coordinate-space';
     import ShowHideButton from './ShowHideButton.svelte';
+    import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     
     // Props
     export let node: RenderableNode;
@@ -25,6 +26,41 @@
     
     // Define the scaled radius
     let scaledRadius: number;
+    
+    // Computed vote value - using statementNetworkStore for statements
+    let displayVotes: number;
+    
+    // Initialize the display votes value
+    onMount(() => {
+        updateVoteDisplay();
+    });
+    
+    // Get the vote value - using statementNetworkStore for statements
+    function updateVoteDisplay() {
+        if (node.type === 'statement') {
+            // For statement nodes, always use statementNetworkStore (single source of truth)
+            try {
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                displayVotes = voteData.netVotes;
+            } catch (error) {
+                // Fall back to provided netVotes prop if store access fails
+                displayVotes = netVotes;
+            }
+        } else {
+            // For other node types, use the provided netVotes
+            displayVotes = netVotes;
+        }
+    }
+    
+    // Reactive statement to update the displayed votes when netVotes changes
+    $: {
+        // Update display votes whenever netVotes changes
+        if (node.type !== 'statement') {
+            displayVotes = netVotes;
+        } else {
+            updateVoteDisplay();
+        }
+    }
     
     // Dispatch events
     const dispatch = createEventDispatcher<{
@@ -137,7 +173,7 @@
             by {hiddenBy}
         </text>
         
-        <!-- Net votes value -->
+        <!-- Net votes value - now using displayVotes -->
         <text
             y="24"
             class="net-votes"
@@ -145,7 +181,7 @@
             style:font-size={NODE_CONSTANTS.FONTS.value.size}
             style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
         >
-            {netVotes}
+            {displayVotes}
         </text>
     </g>
     

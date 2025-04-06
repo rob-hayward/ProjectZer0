@@ -20,6 +20,7 @@ export interface GraphState {
 }
 
 export interface GraphStore {
+	getState(): unknown;
     subscribe: Readable<GraphState>['subscribe'];
     setData: (data: GraphData, config?: LayoutUpdateConfig) => void;
     updateNodeMode: (nodeId: string, mode: NodeMode) => void;
@@ -52,6 +53,8 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
     );
 
     return {
+        getState: () => get(graphState),
+
         subscribe: graphState.subscribe,
 
         setData: (data: GraphData, config?: LayoutUpdateConfig) => {

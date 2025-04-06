@@ -11,10 +11,9 @@ import { statementNetworkStore } from '../../../stores/statementNetworkStore';
 /**
  * Layout for statement networks
  * 
- * Following the exact same pattern as WordDefinitionLayout:
  * - Central control node fixed at center (0,0)
  * - Navigation nodes in a circle around the central node
- * - Top statement positioned like live definition (to the right)
+ * - Top statement positioned to the right
  * - Other statements positioned in a golden angle spiral based on vote rank
  */
 export class StatementNetworkLayout extends BaseLayoutStrategy {
@@ -22,8 +21,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     private readonly FIRST_STATEMENT_ANGLE = Math.PI; // Same angle as first alternative definition
     private statementAngles: Map<string, number> = new Map();
     private expansionState: Map<string, boolean> = new Map();
-    private expandedStatements: Map<string, { rankIndex: number, adjustment: number }> = new Map();
-    private hiddenNodes: Map<string, { rankIndex: number, adjustment: number }> = new Map();
+    private expandedStatements: Map<string, { ringIndex: number, adjustment: number }> = new Map();
+    private hiddenNodes: Map<string, { ringIndex: number, adjustment: number }> = new Map();
     
     // Store subscription and settings
     private sortType = 'netPositive';
@@ -74,42 +73,40 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Get net votes for a node (positive - negative)
+     * Get net votes from the statement network store (single source of truth)
      */
     private getNetVotes(node: EnhancedNode): number {
-        if (!node.data) return 0;
-        
-        if (node.type === 'statement' && 'positiveVotes' in node.data && 'negativeVotes' in node.data) {
-            const posVotes = this.getNeo4jNumber(node.data.positiveVotes) || 0;
-            const negVotes = this.getNeo4jNumber(node.data.negativeVotes) || 0;
-            return posVotes - negVotes;
+        if (!node.data || node.type !== 'statement') {
+            return 0;
         }
         
-        return 0;
+        // Get vote data from the statement network store
+        const voteData = statementNetworkStore.getVoteData(node.id);
+        return voteData.netVotes;
     }
     
     /**
-     * Get total votes for a node (positive + negative)
+     * Get total votes from statement network store
      */
     private getTotalVotes(node: EnhancedNode): number {
-        if (!node.data) return 0;
-        
-        if (node.type === 'statement' && 'positiveVotes' in node.data && 'negativeVotes' in node.data) {
-            const posVotes = this.getNeo4jNumber(node.data.positiveVotes) || 0;
-            const negVotes = this.getNeo4jNumber(node.data.negativeVotes) || 0;
-            return posVotes + negVotes;
+        if (!node.data || node.type !== 'statement') {
+            return 0;
         }
         
-        return 0;
+        // Get vote data from the statement network store
+        const voteData = statementNetworkStore.getVoteData(node.id);
+        return voteData.positiveVotes + voteData.negativeVotes;
     }
     
     /**
      * Get creation date timestamp for chronological sorting
      */
     private getCreationDate(node: EnhancedNode): number {
-        if (!node.data) return 0;
+        if (!node.data || node.type !== 'statement') {
+            return 0;
+        }
         
-        if (node.type === 'statement' && 'createdAt' in node.data) {
+        if (node.data && 'createdAt' in node.data && node.data.createdAt) {
             const dateStr = node.data.createdAt;
             if (typeof dateStr === 'string') {
                 return new Date(dateStr).getTime();
@@ -120,27 +117,17 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Extract number from Neo4j objects
-     */
-    private getNeo4jNumber(value: any): number {
-        if (value && typeof value === 'object' && 'low' in value) {
-            return Number(value.low);
-        }
-        return Number(value || 0);
-    }
-    
-    /**
      * Calculate node ranks based on current sort settings
      */
     private calculateNodeRanks(nodes: EnhancedNode[]): void {
         // Clear existing ranks
         this.rankMap.clear();
         
-        // Get visible statement nodes
-        const statementNodes = nodes.filter(n => n.type === 'statement' && !n.isHidden);
+        // Get all statement nodes for ranking
+        const allStatementNodes = nodes.filter(n => n.type === 'statement');
         
         // Sort based on current sort settings
-        const sortedNodes = [...statementNodes].sort((a, b) => {
+        const sortedNodes = [...allStatementNodes].sort((a, b) => {
             let comparison = 0;
             
             if (this.sortType === 'netPositive') {
@@ -163,7 +150,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             return this.sortDirection === 'desc' ? comparison : -comparison;
         });
         
-        // Store rank information in the rankMap
+        // Store rank information in the rankMap for ALL statement nodes
         sortedNodes.forEach((node, index) => {
             this.rankMap.set(node.id, index);
             
@@ -175,7 +162,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Clear ALL forces from the simulation - duplicated from WordDefinitionLayout
+     * Clear ALL forces from the simulation - similar to WordDefinitionLayout
      * This ensures no forces can affect node positions
      */
     private clearAllForces(): void {
@@ -198,10 +185,23 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 // Ignore errors
             }
         });
+        
+        // Check if there are still any forces left
+        const remainingForces = Object.keys(sim._forces || {});
+        if (remainingForces.length > 0) {
+            // Try to remove these as well
+            remainingForces.forEach(name => {
+                try {
+                    sim.force(name, null);
+                } catch (e) {
+                    // Ignore errors
+                }
+            });
+        }
     }
     
     /**
-     * Initialize node positions following the same pattern as WordDefinitionLayout
+     * Initialize node positions
      */
     initializeNodePositions(nodes: EnhancedNode[]): void {
         // Stop simulation during initialization
@@ -270,7 +270,6 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     
     /**
      * Add a strong centering force to the central control node
-     * This ensures it stays at (0,0) regardless of other forces
      */
     private addCentralNodeAnchor(centralNode: EnhancedNode): void {
         if (!this.simulation) return;
@@ -295,36 +294,37 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Position statement nodes - top one separately, rest in spiral
+     * Position all statement nodes - visible and hidden
      */
     private positionStatementNodes(nodes: EnhancedNode[]): void {
-        // Get visible statement nodes
-        const statementNodes = nodes.filter(n => n.type === 'statement' && !n.isHidden);
+        // Get all statement nodes
+        const statementNodes = nodes.filter(n => n.type === 'statement');
         
-        // Special handling for the top ranked statement (like "live definition")
+        // Special handling for the top ranked statement (most net-positive)
         const topStatement = statementNodes.find(n => this.rankMap.get(n.id) === 0);
         
         if (topStatement) {
-            // Position top-ranked statement specially to the right of control node (like live definition)
+            // Position top-ranked statement specially to the right of control node
             this.positionTopStatement(topStatement);
         }
         
-        // Position remaining statements in a spiral, starting from rank 1
+        // Position remaining statements
         statementNodes.forEach(node => {
-            const rankIndex = this.rankMap.get(node.id) || 0;
-            
             // Skip the top statement (already positioned)
-            if (rankIndex === 0) return;
+            if (topStatement && node.id === topStatement.id) return;
+            
+            // Get rank index (will be used for all nodes, visible or hidden)
+            const ringIndex = this.rankMap.get(node.id) || 0;
             
             // Calculate position with all adjustments
-            const position = this.calculateStatementPosition(node, rankIndex);
+            const position = this.calculateStatementPosition(node, ringIndex);
             
             // Set position
             node.x = position.x;
             node.y = position.y;
             
-            // Fix position if node is in detail mode
-            if (node.mode === 'detail') {
+            // Fix position for expanded nodes ONLY if they're visible
+            if (node.mode === 'detail' && !node.isHidden) {
                 node.fx = position.x;
                 node.fy = position.y;
             } else {
@@ -336,46 +336,25 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             node.vx = 0;
             node.vy = 0;
         });
-        
-        // Position hidden nodes in a tight inner circle (similar to WordDefinitionLayout hidden nodes)
-        const hiddenNodes = nodes.filter(n => n.type === 'statement' && n.isHidden);
-        hiddenNodes.forEach((node, i) => {
-            // Distribute evenly in inner circle
-            const angle = (i / Math.max(1, hiddenNodes.length)) * Math.PI * 2;
-            const radius = 300; // Use a reasonable inner radius
-            
-            // Set position
-            node.x = Math.cos(angle) * radius;
-            node.y = Math.sin(angle) * radius;
-            
-            // Zero velocity
-            node.vx = 0;
-            node.vy = 0;
-            
-            // Store angle for consistency
-            this.statementAngles.set(node.id, angle);
-        });
     }
     
     /**
      * Position the top-ranked statement (most net-positive) to the right
-     * This mirrors WordDefinitionLayout.positionLiveDefinition()
      */
     private positionTopStatement(node: EnhancedNode): void {
-        // Basic positioning constants - exactly like live definition
+        // Basic positioning constants - like live definition
         const baseRadius = COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL;
         
         // Retrieve the control node to check its state
-        const controlNode = (this.simulation.nodes() as unknown as EnhancedNode[])
-            .find(n => n.id === this.controlNodeId);
+        const controlNode = this.findControlNode();
         
-        // Calculate adjustments based on control node state - exactly like word node state affects live definition
+        // Calculate adjustments based on control node state
         const controlAdjustment = controlNode?.mode === 'preview' ?
             // If control is in preview mode, move statements inward
             (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL - COORDINATE_SPACE.NODES.SIZES.STANDARD.PREVIEW) / 2 :
             0;
             
-        // Calculate expansion adjustment - move outward if expanded (like definition)
+        // Calculate expansion adjustment - move outward if expanded
         const expansionAdjustment = node.mode === 'detail' ?
             (COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL - COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
             COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER :
@@ -393,8 +372,8 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         node.x = posX;
         node.y = 0;
         
-        // Fix position if node is in detail mode
-        if (node.mode === 'detail') {
+        // Fix position if node is in detail mode AND visible
+        if (node.mode === 'detail' && !node.isHidden) {
             node.fx = posX;
             node.fy = 0;
         } else {
@@ -407,122 +386,123 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Reposition all statement nodes (used after sort changes)
+     * Find the control node in the simulation
      */
-    private repositionStatementNodes(nodes: EnhancedNode[]): void {
-        // Get visible statement nodes
-        const statementNodes = nodes.filter(n => n.type === 'statement' && !n.isHidden);
+    private findControlNode(): EnhancedNode | undefined {
+        if (!this.simulation) return undefined;
         
-        // Special handling for the top ranked statement (like live definition)
-        const topStatement = statementNodes.find(n => this.rankMap.get(n.id) === 0);
+        const allNodes = this.simulation.nodes() as unknown as EnhancedNode[];
         
-        if (topStatement) {
-            // Position top-ranked statement specially to the right of control node
-            this.positionTopStatement(topStatement);
+        // First try by controlNodeId
+        if (this.controlNodeId) {
+            const nodeById = allNodes.find(n => n.id === this.controlNodeId);
+            if (nodeById) return nodeById;
         }
         
-        // Position remaining statements
-        statementNodes.forEach(node => {
-            const rankIndex = this.rankMap.get(node.id) || 0;
-            
-            // Skip the top statement (already positioned)
-            if (rankIndex === 0) return;
-            
-            // Calculate position with all adjustments
-            const position = this.calculateStatementPosition(node, rankIndex);
-            
-            // Set position
-            node.x = position.x;
-            node.y = position.y;
-            
-            // Fix position for expanded nodes
-            if (node.mode === 'detail') {
-                node.fx = position.x;
-                node.fy = position.y;
-            } else {
-                node.fx = undefined;
-                node.fy = undefined;
-            }
-            
-            // Zero velocity
-            node.vx = 0;
-            node.vy = 0;
-        });
+        // Fallback to finding by group or sub property
+        return allNodes.find(n => 
+            n.group === 'central' || 
+            (n.data && 'sub' in n.data && n.data.sub === 'controls')
+        );
     }
     
     /**
-     * Calculate position for a statement node considering all adjustments
-     * This mirrors WordDefinitionLayout.calculateAltDefinitionPosition()
+     * Reposition all statement nodes (used after sort changes)
+     */
+    private repositionStatementNodes(nodes: EnhancedNode[]): void {
+        this.positionStatementNodes(nodes);
+    }
+    
+    /**
+     * Calculate position for a statement node
      */
     private calculateStatementPosition(
         node: EnhancedNode, 
-        rankIndex: number
+        ringIndex: number
     ): { x: number, y: number, angle: number, radius: number } {
         // Get or assign an angle for this node
         const nodeId = node.id;
         let angle = this.statementAngles.get(nodeId);
         
         if (angle === undefined) {
-            // Adjust rankIndex to account for the special handling of the top statement
-            // This ensures we start the spiral from the second highest ranked node
-            const adjustedRank = rankIndex > 0 ? rankIndex - 1 : rankIndex;
+            // Adjust ringIndex for spiral distribution
+            const adjustedRank = ringIndex > 0 ? ringIndex - 1 : ringIndex;
             
             // Calculate angle using golden ratio for even distribution
-            // For the top node, use 0 degrees (right of center)
-            // For all other nodes, use golden angle distribution - just like alternative definitions
-            angle = rankIndex === 0 ? 
+            angle = ringIndex === 0 ? 
                 0 : // Top node on the right
                 (this.FIRST_STATEMENT_ANGLE + (this.GOLDEN_ANGLE * adjustedRank)) % (2 * Math.PI);
                 
             this.statementAngles.set(nodeId, angle);
         }
 
-        // Use exact same formula for base radius as WordDefinitionLayout
-        const baseRadius = COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL * 
-            (1 + (rankIndex * COORDINATE_SPACE.LAYOUT.RING_SPACING.INCREMENT));
+        // Use same formula for base radius as WordDefinitionLayout but with a MINIMUM spacing
+        const minSpacing = 50; // Minimum spacing between rings
+        const baseRadius = Math.max(
+            COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL * 
+            (1 + (ringIndex * COORDINATE_SPACE.LAYOUT.RING_SPACING.INCREMENT)),
+            COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL + (ringIndex * minSpacing)
+        );
         
-        // Retrieve the control node to check its state
-        const controlNode = (this.simulation.nodes() as unknown as EnhancedNode[])
-            .find(n => n.id === this.controlNodeId);
+        // Retrieve the control node
+        const controlNode = this.findControlNode();
         
-        // Calculate central node adjustment - exactly like word mode affects definition positions
+        // Calculate central node adjustment
         const controlAdjustment = controlNode?.mode === 'preview' ?
-            // If control is in preview mode, move statements inward
             (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL - COORDINATE_SPACE.NODES.SIZES.STANDARD.PREVIEW) / 2 :
             0;
             
-        // Calculate expansion adjustment - move outward if expanded (like definition)
+        // Calculate expansion adjustment - move outward if expanded
         const expansionAdjustment = node.mode === 'detail' ?
             (COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL - COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
             COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER :
+            0;
+            
+        // Calculate hidden adjustment - move inward if hidden
+        const hiddenAdjustment = node.isHidden ?
+            -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
             0;
         
         // Calculate adjustment from inner expanded nodes
         let innerExpandedAdjustment = 0;
         this.expandedStatements.forEach((data, id) => {
-            // If this is an inner ring that's expanded, add its adjustment
-            if (data.rankIndex < rankIndex) {
+            // IMPORTANT: Only apply adjustments from inner rings
+            // If this is an inner ring (lower rank) that's expanded, add its adjustment
+            if (data.ringIndex < ringIndex) {
                 innerExpandedAdjustment += data.adjustment;
             }
         });
         
-        // Calculate adjustment from inner hidden nodes
+        // Calculate adjustment from inner hidden nodes - LIMIT THE TOTAL PULL
         let innerHiddenAdjustment = 0;
+        const maxInwardPull = -100; // Limit how much nodes can be pulled inward
         this.hiddenNodes.forEach((data, id) => {
-            // If this is an inner ring that's hidden, add its adjustment (negative)
-            if (data.rankIndex < rankIndex) {
-                innerHiddenAdjustment += data.adjustment;
+            // IMPORTANT: Only apply adjustments from inner rings
+            // If this is an inner ring (lower rank) that's hidden, add its adjustment (negative)
+            if (data.ringIndex < ringIndex) {
+                // Add adjustment, but with a damping factor to prevent excessive inward movement
+                innerHiddenAdjustment += data.adjustment * 0.5; // Reduce the effect by 50%
             }
         });
         
-        // Calculate final radius with all adjustments - exactly like WordDefinitionLayout
-        const radius = baseRadius + 
-                      expansionAdjustment - 
-                      controlAdjustment + 
-                      innerExpandedAdjustment + 
-                      innerHiddenAdjustment;
+        // Limit the total inward pull from hidden nodes
+        innerHiddenAdjustment = Math.max(innerHiddenAdjustment, maxInwardPull);
         
-        // Calculate coordinates with higher precision
+        // Calculate final radius with all adjustments and enforce minimum distance
+        const minRadius = COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL * 0.5 + 
+                        (ringIndex * COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW * 0.6);
+                        
+        const radius = Math.max(
+            minRadius, // Enforce minimum distance based on ring index
+            baseRadius + 
+            expansionAdjustment - 
+            controlAdjustment + 
+            innerExpandedAdjustment + 
+            innerHiddenAdjustment +
+            hiddenAdjustment
+        );
+        
+        // Calculate coordinates
         const x = Math.cos(angle) * radius;
         const y = Math.sin(angle) * radius;
         
@@ -544,14 +524,14 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 // Also update expanded statements tracking
                 if (isExpanded) {
                     // Get rank index from rankMap
-                    const rankIndex = this.rankMap.get(node.id) || 0;
+                    const ringIndex = this.rankMap.get(node.id) || 0;
                     
-                    // Calculate adjustment - use same values as WordDefinitionLayout for definitions
+                    // Calculate adjustment
                     const adjustment = (COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL - 
                                       COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
                                       COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
                                       
-                    this.expandedStatements.set(node.id, { rankIndex, adjustment });
+                    this.expandedStatements.set(node.id, { ringIndex, adjustment });
                 } else {
                     this.expandedStatements.delete(node.id);
                 }
@@ -572,13 +552,13 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 // Update hidden nodes tracking
                 if (isHidden) {
                     // Get rank index from rankMap
-                    const rankIndex = this.rankMap.get(node.id) || 0;
+                    const ringIndex = this.rankMap.get(node.id) || 0;
                     
                     // Calculate adjustment (negative value to pull inward)
                     const adjustment = -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - 
                                       COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
                                       
-                    this.hiddenNodes.set(node.id, { rankIndex, adjustment });
+                    this.hiddenNodes.set(node.id, { ringIndex, adjustment });
                 } else {
                     if (this.hiddenNodes.has(node.id)) {
                         this.hiddenNodes.delete(node.id);
@@ -608,12 +588,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Update radius based on new mode
         node.radius = this.getNodeRadius(node);
         
-        // Update tracking
-        let recalculatePositions = false;
-        
         // For central control node, ensure it stays at center
         if (node.group === 'central' || node.id === this.controlNodeId) {
-            // AGGRESSIVELY ensure control node is at the center (copied from WordDefinitionLayout)
+            // AGGRESSIVELY ensure control node is at the center
             node.x = 0;
             node.y = 0;
             node.fx = 0;
@@ -625,11 +602,12 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             // Re-add the central node anchor
             this.addCentralNodeAnchor(node);
             
-            recalculatePositions = true;
+            // Recalculate all statement positions
+            this.repositionStatementNodes(nodes);
         }
         // For statement nodes, update expansion state tracking
         else if (node.type === 'statement') {
-            const rankIndex = this.rankMap.get(node.id) || 0;
+            const ringIndex = this.rankMap.get(node.id) || 0;
             
             if (mode === 'detail') {
                 // Add to expanded statements with adjustment
@@ -637,21 +615,29 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                                   COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
                                   COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
                                   
-                this.expandedStatements.set(nodeId, { rankIndex, adjustment });
+                this.expandedStatements.set(nodeId, { ringIndex, adjustment });
                 this.expansionState.set(nodeId, true);
                 
                 // Calculate position
-                const position = this.calculateStatementPosition(node, rankIndex);
+                const position = this.calculateStatementPosition(node, ringIndex);
                 
-                // Update node position and FIX it (exactly like WordDefinitionLayout)
+                // Update node position and FIX it only if visible
                 node.x = position.x;
                 node.y = position.y;
-                node.fx = position.x;
-                node.fy = position.y;
+                
+                if (!node.isHidden) {
+                    node.fx = position.x;
+                    node.fy = position.y;
+                } else {
+                    node.fx = undefined;
+                    node.fy = undefined;
+                }
+                
                 node.vx = 0;
                 node.vy = 0;
                 
-                recalculatePositions = true;
+                // Recalculate positions for all statements
+                this.repositionStatementNodes(nodes);
             } else {
                 // Remove from expanded statements
                 this.expandedStatements.delete(nodeId);
@@ -661,13 +647,9 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 node.fx = undefined;
                 node.fy = undefined;
                 
-                recalculatePositions = true;
+                // Recalculate positions for all statements
+                this.repositionStatementNodes(nodes);
             }
-        }
-        
-        // Recalculate positions if needed
-        if (recalculatePositions) {
-            this.repositionStatementNodes(nodes);
         }
         
         // Force fixed positions
@@ -699,41 +681,36 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
         // Update radius based on new visibility
         node.radius = this.getNodeRadius(node);
         
-        // Handle specific node types
+        // Handle statement node visibility specifically
         if (node.type === 'statement') {
-            const rankIndex = this.rankMap.get(node.id) || 0;
+            const ringIndex = this.rankMap.get(node.id) || 0;
             
             if (isHidden) {
                 // Add to hidden nodes
                 const adjustment = -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - 
                                   COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
                                   
-                this.hiddenNodes.set(nodeId, { rankIndex, adjustment });
+                this.hiddenNodes.set(nodeId, { ringIndex, adjustment });
                 
-                // Remove from expanded nodes if needed
-                this.expandedStatements.delete(nodeId);
-                this.expansionState.set(nodeId, false);
-                
-                // Release fixed position
+                // Release fixed position for hidden nodes
                 node.fx = undefined;
                 node.fy = undefined;
             } else {
                 // Remove from hidden nodes
                 this.hiddenNodes.delete(nodeId);
                 
-                // If node was expanded, restore that state
+                // If node was in detail mode, restore expansion state
                 if (node.mode === 'detail') {
                     const adjustment = (COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL - 
                                       COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
                                       COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
                                       
-                    this.expandedStatements.set(nodeId, { rankIndex, adjustment });
-                    this.expansionState.set(nodeId, true);
+                    this.expandedStatements.set(nodeId, { ringIndex, adjustment });
                     
                     // Calculate position
-                    const position = this.calculateStatementPosition(node, rankIndex);
+                    const position = this.calculateStatementPosition(node, ringIndex);
                     
-                    // Fix position at calculated coordinates
+                    // Fix position for visible nodes in detail mode
                     node.x = position.x;
                     node.y = position.y;
                     node.fx = position.x;
@@ -741,10 +718,7 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
                 }
             }
             
-            // Recalculate node ranks
-            this.calculateNodeRanks(nodes);
-            
-            // Reposition all statement nodes
+            // Recalculate positions for all statement nodes
             this.repositionStatementNodes(nodes);
         }
         
@@ -759,17 +733,55 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Enhanced enforceFixedPositionsStrict
-     * Ensure all fixed nodes stay at their proper positions
-     * CRITICAL: Central node must remain fixed at (0,0)
+     * Additional function to enforce fixed positions - like WordDefinitionLayout
      */
-    public enforceFixedPositionsStrict(): void {
-        this.enforceFixedPositions();
+    public enforceFixedPositions(): void {
+        if (!this.simulation) return;
+        
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find and fix central node
+        const centralNode = nodes.find(n => n.group === 'central' || (n.id === this.controlNodeId));
+        if (centralNode) {
+            centralNode.x = 0;
+            centralNode.y = 0;
+            centralNode.fx = 0;
+            centralNode.fy = 0;
+            centralNode.vx = 0;
+            centralNode.vy = 0;
+            centralNode.fixed = true;
+            
+            // Ensure index 0 for central node (might help with stability)
+            if (typeof centralNode.index === 'number') {
+                centralNode.index = 0;
+            }
+        }
+        
+        // Also enforce navigation node positions
+        nodes.forEach(node => {
+            if (node.type === 'navigation' && node.fx !== undefined && node.fy !== undefined) {
+                node.x = node.fx;
+                node.y = node.fy;
+                node.vx = 0;
+                node.vy = 0;
+            }
+            
+            // Also enforce positions for expanded visible statements
+            if (node.type === 'statement' && node.mode === 'detail' && !node.isHidden &&
+                node.fx !== undefined && node.fy !== undefined) {
+                node.x = node.fx;
+                node.y = node.fy;
+                node.vx = 0;
+                node.vy = 0;
+            }
+        });
+        
+        // Force simulation to honor these positions
+        this.simulation.alpha(0).alphaTarget(0);
     }
     
     /**
-     * Configure forces - Using a "no forces" approach similar to WordDefinitionLayout
-     * This ensures we have complete control over node positioning
+     * Configure forces - Using a "no forces" approach like WordDefinitionLayout
      */
     configureForces(): void {
         // CRITICAL: Clear all forces completely
@@ -789,174 +801,232 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             }
         }
         
-        // Start with VERY minimal alpha - just like WordDefinitionLayout
+        // Start with VERY minimal alpha
         this.simulation.alpha(0.01).restart();
     }
-
+    
     /**
-     * Apply visibility preferences
+     * Apply visibility preferences from user preferences or community rules
      */
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
-        if (!preferences || Object.keys(preferences).length === 0) return;
-        
         // Get nodes
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        if (!nodes || nodes.length === 0) return;
+        if (!nodes || nodes.length === 0) {
+            return;
+        }
         
         // Track if any changes were made
         let changed = false;
         
-        // Apply preferences
-        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
-            const node = nodes.find(n => n.id === nodeId);
-            if (!node) return;
+        // Process all statement nodes
+        const statementNodes = nodes.filter(n => n.type === 'statement');
+        
+        // First pass: Apply community rules to nodes without user preferences
+        statementNodes.forEach(node => {
+            // Skip nodes that have explicit user preferences
+            const userPreference = preferences ? preferences[node.id] : undefined;
+            if (userPreference !== undefined) {
+                return}
             
-            const shouldBeHidden = !isVisible;
-            if (node.isHidden !== shouldBeHidden) {
-                // Update node
-                node.isHidden = shouldBeHidden;
-                node.hiddenReason = 'user';
-                node.radius = this.getNodeRadius(node);
+                // Get vote data from store to determine community visibility
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                const shouldBeHiddenByCommunity = voteData.shouldBeHidden;
                 
-                // Handle statement nodes
-                if (node.type === 'statement') {
-                    const rankIndex = this.rankMap.get(node.id) || 0;
+                // Store original state to track changes
+                const originalHiddenState = node.isHidden;
+                
+                // Apply community rule if no user preference exists
+                if (shouldBeHiddenByCommunity !== originalHiddenState || node.hiddenReason !== 'community') {
+                    node.isHidden = shouldBeHiddenByCommunity;
+                    node.hiddenReason = 'community';
                     
-                    if (shouldBeHidden) {
-                        // Add to hidden nodes
-                        const adjustment = -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - 
-                                          COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
-                                          
-                        this.hiddenNodes.set(nodeId, { rankIndex, adjustment });
+                    // Update node radius
+                    node.radius = this.getNodeRadius(node);
+                    
+                    // Track changes
+                    if (originalHiddenState !== shouldBeHiddenByCommunity) {
+                        changed = true;
                         
-                        // Remove from expanded nodes if needed
-                        this.expandedStatements.delete(nodeId);
-                        this.expansionState.set(nodeId, false);
+                        // Update tracking for hidden nodes
+                        const ringIndex = this.rankMap.get(node.id) || 0;
                         
-                        // Release fixed position
-                        node.fx = undefined;
-                        node.fy = undefined;
-                    } else {
-                        // Remove from hidden nodes
-                        this.hiddenNodes.delete(nodeId);
-                        
-                        // If node was expanded, restore that state
-                        if (node.mode === 'detail') {
-                            const adjustment = (COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL - 
-                                              COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW) / 2 +
-                                              COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
-                                              
-                            this.expandedStatements.set(nodeId, { rankIndex, adjustment });
-                            this.expansionState.set(nodeId, true);
+                        if (shouldBeHiddenByCommunity) {
+                            // Add to hidden nodes map
+                            const adjustment = -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - 
+                                              COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                            
+                            this.hiddenNodes.set(node.id, { ringIndex, adjustment });
+                            
+                            // Release fixed position
+                            node.fx = undefined;
+                            node.fy = undefined;
+                        } else {
+                            // Remove from hidden nodes map
+                            this.hiddenNodes.delete(node.id);
                         }
                     }
                 }
-                
-                changed = true;
+            });
+            
+            // Second pass: Apply explicit user preferences (overrides community)
+            if (preferences && Object.keys(preferences).length > 0) {
+                Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+                    const node = nodes.find(n => n.id === nodeId);
+                    if (!node) {
+                        return;
+                    }
+                    
+                    // Calculate if node should be hidden (inverse of isVisible)
+                    const shouldBeHidden = !isVisible;
+                    
+                    // Store original state to track changes
+                    const originalHiddenState = node.isHidden;
+                    
+                    // Apply user preference if different from current state
+                    if (shouldBeHidden !== originalHiddenState || node.hiddenReason !== 'user') {
+                        // Set the node's visibility state
+                        node.isHidden = shouldBeHidden;
+                        node.hiddenReason = 'user';
+                        
+                        // Update node radius
+                        node.radius = this.getNodeRadius(node);
+                        
+                        // Track changes
+                        if (originalHiddenState !== shouldBeHidden) {
+                            changed = true;
+                            
+                            // Update tracking based on visibility state
+                            if (node.type === 'statement') {
+                                const ringIndex = this.rankMap.get(node.id) || 0;
+                                
+                                if (shouldBeHidden) {
+                                    // Add to hidden nodes
+                                    const adjustment = -(COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW - 
+                                                     COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                                    
+                                    this.hiddenNodes.set(nodeId, { ringIndex, adjustment });
+                                    
+                                    // Release fixed position
+                                    node.fx = undefined;
+                                    node.fy = undefined;
+                                } else {
+                                    // Remove from hidden nodes
+                                    this.hiddenNodes.delete(nodeId);
+                                    
+                                    // If node was in detail mode, fix its position
+                                    if (node.mode === 'detail') {
+                                        const position = this.calculateStatementPosition(node, ringIndex);
+                                        node.fx = position.x;
+                                        node.fy = position.y;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
             }
-        });
-        
-        // Only update if changes were made
-        if (changed) {
-            // Recalculate node ranks
+    
+            // Only update if changes were made
+            if (changed) {
+                // Recalculate node ranks
+                this.calculateNodeRanks(nodes);
+                
+                // Reposition all statement nodes
+                this.repositionStatementNodes(nodes);
+                
+                // Force fixed positions
+                this.enforceFixedPositions();
+                
+                // Manually tick simulation to apply changes
+                this.forceTick(5);
+                
+                // Restart with very low alpha
+                this.simulation.alpha(0.01).restart();
+            }
+        }
+    
+        /**
+         * Update data with exactly same approach as WordDefinitionLayout
+         */
+        public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = true): void {
+            // Always stop simulation during update
+            this.simulation.stop();
+    
+            // Update control node ID
+            this.controlNodeId = nodes.find(n => n.group === 'central')?.id || null;
+    
+            // Track expansion state changes
+            this.updateExpansionState(nodes);
+    
+            // Track hidden state changes
+            this.updateHiddenState(nodes);
+    
+            // Clear all forces
+            this.clearAllForces();
+    
+            // Calculate node ranks and initialize positions
             this.calculateNodeRanks(nodes);
-            
-            // Reposition all statement nodes
-            this.repositionStatementNodes(nodes);
-            
-            // Force fixed positions
+            this.initializeNodePositions(nodes);
+    
+            // Update nodes in simulation
+            this.simulation.nodes(asD3Nodes(nodes));
+    
+            // Configure forces (which adds no actual forces)
+            this.configureForces();
+    
+            // Update link force if it exists
+            const linkForce = this.simulation.force('link') as d3.ForceLink<any, any> | null;
+            if (linkForce && links.length > 0) {
+                linkForce.links(asD3Links(links));
+            }
+    
+            // Enforce fixed positions
             this.enforceFixedPositions();
-            
-            // Manually tick simulation to apply changes
+    
+            // ALWAYS skip animation by setting alpha to 0
+            this.simulation.alpha(0).alphaTarget(0);
+    
+            // Force tick to apply positions immediately
             this.forceTick(5);
-            
-            // Restart with very low alpha
-            this.simulation.alpha(0.01).restart();
         }
-    }
-
-    /**
-     * Update data with exactly same approach as WordDefinitionLayout
-     */
-    public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = true): void {
-        // Always stop simulation during update
-        this.simulation.stop();
-        
-        // Update control node ID
-        this.controlNodeId = nodes.find(n => n.group === 'central')?.id || null;
-        
-        // Track expansion state changes
-        this.updateExpansionState(nodes);
-        
-        // Track hidden state changes
-        this.updateHiddenState(nodes);
-        
-        // Clear all forces
-        this.clearAllForces();
-        
-        // Calculate node ranks and initialize positions
-        this.calculateNodeRanks(nodes);
-        this.initializeNodePositions(nodes);
-        
-        // Update nodes in simulation
-        this.simulation.nodes(asD3Nodes(nodes));
-        
-        // Configure forces (which adds no actual forces)
-        this.configureForces();
-        
-        // Update link force if it exists
-        const linkForce = this.simulation.force('link') as d3.ForceLink<any, any> | null;
-        if (linkForce && links.length > 0) {
-            linkForce.links(asD3Links(links));
-        }
-        
-        // Enforce fixed positions
-        this.enforceFixedPositions();
-        
-        // ALWAYS skip animation by setting alpha to 0
-        this.simulation.alpha(0).alphaTarget(0);
-            
-        // Force tick to apply positions immediately
-        this.forceTick(5);
-    }
     
-    /**
-     * Force multiple ticks with position enforcement between each tick
-     */
-    public forceTick(ticks: number = 1): void {
-        // Temporarily pause any running transitions
-        this.simulation.alpha(0).alphaTarget(0);
-        
-        for (let i = 0; i < ticks; i++) {
-            // Enforce fixed positions before each tick
-            this.enforceFixedPositions();
-            
-            // Perform the tick
-            this.simulation.tick();
-            
-            // Enforce fixed positions after each tick
-            this.enforceFixedPositions();
-        }
-    }
+        /**
+         * Force multiple ticks with position enforcement between each tick
+         */
+        public forceTick(ticks: number = 1): void {
+            // Temporarily pause any running transitions
+            this.simulation.alpha(0).alphaTarget(0);
     
-    /**
-     * Clean up resources
-     */
-    public dispose(): void {
-        // Clean up subscription
-        if (this.storeUnsubscribe) {
-            this.storeUnsubscribe();
-            this.storeUnsubscribe = null;
+            for (let i = 0; i < ticks; i++) {
+                // Enforce fixed positions before each tick
+                this.enforceFixedPositions();
+                
+                // Perform the tick
+                this.simulation.tick();
+                
+                // Enforce fixed positions after each tick
+                this.enforceFixedPositions();
+            }
         }
-        
-        // Clear cached data
-        this.statementAngles.clear();
-        this.expansionState.clear();
-        this.expandedStatements.clear();
-        this.hiddenNodes.clear();
-        this.rankMap.clear();
-        
-        // Stop simulation
-        this.stop();
+    
+        /**
+         * Clean up resources
+         */
+        public dispose(): void {
+            // Clean up subscription
+            if (this.storeUnsubscribe) {
+                this.storeUnsubscribe();
+                this.storeUnsubscribe = null;
+            }
+    
+            // Clear cached data
+            this.statementAngles.clear();
+            this.expansionState.clear();
+            this.expandedStatements.clear();
+            this.hiddenNodes.clear();
+            this.rankMap.clear();
+    
+            // Stop simulation
+            this.stop();
+        }
     }
-}

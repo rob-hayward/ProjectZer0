@@ -1,7 +1,8 @@
 // src/lib/stores/statementNetworkStore.ts
-import { writable, derived, get } from 'svelte/store';
+import { writable, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
-import type { StatementNode, Keyword } from '$lib/types/domain/nodes';
+import type { StatementNode } from '$lib/types/domain/nodes';
+import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 
 export type NetworkSortType = 'netPositive' | 'totalVotes' | 'chronological';
 export type NetworkSortDirection = 'asc' | 'desc';
@@ -27,6 +28,14 @@ export interface StatementNetworkState {
     error: string | null;
 }
 
+// Vote data cache interface
+export interface VoteData {
+    positiveVotes: number;
+    negativeVotes: number;
+    netVotes: number;
+    shouldBeHidden: boolean;
+}
+
 function createStatementNetworkStore() {
     // Initial state
     const initialState: StatementNetworkState = {
@@ -41,6 +50,9 @@ function createStatementNetworkStore() {
     };
     
     const { subscribe, set, update } = writable<StatementNetworkState>(initialState);
+    
+    // Cache for vote data to ensure consistent values across components
+    const voteCache = new Map<string, VoteData>();
     
     // Apply filters to get filtered statements
     function applyFilters(
@@ -90,13 +102,15 @@ function createStatementNetworkStore() {
             let comparison = 0;
             
             if (sortType === 'netPositive') {
-                const aNet = (a.positiveVotes || 0) - (a.negativeVotes || 0);
-                const bNet = (b.positiveVotes || 0) - (b.negativeVotes || 0);
+                const aNet = getVoteData(a.id).netVotes;
+                const bNet = getVoteData(b.id).netVotes;
                 comparison = aNet - bNet;
             } 
             else if (sortType === 'totalVotes') {
-                const aTotal = (a.positiveVotes || 0) + (a.negativeVotes || 0);
-                const bTotal = (b.positiveVotes || 0) + (b.negativeVotes || 0);
+                const aData = getVoteData(a.id);
+                const bData = getVoteData(b.id);
+                const aTotal = aData.positiveVotes + aData.negativeVotes;
+                const bTotal = bData.positiveVotes + bData.negativeVotes;
                 comparison = aTotal - bTotal;
             }
             else if (sortType === 'chronological') {
@@ -107,6 +121,114 @@ function createStatementNetworkStore() {
             
             return direction === 'desc' ? -comparison : comparison;
         });
+    }
+    
+    /**
+     * Helper function to normalize Neo4j data during import
+     * This handles all normalization in one pass, including vote calculations
+     */
+    function normalizeNeo4jData(statement: any): StatementNode {
+        // Make a deep copy to avoid mutating the original
+        const result = {...statement};
+        
+        // Process vote fields with explicit error handling
+        try {
+            // Handle positiveVotes
+            if (statement.positiveVotes === undefined || statement.positiveVotes === null) {
+                result.positiveVotes = 0;
+            } else {
+                result.positiveVotes = getNeo4jNumber(statement.positiveVotes);
+            }
+            
+            // Handle negativeVotes
+            if (statement.negativeVotes === undefined || statement.negativeVotes === null) {
+                result.negativeVotes = 0;
+            } else {
+                result.negativeVotes = getNeo4jNumber(statement.negativeVotes);
+            }
+            
+            // Handle netVotes (calculate if missing)
+            if (statement.netVotes === undefined || statement.netVotes === null) {
+                result.netVotes = result.positiveVotes - result.negativeVotes;
+            } else {
+                result.netVotes = getNeo4jNumber(statement.netVotes);
+                
+                // If netVotes is zero but we have pos/neg votes, recalculate
+                if (result.netVotes === 0 && (result.positiveVotes > 0 || result.negativeVotes > 0)) {
+                    result.netVotes = result.positiveVotes - result.negativeVotes;
+                }
+            }
+            
+            // Cache the vote data immediately after normalization
+            cacheVoteData(result.id, result.positiveVotes, result.negativeVotes, result.netVotes);
+        } catch (error) {
+            // Set fallback values if extraction fails
+            result.positiveVotes = 0;
+            result.negativeVotes = 0;
+            result.netVotes = 0;
+            
+            // Cache default values
+            cacheVoteData(result.id, 0, 0, 0);
+        }
+        
+        return result as StatementNode;
+    }
+    
+    /**
+     * Helper function to cache vote data without re-normalizing
+     * This avoids redundant normalization
+     */
+    function cacheVoteData(
+        statementId: string, 
+        positiveVotes: number, 
+        negativeVotes: number, 
+        netVotes?: number
+    ): VoteData {
+        // Calculate net votes if not provided
+        const calculatedNetVotes = netVotes !== undefined ? 
+            netVotes : positiveVotes - negativeVotes;
+        
+        const shouldBeHidden = calculatedNetVotes < 0;
+        
+        const voteData = {
+            positiveVotes,
+            negativeVotes,
+            netVotes: calculatedNetVotes,
+            shouldBeHidden
+        };
+        
+        // Cache the values
+        voteCache.set(statementId, voteData);
+        
+        return voteData;
+    }
+    
+    /**
+     * Get vote data from cache or calculate and cache if not present
+     * This is the primary method that components should call to get vote data
+     */
+    function getVoteData(statementId: string): VoteData {
+        // Check cache first
+        if (voteCache.has(statementId)) {
+            return voteCache.get(statementId)!;
+        }
+        
+        // If not in cache, try to find in statements
+        const state = get({ subscribe });
+        const statement = state.allStatements.find(s => s.id === statementId);
+        
+        if (!statement) {
+            // Return default values if statement not found
+            return { positiveVotes: 0, negativeVotes: 0, netVotes: 0, shouldBeHidden: false };
+        }
+        
+        // Cache and return the vote data
+        return cacheVoteData(
+            statementId,
+            statement.positiveVotes as number,
+            statement.negativeVotes as number,
+            (statement as any).netVotes
+        );
     }
     
     return {
@@ -136,29 +258,20 @@ function createStatementNetworkStore() {
                 
                 // Make API request
                 const queryString = params.toString() ? `?${params.toString()}` : '';
-                console.log(`[StatementNetworkStore] Fetching all statements: /nodes/statement/network${queryString}`);
                 
-                const startTime = Date.now();
-                const statements = await fetchWithAuth(`/nodes/statement/network${queryString}`);
-                const endTime = Date.now();
-                console.log(`[StatementNetworkStore] API request completed in ${endTime - startTime}ms`);
+                const rawStatements = await fetchWithAuth(`/nodes/statement/network${queryString}`);
                 
                 // Check if we received a valid response
-                if (!statements) {
+                if (!rawStatements) {
                     throw new Error('No response from API');
                 }
                 
-                console.log(`[StatementNetworkStore] Loaded ${statements.length} statements from API`);
+                // Clear vote cache when loading new data
+                voteCache.clear();
                 
-                // Log first statement for debugging
-                if (statements.length > 0) {
-                    console.log('[StatementNetworkStore] First statement:', {
-                        id: statements[0].id,
-                        statement: statements[0].statement?.substring(0, 50) + '...',
-                        keywordCount: statements[0].keywords?.length || 0,
-                        relatedCount: statements[0].relatedStatements?.length || 0
-                    });
-                }
+                // CRITICAL: Normalize Neo4j integers at the API boundary
+                // This also caches vote data in a single pass
+                const statements = rawStatements.map(normalizeNeo4jData);
                 
                 // Update the store
                 update(state => {
@@ -177,8 +290,6 @@ function createStatementNetworkStore() {
                     };
                 });
             } catch (error) {
-                console.error('[StatementNetworkStore] Error loading statements:', error);
-                
                 update(state => ({
                     ...state,
                     isLoading: false,
@@ -258,6 +369,7 @@ function createStatementNetworkStore() {
         
         // Reset the store to initial state
         reset: () => {
+            voteCache.clear();
             set(initialState);
         },
         
@@ -273,6 +385,61 @@ function createStatementNetworkStore() {
             });
             
             return Array.from(keywordSet).sort();
+        },
+        
+        // Get vote data for a statement
+        getVoteData,
+        
+        // Update vote data for a specific statement
+        updateVoteData: (statementId: string, positiveVotes: number, negativeVotes: number) => {
+            const currentState = get({ subscribe });
+            const statement = currentState.allStatements.find(s => s.id === statementId);
+            
+            if (statement) {
+                // Ensure we're working with numbers
+                const posVotes = getNeo4jNumber(positiveVotes);
+                const negVotes = getNeo4jNumber(negativeVotes);
+                
+                // Update the vote data in the statement
+                statement.positiveVotes = posVotes;
+                statement.negativeVotes = negVotes;
+                
+                // If statement has a netVotes property, update it too
+                if ('netVotes' in statement) {
+                    (statement as any).netVotes = posVotes - negVotes;
+                }
+                
+                // Cache the updated vote data (without redundant normalization)
+                cacheVoteData(statementId, posVotes, negVotes, posVotes - negVotes);
+                
+                // Re-sort statements if needed
+                if (currentState.sortType === 'netPositive' || currentState.sortType === 'totalVotes') {
+                    update(state => {
+                        const sorted = sortStatements(state.allStatements, state.sortType, state.sortDirection);
+                        const filtered = applyFilters(
+                            sorted, 
+                            state.filterKeywords, 
+                            state.filterKeywordOperator,
+                            state.filterUserId
+                        );
+                        
+                        return {
+                            ...state,
+                            allStatements: sorted,
+                            filteredStatements: filtered
+                        };
+                    });
+                }
+            }
+        },
+        
+        // Clear vote cache for a specific statement
+        clearVoteCache: (statementId?: string) => {
+            if (statementId) {
+                voteCache.delete(statementId);
+            } else {
+                voteCache.clear();
+            }
         }
     };
 }

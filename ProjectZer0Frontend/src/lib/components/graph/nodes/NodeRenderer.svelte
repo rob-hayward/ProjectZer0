@@ -4,8 +4,8 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
-    import { getNetVotes } from './utils/nodeUtils';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
+    import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     
     // The node to render
     export let node: RenderableNode;
@@ -32,15 +32,12 @@
             nodeId: node.id, 
             isHidden: event.detail.isHidden 
         });
-        
-        // Save preference to store (true = visible, false = hidden)
-        visibilityStore.setPreference(node.id, !event.detail.isHidden);
     }
     
     // Position information from node
     $: posX = node.position.x;
     $: posY = node.position.y;
-    $: transform = `translate(${posX}, ${posY})`;
+    $: transform = node.position.svgTransform;
     
     // Special handling for central node - override position to ensure it's exactly at (0,0)
     $: if (node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')) {
@@ -49,13 +46,11 @@
         transform = 'translate(0,0)';
     }
     
-    // Calculate net votes for the node
-    $: netVotes = node.type === 'word' || node.type === 'definition' || node.type === 'statement'
-        ? getNetVotes(node.data)
+    // Use the statementNetworkStore as the single source of truth for vote data
+    $: netVotes = node.type === 'statement' 
+        ? statementNetworkStore.getVoteData(node.id).netVotes 
         : 0;
     
-    // When component mounts, check if we have a stored visibility preference
-    // for this node and apply it if needed
     onMount(() => {
         if (node.type === 'word' || node.type === 'definition' || node.type === 'statement') {
             const preference = visibilityStore.getPreference(node.id);
@@ -85,11 +80,6 @@
     data-node-hidden={node.isHidden ? 'true' : 'false'}
     transform={transform}
 >
-    <!-- If this is the central control node, add a special debug marker -->
-    {#if node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')}
-        <circle cx="0" cy="0" r="3" fill="yellow" stroke="black" stroke-width="1" />
-    {/if}
-
     {#if node.isHidden}
         <!-- Render hidden node -->
         <HiddenNode 
@@ -106,7 +96,7 @@
             {handleModeChange}
         />
         
-        <!-- Add show/hide button to qualifying nodes (positioned to the right) -->
+        <!-- Add show/hide button to qualifying nodes -->
         {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement'}
             <ShowHideButton 
                 isHidden={false}

@@ -11,6 +11,9 @@
     import { statementNetworkStore, type NetworkSortType, type NetworkSortDirection } from '$lib/stores/statementNetworkStore';
     import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { graphStore } from '$lib/stores/graphStore';
+    import { getNetVotes, getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
+    import { GraphLayoutTransformer } from '$lib/services/graph/transformers';
     import type { 
         GraphData, 
         GraphNode, 
@@ -28,6 +31,88 @@
         isNavigationNode,
         isStatementData
     } from '$lib/types/graph/enhanced';
+    import type { NavigationOption } from '$lib/types/domain/navigation';
+
+    // Define a type for vote analysis results
+    interface VoteAnalysis {
+        allVotes: {
+            id: string;
+            statement: string;
+            positiveVotes: number;
+            negativeVotes: number;
+            netVotes: number;
+            shouldBeHidden: boolean;
+        }[];
+        negativeVotes: {
+            id: string;
+            statement: string;
+            positiveVotes: number;
+            negativeVotes: number;
+            netVotes: number;
+            shouldBeHidden: boolean;
+        }[];
+        summary: {
+            total: number;
+            negative: number;
+            positive: number;
+        }
+    }
+
+    /**
+     * Debug utility to analyze statement vote data
+     */
+    function logAllStatementVotes(): VoteAnalysis {
+        console.log('[VOTE_DEBUG] Starting vote analysis for all statements');
+        
+        const allStatements = $statementNetworkStore?.allStatements || [];
+        if (allStatements.length === 0) {
+            console.log('[VOTE_DEBUG] No statements available');
+            return {
+                allVotes: [],
+                negativeVotes: [],
+                summary: {
+                    total: 0,
+                    negative: 0,
+                    positive: 0
+                }
+            };
+        }
+        
+        // Log the total count
+        console.log(`[VOTE_DEBUG] Analyzing ${allStatements.length} statements for vote data`);
+        
+        // Check each statement using the store's getVoteData method
+        const statementVotes = allStatements.map(statement => {
+            const voteData = statementNetworkStore.getVoteData(statement.id);
+            return {
+                id: statement.id,
+                statement: statement.statement?.substring(0, 25) + '...',
+                positiveVotes: voteData.positiveVotes,
+                negativeVotes: voteData.negativeVotes,
+                netVotes: voteData.netVotes,
+                shouldBeHidden: voteData.shouldBeHidden
+            };
+        });
+        
+        // Count statements with negative net votes
+        const negativeNetVotes = statementVotes.filter(s => s.shouldBeHidden);
+        
+        console.log(`[VOTE_DEBUG] Found ${negativeNetVotes.length} statements with negative net votes that should be hidden:`);
+        negativeNetVotes.forEach(s => {
+            console.log(`[VOTE_DEBUG] Statement ${s.id}: pos=${s.positiveVotes}, neg=${s.negativeVotes}, net=${s.netVotes}`);
+        });
+        
+        // Return for further analysis
+        return {
+            allVotes: statementVotes,
+            negativeVotes: negativeNetVotes,
+            summary: {
+                total: statementVotes.length,
+                negative: negativeNetVotes.length,
+                positive: statementVotes.length - negativeNetVotes.length
+            }
+        };
+    }
 
     // Define view type
     const viewType: ViewType = 'statement-network';
@@ -40,6 +125,7 @@
     let authInitialized = false;
     let dataInitialized = false;
     let statementsLoaded = false;
+    let visibilityPreferencesLoaded = false;
     
     // Control settings with default values
     let sortType: NetworkSortType = 'netPositive';
@@ -60,6 +146,35 @@
     $: statements = $statementNetworkStore?.filteredStatements || [];
     $: isReady = authInitialized && dataInitialized;
     
+    // Create navigation nodes
+    let navigationNodes = getNavigationOptions(NavigationContext.DASHBOARD)
+        .map(option => ({
+            id: option.id,
+            type: 'navigation' as const,
+            data: option,
+            group: 'navigation' as const
+        }));
+        
+    // Navigation options for the transformer
+    let navigationOptions: NavigationOption[] = getNavigationOptions(NavigationContext.DASHBOARD);
+
+    // Create control node for sorting and filtering
+    let controlNode: GraphNode = {
+        id: controlNodeId,
+        type: 'dashboard' as NodeType,
+        data: {
+            sub: 'controls',
+            name: 'Graph Controls',
+            email: '',
+            picture: '',
+            'https://projectzer0.co/user_metadata': {
+                handle: 'controls'
+            }
+        },
+        group: 'central' as NodeGroup,
+        mode: controlNodeMode
+    };
+    
     // Initialize data and authenticate user
     async function initializeData() {
         try {
@@ -74,17 +189,28 @@
             authInitialized = true;
             userStore.set(fetchedUser);
             
-            // Initialize navigation nodes
-            navigationNodes = getNavigationOptions(NavigationContext.DASHBOARD)
-                .map(option => ({
-                    id: option.id,
-                    type: 'navigation' as const,
-                    data: option,
-                    group: 'navigation' as const
-                }));
+            // Initialize navigation nodes and options
+            navigationOptions = getNavigationOptions(NavigationContext.DASHBOARD);
+            navigationNodes = navigationOptions.map(option => ({
+                id: option.id,
+                type: 'navigation' as const,
+                data: option,
+                group: 'navigation' as const
+            }));
             
             // Initialize the graph filter store
             graphFilterStore.setViewType('statement-network', true);
+            
+            // Initialize visibility preferences
+            visibilityStore.initialize();
+            
+            // Load visibility preferences from the server
+            if (!visibilityPreferencesLoaded) {
+                console.log('[STATEMENT-NETWORK] Loading visibility preferences');
+                await visibilityStore.loadPreferences();
+                visibilityPreferencesLoaded = true;
+                console.log('[STATEMENT-NETWORK] Visibility preferences loaded');
+            }
             
             // Start with just navigation and control nodes
             createInitialGraphData();
@@ -115,6 +241,14 @@
                 sortDirection
             });
             
+            // Add this debug log
+            console.log('[VOTE_DEBUG] Statements loaded from API, analyzing vote data');
+            const voteAnalysis = logAllStatementVotes();
+            console.log('[VOTE_DEBUG] Vote analysis complete:', voteAnalysis.summary);
+            
+            // Also dump the vote cache for debugging
+            // statementNetworkStore.dumpVoteCache(); // Removed as the method does not exist
+            
             // Mark statements as loaded
             statementsLoaded = true;
             networkNodesLoading = false;
@@ -129,32 +263,6 @@
             networkNodesLoading = false;
         }
     }
-    
-    // Create navigation nodes
-    let navigationNodes = getNavigationOptions(NavigationContext.DASHBOARD)
-        .map(option => ({
-            id: option.id,
-            type: 'navigation' as const,
-            data: option,
-            group: 'navigation' as const
-        }));
-
-    // Create control node for sorting and filtering
-    let controlNode: GraphNode = {
-        id: controlNodeId,
-        type: 'dashboard' as NodeType,
-        data: {
-            sub: 'controls',
-            name: 'Graph Controls',
-            email: '',
-            picture: '',
-            'https://projectzer0.co/user_metadata': {
-                handle: 'controls'
-            }
-        },
-        group: 'central' as NodeGroup,
-        mode: controlNodeMode
-    };
     
     // Create initial graph data with just navigation and control nodes
     function createInitialGraphData() {
@@ -172,6 +280,15 @@
     function updateGraphWithStatements() {
         // Create complete graph data
         graphData = createGraphData();
+        
+        // Apply visibility preferences to graph data
+        if (visibilityPreferencesLoaded && graphStore) {
+            const preferences = visibilityStore.getAllPreferences();
+            console.log('[STATEMENT-NETWORK] Applying visibility preferences:', {
+                preferenceCount: Object.keys(preferences).length
+            });
+            graphStore.applyVisibilityPreferences(preferences);
+        }
         
         // Update graph store
         if (graphStore) {
@@ -251,6 +368,21 @@
         }
     }
 
+    // Handle node visibility changes
+    function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
+        const { nodeId, isHidden } = event.detail;
+        
+        console.log(`[STATEMENT-NETWORK] Visibility change for node ${nodeId}: hidden=${isHidden}`);
+        
+        // Update visibility preference - note that isVisible is the opposite of isHidden
+        visibilityStore.setPreference(nodeId, !isHidden, 'user');
+        
+        // Update node visibility in graph
+        if (graphStore) {
+            graphStore.updateNodeVisibility(nodeId, isHidden, 'user');
+        }
+    }
+
     // Create graph data with statements
     function createGraphData(): GraphData {
         // During loading, only include navigation and control nodes
@@ -260,76 +392,108 @@
                 links: []
             };
         }
-
-        // Create statement nodes in preview mode
-        const statementNodes: GraphNode[] = statements.map(statement => ({
-            id: statement.id,
-            type: 'statement' as NodeType,
-            data: statement,
-            group: 'statement' as NodeGroup,
-            mode: 'preview' as NodeMode
-        }));
-
+        
+        // Get visibility preferences
+        const visibilityPreferences = visibilityPreferencesLoaded ? 
+            visibilityStore.getAllPreferences() : {};
+        
+        // Add debug log here
+        console.log('[VOTE_DEBUG] Creating graph data with statements, checking vote data from store');
+        const currentVoteAnalysis = logAllStatementVotes();
+        
+        // Use the GraphLayoutTransformer to create consistent layout data
+        const layoutData = GraphLayoutTransformer.transformStatementNetworkView(
+            statements,
+            controlNode,
+            navigationOptions,
+            visibilityPreferences
+        );
+        
+        // Convert layout data to graph data
+        const statementNodes: GraphNode[] = layoutData.nodes
+            .filter(node => node.type === 'statement')
+            .map(layoutNode => {
+                // Find the original statement data
+                const statementData = statements.find(s => s.id === layoutNode.id);
+                if (!statementData) return null;
+                
+                // Extract visibility metadata
+                const isHidden = layoutNode.metadata.isHidden || false;
+                const hiddenReason = layoutNode.metadata.hiddenReason || (isHidden ? 'community' : undefined);
+                
+                return {
+                    id: layoutNode.id,
+                    type: 'statement' as NodeType,
+                    data: {
+                        ...statementData,
+                        // Ensure vote data is numeric by using values from the layout node
+                        positiveVotes: layoutNode.metadata.positiveVotes,
+                        negativeVotes: layoutNode.metadata.negativeVotes
+                    },
+                    group: 'statement' as NodeGroup,
+                    mode: 'preview' as NodeMode,
+                    // Add visibility properties from layout node
+                    isHidden,
+                    hiddenReason
+                };
+            })
+            .filter(Boolean) as GraphNode[];
+        
         // Always ensure control node is present with correct mode
         const updatedControlNode = {
             ...controlNode,
             mode: controlNodeMode
         };
         
-        // Create links between statements - using a Map to consolidate multiple keyword relationships
-        const linkMap = new Map<string, {
-            sourceId: string;
-            targetId: string;
-            keywords: Set<string>;
-            strength: number;
-        }>();
+        // Get navigation nodes from layout data
+        const navNodes = layoutData.nodes
+            .filter(node => node.type === 'navigation')
+            .map(layoutNode => {
+                const navOption = navigationOptions.find((opt: NavigationOption) => opt.id === layoutNode.id);
+                if (!navOption) return null;
+                
+                return {
+                    id: layoutNode.id,
+                    type: 'navigation' as NodeType,
+                    data: navOption,
+                    group: 'navigation' as NodeGroup
+                };
+            })
+            .filter(Boolean) as GraphNode[];
         
-        // Add statement-to-statement relationships
-        statements.forEach(statement => {
-            if (statement.relatedStatements && statement.relatedStatements.length > 0) {
-                statement.relatedStatements.forEach((related: any) => {
-                    // Check if target statement exists in our filtered data
-                    const targetExists = statements.some(s => s.id === related.nodeId);
-                    if (targetExists) {
-                        // Create unique key for node pair - sort IDs to ensure uniqueness regardless of direction
-                        const [id1, id2] = [statement.id, related.nodeId].sort();
-                        const linkKey = `${id1}-${id2}`;
-                        
-                        if (!linkMap.has(linkKey)) {
-                            linkMap.set(linkKey, {
-                                sourceId: statement.id,
-                                targetId: related.nodeId,
-                                keywords: new Set([related.sharedWord || 'unknown']),
-                                strength: related.strength || 1
-                            });
-                        } else {
-                            // Update existing link with additional keyword and max strength
-                            const link = linkMap.get(linkKey)!;
-                            link.keywords.add(related.sharedWord || 'unknown');
-                            link.strength = Math.max(link.strength, related.strength || 1);
-                        }
-                    }
-                });
+        // Convert layout links to graph links with type assertion
+        const graphLinks: GraphLink[] = layoutData.links.map((link, index) => {
+            // First create the base link with required properties
+            const linkData: GraphLink = {
+                id: `link-${link.source}-${link.target}-${index}`,
+                source: link.source,
+                target: link.target,
+                type: link.type as LinkType
+            };
+            
+            // Then add additional properties using type assertion to avoid TypeScript errors
+            if ((link as any).metadata) {
+                (linkData as any).metadata = (link as any).metadata;
             }
+            
+            // Add strength if available
+            if (link.strength !== undefined) {
+                (linkData as any).strength = link.strength;
+            }
+            
+            return linkData;
+        });
+
+        console.log('[STATEMENT-NETWORK] Created graph data:', {
+            totalNodes: navNodes.length + 1 + statementNodes.length,
+            statementNodes: statementNodes.length,
+            hiddenStatements: statementNodes.filter(n => (n as any).isHidden).length,
+            totalLinks: graphLinks.length
         });
         
-        // Convert consolidated links to GraphLink objects
-        const statementLinks: GraphLink[] = Array.from(linkMap.entries()).map(([key, linkInfo]) => ({
-            id: `link-${key}`,
-            source: linkInfo.sourceId,
-            target: linkInfo.targetId,
-            type: 'related' as LinkType,
-            // Add metadata for visualization
-            metadata: {
-                keywordCount: linkInfo.keywords.size,
-                keywords: Array.from(linkInfo.keywords),
-                strength: linkInfo.strength
-            }
-        }));
-
         return {
-            nodes: [...navigationNodes, updatedControlNode, ...statementNodes],
-            links: statementLinks
+            nodes: [...navNodes, updatedControlNode, ...statementNodes],
+            links: graphLinks
         };
     }
     
@@ -366,6 +530,7 @@
         data={graphData}
         viewType={viewType}
         on:modechange={handleNodeModeChange}
+        on:visibilitychange={handleVisibilityChange}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isStatementNode(node)}
@@ -373,6 +538,7 @@
                     {node}
                     statementText={isStatementData(node.data) ? node.data.statement : ''}
                     on:modeChange={handleModeChange}
+                    on:visibilityChange={(e) => handleVisibilityChange(e)}
                 />
             {:else if node.id === controlNodeId}
                 <ControlNode 
@@ -457,8 +623,8 @@
     }
 
     .loading-spinner {
-        width: 65px;
-        height: 65px;
+        width: 65opx;
+        height: 650px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);
         border-radius: 50%;

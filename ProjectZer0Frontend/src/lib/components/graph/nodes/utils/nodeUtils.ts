@@ -1,15 +1,6 @@
 // src/components/graph/nodes/utils/nodeUtils.ts
 import type { UserProfile } from '$lib/types/domain/user';
-
-interface VoteWithLow {
-    low: number;
-}
-
-interface NodeWithVotes {
-    positiveVotes?: number | VoteWithLow;
-    negativeVotes?: number | VoteWithLow;
-    votes?: number | VoteWithLow;
-}
+import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 
 export function drawWrappedText(
     ctx: CanvasRenderingContext2D,
@@ -44,34 +35,36 @@ export function drawWrappedText(
     return y;
 }
 
-export function getVoteValue(votes: number | VoteWithLow | unknown): number {
-    if (typeof votes === 'number') return votes;
-    if (isVoteWithLow(votes)) {
-        return votes.low;
-    }
-    return 0;
+/**
+ * Convert Neo4j vote values to regular numbers
+ * This uses the central getNeo4jNumber utility for consistency
+ */
+export function getVoteValue(votes: any): number {
+    return getNeo4jNumber(votes);
 }
 
-    // Update the getNetVotes function to be more flexible with its parameter type
-    export function getNetVotes(nodeData: any): number {
-        // Safety check for null/undefined
-        if (!nodeData) return 0;
-
-        // If using new voting system with positiveVotes/negativeVotes
-        if ('positiveVotes' in nodeData && 'negativeVotes' in nodeData) {
-            const pos = getVoteValue(nodeData.positiveVotes);
-            const neg = getVoteValue(nodeData.negativeVotes);
-            return pos - neg;
-        }
-        
-        // Fallback for old voting system with just votes property
-        if ('votes' in nodeData) {
-            return getVoteValue(nodeData.votes);
-        }
-        
-        // If nothing matches, return 0
-        return 0;
+/**
+ * Calculate net votes for a node using the standardized extraction
+ */
+export function getNetVotes(nodeData: any): number {
+    // Safety check for null/undefined
+    if (!nodeData) return 0;
+    
+    // If using votes system with positiveVotes/negativeVotes
+    if ('positiveVotes' in nodeData && 'negativeVotes' in nodeData) {
+        const pos = getNeo4jNumber(nodeData.positiveVotes);
+        const neg = getNeo4jNumber(nodeData.negativeVotes);
+        return pos - neg;
     }
+    
+    // Fallback for old voting system with just votes property
+    if ('votes' in nodeData) {
+        return getNeo4jNumber(nodeData.votes);
+    }
+    
+    // If nothing matches, return 0
+    return 0;
+}
 
 export function getDisplayName(
     userId: string, 
@@ -81,11 +74,4 @@ export function getDisplayName(
     if (isAnonymous) return 'Anonymous';
     if (userId === 'FreeDictionaryAPI') return 'Free Dictionary API';
     return userDetails?.preferred_username || userDetails?.name || 'User';
-}
-
-function isVoteWithLow(vote: unknown): vote is VoteWithLow {
-    return typeof vote === 'object' && 
-           vote !== null && 
-           'low' in vote && 
-           typeof (vote as VoteWithLow).low === 'number';
 }

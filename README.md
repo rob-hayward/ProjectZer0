@@ -2,6 +2,14 @@
 
 ProjectZer0 is an innovative knowledge-sharing platform that enables collaborative exploration and visualization of interconnected concepts, beliefs, and ideas. The platform uses advanced graph visualization techniques to create an intuitive and interactive user experience.
 
+## 🚀 Project Overview
+
+ProjectZer0 is built on a microservice architecture with three main components:
+
+- **Frontend**: A SvelteKit application with advanced D3.js graph visualization
+- **Backend**: A NestJS service managing the Neo4j graph database
+- **AI Component**: A FastAPI service providing keyword extraction and content analysis
+
 ## 🌟 Key Features
 
 ### Advanced Graph Visualization
@@ -12,13 +20,14 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
 - Smooth transitions and custom animations
 - Vote-weighted node positioning
 - Efficient collision detection and prevention
+- Visibility preferences for community and user-controlled content filtering
 
 ### Node System
 - Word Nodes: Explore definitions and relationships
-- Belief Nodes: Share and discuss personal perspectives
 - Definition Nodes: Multiple interpretations with voting
+- Statement Nodes: Share and discuss personal perspectives with keyword extraction
 - Navigation Nodes: Context-aware circular menu system
-- Future: Statement nodes and AI-categorized connections
+- Discussion Nodes: Threaded conversations linked to any node type
 
 ### Interactive Features
 - Preview/Detail node state transitions
@@ -26,11 +35,12 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
 - Real-time voting and repositioning
 - Smooth zoom and pan capabilities
 - Intuitive node expansion/collapse
+- Content visibility preferences with persistence
 
 ### User Experience
 - Auth0-powered authentication
 - Dynamic user profiles
-- Interactive node creation
+- Interactive node creation wizards
 - Real-time activity tracking
 - Responsive layout adaptation
 
@@ -42,7 +52,7 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
   - D3.js force simulation
   - Custom force calculations
   - SVG-based rendering
-  - WebGL acceleration
+  - Three.js for 3D welcome scene
 - **State Management**: 
   - Svelte stores
   - Custom node state handling
@@ -57,11 +67,11 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
 
 ### AI Integration
 - **Framework**: FastAPI
-- **Models**: Hugging Face transformers
+- **Models**: KeyBERT with Hugging Face transformers
 - **Features**: 
-  - Automated tag generation
+  - Automated keyword extraction
   - Content analysis
-  - Future: Category suggestion
+  - Asynchronous processing with Redis
 
 ## 🚀 Development Setup
 
@@ -70,6 +80,7 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
 - npm or pnpm
 - Neo4j Database
 - Python 3.8+ (AI component)
+- Redis (optional, for async AI processing)
 
 ### Quick Start
 ```bash
@@ -85,7 +96,9 @@ npm run start:dev
 
 # AI Component
 cd ProjectZer0AI
-python -m pip install -r requirements.txt
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 python main.py
 ```
 
@@ -104,6 +117,19 @@ NEO4J_URI=your-neo4j-uri
 NEO4J_USERNAME=your-username
 NEO4J_PASSWORD=your-password
 JWT_SECRET=your-jwt-secret
+SESSION_SECRET=your-session-secret
+```
+
+#### AI Component (.env)
+```env
+LOG_LEVEL=INFO
+API_HOST=0.0.0.0
+API_PORT=5000
+AI_MODEL_NAME=distilbert-base-nli-mean-tokens
+MAX_KEYWORDS=5
+KEYWORD_DIVERSITY=0.7
+REDIS_HOST=localhost
+REDIS_PORT=6379
 ```
 
 ## ⚙️ Technical Architecture
@@ -137,25 +163,16 @@ JWT_SECRET=your-jwt-secret
 - Dynamic force scaling based on node states
 - Smart collision detection and prevention
 - Position caching and smooth transitions
-- Vote-weighted positioning for definitions
+- Vote-weighted positioning for definitions and statements
+- Visibility preferences affecting node positioning and display
 
-### Component Architecture
-```
-ProjectZer0Frontend/
-├── src/
-│   ├── lib/
-│   │   ├── components/
-│   │   │   ├── graph/
-│   │   │   │   ├── layouts/
-│   │   │   │   ├── nodes/
-│   │   │   │   └── forces/
-│   │   │   ├── forms/
-│   │   │   └── ui/
-│   │   ├── services/
-│   │   ├── stores/
-│   │   └── utils/
-│   └── routes/
-```
+### Data Model
+The application uses a graph data model with Neo4j, where:
+- Nodes represent different types of entities (words, definitions, statements)
+- Relationships connect nodes (HAS_DEFINITION, CREATED, VOTED_ON)
+- Properties store metadata and content
+- Specialized schemas handle different node types
+- User preferences are stored as visibility settings for nodes
 
 ## 🧪 Testing
 
@@ -227,5 +244,6 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 - D3.js community for force simulation insights
 - Neo4j team for graph database expertise
 - Auth0 platform for authentication
-- SvelteKit team for frontend framework
+- SvelteKit and NestJS teams for excellent frameworks
+- KeyBERT and Hugging Face for NLP capabilities
 - Open source community

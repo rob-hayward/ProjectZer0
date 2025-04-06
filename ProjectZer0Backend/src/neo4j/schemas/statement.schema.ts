@@ -10,8 +10,6 @@ export class StatementSchema {
 
   constructor(private readonly neo4jService: Neo4jService) {}
 
-  // Update the getStatementNetwork method in statement.schema.ts
-
   async getStatementNetwork(options: {
     limit?: number;
     offset?: number;
@@ -30,83 +28,28 @@ export class StatementSchema {
     } = options;
 
     this.logger.log(
-      `[StatementSchema] Getting statement network with options: ${JSON.stringify(options)}`,
+      `Getting statement network with options: ${JSON.stringify(options)}`,
     );
 
-    // First, let's check if we have any statements in the database
+    // First, check if we have any statements in the database
     try {
       const countResult = await this.neo4jService.read(
         `MATCH (s:StatementNode) RETURN count(s) as count`,
       );
       const statementCount = countResult.records[0].get('count').toNumber();
-      this.logger.log(
-        `[StatementSchema] Database contains ${statementCount} statements`,
-      );
 
       // If no statements exist, return empty array early
       if (statementCount === 0) {
         this.logger.log(
-          `[StatementSchema] No statements found in database, returning empty array`,
+          'No statements found in database, returning empty array',
         );
         return [];
       }
     } catch (error) {
-      this.logger.error(
-        `[StatementSchema] Error counting statements: ${error.message}`,
-      );
+      this.logger.error(`Error counting statements: ${error.message}`);
     }
 
-    // Build a simplified query first to ensure we can retrieve basic statement data
-    const simpleQuery = `
-    MATCH (s:StatementNode)
-    WHERE 1=1
-    ${
-      keywords && keywords.length > 0
-        ? `AND EXISTS {
-      MATCH (s)-[:TAGGED]->(w:WordNode)
-      WHERE w.word IN $keywords
-    }`
-        : ''
-    }
-    ${userId ? `AND s.createdBy = $userId` : ''}
-    RETURN s.id as id, s.statement as statement, s.createdBy as createdBy, 
-           s.publicCredit as publicCredit, s.createdAt as createdAt, 
-           s.updatedAt as updatedAt
-    LIMIT 10
-  `;
-
-    try {
-      this.logger.log(
-        `[StatementSchema] Executing simple query to test statement retrieval`,
-      );
-      const testResult = await this.neo4jService.read(simpleQuery, {
-        keywords,
-        userId,
-      });
-
-      this.logger.log(
-        `[StatementSchema] Simple query returned ${testResult.records.length} statements`,
-      );
-
-      // Log the first statement if available
-      if (testResult.records.length > 0) {
-        const firstStatement = {
-          id: testResult.records[0].get('id'),
-          statement: testResult.records[0].get('statement'),
-          createdBy: testResult.records[0].get('createdBy'),
-        };
-        this.logger.log(
-          `[StatementSchema] First statement: ${JSON.stringify(firstStatement)}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `[StatementSchema] Error in simple query: ${error.message}`,
-        error.stack,
-      );
-    }
-
-    // Now try the full query
+    // Build the query for fetching statement network
     let query = `
     MATCH (s:StatementNode)
     WHERE s.visibilityStatus <> false OR s.visibilityStatus IS NULL
@@ -142,7 +85,7 @@ export class StatementSchema {
     OPTIONAL MATCH (s)-[:RELATED_TO]-(r:StatementNode)
     WHERE r.visibilityStatus <> false OR r.visibilityStatus IS NULL
     
-    // Get vote counts
+    // Get vote counts - now all statements use the same consistent structure
     OPTIONAL MATCH (s)<-[pv:VOTED_ON {status: 'agree'}]-()
     OPTIONAL MATCH (s)<-[nv:VOTED_ON {status: 'disagree'}]-()
     
@@ -167,12 +110,12 @@ export class StatementSchema {
          }) as directlyRelatedStatements
   `;
 
-    // Add sorting based on parameter
+    // Add sorting based on parameter, but keep all vote data in scope
     if (sortBy === 'netPositive') {
       query += `
       WITH s, keywords, relatedStatements, directlyRelatedStatements, 
            positiveVotes, negativeVotes,
-           COALESCE(s.netVotes, positiveVotes - negativeVotes) as netVotes
+           (positiveVotes - negativeVotes) as netVotes
       ORDER BY netVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
     `;
     } else if (sortBy === 'totalVotes') {
@@ -200,10 +143,17 @@ export class StatementSchema {
 
     // Return statement with all its data
     query += `
-    RETURN s {
-      .*,
+    RETURN {
+      id: s.id,
+      statement: s.statement,
+      createdBy: s.createdBy,
+      publicCredit: s.publicCredit,
+      initialComment: s.initialComment,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
       positiveVotes: positiveVotes,
       negativeVotes: negativeVotes,
+      netVotes: positiveVotes - negativeVotes,
       keywords: keywords,
       relatedStatements: CASE 
         WHEN size(relatedStatements) > 0 THEN relatedStatements
@@ -217,19 +167,6 @@ export class StatementSchema {
   `;
 
     try {
-      this.logger.log(`[StatementSchema] Executing full network query`);
-
-      // Log the full query for debugging
-      this.logger.debug(`[StatementSchema] Full query: ${query}`);
-      this.logger.debug(
-        `[StatementSchema] Query params: ${JSON.stringify({
-          limit,
-          offset,
-          keywords,
-          userId,
-        })}`,
-      );
-
       // Execute the query
       const result = await this.neo4jService.read(query, {
         limit,
@@ -237,10 +174,6 @@ export class StatementSchema {
         keywords,
         userId,
       });
-
-      this.logger.log(
-        `[StatementSchema] Full query returned ${result.records.length} statements`,
-      );
 
       // Process the results to include both relationship types
       const statements = result.records.map((record) => {
@@ -277,7 +210,7 @@ export class StatementSchema {
       return statements;
     } catch (error) {
       this.logger.error(
-        `[StatementSchema] Error getting statement network: ${error.message}`,
+        `Error getting statement network: ${error.message}`,
         error.stack,
       );
       throw error;
@@ -579,7 +512,6 @@ export class StatementSchema {
     }
 
     try {
-      // Don't assign to unused 'result' variable
       await this.neo4jService.write(
         `
       MATCH (s1:StatementNode {id: $statementId1})

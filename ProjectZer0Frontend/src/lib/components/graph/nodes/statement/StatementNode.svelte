@@ -10,6 +10,7 @@
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { graphStore } from '$lib/stores/graphStore';
+    import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { fetchWithAuth } from '$lib/services/api';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     
@@ -45,6 +46,7 @@
     
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
+        visibilityChange: { nodeId: string; isHidden: boolean };
         hover: { isHovered: boolean };
     }>();
 
@@ -72,48 +74,32 @@
         dispatch('hover', event.detail);
     }
 
-    function getNeo4jNumber(value: any): number {
-        if (value && typeof value === 'object' && 'low' in value) {
-            return Number(value.low);
-        }
-        return Number(value || 0);
-    }
-
     async function initializeVoteStatus(retryCount = 0) {
         if (!$userStore) return;
         
         try {
             console.debug('[StatementNode] Fetching vote status for statement:', node.id);
+            
+            // Get vote data from the network store first - use as primary source
+            const storeVotes = statementNetworkStore.getVoteData(node.id);
+            
+            // Update netVotes from the store (single source of truth)
+            netVotes = storeVotes.netVotes;
+            
+            // Fetch user's personal vote status from API - this is still needed for personalization
             const response = await fetchWithAuth(`/nodes/statement/${node.id}/vote`);
             if (!response) {
                 throw new Error('No response from vote status endpoint');
             }
             
-            console.debug('[StatementNode] Vote status response:', response);
-            
+            // Update user vote status from API
             userVoteStatus = response.status || 'none';
-            data.positiveVotes = getNeo4jNumber(response.positiveVotes);
-            data.negativeVotes = getNeo4jNumber(response.negativeVotes);
             
-            // Update net votes directly
-            netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
-            
-            console.debug('[StatementNode] Updated vote status:', {
+            console.debug('[StatementNode] Vote data initialized:', {
                 userVoteStatus,
-                positiveVotes: data.positiveVotes,
-                negativeVotes: data.negativeVotes,
-                netVotes
+                netVotes: storeVotes.netVotes,
+                source: 'statementNetworkStore'
             });
-            
-            // Recalculate visibility based on vote data
-            if (graphStore) {
-                console.debug('[StatementNode] Recalculating node visibility based on votes');
-                graphStore.recalculateNodeVisibility(
-                    node.id, 
-                    data.positiveVotes, 
-                    data.negativeVotes
-                );
-            }
         } catch (error) {
             console.error('[StatementNode] Error fetching vote status:', error);
             
@@ -121,6 +107,10 @@
                 console.debug(`[StatementNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
                 await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
                 await initializeVoteStatus(retryCount + 1);
+            } else {
+                // If we can't get the vote status from API, at least use the store
+                const storeVotes = statementNetworkStore.getVoteData(node.id);
+                netVotes = storeVotes.netVotes;
             }
         }
     }
@@ -146,9 +136,20 @@
                     { method: 'POST' }
                 );
                 
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.debug('[StatementNode] Vote removed:', result);
+                // Update the store with the raw API response
+                statementNetworkStore.updateVoteData(
+                    node.id, 
+                    result.positiveVotes, 
+                    result.negativeVotes
+                );
+                
+                // Get updated vote data from the store (single source of truth)
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                netVotes = voteData.netVotes;
+                
+                console.debug('[StatementNode] Vote removed:', {
+                    newVotes: voteData
+                });
             } else {
                 const result = await fetchWithAuth(
                     `/nodes/statement/${node.id}/vote`,
@@ -160,18 +161,31 @@
                     }
                 );
 
-                data.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                data.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.debug('[StatementNode] Vote recorded:', result);
+                // Update the store with the raw API response
+                statementNetworkStore.updateVoteData(
+                    node.id, 
+                    result.positiveVotes, 
+                    result.negativeVotes
+                );
+                
+                // Get updated vote data from the store (single source of truth)
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                netVotes = voteData.netVotes;
+                
+                console.debug('[StatementNode] Vote recorded:', {
+                    newVotes: voteData
+                });
             }
             
             // Recalculate visibility after vote changes
             if (graphStore) {
-                console.debug('[StatementNode] Recalculating node visibility after vote update');
+                // Get updated values from the store - single source of truth
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                
                 graphStore.recalculateNodeVisibility(
                     node.id, 
-                    data.positiveVotes, 
-                    data.negativeVotes
+                    voteData.positiveVotes,
+                    voteData.negativeVotes
                 );
             }
         } catch (error) {
@@ -206,31 +220,30 @@
         console.debug('[StatementNode] Mounting with statement:', {
             id: node.id,
             statement: displayStatementText,
-            initialPositiveVotes: data.positiveVotes,
-            initialNegativeVotes: data.negativeVotes,
-            mode: node.mode
+            mode: node.mode,
+            isHidden: node.isHidden
         });
         
-        // Initialize vote counts
-        const initialPos = getNeo4jNumber(data.positiveVotes);
-        const initialNeg = getNeo4jNumber(data.negativeVotes);
-        netVotes = initialPos - initialNeg;
+        // Get vote data from the store - single source of truth
+        const storeVotes = statementNetworkStore.getVoteData(node.id);
+        netVotes = storeVotes.netVotes;
 
-        console.debug('[StatementNode] Initial vote calculations:', {
-            initialPos,
-            initialNeg,
-            netVotes
-        });
+        console.debug('[StatementNode] Initial vote data from store:', storeVotes);
 
+        // Also initialize user's vote status from API
         await initializeVoteStatus();
     });
 
     // Reactive declarations
     $: isDetail = node.mode === 'detail';
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    $: netVotes = (data.positiveVotes || 0) - (data.negativeVotes || 0);
-    $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
-    $: statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
+    
+    // Update display values when netVotes changes
+    $: {
+        // Update score display
+        scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
+        statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
+    }
 </script>
 
 {#if isDetail}
@@ -354,7 +367,7 @@
                 </foreignObject>
             </g>
 
-            <!-- Vote Stats -->
+           <!-- Vote Stats for the Detail View -->
             <g transform="translate(0, 70)">
                 <text x={METRICS_SPACING.labelX} class="stats-label left-align">
                     Vote Data:
@@ -382,7 +395,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {data.positiveVotes || 0}
+                        {statementNetworkStore.getVoteData(node.id).positiveVotes}
                     </text>
                 </g>
 
@@ -395,7 +408,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {data.negativeVotes || 0}
+                        {statementNetworkStore.getVoteData(node.id).negativeVotes}
                     </text>
                 </g>
 
@@ -408,7 +421,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {netVotes}
+                        {statementNetworkStore.getVoteData(node.id).netVotes}
                     </text>
                 </g>
 

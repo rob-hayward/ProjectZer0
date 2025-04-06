@@ -56,7 +56,9 @@ export class StatementController {
         userId,
       })}`,
     );
-    return this.statementService.getStatementNetwork({
+
+    // Get the statements from the service
+    return await this.statementService.getStatementNetwork({
       limit: limit ? Number(limit) : undefined,
       offset: offset ? Number(offset) : undefined,
       sortBy,
@@ -123,16 +125,12 @@ export class StatementController {
     @Body() voteData: { isPositive: boolean },
     @Request() req: any,
   ): Promise<VoteResult> {
-    this.logger.log(
-      `Received request to vote on statement: ${id} with data: ${JSON.stringify(voteData, null, 2)}`,
-    );
-    const result = await this.statementService.voteStatement(
+    this.logger.log(`Received request to vote on statement: ${id}`);
+    return await this.statementService.voteStatement(
       id,
       req.user.sub,
       voteData.isPositive,
     );
-    this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
-    return result;
   }
 
   @Get(':id/vote')
@@ -140,17 +138,8 @@ export class StatementController {
     @Param('id') id: string,
     @Request() req: any,
   ): Promise<VoteStatus | null> {
-    this.logger.log(
-      `Received request to get vote status for statement: ${id} from user: ${req.user.sub}`,
-    );
-    const status = await this.statementService.getStatementVoteStatus(
-      id,
-      req.user.sub,
-    );
-    this.logger.log(
-      `Vote status for statement ${id}: ${JSON.stringify(status, null, 2)}`,
-    );
-    return status;
+    this.logger.log(`Received request to get vote status for statement: ${id}`);
+    return await this.statementService.getStatementVoteStatus(id, req.user.sub);
   }
 
   @Post(':id/vote/remove')
@@ -158,25 +147,14 @@ export class StatementController {
     @Param('id') id: string,
     @Request() req: any,
   ): Promise<VoteResult> {
-    this.logger.log(
-      `Received request to remove vote for statement: ${id} from user: ${req.user.sub}`,
-    );
-    const result = await this.statementService.removeStatementVote(
-      id,
-      req.user.sub,
-    );
-    this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
-    return result;
+    this.logger.log(`Received request to remove vote for statement: ${id}`);
+    return await this.statementService.removeStatementVote(id, req.user.sub);
   }
 
   @Get(':id/votes')
   async getStatementVotes(@Param('id') id: string): Promise<VoteResult | null> {
     this.logger.log(`Received request to get votes for statement: ${id}`);
-    const votes = await this.statementService.getStatementVotes(id);
-    this.logger.log(
-      `Votes for statement ${id}: ${JSON.stringify(votes, null, 2)}`,
-    );
-    return votes;
+    return await this.statementService.getStatementVotes(id);
   }
 
   /**

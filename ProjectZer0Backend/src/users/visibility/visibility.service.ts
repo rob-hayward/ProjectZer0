@@ -35,9 +35,6 @@ export class VisibilityService {
         // Determine community visibility based on the passed parameters
         const defaultVisibility =
           this.determineCommunityVisibility(communityVisibility);
-        this.logger.log(
-          `No userId provided, using community visibility: ${defaultVisibility}`,
-        );
         return defaultVisibility;
       }
 
@@ -45,25 +42,13 @@ export class VisibilityService {
       const userVisibilityPreference =
         await this.visibilitySchema.getVisibilityPreference(userId, objectId);
 
-      this.logger.log(
-        `User preference for object ${objectId}: ${userVisibilityPreference}`,
-      );
-
       // If user has explicitly set a preference, use it
       if (userVisibilityPreference !== undefined) {
-        this.logger.log(
-          `Using explicit user preference: ${userVisibilityPreference}`,
-        );
         return userVisibilityPreference;
       }
 
       // Otherwise use community visibility based on votes
-      const communityVisibilityStatus =
-        this.determineCommunityVisibility(communityVisibility);
-      this.logger.log(
-        `Using community visibility: ${communityVisibilityStatus}`,
-      );
-      return communityVisibilityStatus;
+      return this.determineCommunityVisibility(communityVisibility);
     } catch (error) {
       this.logger.error(
         `Error getting object visibility: ${error.message}`,

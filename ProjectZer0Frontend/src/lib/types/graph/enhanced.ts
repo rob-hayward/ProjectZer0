@@ -139,6 +139,7 @@ export interface LayoutLink {
     target: string;
     type: string;
     strength?: number;
+    sharedWord?: string;
 }
 
 // Force configuration types
