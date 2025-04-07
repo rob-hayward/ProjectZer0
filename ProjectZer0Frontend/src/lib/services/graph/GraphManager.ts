@@ -863,6 +863,8 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
     }).filter(Boolean) as RenderableLink[];
 }
 
+// Update the getNodeRadius method in GraphManager.ts
+
 private getNodeRadius(node: GraphNode | EnhancedNode): number {
     // Generate a cache key based on node properties that affect radius
     const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
@@ -905,6 +907,16 @@ private getNodeRadius(node: GraphNode | EnhancedNode): number {
             break;
             
         case 'dashboard':
+            // Special case for the control node/dashboard view
+            if (node.data && 'sub' in node.data && node.data.sub === 'controls') {
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+            } else {
+                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+            }
+            break;
+            
         case 'edit-profile':
         case 'create-node':
             radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;

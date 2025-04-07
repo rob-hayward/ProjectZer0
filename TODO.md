@@ -224,3 +224,5 @@ When implementing features, follow these architectural principles:
    - Document any deviations from patterns
 
 This TODO will be updated as features are completed and priorities evolve.
+
+hidden word and definition nodes not displaying correct net values

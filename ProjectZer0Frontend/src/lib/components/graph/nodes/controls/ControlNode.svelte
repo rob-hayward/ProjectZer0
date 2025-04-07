@@ -3,6 +3,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '$lib/constants/graph/node-styling';
+    import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -56,7 +57,10 @@
     
     // Event dispatcher
     const dispatch = createEventDispatcher<{
-        modeChange: { mode: NodeMode };
+        modeChange: { 
+            mode: NodeMode;
+            radius?: number;
+        };
         controlChange: {
             sortType: NetworkSortType;
             sortDirection: NetworkSortDirection;
@@ -69,10 +73,6 @@
     // Function to handle expanding or collapsing the node
     function handleModeChange() {
         const newMode = isDetail ? 'preview' : 'detail';
-        console.debug(`[ControlNode] Mode change requested:`, { 
-            currentMode: node.mode, 
-            newMode 
-        });
         
         // Apply any pending changes on collapse
         if (isDetail && pendingChanges) {
@@ -80,7 +80,25 @@
         }
         
         isDetail = newMode === 'detail';
-        dispatch('modeChange', { mode: newMode });
+        
+        // Get the correct size based on mode
+        const newRadius = isDetail 
+            ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
+            : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+            
+        console.debug(`[ControlNode] Mode change:`, { 
+            id: node.id,
+            oldMode: node.mode,
+            newMode,
+            oldRadius: node.radius,
+            newRadius
+        });
+        
+        // Update node size and mode
+        dispatch('modeChange', { 
+            mode: newMode,
+            radius: newRadius
+        });
     }
     
     // Apply changes to parent component
@@ -292,11 +310,27 @@
             position: node.position
         });
         
+        // Initialize working copies
         editSortType = sortType;
         editSortDirection = sortDirection;
         editKeywords = [...keywords];
         editKeywordOperator = keywordOperator;
         editShowOnlyMyItems = showOnlyMyItems;
+        
+        // Ensure the node has the correct radius based on mode
+        isDetail = node.mode === 'detail';
+        const correctRadius = isDetail 
+            ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
+            : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+            
+        // Log if there's a radius mismatch
+        if (node.radius !== correctRadius) {
+            console.debug(`[ControlNode] Radius mismatch on mount:`, {
+                currentRadius: node.radius,
+                expectedRadius: correctRadius,
+                mode: node.mode
+            });
+        }
     });
     
     // Keep track of mode changes
@@ -304,13 +338,21 @@
         isDetail = node.mode === 'detail';
     }
     
+    // Create a derived node with proper size
+    $: nodeWithCorrectSize = {
+        ...node,
+        radius: isDetail 
+            ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
+            : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2
+    };
+    
     // Size calculations for preview mode
-    $: textWidth = node.radius * 2 - 45;
+    $: textWidth = nodeWithCorrectSize.radius * 2 - 45;
 </script>
 
 {#if isDetail}
     <!-- DETAIL MODE -->
-    <BaseDetailNode {node} on:modeChange={handleModeChange}>
+    <BaseDetailNode node={nodeWithCorrectSize} on:modeChange={handleModeChange}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
             <text
@@ -324,8 +366,8 @@
             </text>
      
             <!-- Sort Controls -->
-            <g transform="translate(0, {-radius/2})">
-                <text class="section-title">Sort statements</text>
+            <g transform="translate(0, {-radius/1.7})">
+                <text class="section-title">Sort and Filter Statements</text>
                 
                 <!-- Sort Type Selection -->
                 <foreignObject 
@@ -371,66 +413,13 @@
             </g>
             
             <!-- Keyword Filter -->
-            <g transform="translate(0, {-radius/5})">
+            <g transform="translate(0, {-radius/7.5})">
                 <text class="section-title">Filter by Keywords</text>
                 
-                <!-- Selected Keywords Display -->
-                {#if editKeywords.length > 0}
-                    <foreignObject 
-                        x={-180} 
-                        y={20} 
-                        width={360} 
-                        height={70}
-                    >
-                        <div class="selected-keywords">
-                            {#each editKeywords as keyword, index}
-                                <div class="keyword-chip">
-                                    <span>{keyword}</span>
-                                    <button 
-                                        class="remove-keyword"
-                                        on:click={() => removeKeyword(keyword)}
-                                        aria-label={`Remove ${keyword} filter`}
-                                    >
-                                        <span class="material-symbols-outlined">close</span>
-                                    </button>
-                                </div>
-                                
-                                <!-- Add operator between keywords -->
-                                {#if index < editKeywords.length - 1}
-                                    <button 
-                                        class="keyword-operator" 
-                                        on:click={toggleKeywordOperator}
-                                        on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
-                                        aria-label="Toggle filter operator"
-                                    >
-                                        {editKeywordOperator}
-                                    </button>
-                                {/if}
-                            {/each}
-                            
-                            <!-- Operator explanation -->
-                            {#if editKeywords.length > 1}
-                                <div class="operator-info">
-                                    <button 
-                                        class="operator-toggle"
-                                        on:click={toggleKeywordOperator}
-                                        aria-label="Toggle between AND and OR operators"
-                                    >
-                                        {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
-                                    </button>
-                                    <span class="operator-hint">
-                                        (click to change)
-                                    </span>
-                                </div>
-                            {/if}
-                        </div>
-                    </foreignObject>
-                {/if}
-                
-                <!-- Keyword Input -->
+                <!-- Keyword Input - Fixed position at the top -->
                 <foreignObject 
                     x={-180} 
-                    y={editKeywords.length > 0 ? 100 : 20} 
+                    y={20} 
                     width={360} 
                     height={keywordError ? 90 : 60}
                 >
@@ -482,42 +471,67 @@
                         </button>
                     </div>
                 </foreignObject>
-            </g>
-            
-            <!-- User Filter -->
-            <g transform="translate(0, {radius/4})">
-                <text class="section-title">My Content</text>
                 
-                <foreignObject 
-                    x={-180} 
-                    y={20} 
-                    width={360} 
-                    height={60}
-                >
-                    <div class="user-filter">
-                        <label class="toggle-switch">
-                            <input 
-                                type="checkbox" 
-                                bind:checked={editShowOnlyMyItems}
-                                on:change={toggleUserFilter}
-                            />
-                            <span class="slider"></span>
-                        </label>
-                        <span class="filter-label">
-                            {editShowOnlyMyItems 
-                                ? `Showing only my statements` 
-                                : `Showing all statements`}
-                        </span>
-                    </div>
-                </foreignObject>
+                <!-- Selected Keywords Display - Always below the input -->
+                {#if editKeywords.length > 0}
+                    <foreignObject 
+                        x={-180} 
+                        y={keywordError ? 95 : 60} 
+                        width={360} 
+                        height={100}
+                    >
+                        <div class="selected-keywords">
+                            {#each editKeywords as keyword, index}
+                                <div class="keyword-chip">
+                                    <span>{keyword}</span>
+                                    <button 
+                                        class="remove-keyword"
+                                        on:click={() => removeKeyword(keyword)}
+                                        aria-label={`Remove ${keyword} filter`}
+                                    >
+                                        <span class="material-symbols-outlined">close</span>
+                                    </button>
+                                </div>
+                                
+                                <!-- Add operator between keywords -->
+                                {#if index < editKeywords.length - 1}
+                                    <button 
+                                        class="keyword-operator" 
+                                        on:click={toggleKeywordOperator}
+                                        on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
+                                        aria-label="Toggle filter operator"
+                                    >
+                                        {editKeywordOperator}
+                                    </button>
+                                {/if}
+                            {/each}
+                            
+                            <!-- Operator explanation -->
+                            {#if editKeywords.length > 1}
+                                <div class="operator-info">
+                                    <button 
+                                        class="operator-toggle"
+                                        on:click={toggleKeywordOperator}
+                                        aria-label="Toggle between AND and OR operators"
+                                    >
+                                        {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
+                                    </button>
+                                    <span class="operator-hint">
+                                        (click to change)
+                                    </span>
+                                </div>
+                            {/if}
+                        </div>
+                    </foreignObject>
+                {/if}
             </g>
             
             <!-- Control Buttons -->
             <g transform="translate(0, {radius/2})">
                 <foreignObject 
-                    x={-180} 
-                    y={0} 
-                    width={360} 
+                    x={-160} 
+                    y={-20} 
+                    width={320} 
                     height={60}
                 >
                     <div class="button-group">
@@ -549,7 +563,7 @@
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange}>
+    <BasePreviewNode node={nodeWithCorrectSize} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
             <text
                 y={-radius + 40}
@@ -584,26 +598,29 @@
                     >
                         Filters: {keywords.length} keyword{keywords.length > 1 ? 's' : ''}
                     </text>
-                {/if}
-                
-                {#if showOnlyMyItems}
-                    <text 
-                        y={keywords.length > 0 ? 75 : 50}
-                        class="preview-setting"
+                    
+                    <!-- Display up to 3 keywords in preview mode -->
+                    <foreignObject 
+                        x={-120}
+                        y="60" 
+                        width={240} 
+                        height={60}
                     >
-                        My content only
-                    </text>
+                        <div class="preview-keywords">
+                            {#each keywords.slice(0, 3) as keyword}
+                                <div class="preview-keyword-chip">
+                                    {keyword}
+                                </div>
+                            {/each}
+                            {#if keywords.length > 3}
+                                <div class="preview-keyword-more">
+                                    +{keywords.length - 3} more
+                                </div>
+                            {/if}
+                        </div>
+                    </foreignObject>
                 {/if}
             </g>
-        </svelte:fragment>
-
-        <svelte:fragment slot="score" let:radius>
-            <text
-                y={radius - 30}
-                class="hint-text"
-            >
-                Click to configure
-            </text>
         </svelte:fragment>
 
         <!-- Expand Button in Preview Mode -->
@@ -639,11 +656,6 @@
         font-size: 14px;
         font-weight: 400;
         fill: rgba(255, 255, 255, 0.9);
-    }
-    
-    .hint-text {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.5);
     }
 
     :global(.control-section) {
@@ -958,5 +970,37 @@
         font-feature-settings: 'liga';
         -webkit-font-feature-settings: 'liga';
         -webkit-font-smoothing: antialiased;
+    }
+    
+    /* Preview mode keyword chips */
+    :global(.preview-keywords) {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 5px;
+    }
+    
+    :global(.preview-keyword-chip) {
+        background: rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 10px;
+        color: white;
+        font-family: 'Orbitron', sans-serif;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 100px;
+    }
+    
+    :global(.preview-keyword-more) {
+        background: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.7);
+        font-family: 'Orbitron', sans-serif;
     }
 </style>

@@ -30,6 +30,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,     // IMPORTANT: Match definition size exactly
                 PREVIEW: 320     // Match definition preview size
             },
+            CONTROL: {           // New control node specific sizes
+                DETAIL: 450,     // Smaller detail view for control node
+                PREVIEW: 200     // Smaller preview for control node
+            },
             NAVIGATION: 80,
             HIDDEN: 100
         },
