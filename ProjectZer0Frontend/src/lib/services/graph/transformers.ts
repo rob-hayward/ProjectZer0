@@ -166,28 +166,40 @@ export class GraphLayoutTransformer {
         
         console.log('[GraphLayoutTransformer] Statement visibility summary:', visibilitySummary);
 
-        // Create statement relationship links
-        const statementLinks: LayoutLink[] = [];
-        // For each statement that has related statements
+        // Create statement relationship links - MODIFIED to consolidate links
+        // Create a map to track links between node pairs
+        const linkMap = new Map<string, LayoutLink>();
+
         statements.forEach(statement => {
             if (statement.relatedStatements && statement.relatedStatements.length > 0) {
-                // For each related statement
                 statement.relatedStatements.forEach(related => {
                     // Only add link if target statement exists in our filtered statements
                     const targetExists = statements.some(s => s.id === related.nodeId);
                     if (targetExists) {
-                        // Create a unique key for this link to avoid duplicates
+                        // Create consistent link key (always sort IDs for uniqueness)
                         const [sourceId, targetId] = [statement.id, related.nodeId].sort();
                         const linkKey = `${sourceId}-${targetId}`;
                         
-                        // Only add if not already added (to avoid duplicates)
-                        const linkExists = statementLinks.some(link => 
-                            (link.source === sourceId && link.target === targetId) ||
-                            (link.source === targetId && link.target === sourceId)
-                        );
-                        
-                        if (!linkExists) {
-                            // Create a LayoutLink with only the properties defined in the interface
+                        if (linkMap.has(linkKey)) {
+                            // Update existing link
+                            const existingLink = linkMap.get(linkKey)!;
+                            const metadata = (existingLink as any).metadata || { sharedWords: [] };
+                            
+                            // Add the shared word if not already included
+                            if (!metadata.sharedWords.includes(related.sharedWord)) {
+                                metadata.sharedWords.push(related.sharedWord);
+                            }
+                            
+                            // Increment relationship count
+                            metadata.relationCount = metadata.sharedWords.length;
+                            
+                            // Use the maximum strength for the consolidated link
+                            existingLink.strength = Math.max(existingLink.strength || 0.5, related.strength || 0.5);
+                            
+                            // Update metadata
+                            (existingLink as any).metadata = metadata;
+                        } else {
+                            // Create new link
                             const layoutLink: LayoutLink = {
                                 source: statement.id,
                                 target: related.nodeId,
@@ -195,18 +207,22 @@ export class GraphLayoutTransformer {
                                 strength: related.strength || 0.5
                             };
                             
-                            // Store the sharedWord in the metadata instead
-                            // This avoids type errors while still preserving the relationship data
+                            // Initialize metadata
                             (layoutLink as any).metadata = {
-                                sharedWord: related.sharedWord
+                                sharedWords: [related.sharedWord],
+                                relationCount: 1
                             };
                             
-                            statementLinks.push(layoutLink);
+                            linkMap.set(linkKey, layoutLink);
                         }
                     }
                 });
             }
         });
+
+        // Convert map to array for the final links
+        const statementLinks: LayoutLink[] = Array.from(linkMap.values());
+        console.log(`[GraphLayoutTransformer] Created ${statementLinks.length} consolidated links`);
 
         return {
             nodes: [centralNode, ...navigationNodes, ...statementNodes],

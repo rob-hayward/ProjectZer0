@@ -11,29 +11,67 @@
     const gradientId = `gradient-${linkId}`;
     const filterId = `filter-${linkId}`;
     
-    // Determine if this is a live definition link
+    // Determine link types
     $: isLiveDefinition = link.type === 'live';
+    $: isStatementRelation = link.type === 'related';
     
-    // Get the appropriate colors based on link type
-    $: sourceColor = LINK_CONSTANTS.COLORS.WORD;
-    $: targetColor = isLiveDefinition ? 
-        LINK_CONSTANTS.COLORS.DEFINITION.LIVE : 
-        LINK_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE;
+    // Get source and target colors based on link type
+    $: sourceColor = isStatementRelation ? 
+        LINK_CONSTANTS.COLORS.STATEMENT : 
+        LINK_CONSTANTS.COLORS.WORD;
+    $: targetColor = isStatementRelation ? 
+        LINK_CONSTANTS.COLORS.STATEMENT : 
+        (isLiveDefinition ? 
+            LINK_CONSTANTS.COLORS.DEFINITION.LIVE : 
+            LINK_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE);
     
-    // Get the appropriate opacity based on link type
-    $: startOpacity = LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY;
-    $: endOpacity = LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY;
+    // Get gradient opacity based on link type
+    $: startOpacity = isStatementRelation ?
+        LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.START_OPACITY :
+        LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY;
+    $: endOpacity = isStatementRelation ?
+        LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.END_OPACITY :
+        LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY;
 
-    // Get appropriate stroke width
-    $: strokeWidth = isLiveDefinition ?
-        LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
-        LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.STROKE_WIDTH;
+    // Get relationship count from metadata if it exists (for statement relations)
+    $: relationCount = isStatementRelation ? (link.metadata?.relationCount || 1) : 1;
+    
+    // Calculate stroke width
+    $: strokeWidth = isStatementRelation ?
+        // For statement relations, adjust based on relation count
+        Math.min(
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.MAX_STROKE_WIDTH,
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.BASE_STROKE_WIDTH + 
+            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.STROKE_WIDTH_INCREMENT
+        ) :
+        // For other links, use standard values
+        (isLiveDefinition ?
+            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
+            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.STROKE_WIDTH);
+    
+    // Calculate glow intensity based on relationship count for statement relations
+    $: glowIntensity = isStatementRelation ? 
+        Math.min(
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.MAX_INTENSITY,
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.BASE_INTENSITY + 
+            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.INTENSITY_INCREMENT
+        ) : 2;
+    
+    // Calculate glow opacity
+    $: glowOpacity = isStatementRelation ? 
+        Math.min(
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.MAX_OPACITY,
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.BASE_OPACITY + 
+            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.OPACITY_INCREMENT
+        ) : 0.5;
     
     onMount(() => {
         console.debug(`[LinkRenderer:${linkId}] Mounted:`, { 
             source: link.sourceId, 
             target: link.targetId,
-            path: link.path.substring(0, 30) + '...'
+            path: link.path.substring(0, 30) + '...',
+            type: link.type,
+            relationCount: relationCount
         });
     });
 </script>
@@ -45,6 +83,7 @@
         data-source-id={link.sourceId}
         data-target-id={link.targetId}
         data-link-type={link.type}
+        data-relation-count={relationCount}
     >
         <defs>
             <!-- Gradient definition -->
@@ -68,12 +107,12 @@
                 />
             </linearGradient>
             
-            <!-- Glow filter -->
+            <!-- Glow filter with dynamic intensity for statement relations -->
             <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
-                <feGaussianBlur in="SourceGraphic" stdDeviation="2" />
+                <feGaussianBlur in="SourceGraphic" stdDeviation={glowIntensity} />
                 <feColorMatrix
                     type="matrix"
-                    values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1  0 0 0 0.5 0"
+                    values="0 0 0 0 1   0 0 0 0 1   0 0 0 0 1  0 0 0 {glowOpacity} 0"
                 />
                 <feComposite in="SourceGraphic" operator="over" />
             </filter>
@@ -98,6 +137,11 @@
             opacity="1"
             vector-effect="non-scaling-stroke"
         />
+        
+        <!-- Add tooltip for statement relations showing shared words -->
+        {#if isStatementRelation && link.metadata?.sharedWords && link.metadata.sharedWords.length > 0}
+            <title>Shared keywords: {link.metadata.sharedWords.join(', ')}</title>
+        {/if}
     </g>
 {/if}
 

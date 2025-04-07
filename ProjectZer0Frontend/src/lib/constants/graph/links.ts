@@ -17,6 +17,26 @@ export const LINK_CONSTANTS = {
                 END_OPACITY: 0.5
             }
         },
+        STATEMENT_RELATION: {
+            // Base stroke width for single relation
+            BASE_STROKE_WIDTH: 1.25,
+            // Maximum stroke width (with many relations)
+            MAX_STROKE_WIDTH: 4,
+            // How much width to add per relation
+            STROKE_WIDTH_INCREMENT: 0.5,
+            GRADIENT: {
+                START_OPACITY: 0.6,
+                END_OPACITY: 0.6
+            },
+            GLOW: {
+                BASE_INTENSITY: 2,
+                MAX_INTENSITY: 4,
+                INTENSITY_INCREMENT: 0.5,
+                BASE_OPACITY: 0.3,
+                MAX_OPACITY: 0.6,
+                OPACITY_INCREMENT: 0.1
+            }
+        },
         NAVIGATION: {
             STROKE_WIDTH: 1,
             OPACITY: 0.3
@@ -28,7 +48,8 @@ export const LINK_CONSTANTS = {
         DEFINITION: {
             LIVE: COLORS.PRIMARY.BLUE,
             ALTERNATIVE: COLORS.PRIMARY.PURPLE
-        }
+        },
+        STATEMENT: COLORS.PRIMARY.GREEN
     },
     ANIMATION: {
         TRANSITION_DURATION: 300,

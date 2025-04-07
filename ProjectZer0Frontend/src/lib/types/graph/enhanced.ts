@@ -80,8 +80,47 @@ export type EnhancedLink = {
     type: LinkType;
     strength?: number;
     index?: number;
-    relationshipType?: 'direct' | 'keyword'; // Added for statement relationships
+    relationshipType?: 'direct' | 'keyword';
+    metadata?: {
+        sharedWords?: string[];
+        relationCount?: number;
+        [key: string]: any;
+    };
 };
+
+// Ready-to-render link with pre-calculated path
+export interface RenderableLink {
+    id: string;
+    type: LinkType;
+    sourceId: string;
+    targetId: string;
+    sourceType: NodeType;
+    targetType: NodeType;
+    path: string;
+    sourcePosition: NodePosition;
+    targetPosition: NodePosition;
+    strength?: number; 
+    relationshipType?: 'direct' | 'keyword';
+    metadata?: {
+        sharedWords?: string[];
+        relationCount?: number;
+        [key: string]: any;
+    };
+}
+
+export interface LayoutLink {
+    source: string;
+    target: string;
+    type: string;
+    strength?: number;
+    metadata?: {
+        sharedWords?: string[];
+        relationCount?: number;
+        [key: string]: any;
+    };
+}
+
+// The rest of the file remains unchanged
 
 // Position type for consistent positioning
 export interface NodePosition {
@@ -105,21 +144,6 @@ export interface RenderableNode {
     metadata: NodeMetadata; // Added for consistent access
 }
 
-// Ready-to-render link with pre-calculated path
-export interface RenderableLink {
-    id: string;
-    type: LinkType;
-    sourceId: string;
-    targetId: string;
-    sourceType: NodeType;
-    targetType: NodeType;
-    path: string;
-    sourcePosition: NodePosition;
-    targetPosition: NodePosition;
-    strength?: number; 
-    relationshipType?: 'direct' | 'keyword'; // Added for statement relationships
-}
-
 export interface LayoutNode {
     id: string;
     type: string;
@@ -132,14 +156,6 @@ export interface LayoutNode {
         // Other metadata properties
         [key: string]: any;
     };
-}
-
-export interface LayoutLink {
-    source: string;
-    target: string;
-    type: string;
-    strength?: number;
-    sharedWord?: string;
 }
 
 // Force configuration types

@@ -105,8 +105,8 @@
         editShowOnlyMyItems = false;
         pendingChanges = true;
         
-        // Apply changes immediately
-        applyChanges();
+        // Don't apply changes immediately - let the user click Apply
+        // This ensures the Apply button is enabled after clearing filters
     }
     
     // Handle keyword input changes with debounce
@@ -403,14 +403,13 @@
                     height={60}
                 >
                     <div class="button-group">
-                        {#if editKeywords.length > 0 || editShowOnlyMyItems}
-                            <button 
-                                class="clear-filters"
-                                on:click={clearAllFilters}
-                            >
-                                Clear All Filters
-                            </button>
-                        {/if}
+                        <button 
+                            class="clear-filters"
+                            on:click={clearAllFilters}
+                            disabled={editKeywords.length === 0 && !editShowOnlyMyItems}
+                        >
+                            Clear All Filters
+                        </button>
                         <button 
                             class="apply-filters"
                             on:click={applyChanges}
@@ -744,6 +743,11 @@
         font-family: 'Orbitron', sans-serif;
         text-align: center;
         flex: 1;
+    }
+    
+    :global(.clear-filters:disabled) {
+        opacity: 0.5;
+        cursor: not-allowed;
     }
     
     :global(.apply-filters) {

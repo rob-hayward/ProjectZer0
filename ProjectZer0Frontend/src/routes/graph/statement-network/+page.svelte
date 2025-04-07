@@ -212,6 +212,14 @@
                 console.log('[STATEMENT-NETWORK] Visibility preferences loaded');
             }
             
+            // Load word list for keyword filtering
+            const words = await import('$lib/stores/wordListStore').then(module => {
+                const { wordListStore } = module;
+                return wordListStore.loadAllWords();
+            });
+            availableKeywords = words;
+            console.log(`[STATEMENT-NETWORK] Loaded ${availableKeywords.length} words for keyword filtering`);
+            
             // Start with just navigation and control nodes
             createInitialGraphData();
             dataInitialized = true;
@@ -278,6 +286,14 @@
     }
     
     function updateGraphWithStatements() {
+        console.log('[STATEMENT-NETWORK] Updating graph with statements:', {
+            filterKeywords,
+            keywordOperator,
+            showOnlyMyItems,
+            filteredCount: $statementNetworkStore?.filteredStatements?.length || 0,
+            totalCount: $statementNetworkStore?.allStatements?.length || 0
+        });
+        
         // Create complete graph data
         graphData = createGraphData();
         
@@ -292,12 +308,21 @@
         
         // Update graph store
         if (graphStore) {
+            // Preserve node positions to prevent jarring layout changes
             graphStore.setData(graphData, { 
-                skipAnimation: true,
-                forceRefresh: true,
-                preservePositions: false
+                skipAnimation: false,  // Allow animation for smoother transitions
+                forceRefresh: true,    // Force a refresh to ensure all nodes update
+                preservePositions: true // Preserve existing node positions where possible
             });
+            
+            // Ensure control node stays fixed
             graphStore.fixNodePositions();
+            
+            console.log('[STATEMENT-NETWORK] Graph updated with:', {
+                nodeCount: graphData.nodes.length,
+                linkCount: graphData.links.length,
+                statementCount: graphData.nodes.filter(n => n.type === 'statement').length
+            });
         }
     }
     
@@ -324,6 +349,14 @@
         networkNodesLoading = true;
         
         try {
+            console.log('[STATEMENT-NETWORK] Applying control changes:', {
+                sortType: newSortType,
+                sortDirection: newSortDirection,
+                keywords: filterKeywords,
+                keywordOperator,
+                showOnlyMyItems
+            });
+            
             // Apply sorting via the store
             await statementNetworkStore.setSorting(
                 newSortType,
@@ -344,8 +377,11 @@
             // Set loading to false
             networkNodesLoading = false;
             
-            // Update graph
-            updateGraphWithStatements();
+            // Use setTimeout to ensure the store updates have been processed
+            // before updating the graph - this fixes the delay issue
+            setTimeout(() => {
+                updateGraphWithStatements();
+            }, 50);
         } catch (error) {
             console.error('[STATEMENT-NETWORK] Error applying control changes:', error);
             

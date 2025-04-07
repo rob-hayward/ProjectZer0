@@ -798,6 +798,9 @@ private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
     });
 }
 
+// src/lib/services/graph/GraphManager.ts
+// Only updating the createRenderableLinks method to include metadata
+
 private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
     // Skip link calculation entirely if we have no nodes or links
     if (nodes.length === 0 || links.length === 0) {
@@ -853,7 +856,9 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
                 svgTransform: targetTransform
             },
             strength: link.strength,
-            relationshipType: link.relationshipType
+            relationshipType: link.relationshipType,
+            // Include metadata in renderable link if it exists
+            metadata: link.metadata
         };
     }).filter(Boolean) as RenderableLink[];
 }
