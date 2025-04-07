@@ -136,16 +136,22 @@ function createWordListStore() {
          * Search for words matching a query
          */
         searchWords(query: string, limit = 20): string[] {
-            if (!query) return [];
-            
             const state = get({ subscribe });
+            
+            // If no query and caller wants all words, return all words (up to limit)
+            if (!query && limit > 50) {
+                return state.words.slice(0, limit);
+            }
+            
+            if (!query || !state.words.length) return [];
+            
             const lowerQuery = query.toLowerCase();
             
             // Search for words that start with the query first
             const startsWith = state.words
                 .filter(word => word.toLowerCase().startsWith(lowerQuery))
                 .slice(0, limit);
-                
+                    
             // If we don't have enough matches, look for words containing the query
             if (startsWith.length < limit) {
                 const remaining = limit - startsWith.length;
@@ -153,11 +159,27 @@ function createWordListStore() {
                     .filter(word => !word.toLowerCase().startsWith(lowerQuery) && 
                                     word.toLowerCase().includes(lowerQuery))
                     .slice(0, remaining);
-                    
+                        
                 return [...startsWith, ...contains];
             }
             
             return startsWith;
+        },
+        
+        /**
+         * Check if a word exists in the list
+         */
+        wordExists(word: string): boolean {
+            const state = get({ subscribe });
+            return state.words.some(w => w.toLowerCase() === word.toLowerCase());
+        },
+        
+        /**
+         * Get all available words
+         */
+        getAllWords(): string[] {
+            const state = get({ subscribe });
+            return [...state.words];
         },
         
         /**

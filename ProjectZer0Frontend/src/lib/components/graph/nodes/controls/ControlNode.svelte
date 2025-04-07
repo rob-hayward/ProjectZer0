@@ -7,6 +7,7 @@
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     import type { NetworkSortType, NetworkSortDirection } from '$lib/stores/statementNetworkStore';
+    import { wordListStore } from '$lib/stores/wordListStore';
     
     // Props
     export let node: RenderableNode;
@@ -23,6 +24,8 @@
     let keywordSearchResults: string[] = [];
     let searchTimeout: NodeJS.Timeout | null = null;
     let pendingChanges = false;
+    let keywordError: string | null = null;
+    let keywordExists = false;
     
     // Sort options
     const sortOptions: Record<string, string> = {
@@ -111,6 +114,9 @@
     
     // Handle keyword input changes with debounce
     function handleKeywordInputChange() {
+        keywordError = null;
+        keywordExists = false;
+        
         if (searchTimeout) {
             clearTimeout(searchTimeout);
         }
@@ -130,11 +136,15 @@
     function searchKeywords(query: string) {
         if (!query.trim()) {
             keywordSearchResults = [];
+            keywordExists = false;
             return;
         }
         
         const lowerQuery = query.toLowerCase();
         const keywords = availableKeywords || [];
+        
+        // Check if the exact keyword exists
+        keywordExists = keywords.some(k => k.toLowerCase() === lowerQuery);
         
         // First, keywords that start with the query
         const startsWith = keywords
@@ -151,11 +161,34 @@
     
     // Add keyword
     function addKeyword(keyword: string) {
-        if (!keyword || editKeywords.includes(keyword)) return;
+        if (!keyword) return;
         
-        editKeywords = [...editKeywords, keyword];
+        // Check if keyword already exists in filter
+        if (editKeywords.includes(keyword)) {
+            keywordError = `'${keyword}' is already in your filters`;
+            return;
+        }
+        
+        // Check if it's in the available keywords list
+        const exists = availableKeywords.some(k => 
+            k.toLowerCase() === keyword.toLowerCase()
+        );
+        
+        if (!exists) {
+            keywordError = `'${keyword}' is not a known keyword`;
+            return;
+        }
+        
+        // Find the exact case-matching version from the available keywords
+        const exactKeyword = availableKeywords.find(k => 
+            k.toLowerCase() === keyword.toLowerCase()
+        ) || keyword;
+        
+        // Add to keywords list
+        editKeywords = [...editKeywords, exactKeyword];
         keywordInput = '';
         keywordSearchResults = [];
+        keywordError = null;
         pendingChanges = true;
     }
     
@@ -293,7 +326,7 @@
                         height={70}
                     >
                         <div class="selected-keywords">
-                            {#each editKeywords as keyword}
+                            {#each editKeywords as keyword, index}
                                 <div class="keyword-chip">
                                     <span>{keyword}</span>
                                     <button 
@@ -304,17 +337,34 @@
                                         <span class="material-symbols-outlined">close</span>
                                     </button>
                                 </div>
+                                
+                                <!-- Add operator between keywords -->
+                                {#if index < editKeywords.length - 1}
+                                    <button 
+                                        class="keyword-operator" 
+                                        on:click={toggleKeywordOperator}
+                                        on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
+                                        aria-label="Toggle filter operator"
+                                    >
+                                        {editKeywordOperator}
+                                    </button>
+                                {/if}
                             {/each}
                             
-                            <!-- Operator Toggle -->
+                            <!-- Operator explanation -->
                             {#if editKeywords.length > 1}
-                                <button 
-                                    class="operator-toggle"
-                                    on:click={toggleKeywordOperator}
-                                    aria-label="Toggle between AND and OR operators"
-                                >
-                                    {editKeywordOperator}
-                                </button>
+                                <div class="operator-info">
+                                    <button 
+                                        class="operator-toggle"
+                                        on:click={toggleKeywordOperator}
+                                        aria-label="Toggle between AND and OR operators"
+                                    >
+                                        {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
+                                    </button>
+                                    <span class="operator-hint">
+                                        (click to change)
+                                    </span>
+                                </div>
                             {/if}
                         </div>
                     </foreignObject>
@@ -325,7 +375,7 @@
                     x={-180} 
                     y={editKeywords.length > 0 ? 100 : 20} 
                     width={360} 
-                    height={60}
+                    height={keywordError ? 90 : 60}
                 >
                     <div class="keyword-input-container">
                         <div class="autocomplete-wrapper">
@@ -336,7 +386,12 @@
                                 on:input={handleKeywordInputChange}
                                 on:keydown={handleKeywordInputKeydown}
                                 autocomplete="off"
+                                class={keywordError ? "has-error" : ""}
                             />
+                            
+                            {#if keywordError}
+                                <div class="keyword-error">{keywordError}</div>
+                            {/if}
                             
                             {#if keywordSearchResults.length > 0 && keywordInput}
                                 <div class="autocomplete-dropdown" role="listbox">
@@ -358,7 +413,7 @@
                         <button 
                             class="add-keyword"
                             on:click={() => addKeyword(keywordInput)}
-                            disabled={!keywordInput}
+                            disabled={!keywordInput || (keywordInput.trim() !== '' && !keywordExists)}
                         >
                             Add
                         </button>
@@ -588,14 +643,45 @@
         align-items: center;
     }
     
+    :global(.keyword-operator) {
+        background: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+        border-radius: 16px;
+        color: white;
+        padding: 2px 8px;
+        font-size: 10px;
+        cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+        margin: 0 4px;
+        /* Add these for button reset */
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    :global(.operator-info) {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        margin-top: 8px;
+        width: 100%;
+    }
+    
     :global(.operator-toggle) {
         background: rgba(52, 152, 219, 0.2);
         border: 1px solid rgba(52, 152, 219, 0.3);
         border-radius: 16px;
         color: white;
-        padding: 4px 10px;
-        font-size: 12px;
+        padding: 4px 12px;
+        font-size: 11px;
         cursor: pointer;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.operator-hint) {
+        font-size: 9px;
+        color: rgba(255, 255, 255, 0.5);
+        margin-top: 4px;
         font-family: 'Orbitron', sans-serif;
     }
     
@@ -618,6 +704,17 @@
         padding: 8px;
         font-family: 'Orbitron', sans-serif;
         font-size: 12px;
+    }
+    
+    :global(.has-error) {
+        border-color: rgba(231, 76, 60, 0.5) !important;
+    }
+    
+    :global(.keyword-error) {
+        color: rgba(231, 76, 60, 0.9);
+        font-size: 11px;
+        margin-top: 4px;
+        font-family: 'Orbitron', sans-serif;
     }
     
     :global(.autocomplete-dropdown) {

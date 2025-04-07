@@ -13,7 +13,8 @@
     import { graphStore } from '$lib/stores/graphStore';
     import { getNetVotes, getVoteValue } from '$lib/components/graph/nodes/utils/nodeUtils';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
-    import { GraphLayoutTransformer } from '$lib/services/graph/transformers';
+    import { GraphLayoutTransformer } from '$lib/services/graph/GraphLayoutTransformer';
+    import { wordListStore } from '$lib/stores/wordListStore';
     import type { 
         GraphData, 
         GraphNode, 
@@ -32,87 +33,6 @@
         isStatementData
     } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
-
-    // Define a type for vote analysis results
-    interface VoteAnalysis {
-        allVotes: {
-            id: string;
-            statement: string;
-            positiveVotes: number;
-            negativeVotes: number;
-            netVotes: number;
-            shouldBeHidden: boolean;
-        }[];
-        negativeVotes: {
-            id: string;
-            statement: string;
-            positiveVotes: number;
-            negativeVotes: number;
-            netVotes: number;
-            shouldBeHidden: boolean;
-        }[];
-        summary: {
-            total: number;
-            negative: number;
-            positive: number;
-        }
-    }
-
-    /**
-     * Debug utility to analyze statement vote data
-     */
-    function logAllStatementVotes(): VoteAnalysis {
-        console.log('[VOTE_DEBUG] Starting vote analysis for all statements');
-        
-        const allStatements = $statementNetworkStore?.allStatements || [];
-        if (allStatements.length === 0) {
-            console.log('[VOTE_DEBUG] No statements available');
-            return {
-                allVotes: [],
-                negativeVotes: [],
-                summary: {
-                    total: 0,
-                    negative: 0,
-                    positive: 0
-                }
-            };
-        }
-        
-        // Log the total count
-        console.log(`[VOTE_DEBUG] Analyzing ${allStatements.length} statements for vote data`);
-        
-        // Check each statement using the store's getVoteData method
-        const statementVotes = allStatements.map(statement => {
-            const voteData = statementNetworkStore.getVoteData(statement.id);
-            return {
-                id: statement.id,
-                statement: statement.statement?.substring(0, 25) + '...',
-                positiveVotes: voteData.positiveVotes,
-                negativeVotes: voteData.negativeVotes,
-                netVotes: voteData.netVotes,
-                shouldBeHidden: voteData.shouldBeHidden
-            };
-        });
-        
-        // Count statements with negative net votes
-        const negativeNetVotes = statementVotes.filter(s => s.shouldBeHidden);
-        
-        console.log(`[VOTE_DEBUG] Found ${negativeNetVotes.length} statements with negative net votes that should be hidden:`);
-        negativeNetVotes.forEach(s => {
-            console.log(`[VOTE_DEBUG] Statement ${s.id}: pos=${s.positiveVotes}, neg=${s.negativeVotes}, net=${s.netVotes}`);
-        });
-        
-        // Return for further analysis
-        return {
-            allVotes: statementVotes,
-            negativeVotes: negativeNetVotes,
-            summary: {
-                total: statementVotes.length,
-                negative: negativeNetVotes.length,
-                positive: statementVotes.length - negativeNetVotes.length
-            }
-        };
-    }
 
     // Define view type
     const viewType: ViewType = 'statement-network';
@@ -206,19 +126,18 @@
             
             // Load visibility preferences from the server
             if (!visibilityPreferencesLoaded) {
-                console.log('[STATEMENT-NETWORK] Loading visibility preferences');
                 await visibilityStore.loadPreferences();
                 visibilityPreferencesLoaded = true;
-                console.log('[STATEMENT-NETWORK] Visibility preferences loaded');
             }
             
             // Load word list for keyword filtering
-            const words = await import('$lib/stores/wordListStore').then(module => {
-                const { wordListStore } = module;
-                return wordListStore.loadAllWords();
-            });
-            availableKeywords = words;
-            console.log(`[STATEMENT-NETWORK] Loaded ${availableKeywords.length} words for keyword filtering`);
+            try {
+                await wordListStore.loadAllWords();
+                availableKeywords = wordListStore.searchWords('', 1000); // Get a large set of keywords
+            } catch (error) {
+                console.error('[STATEMENT-NETWORK] Error loading word list:', error);
+                availableKeywords = [];
+            }
             
             // Start with just navigation and control nodes
             createInitialGraphData();
@@ -249,14 +168,6 @@
                 sortDirection
             });
             
-            // Add this debug log
-            console.log('[VOTE_DEBUG] Statements loaded from API, analyzing vote data');
-            const voteAnalysis = logAllStatementVotes();
-            console.log('[VOTE_DEBUG] Vote analysis complete:', voteAnalysis.summary);
-            
-            // Also dump the vote cache for debugging
-            // statementNetworkStore.dumpVoteCache(); // Removed as the method does not exist
-            
             // Mark statements as loaded
             statementsLoaded = true;
             networkNodesLoading = false;
@@ -286,23 +197,12 @@
     }
     
     function updateGraphWithStatements() {
-        console.log('[STATEMENT-NETWORK] Updating graph with statements:', {
-            filterKeywords,
-            keywordOperator,
-            showOnlyMyItems,
-            filteredCount: $statementNetworkStore?.filteredStatements?.length || 0,
-            totalCount: $statementNetworkStore?.allStatements?.length || 0
-        });
-        
         // Create complete graph data
         graphData = createGraphData();
         
         // Apply visibility preferences to graph data
         if (visibilityPreferencesLoaded && graphStore) {
             const preferences = visibilityStore.getAllPreferences();
-            console.log('[STATEMENT-NETWORK] Applying visibility preferences:', {
-                preferenceCount: Object.keys(preferences).length
-            });
             graphStore.applyVisibilityPreferences(preferences);
         }
         
@@ -317,12 +217,6 @@
             
             // Ensure control node stays fixed
             graphStore.fixNodePositions();
-            
-            console.log('[STATEMENT-NETWORK] Graph updated with:', {
-                nodeCount: graphData.nodes.length,
-                linkCount: graphData.links.length,
-                statementCount: graphData.nodes.filter(n => n.type === 'statement').length
-            });
         }
     }
     
@@ -349,14 +243,6 @@
         networkNodesLoading = true;
         
         try {
-            console.log('[STATEMENT-NETWORK] Applying control changes:', {
-                sortType: newSortType,
-                sortDirection: newSortDirection,
-                keywords: filterKeywords,
-                keywordOperator,
-                showOnlyMyItems
-            });
-            
             // Apply sorting via the store
             await statementNetworkStore.setSorting(
                 newSortType,
@@ -364,13 +250,13 @@
             );
             
             // Apply keyword filter
-            statementNetworkStore.applyKeywordFilter(
+            await statementNetworkStore.applyKeywordFilter(
                 filterKeywords,
                 keywordOperator
             );
             
             // Apply user filter
-            statementNetworkStore.applyUserFilter(
+            await statementNetworkStore.applyUserFilter(
                 showOnlyMyItems ? $userStore?.sub : undefined
             );
             
@@ -408,8 +294,6 @@
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
         const { nodeId, isHidden } = event.detail;
         
-        console.log(`[STATEMENT-NETWORK] Visibility change for node ${nodeId}: hidden=${isHidden}`);
-        
         // Update visibility preference - note that isVisible is the opposite of isHidden
         visibilityStore.setPreference(nodeId, !isHidden, 'user');
         
@@ -432,10 +316,6 @@
         // Get visibility preferences
         const visibilityPreferences = visibilityPreferencesLoaded ? 
             visibilityStore.getAllPreferences() : {};
-        
-        // Add debug log here
-        console.log('[VOTE_DEBUG] Creating graph data with statements, checking vote data from store');
-        const currentVoteAnalysis = logAllStatementVotes();
         
         // Use the GraphLayoutTransformer to create consistent layout data
         const layoutData = GraphLayoutTransformer.transformStatementNetworkView(
@@ -520,13 +400,6 @@
             return linkData;
         });
 
-        console.log('[STATEMENT-NETWORK] Created graph data:', {
-            totalNodes: navNodes.length + 1 + statementNodes.length,
-            statementNodes: statementNodes.length,
-            hiddenStatements: statementNodes.filter(n => (n as any).isHidden).length,
-            totalLinks: graphLinks.length
-        });
-        
         return {
             nodes: [...navNodes, updatedControlNode, ...statementNodes],
             links: graphLinks

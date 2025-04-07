@@ -114,9 +114,66 @@ function createStatementNetworkStore() {
                 comparison = aTotal - bTotal;
             }
             else if (sortType === 'chronological') {
-                const aDate = new Date(a.createdAt).getTime();
-                const bDate = new Date(b.createdAt).getTime();
-                comparison = aDate - bDate;
+                // Direct handling of ProjectZero's specific date format
+                try {
+                    // Direct timestamp comparison - most reliable method
+                    const getTimestamp = (item: any): number => {
+                        if (!item || !item.createdAt) return 0;
+                        
+                        try {
+                            // Direct date parse - works with the nanosecond format used in ProjectZer0
+                            if (typeof item.createdAt === 'string') {
+                                const date = new Date(item.createdAt);
+                                const timestamp = date.getTime();
+                                if (!isNaN(timestamp)) {
+                                    return timestamp;
+                                }
+                            }
+                            
+                            // Handle Neo4j integer format
+                            if (typeof item.createdAt === 'object' && item.createdAt !== null && 'low' in item.createdAt) {
+                                return item.createdAt.low * 1000;
+                            }
+                            
+                            // Handle timestamp number
+                            if (typeof item.createdAt === 'number') {
+                                return item.createdAt;
+                            }
+                            
+                            return 0;
+                        } catch (e) {
+                            console.error('[statementNetworkStore] Error parsing date:', e);
+                            return 0;
+                        }
+                    };
+                    
+                    const aTimestamp = getTimestamp(a);
+                    const bTimestamp = getTimestamp(b);
+                    
+                    // Debug log to verify which timestamps are being used
+                    // If a and b are the first two statements being compared,
+                    // log the details to help diagnose the issue
+                    if (aTimestamp && bTimestamp) {
+                        console.log(`[Sort Debug] Comparing dates:`, {
+                            a: { id: a.id.substring(0, 8), timestamp: aTimestamp, date: new Date(aTimestamp).toISOString() },
+                            b: { id: b.id.substring(0, 8), timestamp: bTimestamp, date: new Date(bTimestamp).toISOString() }
+                        });
+                    }
+                    
+                    // Handle cases where one or both timestamps are 0 (invalid)
+                    if (aTimestamp === 0 && bTimestamp === 0) {
+                        comparison = 0;  // Keep original order if both invalid
+                    } else if (aTimestamp === 0) {
+                        comparison = 1;  // Invalid dates go to the end
+                    } else if (bTimestamp === 0) {
+                        comparison = -1; // Invalid dates go to the end
+                    } else {
+                        comparison = aTimestamp - bTimestamp;
+                    }
+                } catch (error) {
+                    console.error('[statementNetworkStore] Error comparing dates:', error);
+                    comparison = 0;
+                }
             }
             
             return direction === 'desc' ? -comparison : comparison;
@@ -150,20 +207,6 @@ function createStatementNetworkStore() {
             // Always calculate netVotes from positive and negative votes
             // Don't rely on the netVotes value from the backend to maintain consistency
             result.netVotes = result.positiveVotes - result.negativeVotes;
-            
-            // Log for debugging
-            // Calculate a net vote value based on the statement's positive and negative votes
-            const originalNetVotes = 
-                statement.positiveVotes !== undefined && statement.negativeVotes !== undefined ?
-                getNeo4jNumber(statement.positiveVotes) - getNeo4jNumber(statement.negativeVotes) : 
-                undefined;
-                
-            console.debug(`[statementNetworkStore] Normalized votes for ${result.id}:`, {
-                positiveVotes: result.positiveVotes,
-                negativeVotes: result.negativeVotes,
-                calculatedNetVotes: result.netVotes,
-                originalNetVotes: originalNetVotes
-            });
             
             // Cache the vote data immediately after normalization
             cacheVoteData(result.id, result.positiveVotes, result.negativeVotes, result.netVotes);
@@ -306,7 +349,7 @@ function createStatementNetworkStore() {
         },
         
         // Client-side filtering
-        applyKeywordFilter: (keywords: string[], operator: NetworkFilterOperator = 'OR') => {
+        applyKeywordFilter: async (keywords: string[], operator: NetworkFilterOperator = 'OR') => {
             update(state => {
                 const filtered = applyFilters(
                     state.allStatements, 
@@ -322,10 +365,13 @@ function createStatementNetworkStore() {
                     filteredStatements: filtered
                 };
             });
+            
+            // Return a Promise to maintain API consistency
+            return Promise.resolve();
         },
         
         // Apply user filter
-        applyUserFilter: (userId?: string) => {
+        applyUserFilter: async (userId?: string) => {
             update(state => {
                 const filtered = applyFilters(
                     state.allStatements, 
@@ -340,10 +386,13 @@ function createStatementNetworkStore() {
                     filteredStatements: filtered
                 };
             });
+            
+            // Return a Promise to maintain API consistency
+            return Promise.resolve();
         },
         
         // Change sort type/direction - just client-side
-        setSorting: (sortType: NetworkSortType, sortDirection: NetworkSortDirection = 'desc') => {
+        setSorting: async (sortType: NetworkSortType, sortDirection: NetworkSortDirection = 'desc') => {
             update(state => {
                 const sorted = sortStatements(state.allStatements, sortType, sortDirection);
                 const filtered = applyFilters(
@@ -361,10 +410,13 @@ function createStatementNetworkStore() {
                     filteredStatements: filtered
                 };
             });
+            
+            // Return a Promise to maintain API consistency
+            return Promise.resolve();
         },
         
         // Clear all filters
-        clearFilters: () => {
+        clearFilters: async () => {
             update(state => ({
                 ...state,
                 filterKeywords: [],
@@ -372,6 +424,9 @@ function createStatementNetworkStore() {
                 filterUserId: undefined,
                 filteredStatements: state.allStatements
             }));
+            
+            // Return a Promise to maintain API consistency
+            return Promise.resolve();
         },
         
         // Reset the store to initial state
@@ -407,18 +462,6 @@ function createStatementNetworkStore() {
                 const posVotes = getNeo4jNumber(positiveVotes);
                 const negVotes = getNeo4jNumber(negativeVotes);
                 const netVotes = posVotes - negVotes;
-                
-                // Calculate net votes for logging only - not stored on the node
-                const oldNetVotes = getNeo4jNumber(statement.positiveVotes) - getNeo4jNumber(statement.negativeVotes);
-                
-                console.debug(`[statementNetworkStore] Updating vote data for ${statementId}:`, {
-                    oldPositive: statement.positiveVotes,
-                    oldNegative: statement.negativeVotes,
-                    oldNet: oldNetVotes, // Calculated value, not a property
-                    newPositive: posVotes,
-                    newNegative: negVotes,
-                    newNet: netVotes
-                });
                 
                 // Update the vote data in the statement
                 statement.positiveVotes = posVotes;

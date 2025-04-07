@@ -1,4 +1,4 @@
-// ProjectZer0Frontend/src/lib/services/graph/transformers.ts
+// ProjectZer0Frontend/src/lib/services/graph/GraphLayoutTransformer.ts
 import type { WordNode, StatementNode } from '$lib/types/domain/nodes';
 import type { UserProfile } from '$lib/types/domain/user';
 import type { NavigationOption } from '$lib/types/domain/navigation';
@@ -55,7 +55,7 @@ export class GraphLayoutTransformer {
             type: 'word',
             metadata: {
                 votes: this.getNetVotes(wordNode),
-                createdAt: wordNode.createdAt,
+                createdAt: this.normalizeDate(wordNode.createdAt),
                 group: 'central',
                 fixed: true
             }
@@ -80,7 +80,7 @@ export class GraphLayoutTransformer {
             subtype: index === 0 ? 'live' : 'alternative',
             metadata: {
                 votes: this.getNetVotes(def),
-                createdAt: def.createdAt,
+                createdAt: this.normalizeDate(def.createdAt),
                 group: 'definition'
             }
         }));
@@ -107,8 +107,6 @@ export class GraphLayoutTransformer {
     ): LayoutData {
         // Cast statements to the enhanced type that includes netVotes
         const statements = rawStatements as EnhancedStatementNode[];
-        
-        console.log('[GraphLayoutTransformer] Starting statement network transformation with', statements.length, 'statements');
 
         // Central control node
         const centralNode: LayoutNode = {
@@ -140,6 +138,9 @@ export class GraphLayoutTransformer {
             const isHidden = userPreference !== undefined ? 
                 !userPreference : shouldBeHiddenByCommunity;
             
+            // Normalize the date to a consistent format
+            const normalizedDate = this.normalizeDate(statement.createdAt);
+            
             return {
                 id: statement.id,
                 type: 'statement',
@@ -147,24 +148,13 @@ export class GraphLayoutTransformer {
                     votes: voteData.netVotes,
                     positiveVotes: voteData.positiveVotes,
                     negativeVotes: voteData.negativeVotes,
-                    createdAt: statement.createdAt,
+                    createdAt: normalizedDate,
                     group: 'statement',
                     isHidden: isHidden,
                     hiddenReason: userPreference !== undefined ? 'user' : 'community'
                 }
             };
         });
-
-        // Log visibility summary
-        const visibilitySummary = {
-            total: statementNodes.length,
-            hidden: statementNodes.filter(n => n.metadata.isHidden).length,
-            visible: statementNodes.filter(n => !n.metadata.isHidden).length,
-            negativeNetVotes: statementNodes.filter(n => (n.metadata.votes || 0) < 0).length,
-            userOverrides: statementNodes.filter(n => n.metadata.hiddenReason === 'user').length
-        };
-        
-        console.log('[GraphLayoutTransformer] Statement visibility summary:', visibilitySummary);
 
         // Create statement relationship links - MODIFIED to consolidate links
         // Create a map to track links between node pairs
@@ -222,12 +212,43 @@ export class GraphLayoutTransformer {
 
         // Convert map to array for the final links
         const statementLinks: LayoutLink[] = Array.from(linkMap.values());
-        console.log(`[GraphLayoutTransformer] Created ${statementLinks.length} consolidated links`);
 
         return {
             nodes: [centralNode, ...navigationNodes, ...statementNodes],
             links: statementLinks
         };
+    }
+
+    /**
+     * Helper function to normalize date format for consistent ISO strings
+     */
+    private static normalizeDate(dateInput: any): string | undefined {
+        if (!dateInput) return undefined;
+        
+        try {
+            // Handle Neo4j integer format
+            if (typeof dateInput === 'object' && dateInput !== null && 'low' in dateInput) {
+                const date = new Date(dateInput.low * 1000);
+                return !isNaN(date.getTime()) ? date.toISOString() : undefined;
+            }
+            
+            // Handle string date
+            if (typeof dateInput === 'string') {
+                const date = new Date(dateInput);
+                return !isNaN(date.getTime()) ? date.toISOString() : undefined;
+            }
+            
+            // Handle timestamp number
+            if (typeof dateInput === 'number') {
+                const date = new Date(dateInput);
+                return !isNaN(date.getTime()) ? date.toISOString() : undefined;
+            }
+            
+            return undefined;
+        } catch (e) {
+            console.warn(`[GraphLayoutTransformer] Invalid date format: ${dateInput}`, e);
+            return undefined;
+        }
     }
 
     // Calculate net votes - use for non-statement nodes only (word/definition)
