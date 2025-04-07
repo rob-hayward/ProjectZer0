@@ -147,21 +147,28 @@ function createStatementNetworkStore() {
                 result.negativeVotes = getNeo4jNumber(statement.negativeVotes);
             }
             
-            // Handle netVotes (calculate if missing)
-            if (statement.netVotes === undefined || statement.netVotes === null) {
-                result.netVotes = result.positiveVotes - result.negativeVotes;
-            } else {
-                result.netVotes = getNeo4jNumber(statement.netVotes);
+            // Always calculate netVotes from positive and negative votes
+            // Don't rely on the netVotes value from the backend to maintain consistency
+            result.netVotes = result.positiveVotes - result.negativeVotes;
+            
+            // Log for debugging
+            // Calculate a net vote value based on the statement's positive and negative votes
+            const originalNetVotes = 
+                statement.positiveVotes !== undefined && statement.negativeVotes !== undefined ?
+                getNeo4jNumber(statement.positiveVotes) - getNeo4jNumber(statement.negativeVotes) : 
+                undefined;
                 
-                // If netVotes is zero but we have pos/neg votes, recalculate
-                if (result.netVotes === 0 && (result.positiveVotes > 0 || result.negativeVotes > 0)) {
-                    result.netVotes = result.positiveVotes - result.negativeVotes;
-                }
-            }
+            console.debug(`[statementNetworkStore] Normalized votes for ${result.id}:`, {
+                positiveVotes: result.positiveVotes,
+                negativeVotes: result.negativeVotes,
+                calculatedNetVotes: result.netVotes,
+                originalNetVotes: originalNetVotes
+            });
             
             // Cache the vote data immediately after normalization
             cacheVoteData(result.id, result.positiveVotes, result.negativeVotes, result.netVotes);
         } catch (error) {
+            console.error('[statementNetworkStore] Error normalizing vote data:', error);
             // Set fallback values if extraction fails
             result.positiveVotes = 0;
             result.negativeVotes = 0;
@@ -399,18 +406,27 @@ function createStatementNetworkStore() {
                 // Ensure we're working with numbers
                 const posVotes = getNeo4jNumber(positiveVotes);
                 const negVotes = getNeo4jNumber(negativeVotes);
+                const netVotes = posVotes - negVotes;
+                
+                // Calculate net votes for logging only - not stored on the node
+                const oldNetVotes = getNeo4jNumber(statement.positiveVotes) - getNeo4jNumber(statement.negativeVotes);
+                
+                console.debug(`[statementNetworkStore] Updating vote data for ${statementId}:`, {
+                    oldPositive: statement.positiveVotes,
+                    oldNegative: statement.negativeVotes,
+                    oldNet: oldNetVotes, // Calculated value, not a property
+                    newPositive: posVotes,
+                    newNegative: negVotes,
+                    newNet: netVotes
+                });
                 
                 // Update the vote data in the statement
                 statement.positiveVotes = posVotes;
                 statement.negativeVotes = negVotes;
-                
-                // If statement has a netVotes property, update it too
-                if ('netVotes' in statement) {
-                    (statement as any).netVotes = posVotes - negVotes;
-                }
+                // NetVotes is calculated dynamically, not stored on the statement object
                 
                 // Cache the updated vote data (without redundant normalization)
-                cacheVoteData(statementId, posVotes, negVotes, posVotes - negVotes);
+                cacheVoteData(statementId, posVotes, negVotes, netVotes);
                 
                 // Re-sort statements if needed
                 if (currentState.sortType === 'netPositive' || currentState.sortType === 'totalVotes') {
@@ -430,6 +446,8 @@ function createStatementNetworkStore() {
                         };
                     });
                 }
+            } else {
+                console.warn(`[statementNetworkStore] Attempted to update vote data for unknown statement: ${statementId}`);
             }
         },
         

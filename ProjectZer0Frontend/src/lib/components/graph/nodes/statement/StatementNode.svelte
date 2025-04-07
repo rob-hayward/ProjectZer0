@@ -13,6 +13,7 @@
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { fetchWithAuth } from '$lib/services/api';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     
     export let node: RenderableNode;
     export let statementText: string = '';
@@ -83,8 +84,10 @@
             // Get vote data from the network store first - use as primary source
             const storeVotes = statementNetworkStore.getVoteData(node.id);
             
-            // Update netVotes from the store (single source of truth)
-            netVotes = storeVotes.netVotes;
+            // Also update the data object for reactive updates
+            // This ensures vote data updates immediately
+            data.positiveVotes = storeVotes.positiveVotes;
+            data.negativeVotes = storeVotes.negativeVotes;
             
             // Fetch user's personal vote status from API - this is still needed for personalization
             const response = await fetchWithAuth(`/nodes/statement/${node.id}/vote`);
@@ -97,9 +100,35 @@
             
             console.debug('[StatementNode] Vote data initialized:', {
                 userVoteStatus,
-                netVotes: storeVotes.netVotes,
-                source: 'statementNetworkStore'
+                storeVotes: {
+                    positiveVotes: storeVotes.positiveVotes,
+                    negativeVotes: storeVotes.negativeVotes,
+                    netVotes: storeVotes.netVotes
+                },
+                apiResponse: {
+                    positiveVotes: response.positiveVotes,
+                    negativeVotes: response.negativeVotes,
+                    netVotes: response.netVotes,
+                    status: response.status
+                }
             });
+            
+            // If store and API data don't match, update the store
+            // This ensures synchronization between frontend and backend
+            if (storeVotes.positiveVotes !== response.positiveVotes || 
+                storeVotes.negativeVotes !== response.negativeVotes) {
+                console.debug('[StatementNode] Vote count mismatch, updating store from API');
+                // Update store
+                statementNetworkStore.updateVoteData(
+                    node.id,
+                    response.positiveVotes,
+                    response.negativeVotes
+                );
+                
+                // Direct update for immediate UI reactivity
+                data.positiveVotes = getNeo4jNumber(response.positiveVotes);
+                data.negativeVotes = getNeo4jNumber(response.negativeVotes);
+            }
         } catch (error) {
             console.error('[StatementNode] Error fetching vote status:', error);
             
@@ -127,31 +156,27 @@
                 currentStatus: userVoteStatus
             });
 
+            // Save current vote status for comparison
+            const beforeVotes = statementNetworkStore.getVoteData(node.id);
+            console.debug('[StatementNode] Vote data before API call:', beforeVotes);
+
             // Optimistic update
             userVoteStatus = voteType;
             
+            let result;
             if (voteType === 'none') {
-                const result = await fetchWithAuth(
+                result = await fetchWithAuth(
                     `/nodes/statement/${node.id}/vote/remove`,
                     { method: 'POST' }
                 );
                 
-                // Update the store with the raw API response
-                statementNetworkStore.updateVoteData(
-                    node.id, 
-                    result.positiveVotes, 
-                    result.negativeVotes
-                );
-                
-                // Get updated vote data from the store (single source of truth)
-                const voteData = statementNetworkStore.getVoteData(node.id);
-                netVotes = voteData.netVotes;
-                
-                console.debug('[StatementNode] Vote removed:', {
-                    newVotes: voteData
+                console.debug('[StatementNode] Vote removed, API response:', {
+                    positiveVotes: result.positiveVotes,
+                    negativeVotes: result.negativeVotes,
+                    netVotes: result.netVotes
                 });
             } else {
-                const result = await fetchWithAuth(
+                result = await fetchWithAuth(
                     `/nodes/statement/${node.id}/vote`,
                     {
                         method: 'POST',
@@ -161,31 +186,53 @@
                     }
                 );
 
-                // Update the store with the raw API response
-                statementNetworkStore.updateVoteData(
-                    node.id, 
-                    result.positiveVotes, 
-                    result.negativeVotes
-                );
-                
-                // Get updated vote data from the store (single source of truth)
-                const voteData = statementNetworkStore.getVoteData(node.id);
-                netVotes = voteData.netVotes;
-                
-                console.debug('[StatementNode] Vote recorded:', {
-                    newVotes: voteData
+                console.debug('[StatementNode] Vote recorded, API response:', {
+                    positiveVotes: result.positiveVotes,
+                    negativeVotes: result.negativeVotes,
+                    netVotes: result.netVotes
                 });
             }
+
+            // Ensure we're working with numbers and consistently calculate netVotes
+            const posVotes = getNeo4jNumber(result.positiveVotes);
+            const negVotes = getNeo4jNumber(result.negativeVotes);
+            
+            // Update the local data properties directly for immediate UI updates
+            // This is critical - directly modify the values our reactive declarations are watching
+            data.positiveVotes = posVotes;
+            data.negativeVotes = negVotes;
+            
+            // Also update the store for consistency across components
+            statementNetworkStore.updateVoteData(node.id, posVotes, negVotes);
+            
+            console.debug('[StatementNode] Vote change summary:', {
+                before: {
+                    positive: beforeVotes.positiveVotes,
+                    negative: beforeVotes.negativeVotes,
+                    net: beforeVotes.netVotes
+                },
+                after: {
+                    positive: posVotes,
+                    negative: negVotes,
+                    net: posVotes - negVotes
+                },
+                apiResponse: {
+                    positive: posVotes,
+                    negative: negVotes,
+                    net: posVotes - negVotes
+                }
+            });
+            
+            // Vote behavior explanation
+            // isPositive: true → increments positiveVotes (agree)
+            // isPositive: false → increments negativeVotes (disagree)
             
             // Recalculate visibility after vote changes
             if (graphStore) {
-                // Get updated values from the store - single source of truth
-                const voteData = statementNetworkStore.getVoteData(node.id);
-                
                 graphStore.recalculateNodeVisibility(
                     node.id, 
-                    voteData.positiveVotes,
-                    voteData.negativeVotes
+                    posVotes,
+                    negVotes
                 );
             }
         } catch (error) {
@@ -234,9 +281,18 @@
         await initializeVoteStatus();
     });
 
-    // Reactive declarations
+    // Reactive declarations 
     $: isDetail = node.mode === 'detail';
     $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    
+    // Create reactive variables for vote data
+    $: voteData = statementNetworkStore.getVoteData(node.id);
+    
+    // Get votes from data object (which we update directly) and fall back to store
+    $: positiveVotes = data.positiveVotes !== undefined ? getNeo4jNumber(data.positiveVotes) : voteData.positiveVotes;
+    $: negativeVotes = data.negativeVotes !== undefined ? getNeo4jNumber(data.negativeVotes) : voteData.negativeVotes;
+    
+    $: netVotes = positiveVotes - negativeVotes;
     
     // Update display values when netVotes changes
     $: {
@@ -302,7 +358,7 @@
             {/if}
             
             <!-- User Context -->
-            <g transform="translate(0, -50)">
+            <!-- <g transform="translate(0, -50)">
                 <text 
                     x={METRICS_SPACING.labelX} 
                     class="context-text left-align"
@@ -323,7 +379,7 @@
                 >
                     You can always change your vote using the buttons below.
                 </text>
-            </g>
+            </g> -->
 
             <!-- Vote Buttons -->
             <g transform="translate(0, 0)">
@@ -395,7 +451,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {statementNetworkStore.getVoteData(node.id).positiveVotes}
+                        {positiveVotes}
                     </text>
                 </g>
 
@@ -408,7 +464,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {statementNetworkStore.getVoteData(node.id).negativeVotes}
+                        {negativeVotes}
                     </text>
                 </g>
 
@@ -421,7 +477,7 @@
                         =
                     </text>
                     <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {statementNetworkStore.getVoteData(node.id).netVotes}
+                        {netVotes}
                     </text>
                 </g>
 
@@ -548,10 +604,10 @@
         fill: rgba(255, 255, 255, 0.9);
     }
 
-    .context-text {
+    /* .context-text {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.9);
-    }
+    } */
 
     .stats-label {
         font-size: 14px;

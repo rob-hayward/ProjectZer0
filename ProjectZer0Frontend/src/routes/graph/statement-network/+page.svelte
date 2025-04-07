@@ -602,7 +602,6 @@
         background: black;
         color: rgba(255, 255, 255, 0.8);
         gap: 1rem;
-        z-index: 100;
     }
 
     .loading-overlay {
@@ -623,7 +622,7 @@
     }
 
     .loading-spinner {
-        width: 65opx;
+        width: 650px;
         height: 650px;
         border: 3px solid rgba(255, 255, 255, 0.1);
         border-top-color: rgba(255, 255, 255, 0.8);

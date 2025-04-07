@@ -1,3 +1,4 @@
+#  /Users/rob/vsCodeProjects/ProjectZer0/.gitignore
 # Node
 node_modules
 npm-debug.log*
@@ -9,6 +10,8 @@ yarn-error.log*
 # Svelte
 /.svelte-kit
 /build
+ProjectZer0Frontend/.svelte-kit/
+ProjectZer0Frontend/build/
 
 # Python
 __pycache__/
