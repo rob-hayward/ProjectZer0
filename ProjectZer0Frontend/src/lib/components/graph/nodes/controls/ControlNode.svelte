@@ -113,76 +113,118 @@
     }
     
     // Handle keyword input changes with debounce
-    function handleKeywordInputChange() {
+    function handleKeywordInputChange(event: Event) {
         keywordError = null;
         keywordExists = false;
+        
+        // Log that input handler fired
+        console.debug('[ControlNode] Keyword input changed:', keywordInput);
         
         if (searchTimeout) {
             clearTimeout(searchTimeout);
         }
         
-        if (!keywordInput.trim()) {
+        if (!keywordInput || !keywordInput.trim()) {
             keywordSearchResults = [];
             return;
         }
         
-        searchTimeout = setTimeout(() => {
+        // If we have available keywords, search immediately for faster feedback
+        if (availableKeywords && availableKeywords.length > 0) {
             searchKeywords(keywordInput);
+        }
+        
+        // Still use debounce for complex operations
+        searchTimeout = setTimeout(() => {
+            // For complex operations (like fetching from API)
+            // But we already searched locally above
             searchTimeout = null;
         }, 250);
     }
     
     // Search keywords
     function searchKeywords(query: string) {
-        if (!query.trim()) {
+        if (!query || !query.trim()) {
             keywordSearchResults = [];
             keywordExists = false;
             return;
         }
         
-        const lowerQuery = query.toLowerCase();
+        const lowerQuery = query.toLowerCase().trim();
         const keywords = availableKeywords || [];
+        
+        console.debug(`[ControlNode] Searching keywords: "${lowerQuery}" in ${keywords.length} available keywords`);
         
         // Check if the exact keyword exists
         keywordExists = keywords.some(k => k.toLowerCase() === lowerQuery);
         
-        // First, keywords that start with the query
+        // First, exact matches (case-insensitive)
+        const exactMatches = keywords
+            .filter(k => k.toLowerCase() === lowerQuery);
+            
+        // Second, keywords that start with the query
         const startsWith = keywords
-            .filter(k => k.toLowerCase().startsWith(lowerQuery))
+            .filter(k => k.toLowerCase().startsWith(lowerQuery) && k.toLowerCase() !== lowerQuery)
             .slice(0, 5);
             
         // Then, keywords that contain but don't start with the query
         const contains = keywords
             .filter(k => !k.toLowerCase().startsWith(lowerQuery) && k.toLowerCase().includes(lowerQuery))
             .slice(0, 5);
+        
+        // Create a combined list with priority order (exact matches first, then startsWith, then contains)
+        const maxSuggestions = 10;
+        let results = [...exactMatches];
+        
+        // Add "starts with" matches until we reach the max
+        for (let i = 0; i < startsWith.length && results.length < maxSuggestions; i++) {
+            results.push(startsWith[i]);
+        }
+        
+        // Add "contains" matches until we reach the max
+        for (let i = 0; i < contains.length && results.length < maxSuggestions; i++) {
+            results.push(contains[i]);
+        }
             
-        keywordSearchResults = [...startsWith, ...contains];
+        keywordSearchResults = results;
+        
+        // Debug log the search results
+        console.debug(`[ControlNode] Keyword search results for "${lowerQuery}":`, {
+            exactMatches: exactMatches.length,
+            startsWith: startsWith.length,
+            contains: contains.length,
+            totalResults: results.length,
+            keywordExists: keywordExists
+        });
     }
     
     // Add keyword
     function addKeyword(keyword: string) {
         if (!keyword) return;
         
+        const trimmedKeyword = keyword.trim();
+        if (!trimmedKeyword) return;
+        
         // Check if keyword already exists in filter
-        if (editKeywords.includes(keyword)) {
-            keywordError = `'${keyword}' is already in your filters`;
+        if (editKeywords.some(k => k.toLowerCase() === trimmedKeyword.toLowerCase())) {
+            keywordError = `'${trimmedKeyword}' is already in your filters`;
             return;
         }
         
         // Check if it's in the available keywords list
         const exists = availableKeywords.some(k => 
-            k.toLowerCase() === keyword.toLowerCase()
+            k.toLowerCase() === trimmedKeyword.toLowerCase()
         );
         
         if (!exists) {
-            keywordError = `'${keyword}' is not a known keyword`;
+            keywordError = `'${trimmedKeyword}' is not a known keyword`;
             return;
         }
         
         // Find the exact case-matching version from the available keywords
         const exactKeyword = availableKeywords.find(k => 
-            k.toLowerCase() === keyword.toLowerCase()
-        ) || keyword;
+            k.toLowerCase() === trimmedKeyword.toLowerCase()
+        ) || trimmedKeyword;
         
         // Add to keywords list
         editKeywords = [...editKeywords, exactKeyword];
@@ -215,15 +257,30 @@
         pendingChanges = true;
     }
     
-    // Handle keyboard input
+    // Handle keyboard input for keyword search box
     function handleKeywordInputKeydown(event: KeyboardEvent) {
+        // Enter key pressed with input content
         if (event.key === 'Enter' && keywordInput) {
+            event.preventDefault();
+            
+            // 1. If exact match in keywords, use that
+            if (keywordExists) {
+                const exactMatch = availableKeywords.find(k => 
+                    k.toLowerCase() === keywordInput.toLowerCase().trim()
+                );
+                if (exactMatch) {
+                    addKeyword(exactMatch);
+                    return;
+                }
+            }
+            
+            // 2. If we have search results, use the first one
             if (keywordSearchResults.length > 0) {
                 addKeyword(keywordSearchResults[0]);
             } else {
+                // 3. Try with the raw input as fallback
                 addKeyword(keywordInput);
             }
-            event.preventDefault();
         }
     }
     
@@ -403,7 +460,12 @@
                                             on:click={() => addKeyword(suggestion)}
                                             on:keydown={(e) => e.key === 'Enter' && addKeyword(suggestion)}
                                         >
-                                            {suggestion}
+                                            <span class="suggestion-text">
+                                                {suggestion}
+                                            </span>
+                                            {#if suggestion.toLowerCase() === keywordInput.toLowerCase().trim()}
+                                                <span class="exact-match">(exact match)</span>
+                                            {/if}
                                         </button>
                                     {/each}
                                 </div>
@@ -414,6 +476,7 @@
                             class="add-keyword"
                             on:click={() => addKeyword(keywordInput)}
                             disabled={!keywordInput || (keywordInput.trim() !== '' && !keywordExists)}
+                            title={keywordExists ? "Add this keyword" : "This keyword doesn't exist in the database"}
                         >
                             Add
                         </button>
@@ -740,6 +803,20 @@
         color: white;
         text-align: left;
         font-family: 'Orbitron', sans-serif;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    
+    :global(.suggestion-text) {
+        flex: 1;
+    }
+    
+    :global(.exact-match) {
+        color: rgba(46, 204, 113, 0.8);
+        font-size: 10px;
+        font-style: italic;
+        margin-left: 8px;
     }
     
     :global(.autocomplete-item:hover),

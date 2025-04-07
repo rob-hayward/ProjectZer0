@@ -150,11 +150,10 @@ function createStatementNetworkStore() {
                     const aTimestamp = getTimestamp(a);
                     const bTimestamp = getTimestamp(b);
                     
-                    // Debug log to verify which timestamps are being used
-                    // If a and b are the first two statements being compared,
-                    // log the details to help diagnose the issue
-                    if (aTimestamp && bTimestamp) {
-                        console.log(`[Sort Debug] Comparing dates:`, {
+                    // Remove debug logging in production code
+                    // Only log if debug mode is enabled
+                    if (process.env.NODE_ENV === 'development' && aTimestamp && bTimestamp) {
+                        console.debug(`[Chronological Sort] Comparing dates:`, {
                             a: { id: a.id.substring(0, 8), timestamp: aTimestamp, date: new Date(aTimestamp).toISOString() },
                             b: { id: b.id.substring(0, 8), timestamp: bTimestamp, date: new Date(bTimestamp).toISOString() }
                         });
@@ -302,8 +301,13 @@ function createStatementNetworkStore() {
                 const currentState = get({ subscribe });
                 const params = new URLSearchParams();
                 
-                // Add sort parameters
-                params.append('sortBy', currentState.sortType);
+                // Add sort parameters - include special handling for chronological sort
+                if (currentState.sortType === 'chronological') {
+                    // The backend may use a different parameter name for date sorting
+                    params.append('sortBy', 'date');
+                } else {
+                    params.append('sortBy', currentState.sortType);
+                }
                 params.append('sortDirection', currentState.sortDirection);
                 
                 // Make API request

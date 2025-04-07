@@ -322,4 +322,20 @@ export class WordService {
       );
     }
   }
+
+  async getAllWords() {
+    this.logger.log('Getting all words');
+    try {
+      const words = await this.wordSchema.getAllWords();
+      this.logger.log(`Retrieved ${words.length} words`);
+      return words;
+    } catch (error) {
+      this.logger.error(`Error in getAllWords: ${error.message}`);
+      this.logger.error(error.stack);
+      throw new HttpException(
+        'Failed to get all words',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }

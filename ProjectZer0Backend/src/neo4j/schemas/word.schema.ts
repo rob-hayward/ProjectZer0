@@ -340,4 +340,45 @@ export class WordSchema {
     );
     return visibilityStatus;
   }
+
+  async getAllWords() {
+    this.logger.log('Fetching all words from database');
+    try {
+      // Use the simple and direct query
+      const result = await this.neo4jService.read(
+        `
+        MATCH (n:WordNode) 
+        RETURN n.id AS id, n.word AS word 
+        ORDER BY toLower(n.word)
+        `,
+        {}
+      );
+      
+      if (!result.records || result.records.length === 0) {
+        this.logger.warn('No words found in the database');
+        return [];
+      }
+      
+      const words = result.records
+        .filter(record => record.get('word') && record.get('id'))
+        .map(record => ({
+          word: record.get('word'),
+          id: record.get('id')
+        }));
+      
+      // Add extra logging for debugging
+      if (words.length > 0) {
+        this.logger.log(`Fetched ${words.length} words from database`);
+        this.logger.log(`Sample words: ${words.slice(0, 5).map(w => w.word).join(', ')}...`);
+      } else {
+        this.logger.warn('No valid words found after filtering');
+      }
+      
+      return words;
+    } catch (error) {
+      this.logger.error(`Error fetching all words: ${error.message}`);
+      this.logger.error(error.stack);
+      throw error;
+    }
+  }
 }

@@ -131,12 +131,42 @@
             }
             
             // Load word list for keyword filtering
+            console.log('[STATEMENT-NETWORK] Starting to load keywords for filtering');
             try {
-                await wordListStore.loadAllWords();
-                availableKeywords = wordListStore.searchWords('', 1000); // Get a large set of keywords
+                // Force refresh to ensure we get fresh data
+                console.log('[STATEMENT-NETWORK] Forcing refresh of word list');
+                await wordListStore.loadAllWords(true);
+                
+                // Get all available words for suggestions
+                const allWords = wordListStore.getAllWords();
+                console.log('[STATEMENT-NETWORK] Word list store returned', allWords.length, 'words');
+                
+                if (allWords.length === 0) {
+                    // If no words were loaded, provide some sample words
+                    console.warn('[STATEMENT-NETWORK] No words found in store, using sample keywords');
+                    availableKeywords = [
+                        'democracy', 'freedom', 'justice', 'equality', 'society', 
+                        'government', 'truth', 'privacy', 'rights', 'liberty',
+                        'security', 'capitalism', 'socialism', 'economy', 'education',
+                        'health', 'environment', 'climate', 'technology', 'science'
+                    ];
+                } else {
+                    availableKeywords = allWords;
+                    console.log('[STATEMENT-NETWORK] First few keywords:', availableKeywords.slice(0, 5));
+                }
+                
+                console.log(`[STATEMENT-NETWORK] Loaded ${availableKeywords.length} keywords for filtering`);
             } catch (error) {
                 console.error('[STATEMENT-NETWORK] Error loading word list:', error);
-                availableKeywords = [];
+                
+                // Provide fallback keywords on error
+                availableKeywords = [
+                    'democracy', 'freedom', 'justice', 'equality', 'society', 
+                    'government', 'truth', 'privacy', 'rights', 'liberty',
+                    'security', 'capitalism', 'socialism', 'economy', 'education',
+                    'health', 'environment', 'climate', 'technology', 'science'
+                ];
+                console.log('[STATEMENT-NETWORK] Using fallback keywords');
             }
             
             // Start with just navigation and control nodes

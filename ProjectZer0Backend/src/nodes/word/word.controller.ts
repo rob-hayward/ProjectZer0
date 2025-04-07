@@ -32,6 +32,32 @@ export class WordController {
 
   constructor(private readonly wordService: WordService) {}
 
+  // IMPORTANT: The 'all' route must be defined before any parameterized routes
+  // to ensure proper routing in NestJS
+  @Get('all')
+  async getAllWords() {
+    this.logger.log('Received request to get all words');
+    
+    try {
+      // Get words directly from the service
+      const words = await this.wordService.getAllWords();
+      
+      // Add detailed logging
+      if (words && words.length > 0) {
+        this.logger.log(`Found ${words.length} words in database`);
+        this.logger.log(`Sample words: ${words.slice(0, 5).map(w => w.word).join(', ')}...`);
+      } else {
+        this.logger.warn('No words found in database');
+      }
+      
+      // Return the words array directly
+      return words;
+    } catch (error) {
+      this.logger.error(`Error getting all words: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
   @Get('check/:word')
   async checkWordExistence(@Param('word') word: string) {
     this.logger.log(`Received request to check word: ${word}`);
