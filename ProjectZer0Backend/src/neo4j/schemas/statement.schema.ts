@@ -2,13 +2,17 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
+import { VoteSchema } from './vote.schema';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 
 @Injectable()
 export class StatementSchema {
   private readonly logger = new Logger(StatementSchema.name);
 
-  constructor(private readonly neo4jService: Neo4jService) {}
+  constructor(
+    private readonly neo4jService: Neo4jService,
+    private readonly voteSchema: VoteSchema,
+  ) {}
 
   async getStatementNetwork(options: {
     limit?: number;
@@ -19,17 +23,13 @@ export class StatementSchema {
     userId?: string;
   }): Promise<any[]> {
     const {
-      limit = null, // Default to null to get all statements
+      limit = null,
       offset = 0,
       sortBy = 'netPositive',
       sortDirection = 'desc',
       keywords,
       userId,
     } = options;
-
-    this.logger.log(
-      `Getting statement network with options: ${JSON.stringify(options)}`,
-    );
 
     // First, check if we have any statements in the database
     try {
@@ -38,11 +38,7 @@ export class StatementSchema {
       );
       const statementCount = countResult.records[0].get('count').toNumber();
 
-      // If no statements exist, return empty array early
       if (statementCount === 0) {
-        this.logger.log(
-          'No statements found in database, returning empty array',
-        );
         return [];
       }
     } catch (error) {
@@ -209,10 +205,7 @@ export class StatementSchema {
 
       return statements;
     } catch (error) {
-      this.logger.error(
-        `Error getting statement network: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error getting statement network: ${error.message}`);
       throw error;
     }
   }
@@ -225,10 +218,6 @@ export class StatementSchema {
     keywords: KeywordWithFrequency[];
     initialComment: string;
   }) {
-    this.logger.log(
-      `Creating statement with ${statementData.keywords.length} keywords`,
-    );
-
     try {
       const result = await this.neo4jService.write(
         `
@@ -298,14 +287,9 @@ export class StatementSchema {
       );
 
       const createdStatement = result.records[0].get('s').properties;
-      this.logger.log(`Created statement: ${createdStatement.id}`);
-
       return createdStatement;
     } catch (error) {
-      this.logger.error(
-        `Error in createStatement: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error in createStatement: ${error.message}`);
 
       // Handle the specific case of missing word nodes
       if (error.message.includes('not found')) {
@@ -432,10 +416,7 @@ export class StatementSchema {
 
         return result.records[0].get('s').properties;
       } catch (error) {
-        this.logger.error(
-          `Error in updateStatement: ${error.message}`,
-          error.stack,
-        );
+        this.logger.error(`Error in updateStatement: ${error.message}`);
 
         // Handle the specific case of missing word nodes
         if (error.message.includes('not found')) {
@@ -501,6 +482,37 @@ export class StatementSchema {
     return result.records[0]?.get('s.visibilityStatus') ?? true;
   }
 
+  // Standardized vote methods that match the pattern used in WordSchema and DefinitionSchema
+  async voteStatement(id: string, sub: string, isPositive: boolean) {
+    return this.voteSchema.vote('StatementNode', { id }, sub, isPositive);
+  }
+
+  async getStatementVoteStatus(id: string, sub: string) {
+    return this.voteSchema.getVoteStatus('StatementNode', { id }, sub);
+  }
+
+  async removeStatementVote(id: string, sub: string) {
+    return this.voteSchema.removeVote('StatementNode', { id }, sub);
+  }
+
+  async getStatementVotes(id: string) {
+    const voteStatus = await this.voteSchema.getVoteStatus(
+      'StatementNode',
+      { id },
+      '', // Empty string as we don't need user-specific status
+    );
+
+    if (!voteStatus) {
+      return null;
+    }
+
+    return {
+      positiveVotes: voteStatus.positiveVotes,
+      negativeVotes: voteStatus.negativeVotes,
+      netVotes: voteStatus.netVotes,
+    };
+  }
+
   /**
    * Creates a direct, undirected relationship between two statements
    */
@@ -526,15 +538,9 @@ export class StatementSchema {
         { statementId1, statementId2 },
       );
 
-      this.logger.log(
-        `Created direct relationship between statements ${statementId1} and ${statementId2}`,
-      );
       return true;
     } catch (error) {
-      this.logger.error(
-        `Error creating direct relationship: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error creating direct relationship: ${error.message}`);
       throw error;
     }
   }
@@ -552,15 +558,9 @@ export class StatementSchema {
         { statementId1, statementId2 },
       );
 
-      this.logger.log(
-        `Removed direct relationship between statements ${statementId1} and ${statementId2}`,
-      );
       return true;
     } catch (error) {
-      this.logger.error(
-        `Error removing direct relationship: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error removing direct relationship: ${error.message}`);
       throw error;
     }
   }
@@ -588,7 +588,6 @@ export class StatementSchema {
     } catch (error) {
       this.logger.error(
         `Error getting directly related statements: ${error.message}`,
-        error.stack,
       );
       throw error;
     }
@@ -600,13 +599,9 @@ export class StatementSchema {
         `MATCH (s:StatementNode) RETURN count(s) as count`,
       );
       const count = result.records[0].get('count').toNumber();
-      this.logger.log(`Found ${count} statements in database`);
       return { count };
     } catch (error) {
-      this.logger.error(
-        `Error checking statements: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error checking statements: ${error.message}`);
       throw error;
     }
   }

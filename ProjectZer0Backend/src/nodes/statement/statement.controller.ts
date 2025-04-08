@@ -1,3 +1,5 @@
+// src/nodes/statement/statement.controller.ts
+
 import {
   Controller,
   Get,
@@ -13,7 +15,6 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { StatementService } from './statement.service';
-import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 // Define DTO for statement creation
 interface CreateStatementDto {
@@ -82,7 +83,6 @@ export class StatementController {
 
   @Get(':id')
   async getStatement(@Param('id') id: string) {
-    this.logger.log(`Received request to get statement: ${id}`);
     return this.statementService.getStatement(id);
   }
 
@@ -91,13 +91,11 @@ export class StatementController {
     @Param('id') id: string,
     @Body() updateData: UpdateStatementDto,
   ) {
-    this.logger.log(`Received request to update statement: ${id}`);
     return this.statementService.updateStatement(id, updateData);
   }
 
   @Delete(':id')
   async deleteStatement(@Param('id') id: string) {
-    this.logger.log(`Received request to delete statement: ${id}`);
     return this.statementService.deleteStatement(id);
   }
 
@@ -106,7 +104,6 @@ export class StatementController {
     @Param('id') id: string,
     @Body() visibilityData: { isVisible: boolean },
   ) {
-    this.logger.log(`Received request to set statement visibility: ${id}`);
     return this.statementService.setVisibilityStatus(
       id,
       visibilityData.isVisible,
@@ -115,7 +112,6 @@ export class StatementController {
 
   @Get(':id/visibility')
   async getVisibilityStatus(@Param('id') id: string) {
-    this.logger.log(`Received request to get statement visibility: ${id}`);
     return this.statementService.getVisibilityStatus(id);
   }
 
@@ -124,8 +120,7 @@ export class StatementController {
     @Param('id') id: string,
     @Body() voteData: { isPositive: boolean },
     @Request() req: any,
-  ): Promise<VoteResult> {
-    this.logger.log(`Received request to vote on statement: ${id}`);
+  ) {
     return await this.statementService.voteStatement(
       id,
       req.user.sub,
@@ -134,26 +129,17 @@ export class StatementController {
   }
 
   @Get(':id/vote')
-  async getStatementVoteStatus(
-    @Param('id') id: string,
-    @Request() req: any,
-  ): Promise<VoteStatus | null> {
-    this.logger.log(`Received request to get vote status for statement: ${id}`);
+  async getStatementVoteStatus(@Param('id') id: string, @Request() req: any) {
     return await this.statementService.getStatementVoteStatus(id, req.user.sub);
   }
 
   @Post(':id/vote/remove')
-  async removeStatementVote(
-    @Param('id') id: string,
-    @Request() req: any,
-  ): Promise<VoteResult> {
-    this.logger.log(`Received request to remove vote for statement: ${id}`);
+  async removeStatementVote(@Param('id') id: string, @Request() req: any) {
     return await this.statementService.removeStatementVote(id, req.user.sub);
   }
 
   @Get(':id/votes')
-  async getStatementVotes(@Param('id') id: string): Promise<VoteResult | null> {
-    this.logger.log(`Received request to get votes for statement: ${id}`);
+  async getStatementVotes(@Param('id') id: string) {
     return await this.statementService.getStatementVotes(id);
   }
 
@@ -166,9 +152,6 @@ export class StatementController {
     @Body() statementData: CreateStatementDto,
     @Request() req: any,
   ) {
-    this.logger.log(
-      `Received request to create statement related to ${existingId}`,
-    );
     return this.statementService.createRelatedStatement(existingId, {
       ...statementData,
       createdBy: req.user.sub, // Use the authenticated user's ID from JWT
@@ -183,9 +166,6 @@ export class StatementController {
     @Param('id1') id1: string,
     @Param('id2') id2: string,
   ) {
-    this.logger.log(
-      `Received request to create relationship between ${id1} and ${id2}`,
-    );
     return this.statementService.createDirectRelationship(id1, id2);
   }
 
@@ -197,9 +177,6 @@ export class StatementController {
     @Param('id1') id1: string,
     @Param('id2') id2: string,
   ) {
-    this.logger.log(
-      `Received request to remove relationship between ${id1} and ${id2}`,
-    );
     return this.statementService.removeDirectRelationship(id1, id2);
   }
 
@@ -208,15 +185,11 @@ export class StatementController {
    */
   @Get(':id/related')
   async getDirectlyRelatedStatements(@Param('id') id: string) {
-    this.logger.log(
-      `Received request to get statements directly related to ${id}`,
-    );
     return this.statementService.getDirectlyRelatedStatements(id);
   }
 
   @Get('check')
   async checkStatements(): Promise<{ count: number }> {
-    this.logger.log('Received request to check if statements exist');
     return this.statementService.checkStatements();
   }
 }
