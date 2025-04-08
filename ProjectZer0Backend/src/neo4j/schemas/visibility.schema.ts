@@ -7,6 +7,7 @@ import { VisibilityPreference } from '../../users/dto/visibility.dto';
 @Injectable()
 export class VisibilitySchema {
   private readonly logger = new Logger(VisibilitySchema.name);
+  private readonly PROPERTY_PREFIX = 'pref_';
 
   constructor(private readonly neo4jService: Neo4jService) {}
 
@@ -33,19 +34,18 @@ export class VisibilitySchema {
         timestamp: Date.now(),
       };
 
-      // Create a safe property name by removing all non-alphanumeric chars
-      const safeNodeId = this.getSafePropertyName(nodeId);
-      const keyProp = `pref_${safeNodeId}`;
+      // Create a safe property name
+      const safeProperty = this.getSafePropertyName(nodeId);
 
       // Store preference as a string (JSON) to avoid Neo4j nested object limitations
       const preferenceJson = JSON.stringify(preference);
 
-      // Use a simpler approach that works with direct property access
+      // Use direct property access for reliable Neo4j operations
       const query = `
         MATCH (u:User {sub: $userId})
         MERGE (u)-[:HAS_VISIBILITY_PREFERENCES]->(vp:VisibilityPreferencesNode)
-        SET vp.${keyProp} = $preferenceJson
-        RETURN vp.${keyProp} as preferenceJson
+        SET vp.${safeProperty} = $preferenceJson
+        RETURN vp.${safeProperty} as preferenceJson
       `;
 
       const result = await this.neo4jService.write(query, {
@@ -81,14 +81,13 @@ export class VisibilitySchema {
         `Getting visibility preference for user ${userId}, node ${nodeId}`,
       );
 
-      const safeNodeId = this.getSafePropertyName(nodeId);
-      const keyProp = `pref_${safeNodeId}`;
+      const safeProperty = this.getSafePropertyName(nodeId);
 
       // Use direct property access
       const query = `
         MATCH (u:User {sub: $userId})
         OPTIONAL MATCH (u)-[:HAS_VISIBILITY_PREFERENCES]->(vp:VisibilityPreferencesNode)
-        RETURN vp.${keyProp} as preferenceJson
+        RETURN vp.${safeProperty} as preferenceJson
       `;
 
       const result = await this.neo4jService.read(query, { userId });
@@ -146,20 +145,16 @@ export class VisibilitySchema {
       const vpNode = result.records[0].get('vp');
       const preferences: Record<string, VisibilityPreference | boolean> = {};
 
-      // Process each property looking for our prefix
-      const PREFIX = 'pref_';
+      // Process each property with our prefix
       for (const [propName, value] of Object.entries(vpNode.properties)) {
-        if (propName.startsWith(PREFIX)) {
-          // Extract the safe node ID from the property name
-          const safeNodeId = propName.substring(PREFIX.length);
+        if (propName.startsWith(this.PROPERTY_PREFIX)) {
+          // Extract the node ID from the property name
+          const nodeId = this.getNodeIdFromProperty(propName);
 
           try {
             // Try to parse the JSON value
             const parsedValue = JSON.parse(value as string);
-
-            // Convert from safe node ID back to original ID if needed
-            const originalNodeId = this.getOriginalIdFromSafe(safeNodeId);
-            preferences[originalNodeId] = parsedValue;
+            preferences[nodeId] = parsedValue;
           } catch (e) {
             this.logger.error(
               `Error parsing preference JSON for ${propName}: ${e.message}`,
@@ -182,7 +177,7 @@ export class VisibilitySchema {
   /**
    * Ensures a user exists in the database
    */
-  async ensureUserExists(userId: string): Promise<void> {
+  private async ensureUserExists(userId: string): Promise<void> {
     try {
       const query = `
         MERGE (u:User {sub: $userId})
@@ -201,19 +196,17 @@ export class VisibilitySchema {
 
   /**
    * Converts a node ID to a Neo4j-safe property name
-   * Removes all non-alphanumeric characters
+   * with a consistent prefix
    */
   private getSafePropertyName(nodeId: string): string {
-    // Replace all non-alphanumeric characters with underscores
-    return nodeId.replace(/[^a-zA-Z0-9]/g, '_');
+    return this.PROPERTY_PREFIX + nodeId.replace(/[^a-zA-Z0-9]/g, '_');
   }
 
   /**
-   * Attempt to convert a safe ID back to original
-   * In a real system, you would need a mapping table
+   * Extracts the original node ID from a property name
    */
-  private getOriginalIdFromSafe(safeId: string): string {
-    // For now, just return the safe ID as is
-    return safeId;
+  private getNodeIdFromProperty(propName: string): string {
+    // Remove the prefix
+    return propName.substring(this.PROPERTY_PREFIX.length);
   }
 }

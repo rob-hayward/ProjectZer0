@@ -111,18 +111,4 @@ export class VisibilityController {
       );
     }
   }
-
-  // Test endpoint to check connection
-  @Get('visibility-preferences/test')
-  async testEndpoint(@Request() req) {
-    const userId = req.user?.sub || 'unknown';
-    this.logger.log(`Test endpoint called by user: ${userId}`);
-
-    return {
-      status: 'success',
-      message: 'Test endpoint is working',
-      userId: userId,
-      timestamp: new Date().toISOString(),
-    };
-  }
 }
