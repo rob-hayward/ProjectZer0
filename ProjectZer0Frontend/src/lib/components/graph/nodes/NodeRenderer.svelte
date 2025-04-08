@@ -6,6 +6,7 @@
     import ShowHideButton from './common/ShowHideButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
+    import { wordViewStore } from '$lib/stores/wordViewStore';
     
     // The node to render
     export let node: RenderableNode;
@@ -46,10 +47,12 @@
         transform = 'translate(0,0)';
     }
     
-    // Use the statementNetworkStore as the single source of truth for vote data
+    // Get vote data from the appropriate store based on node type
     $: netVotes = node.type === 'statement' 
         ? statementNetworkStore.getVoteData(node.id).netVotes 
-        : 0;
+        : (node.type === 'word' || node.type === 'definition')
+            ? wordViewStore.getVoteData(node.id).netVotes
+            : 0;
     
     onMount(() => {
         if (node.type === 'word' || node.type === 'definition' || node.type === 'statement') {

@@ -32,7 +32,6 @@ export class AuthController {
   @Get('callback')
   @UseGuards(AuthGuard('auth0'))
   async callback(@Req() req: Request, @Res() res: Response) {
-    console.log('Raw Auth0 profile:', JSON.stringify(req.user, null, 2));
     const auth0Profile = req.user as UserProfile;
     try {
       const { user, isNewUser } =
@@ -47,8 +46,6 @@ export class AuthController {
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
       });
-
-      console.log('JWT Token set in cookie:', token);
 
       if (isNewUser) {
         res.redirect('http://localhost:5173/edit-profile');
@@ -66,7 +63,6 @@ export class AuthController {
   @Get('profile')
   @UseGuards(AuthGuard('jwt'))
   async getProfile(@Req() req: Request) {
-    console.log('Getting profile, user:', req.user);
     if (!req.user) {
       throw new UnauthorizedException('User not authenticated');
     }

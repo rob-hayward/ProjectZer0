@@ -10,6 +10,7 @@
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { wordStore } from '$lib/stores/wordStore';
+    import { wordViewStore } from '$lib/stores/wordViewStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
     import type { 
@@ -50,85 +51,73 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[WORD-VIEW] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[WORD-VIEW] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
-            
-            console.log('[WORD-VIEW] User authenticated', {
-                userId: fetchedUser.sub
-            });
             
             authInitialized = true;
             userStore.set(fetchedUser);
             
             // Load word data if needed
             if (!initialWordData) {
-                console.log('[WORD-VIEW] No initial word data, loading from URL parameter');
                 const wordParam = new URL(window.location.href).searchParams.get('word');
                 if (wordParam) {
                     const loadedWord = await getWordData(wordParam);
                     if (loadedWord) {
-                        console.log('[WORD-VIEW] Setting word data', {
-                            wordId: loadedWord.id,
-                            definitionCount: loadedWord.definitions?.length
-                        });
                         wordStore.set(loadedWord);
+                        // Add data to wordViewStore for vote management
+                        wordViewStore.setWordData(loadedWord);
                     } else {
-                        console.error('[WORD-VIEW] Word data not found for:', wordParam);
                         window.location.href = '/graph/dashboard';
                         return;
                     }
                 } else {
-                    console.error('[WORD-VIEW] No word parameter in URL');
                     window.location.href = '/graph/dashboard';
                     return;
                 }
             } else {
-                console.log('[WORD-VIEW] Using initial word data from page data');
                 wordStore.set(initialWordData);
+                // Add data to wordViewStore for vote management
+                wordViewStore.setWordData(initialWordData);
             }
             
-            console.log('[WORD-VIEW] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[WORD-VIEW] Setting graph store view type to word');
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }
         } catch (error) {
-            console.error('[WORD-VIEW-ERROR] Error in initializeData:', error);
             auth0.login();
         }
     }
 
     // Event handlers
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        console.log('[WORD-VIEW] Node mode change', {
-            nodeId: event.detail.nodeId,
-            newMode: event.detail.mode
-        });
-        
         // Handle word node mode changes specifically
         if (wordData && event.detail.nodeId === wordData.id) {
-            console.log('[WORD-VIEW] Word node mode change', {
-                from: wordNodeMode,
-                to: event.detail.mode
-            });
             wordNodeMode = event.detail.mode;
+        }
+        
+        // Always update the graph store
+        if (graphStore) {
+            graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
         }
     }
 
     // Get word data from store or initial data
     $: wordData = $wordStore || initialWordData;
+    
+    // Update wordViewStore whenever wordData changes
+    $: if (wordData) {
+        wordViewStore.setWordData(wordData);
+    }
     
     // Create central word node
     $: centralWordNode = isReady && wordData ? {
@@ -153,11 +142,6 @@
         if (!centralWordNode || !wordData) {
             return { nodes: [], links: [] };
         }
-
-        console.log('[WORD-VIEW] Creating word view data', {
-            definitionCount: wordData.definitions?.length,
-            wordNodeMode
-        });
 
         // Sort definitions by votes to establish rank order
         const sortedDefinitions = [...wordData.definitions].sort((a, b) => 
@@ -190,11 +174,6 @@
             type: (index === 0 ? 'live' : 'alternative') as LinkType
         }));
 
-        console.log('[WORD-VIEW] Created graph structure for word view', {
-            nodeCount: baseNodes.length + definitionNodes.length,
-            linkCount: definitionLinks.length
-        });
-
         return {
             nodes: [...baseNodes, ...definitionNodes],
             links: definitionLinks
@@ -207,13 +186,11 @@
 
     // Initialize on mount
     onMount(() => {
-        console.log("✅ USING NEW WORD VIEW COMPONENT");
         initializeData();
     });
 
     // Force update when wordStore changes
     $: if ($wordStore && isReady) {
-        console.log('[WORD-VIEW] Word store updated, rebuilding graph data');
         routeKey = `${viewType}-${Date.now()}`;
     }
 </script>
