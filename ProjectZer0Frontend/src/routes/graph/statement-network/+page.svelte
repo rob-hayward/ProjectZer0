@@ -4,7 +4,7 @@
     import * as auth0 from '$lib/services/auth0';
     import Graph from '$lib/components/graph/Graph.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
-    import ControlNode from '$lib/components/graph/nodes/controls/ControlNode.svelte';
+    import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
@@ -308,14 +308,34 @@
     }
 
     // Handle node mode changes
-    function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
+    function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode; radius?: number }>) {
         // If this is the control node, update its mode
         if (event.detail.nodeId === controlNodeId) {
+            const oldMode = controlNodeMode;
             controlNodeMode = event.detail.mode;
             
-            // Force control node to stay fixed at center
+            console.debug('[STATEMENT-NETWORK] Control node mode change:', { 
+                oldMode,
+                newMode: event.detail.mode,
+                radius: event.detail.radius
+            });
+            
+            // Update the control node mode in our local state
+            controlNode = {
+                ...controlNode,
+                mode: event.detail.mode
+            };
+            
+            // First immediately update the node in the graph store
             if (graphStore) {
+                // This should trigger the layout updates for navigation nodes
+                graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
+                
+                // Force node positions to stay fixed
                 graphStore.fixNodePositions();
+                
+                // Force ticks to update the layout immediately
+                graphStore.forceTick(5);
             }
         }
     }

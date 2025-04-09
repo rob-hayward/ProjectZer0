@@ -602,7 +602,19 @@ export class StatementNetworkLayout extends BaseLayoutStrategy {
             // Re-add the central node anchor
             this.addCentralNodeAnchor(node);
             
-            // Recalculate all statement positions
+            console.debug('[StatementNetworkLayout] Control node mode changed, repositioning navigation nodes', {
+                nodeId: node.id,
+                newMode: mode,
+                radius: node.radius
+            });
+            
+            // First reposition navigation nodes when control size changes
+            NavigationNodeLayout.positionNavigationNodes(
+                nodes, 
+                this.getNodeRadius.bind(this)
+            );
+            
+            // Then recalculate all statement positions
             this.repositionStatementNodes(nodes);
         }
         // For statement nodes, update expansion state tracking

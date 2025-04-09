@@ -577,8 +577,9 @@
         </svelte:fragment>
 
         <svelte:fragment slot="content" let:radius>
-            <g transform="translate(0, -20)">
+            <g transform="translate(0, -30)">
                 <text 
+                    x="-10"
                     class="preview-setting"
                 >
                     Sort: {sortOptions[sortType] || sortType}
@@ -586,6 +587,7 @@
                 
                 <text 
                     y="25"
+                    x="0"
                     class="preview-setting"
                 >
                     Order: {directionOptions[sortDirection] || sortDirection}
@@ -594,6 +596,7 @@
                 {#if keywords.length > 0}
                     <text 
                         y="50"
+                        x="-10"
                         class="preview-setting"
                     >
                         Filters: {keywords.length} keyword{keywords.length > 1 ? 's' : ''}

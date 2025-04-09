@@ -9,7 +9,7 @@
     import { isNavigationData } from '$lib/types/graph/enhanced';
     import { graphStore } from '$lib/stores/graphStore';
     import type { ViewType } from '$lib/types/graph/enhanced';
-    import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
+    import { NavigationNodeLayout } from '$lib/services/graph/layouts/common/NavigationNodeLayout';
 
     export let node: RenderableNode;
 
@@ -18,7 +18,6 @@
     }>();
 
     let isHovered = false;
-    let connectionEndpoint = { x: 0, y: 0 }; // Point on central node's perimeter
     const filterId = `nav-glow-${Math.random().toString(36).slice(2)}`;
     
     // Type guard for navigation data
@@ -31,46 +30,29 @@
     // Get color from navigation option ID
     $: color = getNavigationColor(navigationData.id);
 
-    /**
-     * Calculate connection endpoint using the CoordinateSystem service
-     */
-    function calculateConnectionEndpoint() {
-        if (!node.position) return { x: 0, y: 0 };
-        
-        // Let the coordinate system handle the calculation
-        const viewType = graphStore.getViewType();
-        
-        // Debug the inputs
-        console.debug(`[NavigationNode:${navigationData.id}] Calculating connection point:`, { 
-            position: node.position,
-            viewType,
-            nodeId: node.id
-        });
-        
-        const endpoint = coordinateSystem.calculateNavigationConnectionEndpoint(node.position, viewType);
-        
-        console.debug(`[NavigationNode:${navigationData.id}] Connection point calculated:`, endpoint);
-        
-        return endpoint;
-    }
-
-    // Ensure endpoint is calculated on component initialization
-    onMount(() => {
-        connectionEndpoint = calculateConnectionEndpoint();
-        console.debug(`[NavigationNode:${navigationData.id}] Initial connection point:`, connectionEndpoint);
-    });
-
-    // Recalculate on store changes
-    $: if ($graphStore) {
-        connectionEndpoint = calculateConnectionEndpoint();
-        console.debug(`[NavigationNode:${navigationData.id}] Store updated, new connection point:`, connectionEndpoint);
-    }
+    // Since we're no longer using connection lines,
+    // we can remove the connection endpoint calculation logic
     
-    // Force recalculation after any update
-    afterUpdate(() => {
-        connectionEndpoint = calculateConnectionEndpoint();
-        console.debug(`[NavigationNode:${navigationData.id}] After update, new connection point:`, connectionEndpoint);
-    });
+    // We'll keep the central node detection for debugging purposes
+    $: if ($graphStore) {
+        const centralNode = $graphStore.nodes.find(n => 
+            n.group === 'central' || (n.data && typeof n.data === 'object' && 'sub' in n.data && n.data.sub === 'controls')
+        );
+        
+        // Debug logging only on significant changes
+        if (centralNode && centralNode.mode !== undefined) {
+            console.debug(`[NavigationNode:${navigationData.id}] Central node update:`, { 
+                id: centralNode.id,
+                type: centralNode.type,
+                mode: centralNode.mode,
+                isControlNode: centralNode.type === 'dashboard' && 
+                    centralNode.data && 
+                    typeof centralNode.data === 'object' && 
+                    'sub' in centralNode.data && 
+                    centralNode.data.sub === 'controls'
+            });
+        }
+    }
 
     async function handleClick() {
         // Get the target view type based on navigation option
@@ -108,32 +90,17 @@
 
     function handleMouseEnter() {
         isHovered = true;
-        console.debug(`[NavigationNode:${navigationData.id}] Mouse enter, isHovered=${isHovered}`);
         dispatch('hover', { isHovered: true });
         
         // Ensure positions stay fixed during hover interactions
         if (graphStore.fixNodePositions) {
-            // First force stop the simulation completely
-            if (graphStore.stopSimulation) {
-                graphStore.stopSimulation();
-            }
-            
             // Fix node positions - no alpha, no restart
             graphStore.fixNodePositions();
-            
-            // Recalculate connection endpoint for the current state
-            connectionEndpoint = calculateConnectionEndpoint();
-            
-            // Additional force tick to ensure everything is properly positioned
-            if (graphStore.forceTick) {
-                graphStore.forceTick();
-            }
         }
     }
 
     function handleMouseLeave() {
         isHovered = false;
-        console.debug(`[NavigationNode:${navigationData.id}] Mouse leave, isHovered=${isHovered}`);
         dispatch('hover', { isHovered: false });
         
         // Again ensure positions stay fixed
@@ -171,18 +138,6 @@
             </feMerge>
         </filter>
     </defs>
-
-    <!-- Connection line from nav node to dashboard perimeter -->
-    <line 
-        class="connection-line"
-        x1="0"
-        y1="0"
-        x2={connectionEndpoint.x}
-        y2={connectionEndpoint.y}
-        stroke={`${color}80`}
-        stroke-width="2.5"
-        class:visible={isHovered}
-    />
 
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
@@ -266,18 +221,7 @@
         font-size: 24px;
     }
 
-    .connection-line {
-        pointer-events: none;
-        vector-effect: non-scaling-stroke;
-        visibility: hidden;
-        opacity: 0;
-        transition: opacity 0.2s ease-out;
-    }
-
-    .connection-line.visible {
-        visibility: visible;
-        opacity: 1;
-    }
+    /* Connection lines removed as requested */
 
     .label {
         font-family: 'Orbitron', sans-serif;

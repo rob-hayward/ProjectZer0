@@ -32,7 +32,7 @@ export const COORDINATE_SPACE = {
             },
             CONTROL: {           // New control node specific sizes
                 DETAIL: 450,     // Smaller detail view for control node
-                PREVIEW: 200     // Smaller preview for control node
+                PREVIEW: 250     // Smaller preview for control node
             },
             NAVIGATION: 80,
             HIDDEN: 100
@@ -61,12 +61,25 @@ export const COORDINATE_SPACE = {
             // Direct distances from central node perimeter to navigation nodes
             DISTANCE: {
                 DETAIL_MODE: 70,   // Distance when central node is in detail mode
-                PREVIEW_MODE: 50   // Distance when central node is in preview mode
+                PREVIEW_MODE: 50,  // Distance when central node is in preview mode
+                CONTROL: {         // Specific distances for control node (which is smaller)
+                    DETAIL_MODE: 0,  // Much smaller distance to bring navigation nodes closer to control node
+                    PREVIEW_MODE: 15   // Even smaller distance for preview mode control node
+                },
+                // Fixed distances from control node edge for precise positioning
+                FIXED_DISTANCE: {
+                    DETAIL_MODE: 70,  // Fixed distance from control node edge in detail mode
+                    PREVIEW_MODE: 50   // Fixed distance from control node edge in preview mode - smaller to move inward
+                }
             },
             // Scaling factors for connection endpoints
             CONNECTION_SCALING: {
                 DETAIL_MODE: 1/4.35,  // Scaling factor for detail mode endpoints 
-                PREVIEW_MODE: 1/1.38  // Scaling factor for preview mode endpoints
+                PREVIEW_MODE: 1/1.38,  // Scaling factor for preview mode endpoints
+                CONTROL: {
+                    DETAIL_MODE: 1/8,  // Stronger reduction for control node detail mode
+                    PREVIEW_MODE: 1/4   // Stronger reduction for control node preview mode
+                }
             }
         },
         FORCES: {

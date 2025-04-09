@@ -1,4 +1,4 @@
-// src/lib/services/graph/simulation/layouts/common/NavigationNodeLayout.ts
+// src/lib/services/graph/layouts/common/NavigationNodeLayout.ts
 import * as d3 from 'd3';
 import type { EnhancedNode, EnhancedLink } from '../../../../types/graph/enhanced';
 import { asD3Nodes, asD3Links } from '../../../../types/graph/enhanced';
@@ -11,6 +11,9 @@ import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../../constants/graph'
  * that can be reused across different layout strategies.
  */
 export class NavigationNodeLayout {
+    // Private static variable to track control-related nodes
+    private static controlRelatedNodes = new Set<string>();
+
     /**
      * Position navigation nodes in a circle around the central node,
      * adjusting the distance based on central node size
@@ -23,6 +26,9 @@ export class NavigationNodeLayout {
         nodes: EnhancedNode[], 
         getNodeRadius: (node: EnhancedNode) => number
     ): number {
+        // Clear control-related nodes set before positioning
+        this.controlRelatedNodes.clear();
+
         // Find central node
         const centralNode = nodes.find(n => n.fixed || n.group === 'central');
         if (!centralNode) {
@@ -49,21 +55,101 @@ export class NavigationNodeLayout {
         // Determine if central node is in preview or detail mode
         const isPreview = centralNode.mode === 'preview';
         
-        // Use the appropriate distance constant based on central node mode
-        const navigationDistance = isPreview
-            ? COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE
-            : COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE;
+        // Determine if this is a control node by checking both type and data
+        // In statement-network view, the central node is a dashboard type with sub="controls"
+        const isControlNode = centralNode.type === 'dashboard' && 
+            centralNode.data && 
+            typeof centralNode.data === 'object' && 
+            'sub' in centralNode.data && 
+            centralNode.data.sub === 'controls';
+            
+        console.debug('[NavigationNodeLayout] Analyzing central node:', {
+            id: centralNode.id,
+            type: centralNode.type,
+            data: centralNode.data && typeof centralNode.data === 'object' ? 
+                'sub' in centralNode.data ? centralNode.data.sub : 'no sub property' : 
+                'not an object',
+            isControlNode: isControlNode,
+            mode: centralNode.mode,
+            isPreview: isPreview,
+            radius: centralRadius
+        });
+        
+        // Use the appropriate distance constant based on central node type and mode
+        let navigationDistance;
+        if (isControlNode) {
+            // Use control-specific distances for the smaller control node
+            navigationDistance = isPreview
+                ? COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.PREVIEW_MODE
+                : COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.DETAIL_MODE;
+                
+            console.debug('[NavigationNodeLayout] Using CONTROL-specific distances:', {
+                distanceValue: navigationDistance,
+                previewMode: isPreview ? 'true (using PREVIEW distance)' : 'false (using DETAIL distance)',
+                detailValue: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.DETAIL_MODE,
+                previewValue: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.PREVIEW_MODE
+            });
+        } else {
+            // Use standard distances for other node types (word, etc.)
+            navigationDistance = isPreview
+                ? COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE
+                : COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE;
+                
+            console.debug('[NavigationNodeLayout] Using standard distances:', {
+                distanceValue: navigationDistance,
+                previewMode: isPreview ? 'true (using PREVIEW distance)' : 'false (using DETAIL distance)',
+                detailValue: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE,
+                previewValue: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE
+            });
+        }
         
         // Calculate final distance from center (central node radius + constant distance)
-        const nodeDistanceFromCenter = centralRadius + navigationDistance;
+        // For control nodes, use a different approach based on mode
+        let nodeDistanceFromCenter;
+        
+        if (isControlNode) {
+            if (isPreview) {
+                // For preview mode control nodes, use a tighter fixed distance from the constants
+                nodeDistanceFromCenter = COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2 + 
+                                        COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.FIXED_DISTANCE.PREVIEW_MODE;
+            } else {
+                // For detail mode control nodes, use the fixed distance from constants
+                nodeDistanceFromCenter = COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 + 
+                                        COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.FIXED_DISTANCE.DETAIL_MODE;
+            }
+            console.debug('[NavigationNodeLayout] Control node distance:', {
+                mode: isPreview ? 'preview' : 'detail',
+                radius: centralRadius,
+                addedDistance: isPreview ? 
+                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.FIXED_DISTANCE.PREVIEW_MODE : 
+                    COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.FIXED_DISTANCE.DETAIL_MODE,
+                finalDistance: nodeDistanceFromCenter
+            });
+        } else {
+            // Standard calculation for other node types
+            nodeDistanceFromCenter = centralRadius + navigationDistance;
+        }
         
         console.debug('[NavigationNodeLayout] Navigation ring calculation:', {
             centralNodeType: centralNode.type,
             centralNodeMode: centralNode.mode,
+            isControlNode,
             centralRadius,
             navigationDistance,
             isPreview,
-            finalDistance: nodeDistanceFromCenter
+            finalDistance: nodeDistanceFromCenter,
+            distanceFromPerimeter: navigationDistance,
+            totalDistanceFromCenter: nodeDistanceFromCenter,
+            distanceValues: {
+                standard: {
+                    detail: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.DETAIL_MODE,
+                    preview: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.PREVIEW_MODE
+                },
+                control: {
+                    detail: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.DETAIL_MODE,
+                    preview: COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.CONTROL.PREVIEW_MODE
+                }
+            }
         });
 
         // Position navigation nodes in a circle
@@ -91,6 +177,11 @@ export class NavigationNodeLayout {
                 node.metadata.angle = angle;
                 node.metadata.radius = nodeDistanceFromCenter; // Store the actual distance used
                 node.metadata.centralRadius = centralRadius;
+            }
+            
+            // Track which nodes are control-related in our Set
+            if (isControlNode) {
+                this.controlRelatedNodes.add(node.id);
             }
             
             // Extra verification for bottom nodes (positive Y values)
@@ -121,6 +212,13 @@ export class NavigationNodeLayout {
         });
         
         return nodeDistanceFromCenter;
+    }
+
+    /**
+     * Check if a node is control-related (connected to a control node)
+     */
+    static isControlRelated(nodeId: string): boolean {
+        return this.controlRelatedNodes.has(nodeId);
     }
 
     /**
@@ -246,25 +344,61 @@ export class NavigationNodeLayout {
     ): void {
         console.debug('[NavigationNodeLayout] Updating navigation positions due to central node mode change');
         
+        // Find central node to determine if it's a control node
+        const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+        const isControlNode = centralNode?.type === 'dashboard' && 
+            centralNode.data && 
+            typeof centralNode.data === 'object' && 
+            'sub' in centralNode.data && 
+            centralNode.data.sub === 'controls';
+        
+        const isPreview = centralNode?.mode === 'preview';
+        
+        console.debug('[NavigationNodeLayout] Central node for update:', {
+            id: centralNode?.id,
+            type: centralNode?.type,
+            mode: centralNode?.mode,
+            isControlNode,
+            radius: centralNode ? getNodeRadius(centralNode) : 0
+        });
+        
+        // Clear the control related nodes set - we'll rebuild it during positioning
+        this.controlRelatedNodes.clear();
+        
         // Reposition all navigation nodes based on the new central node size
         this.positionNavigationNodes(nodes, getNodeRadius);
         
         // Ensure positions are fixed
         this.enforceFixedPositions(nodes);
+        
+        // Force zero velocities for all nodes
+        nodes.forEach(node => {
+            if (node.type === 'navigation') {
+                node.vx = 0;
+                node.vy = 0;
+            }
+        });
     }
 
     /**
      * Calculate endpoint on the central node's perimeter for connection lines
      * @param navNodeAngle The angle of the navigation node relative to center
      * @param centralRadius The radius of the central node
+     * @param nodeId The ID of the node to check if it's control-related
      * @returns Coordinates for the endpoint on the central node's perimeter
      */
     static calculateCentralNodeConnectionPoint(
         navNodeAngle: number,
-        centralRadius: number
+        centralRadius: number,
+        nodeId: string
     ): { x: number, y: number } {
-        // Apply empirical scaling factor to radius
-        const effectiveRadius = centralRadius / 9;
+        // Check if this node is control-related
+        const isControlRelated = this.isControlRelated(nodeId);
+        
+        // Apply empirical scaling factor to radius - with additional reduction for control nodes
+        const effectiveRadius = isControlRelated 
+            ? centralRadius / 18  // Extra reduction for control nodes (smaller endpoint)
+            : centralRadius / 9;  // Standard reduction for other nodes
         
         // Calculate point on perimeter based on angle
         const x = Math.cos(navNodeAngle) * effectiveRadius;
@@ -277,11 +411,13 @@ export class NavigationNodeLayout {
      * Calculate the connection point from a navigation node to the dashboard perimeter
      * @param nodePosition The position of the navigation node
      * @param dashboardRadius The radius of the dashboard node
+     * @param nodeId The ID of the node to check if it's control-related
      * @returns Vector from the navigation node to the point on the dashboard perimeter
      */
     static calculateConnectionVector(
         nodePosition: { x: number, y: number },
-        dashboardRadius: number
+        dashboardRadius: number,
+        nodeId: string
     ): { x: number, y: number } {
         // Vector from node to center (0,0)
         const vectorX = -nodePosition.x;
@@ -296,8 +432,13 @@ export class NavigationNodeLayout {
         const unitX = vectorX / distance;
         const unitY = vectorY / distance;
         
-        // Use empirical scaling factor for dashboard radius
-        const effectiveRadius = dashboardRadius / 9;
+        // Check if this node is control-related
+        const isControlRelated = this.isControlRelated(nodeId);
+        
+        // Use empirical scaling factor for dashboard radius - stronger for control nodes
+        const effectiveRadius = isControlRelated
+            ? dashboardRadius / 18  // Extra reduction for control node connections
+            : dashboardRadius / 9;  // Standard reduction
         
         // Calculate point on perimeter in local coordinates
         return {
