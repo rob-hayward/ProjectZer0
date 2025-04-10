@@ -18,33 +18,33 @@ export const LINK_CONSTANTS = {
             }
         },
         STATEMENT_RELATION: {
-            // Base stroke width for single relation - subtle start
+            // Very subtle base width
             BASE_STROKE_WIDTH: 1.0,
-            // Maximum stroke width - less extreme
-            MAX_STROKE_WIDTH: 3.0,
-            // Smaller increment for more gradual change
-            STROKE_WIDTH_INCREMENT: 0.2,
+            // Modest maximum width to avoid overly thick lines
+            MAX_STROKE_WIDTH: 2.0,
+            // Very small increment for thickness (barely noticeable)
+            STROKE_WIDTH_INCREMENT: 0.15,
             GRADIENT: {
-                // Start with lower base opacity
-                MIN_OPACITY: 0.5,
-                // Higher max opacity but not full
-                MAX_OPACITY: 0.9,
-                // Smaller opacity increment
-                OPACITY_INCREMENT: 0.05
+                // Start with lower base opacity for weak relationships
+                MIN_OPACITY: 0.2,
+                // Strong relationships have high opacity (more noticeable)
+                MAX_OPACITY: 0.95,
+                // Larger opacity increment (more visible difference)
+                OPACITY_INCREMENT: 0.1,
             },
             GLOW: {
-                // Start with modest glow
-                BASE_INTENSITY: 1.5,
-                // Stronger glow but not excessive
-                MAX_INTENSITY: 5.0,
-                // Modest glow increment per relationship
-                INTENSITY_INCREMENT: 0.4,
+                // Minimal glow for single-keyword relationships
+                BASE_INTENSITY: 1.0,
+                // Strong glow for multi-keyword relationships
+                MAX_INTENSITY: 10.0,
+                // Significant increase in glow per relationship
+                INTENSITY_INCREMENT: 1.,
                 // Start with subtle glow opacity
-                BASE_OPACITY: 0.2,
-                // Maximum glow opacity - visible but not overwhelming
-                MAX_OPACITY: 0.6,
-                // Modest opacity increment
-                OPACITY_INCREMENT: 0.05
+                BASE_OPACITY: 0.15,
+                // Maximum glow opacity - noticeable but not overwhelming
+                MAX_OPACITY: 0.7,
+                // Significant opacity increment per keyword
+                OPACITY_INCREMENT: 0.07
             }
         },
         NAVIGATION: {
