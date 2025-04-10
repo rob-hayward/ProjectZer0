@@ -1,16 +1,26 @@
-<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/common/ExpandCollapseButton.svelte -->
+<!-- src/lib/components/graph/nodes/common/ExpandCollapseButton.svelte -->
 <script lang="ts">
     import { spring } from 'svelte/motion';
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
+    import type { NodeMode } from '$lib/types/graph/enhanced';
 
     export let mode: 'expand' | 'collapse';
     export let y: number = 0;
     export let x: number = -20; // Default to left side positioning
+    // New props to capture node position for centering
+    export let nodeX: number | undefined = undefined;
+    export let nodeY: number | undefined = undefined;
+    // Optional ID to identify which node is changing
+    export let nodeId: string | undefined = undefined;
 
     const dispatch = createEventDispatcher<{
         click: void;
-        modeChange: { mode: 'preview' | 'detail' };
+        modeChange: { 
+            mode: NodeMode; 
+            position?: { x: number; y: number };
+            nodeId?: string;
+        };
     }>();
 
     let isHovered = false;
@@ -29,11 +39,53 @@
         }
     }
 
-    function handleClick() {
-        dispatch('click');
-        dispatch('modeChange', { 
-            mode: mode === 'expand' ? 'detail' : 'preview' 
+    onMount(() => {
+        console.log('[NODE_CENTRE_DEBUG] ExpandCollapseButton mounted with props:', {
+            mode,
+            nodeId,
+            nodeX,
+            nodeY
         });
+    });
+
+    function handleClick() {
+        console.log('[NODE_CENTRE_DEBUG] Button clicked:', {
+            mode,
+            nodeId,
+            nodeX,
+            nodeY
+        });
+        
+        // Dispatch regular click event
+        dispatch('click');
+        
+        // Determine the new mode
+        const newMode: NodeMode = mode === 'expand' ? 'detail' : 'preview';
+        
+        // Prepare event data
+        const eventData: { 
+            mode: NodeMode; 
+            position?: { x: number; y: number };
+            nodeId?: string;
+        } = { mode: newMode };
+        
+        // Always include position data for accurate centering
+        if (nodeX !== undefined && nodeY !== undefined) {
+            eventData.position = { x: nodeX, y: nodeY };
+            console.log('[NODE_CENTRE_DEBUG] Including position data in event:', eventData.position);
+        } else {
+            // Try to get position from nodeId
+            console.warn('[NODE_CENTRE_DEBUG] nodeX or nodeY is undefined, will propagate without position');
+        }
+        
+        // Include node ID if provided
+        if (nodeId !== undefined) {
+            eventData.nodeId = nodeId;
+        }
+        
+        // Dispatch enhanced mode change event
+        console.log('[NODE_CENTRE_DEBUG] Dispatching modeChange event:', eventData);
+        dispatch('modeChange', eventData);
     }
 </script>
 

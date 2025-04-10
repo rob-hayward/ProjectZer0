@@ -7,9 +7,15 @@
     import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
 
     export let node: RenderableNode;
+    // Add position props that will be passed from NodeRenderer
+    export let nodeX: number | undefined = undefined;
+    export let nodeY: number | undefined = undefined;
 
     const dispatch = createEventDispatcher<{
-        modeChange: { mode: NodeMode };
+        modeChange: { 
+            mode: NodeMode;
+            position?: { x: number; y: number };
+        };
         click: void;
     }>();
 
@@ -32,14 +38,60 @@
         };
     }
 
+    onMount(() => {
+        console.log('[NODE_CENTRE_DEBUG] BasePreviewNode mounted with position:', {
+            nodeId: node.id,
+            nodeX,
+            nodeY,
+            nodePosition: node.position
+        });
+        
+        // If we don't have nodeX/nodeY but we have node.position, use that
+        if ((nodeX === undefined || nodeY === undefined) && node.position) {
+            nodeX = node.position.x;
+            nodeY = node.position.y;
+            console.log('[NODE_CENTRE_DEBUG] BasePreviewNode using node.position instead:', {
+                x: nodeX,
+                y: nodeY
+            });
+        }
+    });
+
     function handleButtonClick() {
-        // Removed logging to avoid loops
         dispatch('click');
     }
 
-    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        // Removed logging to avoid loops
-        dispatch('modeChange', event.detail);
+    function handleModeChange(event: CustomEvent<{
+        mode: NodeMode;
+        position?: { x: number; y: number };
+        nodeId?: string;
+    }>) {
+        // Forward the enhanced event including position data
+        const eventData = {
+            mode: event.detail.mode,
+            position: undefined as { x: number, y: number } | undefined
+        };
+        
+        // If the event includes position data, use it
+        if (event.detail.position) {
+            eventData.position = event.detail.position;
+        }
+        // Otherwise, use the position from props if available
+        else if (nodeX !== undefined && nodeY !== undefined) {
+            eventData.position = { x: nodeX, y: nodeY };
+            console.log('[NODE_CENTRE_DEBUG] BasePreviewNode adding position to event:', eventData.position);
+        }
+        // If all else fails, use node's position
+        else if (node.position) {
+            eventData.position = { 
+                x: node.position.x,
+                y: node.position.y
+            };
+            console.log('[NODE_CENTRE_DEBUG] BasePreviewNode using node.position for event:', eventData.position);
+        }
+        
+        // Forward the enhanced event
+        dispatch('modeChange', eventData);
     }
 </script>
 
@@ -89,7 +141,10 @@
                     <ExpandCollapseButton 
                         mode="expand"
                         y={radius}
-                        x={-20} 
+                        x={-20}
+                        nodeX={nodeX}
+                        nodeY={nodeY}
+                        nodeId={node.id}
                         on:click={handleButtonClick}
                         on:modeChange={handleModeChange}
                     />

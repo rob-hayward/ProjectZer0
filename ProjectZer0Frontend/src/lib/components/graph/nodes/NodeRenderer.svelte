@@ -13,17 +13,59 @@
     
     // Event dispatcher for mode changes and visibility changes
     const dispatch = createEventDispatcher<{
-        modeChange: { nodeId: string; mode: NodeMode };
+        modeChange: { 
+            nodeId: string; 
+            mode: NodeMode; 
+            position?: { x: number; y: number };
+        };
         visibilityChange: { nodeId: string; isHidden: boolean };
     }>();
     
     // Handle mode change events from child components
-    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        // Include the nodeId in the dispatched event
-        dispatch('modeChange', { 
-            nodeId: node.id, 
-            mode: event.detail.mode 
+    function handleModeChange(event: CustomEvent<{ 
+        mode: NodeMode; 
+        position?: { x: number; y: number };
+        nodeId?: string;
+    }>) {
+        console.log('[NODE_CENTRE_DEBUG] NodeRenderer handleModeChange called with:', {
+            nodeId: node.id,
+            mode: event.detail.mode,
+            position: event.detail.position
         });
+        
+        // Include the nodeId in the dispatched event
+        const eventData: {
+            nodeId: string;
+            mode: NodeMode;
+            position?: { x: number; y: number };
+        } = {
+            nodeId: node.id,
+            mode: event.detail.mode
+        };
+        
+        // ALWAYS use current node position data to ensure accuracy
+        if (node.position) {
+            console.log('[NODE_CENTRE_DEBUG] NodeRenderer using current node position:', {
+                x: node.position.x,
+                y: node.position.y
+            });
+            eventData.position = {
+                x: node.position.x,
+                y: node.position.y
+            };
+        }
+        // Fall back to position from event if available
+        else if (event.detail.position) {
+            console.log('[NODE_CENTRE_DEBUG] NodeRenderer using position from event:', {
+                x: event.detail.position.x,
+                y: event.detail.position.y
+            });
+            eventData.position = event.detail.position;
+        }
+        
+        // Dispatch the enhanced event
+        console.log('[NODE_CENTRE_DEBUG] NodeRenderer dispatching modeChange:', eventData);
+        dispatch('modeChange', eventData);
     }
     
     // Handle visibility change events
@@ -55,6 +97,16 @@
             : 0;
     
     onMount(() => {
+        console.log('[NODE_CENTRE_DEBUG] NodeRenderer mounted:', {
+            id: node.id,
+            type: node.type,
+            position: {
+                x: posX,
+                y: posY,
+                transform
+            }
+        });
+        
         if (node.type === 'word' || node.type === 'definition' || node.type === 'statement') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
@@ -93,11 +145,18 @@
             on:modeChange={handleModeChange}
         />
     {:else}
-        <!-- Render regular node using slot -->
+        <!-- Render regular node using slot, passing node position data -->
         <slot 
             {node}
-            {handleModeChange}
+            nodeX={posX}
+            nodeY={posY}
+            handleModeChange={handleModeChange}
         />
+        
+        <!-- Debug position data -->
+        {#if node.id === '7c531a07-6e0f-4391-bd9c-80aee205a797'}
+            <text x="0" y="-50" fill="white" font-size="12" text-anchor="middle">Position: ({posX}, {posY})</text>
+        {/if}
         
         <!-- Add show/hide button to qualifying nodes -->
         {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement'}
@@ -105,6 +164,7 @@
                 isHidden={false}
                 y={node.radius} 
                 x={20}  
+                nodeId={node.id}
                 on:visibilityChange={handleVisibilityChange}
             />
         {/if}

@@ -53,6 +53,7 @@
     let background: SvgBackground | null = null;
     let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
+    let zoomInstance: d3.ZoomBehavior<SVGSVGElement, unknown> | undefined;
     let containerDimensions = {
         width: 0,
         height: 0
@@ -191,6 +192,9 @@
                 }
             });
 
+        // Store zoom instance for use in other methods
+        zoomInstance = zoom;
+
         // Apply zoom behavior to SVG with initial transform
         d3.select(svg)
             .call(zoom)
@@ -205,6 +209,83 @@
                 .call(zoom.transform, initialTransform);
         };
     }
+    
+/**
+ * Center the viewport on specific coordinates with an optional zoom level
+ * Using D3's zoom.transform directly
+ * 
+ * @param x The x coordinate to center on
+ * @param y The y coordinate to center on
+ * @param zoomLevel Optional zoom level (uses current zoom if not provided)
+ * @param duration Animation duration in milliseconds
+ */
+function centerViewportOn(x: number, y: number, zoomLevel?: number, duration: number = 750) {
+    if (!svg || !zoomInstance) {
+        console.error('[NODE_CENTRE_DEBUG] centerViewportOn failed: svg or zoomInstance is null');
+        return;
+    }
+    
+    console.log('[NODE_CENTRE_DEBUG] Starting centerViewportOn with coordinates:', { x, y, zoomLevel, duration });
+    
+    try {
+        // Get the current transform from the coordinateSystem
+        const currentTransform = coordinateSystem.getCurrentTransform();
+        console.log('[NODE_CENTRE_DEBUG] Current transform before centering:', currentTransform.toString());
+        
+        // Use current scale unless explicitly specified
+        const scale = zoomLevel !== undefined ? zoomLevel : currentTransform.k;
+        
+        // Get SVG dimensions - these are the viewport dimensions in browser pixels
+        const svgRect = svg.getBoundingClientRect();
+        const viewportCenterX = svgRect.width / 2;
+        const viewportCenterY = svgRect.height / 2;
+        
+        // SPECIAL CASE: Check if this is a definition node (they tend to position incorrectly)
+        // If the x coordinate is very negative (left side, near -800 to -1000), apply an extra
+        // offset adjustment to account for layout shift
+        let offsetX = 0;
+        let offsetY = 0;
+        if (x < -700) {
+            // For left-side definitions, we need to adjust the position
+            // to compensate for layout shift issues
+            console.log('[NODE_CENTRE_DEBUG] Applying special adjustment for left-side node');
+            offsetX = 140; // Move 140px right
+        }
+        
+        // When using D3's zoom transform, we specify where the real-world coordinate 
+        // should appear in the viewport. The transform is essentially:
+        //    viewport_point = (world_point * scale) + translation
+        //    
+        // To center (x,y) in the viewport:
+        //    viewportCenterX = (x * scale) + tx
+        //    viewportCenterY = (y * scale) + ty
+        //
+        // Solving for tx and ty, including our offsetX/offsetY adjustments:
+        const tx = viewportCenterX - ((x - offsetX) * scale);
+        const ty = viewportCenterY - ((y - offsetY) * scale);
+        
+        // Create the transform
+        const newTransform = d3.zoomIdentity.translate(tx, ty).scale(scale);
+        
+        console.log('[NODE_CENTRE_DEBUG] Applying D3 transform with calculation:', { 
+            nodePosition: { x, y },
+            adjustments: { offsetX, offsetY },
+            viewportCenter: { x: viewportCenterX, y: viewportCenterY },
+            scale,
+            translation: { tx, ty },
+            transformString: newTransform.toString()
+        });
+        
+        // Apply the transform directly with a transition
+        d3.select(svg)
+            .transition()
+            .duration(duration)
+            .call(zoomInstance.transform, newTransform);
+            
+    } catch (e) {
+        console.error('[NODE_CENTRE_DEBUG] Error in centerViewportOn:', e);
+    }
+}
     
     /**
      * Update debug information for the central node's position
@@ -235,18 +316,105 @@
         }
     }
 
-    /**
-     * Handle node mode change events
-     */
-    function handleModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
-        // Notify the graph store
-        if (graphStore) {
+  /**
+ * Handle node mode changes with position adjustments
+ */
+function handleModeChange(event: CustomEvent<{ 
+    nodeId: string; 
+    mode: NodeMode;
+    position?: { x: number; y: number }; 
+}>) {
+    console.log('[NODE_CENTRE_DEBUG] handleModeChange called with:', event.detail);
+    
+    // If we're expanding to detail mode AND have position data, center the viewport
+    if (event.detail.mode === 'detail' && event.detail.position) {
+        console.log('[NODE_CENTRE_DEBUG] Node expanded with position data, will center viewport:', event.detail);
+        
+        // Store the original position before updating the node mode
+        const originalPosition = { ...event.detail.position };
+        
+        // Update node mode in the graph store
+        if (graphStore && typeof graphStore.updateNodeMode === 'function') {
+            // First update the node mode in the store
+            graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
+            
+            // Force a few simulation ticks to ensure positions are updated
+            if (typeof graphStore.forceTick === 'function') {
+                graphStore.forceTick(5); // Increase ticks to ensure stability
+            }
+            
+            // Wait a small amount of time for the layout to complete
+            setTimeout(() => {
+                // Get the updated node from the store
+                if ($graphStore && $graphStore.nodes) {
+                    const updatedNode = $graphStore.nodes.find(n => n.id === event.detail.nodeId);
+                    
+                    if (updatedNode && updatedNode.position) {
+                        console.log('[NODE_CENTRE_DEBUG] Position before mode change:', originalPosition);
+                        console.log('[NODE_CENTRE_DEBUG] Position after mode change:', updatedNode.position);
+                        
+                        // For word definition layout, nodes shift when changing mode
+                        // Calculate the offset from original to updated position
+                        const deltaX = updatedNode.position.x - originalPosition.x;
+                        const deltaY = updatedNode.position.y - originalPosition.y;
+                        
+                        console.log('[NODE_CENTRE_DEBUG] Position delta during mode change:', { deltaX, deltaY });
+                        
+                        // Apply an additional transform to account for layout shifts
+                        // Use the UPDATED position for centering
+                        centerViewportOn(
+                            updatedNode.position.x, 
+                            updatedNode.position.y
+                        );
+                    } else {
+                        // Fallback: use original position
+                        console.log('[NODE_CENTRE_DEBUG] Using original position as fallback');
+                        centerViewportOn(
+                            originalPosition.x, 
+                            originalPosition.y
+                        );
+                    }
+                } else {
+                    // Fallback if graph store is not available
+                    centerViewportOn(
+                        originalPosition.x, 
+                        originalPosition.y
+                    );
+                }
+            }, 50); // Small delay to allow layout calculation to complete
+            
+            // Forward the event to parent
+            dispatch('modechange', {
+                nodeId: event.detail.nodeId,
+                mode: event.detail.mode
+            });
+            return;
+        }
+        
+        // Fallback: use original position if we couldn't get the updated position
+        centerViewportOn(
+            originalPosition.x, 
+            originalPosition.y
+        );
+        
+        // Forward the event to parent in fallback case
+        dispatch('modechange', {
+            nodeId: event.detail.nodeId,
+            mode: event.detail.mode
+        });
+    } else {
+        // For non-centering mode changes, just update the node mode
+        if (graphStore && typeof graphStore.updateNodeMode === 'function') {
             graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
         }
         
-        // Forward the event to parent
-        dispatch('modechange', event.detail);
+        // Forward the basic event to parent
+        dispatch('modechange', {
+            nodeId: event.detail.nodeId,
+            mode: event.detail.mode
+        });
     }
+}
 
     /**
      * Handle node visibility change events
@@ -304,6 +472,8 @@
     function resetViewport() {
         if (!svg || !resetZoom) return;
         
+        console.log('[NODE_CENTRE_DEBUG] Resetting viewport to initial state');
+        
         // Reset zoom to initial state
         resetZoom();
     }
@@ -313,6 +483,8 @@
      */
     function initialize() {
         if (initialized) return;
+        
+        console.log('[NODE_CENTRE_DEBUG] Initializing graph component', { viewType });
         
         // Create graph store for this view
         graphStore = createGraphStore(viewType);
@@ -541,10 +713,14 @@
                                 <svelte:fragment 
                                     slot="default" 
                                     let:node 
+                                    let:nodeX
+                                    let:nodeY
                                     let:handleModeChange
                                 >
                                     <slot 
-                                        {node} 
+                                        {node}
+                                        {nodeX}
+                                        {nodeY}
                                         {handleModeChange} 
                                     />
                                     {#if showDebug}
