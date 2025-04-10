@@ -8,7 +8,7 @@
     export let mode: 'expand' | 'collapse';
     export let y: number = 0;
     export let x: number = -20; // Default to left side positioning
-    // New props to capture node position for centering
+    // Node position for centering
     export let nodeX: number | undefined = undefined;
     export let nodeY: number | undefined = undefined;
     // Optional ID to identify which node is changing
@@ -69,13 +69,12 @@
             nodeId?: string;
         } = { mode: newMode };
         
-        // Always include position data for accurate centering
+        // Include position data if available - always do this for accurate centering
         if (nodeX !== undefined && nodeY !== undefined) {
             eventData.position = { x: nodeX, y: nodeY };
             console.log('[NODE_CENTRE_DEBUG] Including position data in event:', eventData.position);
         } else {
-            // Try to get position from nodeId
-            console.warn('[NODE_CENTRE_DEBUG] nodeX or nodeY is undefined, will propagate without position');
+            console.log('[NODE_CENTRE_DEBUG] No position data available for centering');
         }
         
         // Include node ID if provided
