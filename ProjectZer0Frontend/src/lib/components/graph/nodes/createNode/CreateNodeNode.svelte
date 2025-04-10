@@ -4,7 +4,7 @@
     import BaseDetailNode from '../base/BaseNode.svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isUserProfileData } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { COORDINATE_SPACE } from '../../../../constants/graph';
     import { COLORS } from '$lib/constants/colors';
 

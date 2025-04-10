@@ -3,7 +3,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isWordNodeData } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '$lib/constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import { fetchWithAuth } from '$lib/services/api';
     import { userStore } from '$lib/stores/userStore';
     import { getUserDetails } from '$lib/services/userLookup';

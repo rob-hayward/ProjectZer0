@@ -5,7 +5,7 @@
     import type { UserActivity } from '$lib/services/userActivity';
     import { isUserProfileData } from '$lib/types/graph/enhanced';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { COORDINATE_SPACE } from '../../../../constants/graph';
 
     export let node: RenderableNode;

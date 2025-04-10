@@ -1,7 +1,7 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/nodes/common/ShowHideButton.svelte -->
 <script lang="ts">
     import { spring } from 'svelte/motion';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { createEventDispatcher } from 'svelte';
 
     // This indicates the CURRENT visibility state - if true, node is hidden; if false, node is visible

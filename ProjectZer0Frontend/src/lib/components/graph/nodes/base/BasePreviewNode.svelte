@@ -4,12 +4,24 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import BaseNode from './BaseNode.svelte';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
 
     export let node: RenderableNode;
     // Add position props that will be passed from NodeRenderer
     export let nodeX: number | undefined = undefined;
     export let nodeY: number | undefined = undefined;
+    
+    // Vote-based styling for enhanced visuals
+    export let voteBasedStyles = {
+        glow: {
+            intensity: 8,
+            opacity: 0.6
+        },
+        ring: {
+            width: 6, 
+            opacity: 0.5
+        }
+    };
 
     const dispatch = createEventDispatcher<{
         modeChange: { 
@@ -102,7 +114,7 @@
     data-node-mode={node.mode}
     data-node-radius={node.radius}
 >
-    <BaseNode {node}>
+    <BaseNode {node} {voteBasedStyles}>
         <svelte:fragment slot="default" let:radius let:filterId let:gradientId>
             <!-- Title slot -->
             {#if $$slots.title}

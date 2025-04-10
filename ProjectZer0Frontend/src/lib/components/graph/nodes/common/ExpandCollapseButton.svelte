@@ -1,7 +1,7 @@
 <!-- src/lib/components/graph/nodes/common/ExpandCollapseButton.svelte -->
 <script lang="ts">
     import { spring } from 'svelte/motion';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { createEventDispatcher, onMount } from 'svelte';
     import type { NodeMode } from '$lib/types/graph/enhanced';
 

@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '$lib/constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';

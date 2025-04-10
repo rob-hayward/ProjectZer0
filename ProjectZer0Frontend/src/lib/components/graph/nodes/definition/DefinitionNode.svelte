@@ -4,7 +4,7 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus, Definition } from '$lib/types/domain/nodes';
     import { isDefinitionData } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';

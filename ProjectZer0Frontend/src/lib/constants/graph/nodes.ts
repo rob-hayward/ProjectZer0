@@ -30,6 +30,48 @@ export const NODE_CONSTANTS = {
             }
         }
     },
+    VOTE_BASED_STYLING: {
+        // Number of votes required for each visual increment
+        VOTES_PER_INCREMENT: 10,
+        // Maximum vote count for styling (prevents excessive styling)
+        MAX_VOTE_THRESHOLD: 100,
+        // Glow effect enhancements
+        GLOW: {
+            // Base values for zero net votes
+            BASE: {
+                INTENSITY: 2,
+                OPACITY: 0.3
+            },
+            // Maximum values at max vote threshold
+            MAX: {
+                INTENSITY: 8,
+                OPACITY: 0.8
+            },
+            // Increment per VOTES_PER_INCREMENT votes
+            INCREMENT: {
+                INTENSITY: 0.6,
+                OPACITY: 0.05
+            }
+        },
+        // Ring styling enhancements
+        RING: {
+            // Base values for zero net votes
+            BASE: {
+                WIDTH: 1,
+                OPACITY: 0.5
+            },
+            // Maximum values at max vote threshold
+            MAX: {
+                WIDTH: 3,
+                OPACITY: 1.0
+            },
+            // Increment per VOTES_PER_INCREMENT votes
+            INCREMENT: {
+                WIDTH: 0.2,
+                OPACITY: 0.05
+            }
+        }
+    },
     COLORS: {
         DASHBOARD: {
             background: `${COLORS.PRIMARY.BLUE}33`,

@@ -4,7 +4,7 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { isStatementData } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/node-styling';
+    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
@@ -300,11 +300,52 @@
         scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
         statementStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     }
+
+    // Calculate vote-based styling enhancements based on net votes
+    $: voteBasedStyles = calculateVoteBasedStyles(netVotes);
+
+    // Function to calculate styling based on vote count
+    function calculateVoteBasedStyles(votes: number) {
+        // Ensure votes is a non-negative value (hidden nodes have negative votes)
+        const positiveVotes = Math.max(0, votes);
+        
+        // Get constants
+        const VOTE_STYLING = NODE_CONSTANTS.VOTE_BASED_STYLING;
+        const votesPerIncrement = VOTE_STYLING.VOTES_PER_INCREMENT;
+        const maxVoteThreshold = VOTE_STYLING.MAX_VOTE_THRESHOLD;
+        
+        // Calculate scaling factor (capped at max threshold)
+        const scaleFactor = Math.min(positiveVotes / votesPerIncrement, maxVoteThreshold / votesPerIncrement);
+        
+        // Calculate glow properties
+        const glowIntensity = VOTE_STYLING.GLOW.BASE.INTENSITY + 
+            (scaleFactor * VOTE_STYLING.GLOW.INCREMENT.INTENSITY);
+        const glowOpacity = VOTE_STYLING.GLOW.BASE.OPACITY + 
+            (scaleFactor * VOTE_STYLING.GLOW.INCREMENT.OPACITY);
+            
+        // Calculate ring properties
+        const ringWidth = VOTE_STYLING.RING.BASE.WIDTH + 
+            (scaleFactor * VOTE_STYLING.RING.INCREMENT.WIDTH);
+        const ringOpacity = VOTE_STYLING.RING.BASE.OPACITY + 
+            (scaleFactor * VOTE_STYLING.RING.INCREMENT.OPACITY);
+            
+        // Apply caps to ensure values don't exceed maximums
+        return {
+            glow: {
+                intensity: Math.min(glowIntensity, VOTE_STYLING.GLOW.MAX.INTENSITY),
+                opacity: Math.min(glowOpacity, VOTE_STYLING.GLOW.MAX.OPACITY)
+            },
+            ring: {
+                width: Math.min(ringWidth, VOTE_STYLING.RING.MAX.WIDTH),
+                opacity: Math.min(ringOpacity, VOTE_STYLING.RING.MAX.OPACITY)
+            }
+        };
+    }
 </script>
 
 {#if isDetail}
     <!-- DETAIL MODE -->
-    <BaseDetailNode {node} on:modeChange={handleModeChange}>
+    <BaseDetailNode {node} on:modeChange={handleModeChange} {voteBasedStyles}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
             <text
@@ -514,7 +555,7 @@
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover}>
+    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} {voteBasedStyles}>
         <svelte:fragment slot="title" let:radius>
             <text
                 y={-radius + 40}

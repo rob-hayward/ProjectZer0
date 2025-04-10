@@ -7,6 +7,17 @@
     export let node: RenderableNode;
     // Allow custom style to be passed in (optional)
     export let style = node.style;
+    // Vote-based styling for visual enhancements
+    export let voteBasedStyles = {
+        glow: {
+            intensity: 8,
+            opacity: 0.6
+        },
+        ring: {
+            width: 6, 
+            opacity: 0.5
+        }
+    };
     
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
@@ -47,9 +58,9 @@
     <!-- Filter and gradient definitions -->
     <defs>
         <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
-            <!-- Strong outer glow -->
-            <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur1"/>
-            <feFlood flood-color={highlightColor} flood-opacity="0.6" result="color1"/>
+            <!-- Strong outer glow - adjusted by vote-based styling -->
+            <feGaussianBlur in="SourceAlpha" stdDeviation={voteBasedStyles.glow.intensity} result="blur1"/>
+            <feFlood flood-color={highlightColor} flood-opacity={voteBasedStyles.glow.opacity} result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
             
             <!-- Medium glow -->
@@ -84,13 +95,14 @@
     <circle {radius} r={radius - 8} class="background-layer-3" />
     <circle {radius} r={radius - 12} class="content-background" />
     
-    <!-- Decorative rings with glow effect -->
+    <!-- Decorative rings with glow effect - adjusted by vote-based styling -->
     <circle
         {radius}
         r={radius}
         class="outer-ring"
         style:stroke={highlightColor}
-        style:stroke-opacity="0.5"
+        style:stroke-opacity={voteBasedStyles.ring.opacity}
+        style:stroke-width={voteBasedStyles.ring.width}
         filter={`url(#${filterId})`}
     />
     
@@ -128,7 +140,6 @@
  
     .outer-ring {
         fill: none;
-        stroke-width: 6;
         vector-effect: non-scaling-stroke;
         transition: r 0.3s ease-out;
     }
