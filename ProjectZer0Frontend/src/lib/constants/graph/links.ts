@@ -18,23 +18,33 @@ export const LINK_CONSTANTS = {
             }
         },
         STATEMENT_RELATION: {
-            // Base stroke width for single relation
-            BASE_STROKE_WIDTH: 1.25,
-            // Maximum stroke width (with many relations)
-            MAX_STROKE_WIDTH: 4,
-            // How much width to add per relation
-            STROKE_WIDTH_INCREMENT: 0.5,
+            // Base stroke width for single relation - subtle start
+            BASE_STROKE_WIDTH: 1.0,
+            // Maximum stroke width - less extreme
+            MAX_STROKE_WIDTH: 3.0,
+            // Smaller increment for more gradual change
+            STROKE_WIDTH_INCREMENT: 0.2,
             GRADIENT: {
-                START_OPACITY: 0.6,
-                END_OPACITY: 0.6
+                // Start with lower base opacity
+                MIN_OPACITY: 0.5,
+                // Higher max opacity but not full
+                MAX_OPACITY: 0.9,
+                // Smaller opacity increment
+                OPACITY_INCREMENT: 0.05
             },
             GLOW: {
-                BASE_INTENSITY: 2,
-                MAX_INTENSITY: 4,
-                INTENSITY_INCREMENT: 0.5,
-                BASE_OPACITY: 0.3,
+                // Start with modest glow
+                BASE_INTENSITY: 1.5,
+                // Stronger glow but not excessive
+                MAX_INTENSITY: 5.0,
+                // Modest glow increment per relationship
+                INTENSITY_INCREMENT: 0.4,
+                // Start with subtle glow opacity
+                BASE_OPACITY: 0.2,
+                // Maximum glow opacity - visible but not overwhelming
                 MAX_OPACITY: 0.6,
-                OPACITY_INCREMENT: 0.1
+                // Modest opacity increment
+                OPACITY_INCREMENT: 0.05
             }
         },
         NAVIGATION: {

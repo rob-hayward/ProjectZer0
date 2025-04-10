@@ -25,18 +25,12 @@
             LINK_CONSTANTS.COLORS.DEFINITION.LIVE : 
             LINK_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE);
     
-    // Get gradient opacity based on link type
-    $: startOpacity = isStatementRelation ?
-        LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.START_OPACITY :
-        LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY;
-    $: endOpacity = isStatementRelation ?
-        LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.END_OPACITY :
-        LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY;
-
     // Get relationship count from metadata if it exists (for statement relations)
-    $: relationCount = isStatementRelation ? (link.metadata?.relationCount || 1) : 1;
+    $: relationCount = isStatementRelation ? 
+        (link.metadata?.relationCount || 1) : 
+        1;
     
-    // Calculate stroke width
+    // Enhanced visual properties based on relationship count
     $: strokeWidth = isStatementRelation ?
         // For statement relations, adjust based on relation count
         Math.min(
@@ -48,6 +42,27 @@
         (isLiveDefinition ?
             LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
             LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.STROKE_WIDTH);
+    
+    // Calculate gradient opacity based on relationship count for statement relations
+    $: gradientStartOpacity = isStatementRelation ?
+        Math.min(
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
+            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
+        ) :
+        isLiveDefinition ? 
+            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY :
+            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.START_OPACITY;
+    
+    $: gradientEndOpacity = isStatementRelation ?
+        Math.min(
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
+            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
+            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
+        ) :
+        isLiveDefinition ? 
+            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY :
+            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.END_OPACITY;
     
     // Calculate glow intensity based on relationship count for statement relations
     $: glowIntensity = isStatementRelation ? 
@@ -64,16 +79,6 @@
             LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.BASE_OPACITY + 
             (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.OPACITY_INCREMENT
         ) : 0.5;
-    
-    onMount(() => {
-        console.debug(`[LinkRenderer:${linkId}] Mounted:`, { 
-            source: link.sourceId, 
-            target: link.targetId,
-            path: link.path.substring(0, 30) + '...',
-            type: link.type,
-            relationCount: relationCount
-        });
-    });
 </script>
 
 {#if link.path}
@@ -98,12 +103,12 @@
                 <stop
                     offset="0%"
                     stop-color={sourceColor}
-                    stop-opacity={startOpacity}
+                    stop-opacity={gradientStartOpacity}
                 />
                 <stop
                     offset="100%"
                     stop-color={targetColor}
-                    stop-opacity={endOpacity}
+                    stop-opacity={gradientEndOpacity}
                 />
             </linearGradient>
             
@@ -124,6 +129,8 @@
             class="link-glow"
             filter={`url(#${filterId})`}
             stroke-linecap="round"
+            stroke-width={strokeWidth * 2}
+            stroke-opacity={glowOpacity}
             vector-effect="non-scaling-stroke"
         />
         
@@ -140,7 +147,7 @@
         
         <!-- Add tooltip for statement relations showing shared words -->
         {#if isStatementRelation && link.metadata?.sharedWords && link.metadata.sharedWords.length > 0}
-            <title>Shared keywords: {link.metadata.sharedWords.join(', ')}</title>
+            <title>{link.metadata.sharedWords.length} shared keywords: {link.metadata.sharedWords.join(', ')}</title>
         {/if}
     </g>
 {/if}
@@ -161,8 +168,6 @@
     .link-glow {
         fill: none;
         stroke: rgba(255, 255, 255, 0.1);
-        stroke-width: 4px;
-        stroke-opacity: 0.5;
         stroke-linecap: round;
         stroke-linejoin: round;
         vector-effect: non-scaling-stroke;

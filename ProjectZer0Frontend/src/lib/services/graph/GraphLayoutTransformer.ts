@@ -156,7 +156,7 @@ export class GraphLayoutTransformer {
             };
         });
 
-        // Create statement relationship links - MODIFIED to consolidate links
+        // Create statement relationship links - MODIFIED to better track shared keywords
         // Create a map to track links between node pairs
         const linkMap = new Map<string, LayoutLink>();
 
@@ -173,34 +173,42 @@ export class GraphLayoutTransformer {
                         if (linkMap.has(linkKey)) {
                             // Update existing link
                             const existingLink = linkMap.get(linkKey)!;
-                            const metadata = (existingLink as any).metadata || { sharedWords: [] };
                             
-                            // Add the shared word if not already included
-                            if (!metadata.sharedWords.includes(related.sharedWord)) {
-                                metadata.sharedWords.push(related.sharedWord);
+                            // Initialize metadata if it doesn't exist
+                            if (!existingLink.metadata) {
+                                existingLink.metadata = { sharedWords: [], relationCount: 0 };
                             }
                             
-                            // Increment relationship count
-                            metadata.relationCount = metadata.sharedWords.length;
+                            // Initialize sharedWords array if it doesn't exist
+                            if (!existingLink.metadata.sharedWords) {
+                                existingLink.metadata.sharedWords = [];
+                            }
+                            
+                            // Add the shared word if not already included
+                            if (related.sharedWord && !existingLink.metadata.sharedWords.includes(related.sharedWord)) {
+                                existingLink.metadata.sharedWords.push(related.sharedWord);
+                            }
+                            
+                            // Update relationship count - this drives visual properties
+                            existingLink.metadata.relationCount = existingLink.metadata.sharedWords.length;
                             
                             // Use the maximum strength for the consolidated link
-                            existingLink.strength = Math.max(existingLink.strength || 0.5, related.strength || 0.5);
-                            
-                            // Update metadata
-                            (existingLink as any).metadata = metadata;
+                            const currentStrength = existingLink.strength || 0.5;
+                            const newStrength = related.strength || 0.5;
+                            existingLink.strength = Math.max(currentStrength, newStrength);
                         } else {
-                            // Create new link
+                            // Create new link with properly initialized metadata
+                            const sharedWords = related.sharedWord ? [related.sharedWord] : [];
+                            
                             const layoutLink: LayoutLink = {
                                 source: statement.id,
                                 target: related.nodeId,
                                 type: 'related',
-                                strength: related.strength || 0.5
-                            };
-                            
-                            // Initialize metadata
-                            (layoutLink as any).metadata = {
-                                sharedWords: [related.sharedWord],
-                                relationCount: 1
+                                strength: related.strength || 0.5,
+                                metadata: {
+                                    sharedWords: sharedWords,
+                                    relationCount: sharedWords.length
+                                }
                             };
                             
                             linkMap.set(linkKey, layoutLink);

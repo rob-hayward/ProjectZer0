@@ -711,7 +711,7 @@ private transformLinks(links: GraphLink[]): EnhancedLink[] {
         const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
         const targetId = typeof link.target === 'string' ? link.target : link.target.id;
         
-        // Determine relationship type and strength based on link type
+        // Determine relationship type and strength
         let relationshipType: 'direct' | 'keyword' = 'keyword';
         let strength = 0.3;
         
@@ -722,13 +722,16 @@ private transformLinks(links: GraphLink[]): EnhancedLink[] {
             strength = 0.7;
         }
         
+        // Preserve the metadata from the original link
         return {
             id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
             source: sourceId,
             target: targetId,
             type: link.type,
             relationshipType: relationshipType,
-            strength: strength
+            strength: strength,
+            // Preserve the original metadata
+            metadata: (link as any).metadata
         };
     });
 }
@@ -798,9 +801,6 @@ private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
     });
 }
 
-// src/lib/services/graph/GraphManager.ts
-// Only updating the createRenderableLinks method to include metadata
-
 private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
     // Skip link calculation entirely if we have no nodes or links
     if (nodes.length === 0 || links.length === 0) {
@@ -837,7 +837,18 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
         const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
         const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
         
-        return {
+        // CRITICAL: Preserve the existing metadata for statement relations
+        // This ensures we don't lose relationCount or sharedWords
+        const metadata = link.type === 'related' ? {
+            // Use the existing metadata values directly
+            sharedWords: link.metadata?.sharedWords || [],
+            relationCount: link.metadata?.relationCount || 1,
+            // Keep any other metadata properties
+            ...link.metadata
+        } : link.metadata;
+        
+        // Create the renderable link
+        const renderableLink: RenderableLink = {
             id: link.id,
             type: link.type,
             sourceId: source.id,
@@ -857,13 +868,14 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
             },
             strength: link.strength,
             relationshipType: link.relationshipType,
-            // Include metadata in renderable link if it exists
-            metadata: link.metadata
+            // Use the preserved metadata
+            metadata
         };
+        
+        return renderableLink;
     }).filter(Boolean) as RenderableLink[];
 }
 
-// Update the getNodeRadius method in GraphManager.ts
 
 private getNodeRadius(node: GraphNode | EnhancedNode): number {
     // Generate a cache key based on node properties that affect radius
