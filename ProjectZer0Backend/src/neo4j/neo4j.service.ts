@@ -1,9 +1,16 @@
-import { Injectable, Inject, OnApplicationShutdown } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  OnApplicationShutdown,
+  Logger,
+} from '@nestjs/common';
 import neo4j, { Driver, SessionConfig, Result } from 'neo4j-driver';
 import { NEO4J_DRIVER } from './neo4j.constants';
 
 @Injectable()
 export class Neo4jService implements OnApplicationShutdown {
+  private readonly logger = new Logger(Neo4jService.name);
+
   constructor(@Inject(NEO4J_DRIVER) private readonly driver: Driver) {}
 
   getReadSession(database?: string) {
@@ -35,6 +42,12 @@ export class Neo4jService implements OnApplicationShutdown {
     const session = this.getReadSession(database);
     try {
       return await session.run(query, params);
+    } catch (error) {
+      this.logger.error(
+        `Error executing read query: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     } finally {
       await session.close();
     }
@@ -48,6 +61,12 @@ export class Neo4jService implements OnApplicationShutdown {
     const session = this.getWriteSession(database);
     try {
       return await session.run(query, params);
+    } catch (error) {
+      this.logger.error(
+        `Error executing write query: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     } finally {
       await session.close();
     }
@@ -56,17 +75,19 @@ export class Neo4jService implements OnApplicationShutdown {
   async testConnection(): Promise<string> {
     try {
       const serverInfo = await this.driver.getServerInfo();
-      console.log('Connection successful. Server info:', serverInfo);
+      this.logger.log('Connection successful. Server info:', serverInfo);
       const versionInfo =
         serverInfo.agent || 'Version information not available';
       return `Connection successful! Neo4j info: ${versionInfo}`;
     } catch (error) {
-      console.error('Neo4j connection error:', error);
+      this.logger.error('Neo4j connection error:', error);
       throw new Error(`Failed to connect to Neo4j: ${error.message}`);
     }
   }
 
   async onApplicationShutdown() {
+    this.logger.log('Closing Neo4j connection...');
     await this.driver.close();
+    this.logger.log('Neo4j connection closed');
   }
 }

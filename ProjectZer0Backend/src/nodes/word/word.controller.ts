@@ -10,6 +10,8 @@ import {
   UseGuards,
   Logger,
   Request,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
@@ -37,40 +39,58 @@ export class WordController {
   @Get('all')
   async getAllWords() {
     this.logger.log('Received request to get all words');
-    
+
     try {
       // Get words directly from the service
       const words = await this.wordService.getAllWords();
-      
+
       // Add detailed logging
       if (words && words.length > 0) {
-        this.logger.log(`Found ${words.length} words in database`);
-        this.logger.log(`Sample words: ${words.slice(0, 5).map(w => w.word).join(', ')}...`);
+        this.logger.debug(`Found ${words.length} words in database`);
+        this.logger.debug(
+          `Sample words: ${words
+            .slice(0, 5)
+            .map((w) => w.word)
+            .join(', ')}...`,
+        );
       } else {
         this.logger.warn('No words found in database');
       }
-      
+
       // Return the words array directly
       return words;
     } catch (error) {
-      this.logger.error(`Error getting all words: ${error.message}`, error.stack);
+      this.logger.error(
+        `Error getting all words: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
 
   @Get('check/:word')
   async checkWordExistence(@Param('word') word: string) {
-    this.logger.log(`Received request to check word: ${word}`);
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Checking existence of word: ${word}`);
     const exists = await this.wordService.checkWordExistence(word);
-    this.logger.log(`Word '${word}' exists: ${exists}`);
+    this.logger.debug(`Word '${word}' exists: ${exists}`);
     return { exists };
   }
 
   @Post()
   async createWord(@Body() wordData: CreateWordDto) {
-    this.logger.log(
-      `Received request to create word: ${JSON.stringify(wordData, null, 2)}`,
-    );
+    if (!wordData.word) {
+      throw new HttpException('Word is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.log(`Creating word: ${wordData.word}`);
+
     try {
       // Ensure we're using definitionText consistently
       const createdWord = await this.wordService.createWord({
@@ -81,37 +101,72 @@ export class WordController {
         publicCredit: wordData.publicCredit,
       });
 
-      this.logger.log(`Created word: ${JSON.stringify(createdWord, null, 2)}`);
+      this.logger.debug(`Created word: ${JSON.stringify(createdWord)}`);
       return createdWord;
     } catch (error) {
       this.logger.error(`Error creating word: ${error.message}`, error.stack);
-      throw error;
+
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        `Failed to create word: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
   @Get(':word')
   async getWord(@Param('word') word: string) {
-    this.logger.log(`Received request to get word: ${word}`);
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Getting word: ${word}`);
     const fetchedWord = await this.wordService.getWord(word.toLowerCase());
-    this.logger.log(`Fetched word: ${JSON.stringify(fetchedWord, null, 2)}`);
+
+    if (!fetchedWord) {
+      this.logger.debug(`Word not found: ${word}`);
+      return null;
+    }
+
     return fetchedWord;
   }
 
   @Put(':word')
   async updateWord(@Param('word') word: string, @Body() updateData: any) {
-    this.logger.log(
-      `Received request to update word: ${word} with data: ${JSON.stringify(updateData, null, 2)}`,
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(
+      `Updating word: ${word} with data: ${JSON.stringify(updateData)}`,
     );
+
     const updatedWord = await this.wordService.updateWord(word, updateData);
-    this.logger.log(`Updated word: ${JSON.stringify(updatedWord, null, 2)}`);
+    this.logger.debug(`Updated word: ${JSON.stringify(updatedWord)}`);
     return updatedWord;
   }
 
   @Delete(':word')
   async deleteWord(@Param('word') word: string) {
-    this.logger.log(`Received request to delete word: ${word}`);
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Deleting word: ${word}`);
     const result = await this.wordService.deleteWord(word);
-    this.logger.log(`Deleted word: ${word}`);
+    this.logger.debug(`Deleted word: ${word}`);
     return result;
   }
 
@@ -121,15 +176,28 @@ export class WordController {
     @Body() voteData: { isPositive: boolean },
     @Request() req: any,
   ): Promise<VoteResult> {
-    this.logger.log(
-      `Received request to vote on word: ${word} with data: ${JSON.stringify(voteData, null, 2)}`,
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.debug(
+      `Voting on word: ${word} with value: ${voteData.isPositive}`,
     );
+
     const result = await this.wordService.voteWord(
       word,
       req.user.sub,
       voteData.isPositive,
     );
-    this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
+
+    this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
     return result;
   }
 
@@ -138,13 +206,21 @@ export class WordController {
     @Param('word') word: string,
     @Request() req: any,
   ): Promise<VoteStatus | null> {
-    this.logger.log(
-      `Received request to get vote status for word: ${word} from user: ${req.user.sub}`,
-    );
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.debug(`Getting vote status for word: ${word}`);
+
     const status = await this.wordService.getWordVoteStatus(word, req.user.sub);
-    this.logger.log(
-      `Vote status for word ${word}: ${JSON.stringify(status, null, 2)}`,
-    );
+    this.logger.debug(`Vote status: ${JSON.stringify(status)}`);
     return status;
   }
 
@@ -153,21 +229,37 @@ export class WordController {
     @Param('word') word: string,
     @Request() req: any,
   ): Promise<VoteResult> {
-    this.logger.log(
-      `Received request to remove vote for word: ${word} from user: ${req.user.sub}`,
-    );
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.debug(`Removing vote for word: ${word}`);
+
     const result = await this.wordService.removeWordVote(word, req.user.sub);
-    this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
+    this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
     return result;
   }
 
   @Get(':word/votes')
   async getWordVotes(@Param('word') word: string): Promise<VoteResult | null> {
-    this.logger.log(`Received request to get votes for word: ${word}`);
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Getting votes for word: ${word}`);
+
     const votes = await this.wordService.getWordVotes(word);
-    this.logger.log(
-      `Votes for word ${word}: ${JSON.stringify(votes, null, 2)}`,
-    );
+    this.logger.debug(`Votes: ${JSON.stringify(votes)}`);
     return votes;
   }
 
@@ -176,29 +268,37 @@ export class WordController {
     @Param('wordId') wordId: string,
     @Body() visibilityData: { isVisible: boolean },
   ) {
-    this.logger.log(
-      `Received request to set visibility status for word ${wordId}: ${visibilityData.isVisible}`,
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(
+      `Setting visibility for word ${wordId}: ${visibilityData.isVisible}`,
     );
+
     const updatedWord = await this.wordService.setWordVisibilityStatus(
       wordId,
       visibilityData.isVisible,
     );
-    this.logger.log(
-      `Updated word visibility status: ${JSON.stringify(updatedWord, null, 2)}`,
+
+    this.logger.debug(
+      `Updated word visibility: ${JSON.stringify(updatedWord)}`,
     );
     return updatedWord;
   }
 
   @Get(':wordId/visibility')
   async getWordVisibilityStatus(@Param('wordId') wordId: string) {
-    this.logger.log(
-      `Received request to get visibility status for word ${wordId}`,
-    );
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Getting visibility status for word ${wordId}`);
+
     const visibilityStatus =
       await this.wordService.getWordVisibilityStatus(wordId);
-    this.logger.log(
-      `Visibility status for word ${wordId}: ${visibilityStatus}`,
-    );
+
+    this.logger.debug(`Visibility status: ${visibilityStatus}`);
     return { visibilityStatus };
   }
 }

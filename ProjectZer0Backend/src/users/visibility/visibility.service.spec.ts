@@ -1,28 +1,31 @@
+// src/users/visibility/visibility.service.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
-import { VisibilityService } from '../visibility/visibility.service';
-import { InteractionSchema } from '../../neo4j/schemas/interaction.schema';
+import { VisibilityService } from './visibility.service';
+import { VisibilitySchema } from '../../neo4j/schemas/visibility.schema';
+import { VisibilityPreference } from '../dto/visibility.dto';
 
 describe('VisibilityService', () => {
   let service: VisibilityService;
-  let interactionSchema: jest.Mocked<InteractionSchema>;
+  let visibilitySchema: jest.Mocked<VisibilitySchema>;
 
   beforeEach(async () => {
+    visibilitySchema = {
+      getVisibilityPreference: jest.fn(),
+      setVisibilityPreference: jest.fn(),
+      getAllVisibilityPreferences: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         VisibilityService,
         {
-          provide: InteractionSchema,
-          useValue: {
-            getVisibilityPreference: jest.fn(),
-            setVisibilityPreference: jest.fn(),
-            getVisibilityPreferences: jest.fn(),
-          },
+          provide: VisibilitySchema,
+          useValue: visibilitySchema,
         },
       ],
     }).compile();
 
     service = module.get<VisibilityService>(VisibilityService);
-    interactionSchema = module.get(InteractionSchema);
   });
 
   it('should be defined', () => {
@@ -31,62 +34,141 @@ describe('VisibilityService', () => {
 
   describe('getObjectVisibility', () => {
     it('should return user preference when it exists', async () => {
-      interactionSchema.getVisibilityPreference.mockResolvedValue(false);
-      const result = await service.getObjectVisibility(
-        'user1',
-        'object1',
-        true,
-      );
+      visibilitySchema.getVisibilityPreference.mockResolvedValue(false);
+
+      const result = await service.getObjectVisibility('user1', 'object1', {
+        isVisible: true,
+      });
+
       expect(result).toBe(false);
-      expect(interactionSchema.getVisibilityPreference).toHaveBeenCalledWith(
+      expect(visibilitySchema.getVisibilityPreference).toHaveBeenCalledWith(
         'user1',
         'object1',
       );
     });
 
-    it('should return object visibility status when user preference does not exist', async () => {
-      interactionSchema.getVisibilityPreference.mockResolvedValue(undefined);
-      const result = await service.getObjectVisibility(
-        'user1',
-        'object1',
-        true,
-      );
+    it('should return community isVisible when user preference does not exist', async () => {
+      visibilitySchema.getVisibilityPreference.mockResolvedValue(undefined);
+
+      const result = await service.getObjectVisibility('user1', 'object1', {
+        isVisible: false,
+      });
+
+      expect(result).toBe(false);
+    });
+
+    it('should use netVotes to determine visibility when no direct visibility flag', async () => {
+      visibilitySchema.getVisibilityPreference.mockResolvedValue(undefined);
+
+      // Negative votes - hidden
+      let result = await service.getObjectVisibility('user1', 'object1', {
+        netVotes: -5,
+      });
+      expect(result).toBe(false);
+
+      // Positive votes - visible
+      result = await service.getObjectVisibility('user1', 'object1', {
+        netVotes: 5,
+      });
       expect(result).toBe(true);
-      expect(interactionSchema.getVisibilityPreference).toHaveBeenCalledWith(
-        'user1',
-        'object1',
+    });
+
+    it('should default to visible when no visibility info provided', async () => {
+      visibilitySchema.getVisibilityPreference.mockResolvedValue(undefined);
+
+      const result = await service.getObjectVisibility('user1', 'object1', {});
+
+      expect(result).toBe(true);
+    });
+
+    it('should handle errors gracefully and default to visible', async () => {
+      visibilitySchema.getVisibilityPreference.mockRejectedValue(
+        new Error('Test error'),
       );
+
+      const result = await service.getObjectVisibility('user1', 'object1', {
+        isVisible: false,
+      });
+
+      expect(result).toBe(true);
     });
   });
 
   describe('setUserVisibilityPreference', () => {
-    it('should set user visibility preference', async () => {
-      interactionSchema.setVisibilityPreference.mockResolvedValue(true);
+    it('should call schema with correct parameters', async () => {
+      const mockPreference: VisibilityPreference = {
+        isVisible: true,
+        source: 'user',
+        timestamp: 1234567890,
+      };
+
+      visibilitySchema.setVisibilityPreference.mockResolvedValue(
+        mockPreference,
+      );
+
       const result = await service.setUserVisibilityPreference(
         'user1',
         'object1',
         true,
       );
-      expect(result).toBe(true);
-      expect(interactionSchema.setVisibilityPreference).toHaveBeenCalledWith(
+
+      expect(visibilitySchema.setVisibilityPreference).toHaveBeenCalledWith(
         'user1',
         'object1',
         true,
       );
+      expect(result).toEqual(mockPreference);
+    });
+
+    it('should throw error when userId is missing', async () => {
+      await expect(
+        service.setUserVisibilityPreference('', 'object1', true),
+      ).rejects.toThrow('User ID is required');
+    });
+
+    it('should throw error when nodeId is missing', async () => {
+      await expect(
+        service.setUserVisibilityPreference('user1', '', true),
+      ).rejects.toThrow('Node ID is required');
     });
   });
 
   describe('getUserVisibilityPreferences', () => {
-    it('should get user visibility preferences', async () => {
-      const mockPreferences = { object1: true, object2: false };
-      interactionSchema.getVisibilityPreferences.mockResolvedValue(
+    it('should return preferences from schema', async () => {
+      const mockPreferences: Record<string, VisibilityPreference> = {
+        obj1: { isVisible: true, source: 'user', timestamp: 123 },
+        obj2: { isVisible: false, source: 'community', timestamp: 456 },
+      };
+
+      visibilitySchema.getAllVisibilityPreferences.mockResolvedValue(
         mockPreferences,
       );
+
       const result = await service.getUserVisibilityPreferences('user1');
-      expect(result).toEqual(mockPreferences);
-      expect(interactionSchema.getVisibilityPreferences).toHaveBeenCalledWith(
+
+      expect(visibilitySchema.getAllVisibilityPreferences).toHaveBeenCalledWith(
         'user1',
       );
+      expect(result).toEqual(mockPreferences);
+    });
+
+    it('should return empty object when userId is missing', async () => {
+      const result = await service.getUserVisibilityPreferences('');
+
+      expect(result).toEqual({});
+      expect(
+        visibilitySchema.getAllVisibilityPreferences,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('should handle errors gracefully', async () => {
+      visibilitySchema.getAllVisibilityPreferences.mockRejectedValue(
+        new Error('Test error'),
+      );
+
+      const result = await service.getUserVisibilityPreferences('user1');
+
+      expect(result).toEqual({});
     });
   });
 });

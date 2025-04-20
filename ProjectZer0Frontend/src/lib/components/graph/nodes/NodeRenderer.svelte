@@ -145,6 +145,7 @@
             on:modeChange={handleModeChange}
         />
     {:else}
+
         <!-- Render regular node using slot, passing node position data -->
         <slot 
             {node}
@@ -152,12 +153,7 @@
             nodeY={posY}
             handleModeChange={handleModeChange}
         />
-        
-        <!-- Debug position data -->
-        {#if node.id === '7c531a07-6e0f-4391-bd9c-80aee205a797'}
-            <text x="0" y="-50" fill="white" font-size="12" text-anchor="middle">Position: ({posX}, {posY})</text>
-        {/if}
-        
+    
         <!-- Add show/hide button to qualifying nodes -->
         {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement'}
             <ShowHideButton 

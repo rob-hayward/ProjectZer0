@@ -1,7 +1,10 @@
 import neo4j, { Driver } from 'neo4j-driver';
+import { Logger } from '@nestjs/common';
+
+const logger = new Logger('Neo4jUtils');
 
 export const createDriver = async (config: any): Promise<Driver> => {
-  console.log('Neo4j configuration:', {
+  logger.log('Creating Neo4j driver with configuration', {
     uri: config.uri,
     username: config.username,
     password: config.password ? '[REDACTED]' : undefined,
@@ -30,10 +33,10 @@ export const createDriver = async (config: any): Promise<Driver> => {
 
   try {
     await driver.verifyConnectivity();
-    console.log('Successfully connected to Neo4j');
+    logger.log('Successfully connected to Neo4j');
     return driver;
   } catch (error) {
-    console.error('Failed to connect to Neo4j:', error);
+    logger.error('Failed to connect to Neo4j:', error);
     await driver.close();
     throw new Error(`Failed to connect to Neo4j: ${error.message}`);
   }

@@ -1,30 +1,31 @@
 // src/users/user-auth.service.ts
-
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { UserSchema } from '../neo4j/schemas/user.schema';
 import { UserProfile } from './user.model';
 
 @Injectable()
 export class UserAuthService {
+  private readonly logger = new Logger(UserAuthService.name);
+
   constructor(private userSchema: UserSchema) {}
 
   async findOrCreateUser(
     auth0Profile: any,
   ): Promise<{ user: UserProfile; isNewUser: boolean }> {
     try {
-      console.log(
-        'Auth0 profile received in UserAuthService:',
-        JSON.stringify(auth0Profile, null, 2),
+      this.logger.debug(
+        `Processing Auth0 profile for user ID: ${auth0Profile?.id || auth0Profile?._json?.sub || 'unknown'}`,
       );
 
       const profile = auth0Profile._json || auth0Profile;
       const sub = profile.sub || auth0Profile.id || auth0Profile.user_id;
 
       if (!sub) {
+        this.logger.error('No sub/id found in Auth0 profile', auth0Profile);
         throw new Error('No sub found in Auth0 profile');
       }
 
-      console.log('Using sub:', sub);
+      this.logger.debug(`Looking up user with sub: ${sub}`);
 
       // First, try to find the user
       let user = await this.userSchema.findUser(sub);
@@ -32,6 +33,7 @@ export class UserAuthService {
 
       if (!user) {
         // User doesn't exist, create a new user
+        this.logger.log(`Creating new user with sub: ${sub}`);
         const userProperties = this.mapAuth0ProfileToUserProfile(
           profile,
           auth0Profile,
@@ -40,27 +42,41 @@ export class UserAuthService {
         isNewUser = true;
       } else {
         // User exists, update last login
+        this.logger.debug(`Updating last login for user: ${sub}`);
         await this.userSchema.updateUserLogin(sub);
       }
 
       return { user, isNewUser };
     } catch (error) {
-      console.error('Error in findOrCreateUser:', error);
-      throw new Error('Failed to find or create user');
+      this.logger.error(
+        `Error in findOrCreateUser: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to find or create user: ${error.message}`);
     }
   }
 
   async getUserProfile(sub: string): Promise<UserProfile> {
     try {
+      this.logger.debug(`Fetching user profile for: ${sub}`);
       const userProfile = await this.userSchema.findUser(sub);
+
       if (!userProfile) {
-        throw new Error('User not found');
+        this.logger.warn(`User not found: ${sub}`);
+        throw new NotFoundException(`User with ID ${sub} not found`);
       }
-      console.log('Fetched user profile:', userProfile);
+
       return userProfile;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
-      throw new Error('Failed to fetch user profile');
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error fetching user profile: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to fetch user profile: ${error.message}`);
     }
   }
 
@@ -68,25 +84,46 @@ export class UserAuthService {
     userData: Partial<UserProfile>,
   ): Promise<UserProfile> {
     try {
-      console.log('Received update request for user:', userData.sub);
-      console.log('Update data:', userData);
+      if (!userData.sub) {
+        this.logger.error(
+          'Attempt to update user profile without sub ID',
+          userData,
+        );
+        throw new Error('User ID (sub) is required for profile updates');
+      }
 
-      const updatedUser = await this.userSchema.updateUser(userData.sub, {
+      this.logger.debug(`Updating profile for user: ${userData.sub}`);
+
+      // Create update object with only allowed fields
+      const updates: Partial<UserProfile> = {
         preferred_username: userData.preferred_username,
         email: userData.email,
         mission_statement: userData.mission_statement,
-      });
+        // Add other fields that are allowed to be updated
+      };
+
+      const updatedUser = await this.userSchema.updateUser(
+        userData.sub,
+        updates,
+      );
 
       if (!updatedUser) {
-        console.log('User not found:', userData.sub);
-        throw new Error('User not found');
+        this.logger.warn(`User not found during update: ${userData.sub}`);
+        throw new NotFoundException(`User with ID ${userData.sub} not found`);
       }
 
-      console.log('User profile updated successfully:', updatedUser);
+      this.logger.debug(`User profile updated: ${userData.sub}`);
       return updatedUser;
     } catch (error) {
-      console.error('Error updating user profile:', error);
-      throw error; // Re-throw the original error instead of creating a new one
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error updating user profile: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to update user profile: ${error.message}`);
     }
   }
 
@@ -123,21 +160,22 @@ export class UserAuthService {
     };
 
     // Add any additional fields from profile that we didn't explicitly list
-    Object.keys(profile).forEach((key) => {
+    for (const [key, value] of Object.entries(profile)) {
       if (!(key in userProperties)) {
-        userProperties[key] = profile[key];
+        userProperties[key] = value;
       }
-    });
+    }
 
-    // Ensure all properties are of primitive types
-    Object.keys(userProperties).forEach((key) => {
+    // Ensure all properties are of primitive types for Neo4j
+    for (const key of Object.keys(userProperties)) {
       if (
         typeof userProperties[key] === 'object' &&
-        userProperties[key] !== null
+        userProperties[key] !== null &&
+        key !== 'address' // Special handling for address object
       ) {
         userProperties[key] = JSON.stringify(userProperties[key]);
       }
-    });
+    }
 
     return userProperties;
   }

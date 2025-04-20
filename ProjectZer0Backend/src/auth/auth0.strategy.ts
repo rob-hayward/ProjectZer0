@@ -1,10 +1,16 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-auth0';
 import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
+  private readonly logger = new Logger(Auth0Strategy.name);
+
   constructor(configService: ConfigService) {
     super({
       domain: configService.get<string>('AUTH0_DOMAIN'),
@@ -23,10 +29,15 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     profile: any,
   ): Promise<any> {
     try {
-      console.log('Auth0 profile:', JSON.stringify(profile, null, 2));
+      this.logger.debug(
+        `Auth0 profile validated for user: ${profile.id || profile.sub}`,
+      );
       return profile;
     } catch (error) {
-      console.error('Error in Auth0Strategy validate:', error);
+      this.logger.error(
+        `Error in Auth0Strategy validate: ${error.message}`,
+        error.stack,
+      );
       throw new InternalServerErrorException(
         'Error fetching user profile from Auth0',
       );

@@ -1,5 +1,4 @@
 // src/users/visibility/visibility.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { VisibilitySchema } from '../../neo4j/schemas/visibility.schema';
 import { VisibilityPreference } from '../dto/visibility.dto';
@@ -26,15 +25,17 @@ export class VisibilityService {
     },
   ): Promise<boolean> {
     try {
-      this.logger.log(
-        `Getting visibility for user ${userId}, object ${objectId}`,
+      this.logger.debug(
+        `Getting visibility for user ${userId || 'anonymous'}, object ${objectId}`,
       );
 
       // If no userId, return community visibility
       if (!userId) {
-        // Determine community visibility based on the passed parameters
         const defaultVisibility =
           this.determineCommunityVisibility(communityVisibility);
+        this.logger.debug(
+          `No user ID, returning community visibility: ${defaultVisibility}`,
+        );
         return defaultVisibility;
       }
 
@@ -44,11 +45,15 @@ export class VisibilityService {
 
       // If user has explicitly set a preference, use it
       if (userVisibilityPreference !== undefined) {
+        this.logger.debug(`User preference found: ${userVisibilityPreference}`);
         return userVisibilityPreference;
       }
 
       // Otherwise use community visibility based on votes
-      return this.determineCommunityVisibility(communityVisibility);
+      const communityVis =
+        this.determineCommunityVisibility(communityVisibility);
+      this.logger.debug(`Using community visibility: ${communityVis}`);
+      return communityVis;
     } catch (error) {
       this.logger.error(
         `Error getting object visibility: ${error.message}`,
@@ -89,10 +94,6 @@ export class VisibilityService {
     isVisible: boolean,
   ): Promise<VisibilityPreference> {
     try {
-      this.logger.log(
-        `Setting visibility preference - User: ${userId}, Node: ${nodeId}, Visible: ${isVisible}`,
-      );
-
       if (!userId) {
         const error = new Error(
           'User ID is required to set visibility preferences',
@@ -108,6 +109,10 @@ export class VisibilityService {
         this.logger.error(`${error.message}`);
         throw error;
       }
+
+      this.logger.debug(
+        `Setting visibility preference - User: ${userId}, Node: ${nodeId}, Visible: ${isVisible}`,
+      );
 
       // Call the schema to set the preference
       return this.visibilitySchema.setVisibilityPreference(
@@ -131,8 +136,6 @@ export class VisibilityService {
     userId: string,
   ): Promise<Record<string, VisibilityPreference | boolean>> {
     try {
-      this.logger.log(`Getting visibility preferences for user ${userId}`);
-
       if (!userId) {
         this.logger.warn(
           'Empty user ID passed to getUserVisibilityPreferences',
@@ -140,12 +143,14 @@ export class VisibilityService {
         return {};
       }
 
+      this.logger.debug(`Getting visibility preferences for user ${userId}`);
+
       const preferences =
         await this.visibilitySchema.getAllVisibilityPreferences(userId);
 
       // Log the size of preferences for debugging
       const prefsCount = Object.keys(preferences || {}).length;
-      this.logger.log(
+      this.logger.debug(
         `Retrieved ${prefsCount} visibility preferences for user ${userId}`,
       );
 

@@ -1,11 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordSchema } from '../word.schema';
 import { Neo4jService } from '../../neo4j.service';
+import { UserSchema } from '../user.schema';
+import { VoteSchema } from '../vote.schema';
 import { Record, Result } from 'neo4j-driver';
+// Not using these imports directly in the code, but needed for type checking
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+import type { VoteStatus, VoteResult } from '../vote.schema';
 
 describe('WordSchema', () => {
   let wordSchema: WordSchema;
   let neo4jService: jest.Mocked<Neo4jService>;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  let userSchema: jest.Mocked<UserSchema>;
+  let voteSchema: jest.Mocked<VoteSchema>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -18,11 +26,27 @@ describe('WordSchema', () => {
             read: jest.fn(),
           },
         },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
+        {
+          provide: VoteSchema,
+          useValue: {
+            vote: jest.fn(),
+            getVoteStatus: jest.fn(),
+            removeVote: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     wordSchema = module.get<WordSchema>(WordSchema);
     neo4jService = module.get(Neo4jService);
+    userSchema = module.get(UserSchema);
+    voteSchema = module.get(VoteSchema);
   });
 
   describe('createWord', () => {
@@ -49,7 +73,12 @@ describe('WordSchema', () => {
 
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('CREATE (w:WordNode'),
-        mockWord,
+        expect.objectContaining({
+          ...mockWord,
+          word: 'test',
+          isApiDefinition: false,
+          isAICreated: false,
+        }),
       );
       expect(result).toEqual({
         ...mockWord,
@@ -80,7 +109,12 @@ describe('WordSchema', () => {
 
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (w:WordNode {word: $word})'),
-        mockDefinition,
+        expect.objectContaining({
+          ...mockDefinition,
+          word: 'test',
+          isApiDefinition: false,
+          isAICreated: false,
+        }),
       );
       expect(result).toEqual(mockDefinition);
     });
@@ -105,6 +139,7 @@ describe('WordSchema', () => {
           if (key === 'definitions')
             return mockDefinitions.map((d) => ({ properties: d }));
           if (key === 'disc') return { properties: { id: 'disc1' } };
+          return null;
         }),
       } as unknown as Record;
       const mockResult = {
@@ -208,65 +243,55 @@ describe('WordSchema', () => {
 
   describe('voteWord', () => {
     it('should vote on a word', async () => {
-      const mockVotedWord = {
-        word: 'test',
+      const mockVoteResult = {
         positiveVotes: 6,
         negativeVotes: 2,
+        netVotes: 4,
       };
 
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockVotedWord }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.write.mockResolvedValue(mockResult);
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
 
       const result = await wordSchema.voteWord('test', 'user-id', true);
 
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (w:WordNode {word: $word})'),
-        expect.objectContaining({
-          word: 'test',
-          userId: 'user-id',
-          isPositive: true,
-        }),
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'WordNode',
+        { word: 'test' },
+        'user-id',
+        true,
       );
-      expect(result).toEqual(mockVotedWord);
+      expect(result).toEqual(mockVoteResult);
     });
   });
 
   describe('getWordVotes', () => {
     it('should return vote counts for a word', async () => {
-      const mockVotes = {
+      const mockVoteStatus = {
+        status: 'agree' as const, // Using as const instead of as 'agree'
         positiveVotes: 6,
         negativeVotes: 2,
+        netVotes: 4,
       };
 
-      const mockRecord = {
-        get: jest.fn((key) => mockVotes[key]),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.read.mockResolvedValue(mockResult);
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
       const result = await wordSchema.getWordVotes('test');
 
-      expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'WordNode',
         { word: 'test' },
+        '',
       );
-      expect(result).toEqual(mockVotes);
+      expect(result).toEqual({
+        positiveVotes: 6,
+        negativeVotes: 2,
+        netVotes: 4,
+      });
     });
 
-    it('should return null when word is not found', async () => {
-      const mockResult = { records: [] } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
+    it('should return null when vote status is not found', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(null);
 
-      const result = await wordSchema.getWordVotes('non-existent');
+      const result = await wordSchema.getWordVotes('test');
       expect(result).toBeNull();
     });
   });

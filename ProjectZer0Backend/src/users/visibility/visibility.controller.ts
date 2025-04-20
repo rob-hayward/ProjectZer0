@@ -1,5 +1,4 @@
 // src/users/visibility/visibility.controller.ts
-
 import {
   Controller,
   Get,
@@ -10,7 +9,6 @@ import {
   Logger,
   BadRequestException,
   InternalServerErrorException,
-  HttpException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { VisibilityService } from './visibility.service';
@@ -27,7 +25,7 @@ export class VisibilityController {
   constructor(private readonly visibilityService: VisibilityService) {}
 
   @Get('visibility-preferences')
-  async getUserVisibilityPreferences(@Request() req) {
+  async getUserVisibilityPreferences(@Request() req: any) {
     try {
       const userId = req.user?.sub;
 
@@ -35,20 +33,20 @@ export class VisibilityController {
         throw new BadRequestException('User ID is required');
       }
 
-      this.logger.log(`Getting visibility preferences for user: ${userId}`);
+      this.logger.debug(`Getting visibility preferences for user: ${userId}`);
       const preferences =
         await this.visibilityService.getUserVisibilityPreferences(userId);
 
       return preferences;
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
       this.logger.error(
         `Error getting visibility preferences: ${error.message}`,
         error.stack,
       );
-
-      if (error instanceof HttpException) {
-        throw error;
-      }
 
       throw new InternalServerErrorException(
         `Failed to retrieve visibility preferences: ${error.message}`,
@@ -58,7 +56,7 @@ export class VisibilityController {
 
   @Post('visibility-preferences')
   async setUserVisibilityPreference(
-    @Request() req,
+    @Request() req: any,
     @Body() preference: VisibilityPreferenceDto,
   ): Promise<VisibilityPreferenceResponseDto> {
     try {
@@ -68,7 +66,7 @@ export class VisibilityController {
         throw new BadRequestException('User ID is required');
       }
 
-      this.logger.log(
+      this.logger.debug(
         `Setting visibility preference for user: ${userId}, nodeId: ${preference.nodeId}, isVisible: ${preference.isVisible}`,
       );
 
@@ -85,7 +83,7 @@ export class VisibilityController {
       );
 
       // Return a standardized response
-      const response = {
+      return {
         success: true,
         preference: {
           isVisible: result.isVisible,
@@ -94,15 +92,13 @@ export class VisibilityController {
           timestamp: result.timestamp,
         },
       };
-
-      return response;
     } catch (error) {
       this.logger.error(
         `Error setting visibility preference: ${error.message}`,
         error.stack,
       );
 
-      if (error instanceof HttpException) {
+      if (error instanceof BadRequestException) {
         throw error;
       }
 

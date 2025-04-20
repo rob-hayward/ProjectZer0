@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
@@ -6,16 +6,17 @@ import { Request } from 'express';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly logger = new Logger(JwtStrategy.name);
+
   constructor(private configService: ConfigService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (request: Request) => {
           const token = request?.cookies?.jwt;
           if (!token) {
-            console.log('No JWT token found in cookies');
+            this.logger.debug('No JWT token found in cookies');
             return null;
           }
-          console.log('JWT token found:', token);
           return token;
         },
       ]),
@@ -25,10 +26,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    console.log('JWT payload:', payload);
     if (!payload) {
+      this.logger.warn('Invalid token payload');
       throw new UnauthorizedException('Invalid token');
     }
+
+    this.logger.debug(`JWT validated for user: ${payload.sub}`);
     return payload;
   }
 }

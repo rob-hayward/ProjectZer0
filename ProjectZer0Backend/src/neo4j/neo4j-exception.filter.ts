@@ -1,5 +1,3 @@
-// src/neo4j/neo4j-exception.filter.ts
-
 import {
   ExceptionFilter,
   Catch,

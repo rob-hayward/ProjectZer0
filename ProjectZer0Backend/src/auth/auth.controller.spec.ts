@@ -7,11 +7,14 @@ import { Request, Response } from 'express';
 import { UserProfile } from '../users/user.model';
 import { UnauthorizedException } from '@nestjs/common';
 
+// Import the AuthenticatedRequest type from the controller
+import { AuthenticatedRequest } from './auth.controller';
+
 describe('AuthController', () => {
   let controller: AuthController;
-  let userAuthService: UserAuthService;
-  let configService: ConfigService;
-  let jwtService: JwtService;
+  let userAuthService: jest.Mocked<UserAuthService>;
+  let configService: jest.Mocked<ConfigService>;
+  let jwtService: jest.Mocked<JwtService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -40,9 +43,9 @@ describe('AuthController', () => {
     }).compile();
 
     controller = module.get<AuthController>(AuthController);
-    userAuthService = module.get<UserAuthService>(UserAuthService);
-    configService = module.get<ConfigService>(ConfigService);
-    jwtService = module.get<JwtService>(JwtService);
+    userAuthService = module.get(UserAuthService);
+    configService = module.get(ConfigService);
+    jwtService = module.get(JwtService);
   });
 
   it('should be defined', () => {
@@ -67,15 +70,17 @@ describe('AuthController', () => {
         lastLogin: new Date(),
       };
 
+      // Create properly typed request with UserProfile
       const mockReq = {
         user: mockUser,
-      } as unknown as Request;
+      } as AuthenticatedRequest;
+
       const mockRes = {
         cookie: jest.fn(),
         redirect: jest.fn(),
       } as unknown as Response;
 
-      jest.spyOn(userAuthService, 'findOrCreateUser').mockResolvedValue({
+      userAuthService.findOrCreateUser.mockResolvedValue({
         user: mockDbUser,
         isNewUser: true,
       });
@@ -111,15 +116,17 @@ describe('AuthController', () => {
         lastLogin: new Date(),
       };
 
+      // Create properly typed request with UserProfile
       const mockReq = {
         user: mockUser,
-      } as unknown as Request;
+      } as AuthenticatedRequest;
+
       const mockRes = {
         cookie: jest.fn(),
         redirect: jest.fn(),
       } as unknown as Response;
 
-      jest.spyOn(userAuthService, 'findOrCreateUser').mockResolvedValue({
+      userAuthService.findOrCreateUser.mockResolvedValue({
         user: mockDbUser,
         isNewUser: false,
       });
@@ -134,34 +141,82 @@ describe('AuthController', () => {
         expect.any(Object),
       );
       expect(mockRes.redirect).toHaveBeenCalledWith(
-        'http://localhost:5173/dashboard',
+        'http://localhost:5173/graph/dashboard',
+      );
+    });
+
+    it('should handle errors during authentication', async () => {
+      const mockUser: UserProfile = {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+      };
+
+      // Create properly typed request with UserProfile
+      const mockReq = {
+        user: mockUser,
+      } as AuthenticatedRequest;
+
+      const mockRes = {
+        cookie: jest.fn(),
+        redirect: jest.fn(),
+      } as unknown as Response;
+
+      userAuthService.findOrCreateUser.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(controller.callback(mockReq, mockRes)).rejects.toThrow(
+        'Error during authentication callback',
       );
     });
   });
 
-  it('should destroy the session and redirect to Auth0 logout', async () => {
-    const mockReq = {
-      session: {
-        destroy: jest.fn((cb) => cb()),
-      },
-    } as unknown as Request;
-    const mockRes = {
-      clearCookie: jest.fn(),
-      redirect: jest.fn(),
-    } as unknown as Response;
-    configService.get = jest.fn().mockImplementation((key: string) => {
-      if (key === 'AUTH0_DOMAIN') return 'test.auth0.com';
-      if (key === 'AUTH0_CLIENT_ID') return 'test-client-id';
-      return 'mock_value';
+  describe('logout', () => {
+    it('should destroy the session and redirect to Auth0 logout', async () => {
+      const mockReq = {
+        user: { sub: 'auth0|123' },
+        session: {
+          destroy: jest.fn((cb) => cb()),
+        },
+      } as unknown as Request;
+
+      const mockRes = {
+        clearCookie: jest.fn(),
+        redirect: jest.fn(),
+      } as unknown as Response;
+
+      configService.get.mockImplementation((key: string) => {
+        if (key === 'AUTH0_DOMAIN') return 'test.auth0.com';
+        if (key === 'AUTH0_CLIENT_ID') return 'test-client-id';
+        return 'mock_value';
+      });
+
+      await controller.logout(mockReq, mockRes);
+
+      expect(mockReq.session.destroy).toHaveBeenCalled();
+      expect(mockRes.clearCookie).toHaveBeenCalledWith('jwt');
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        expect.stringContaining('https://test.auth0.com/v2/logout'),
+      );
     });
 
-    await controller.logout(mockReq, mockRes);
+    it('should handle session destruction errors', async () => {
+      const mockReq = {
+        user: { sub: 'auth0|123' },
+        session: {
+          destroy: jest.fn((cb) => cb(new Error('Session error'))),
+        },
+      } as unknown as Request;
 
-    expect(mockReq.session.destroy).toHaveBeenCalled();
-    expect(mockRes.clearCookie).toHaveBeenCalledWith('jwt');
-    expect(mockRes.redirect).toHaveBeenCalledWith(
-      expect.stringContaining('https://test.auth0.com/v2/logout'),
-    );
+      const mockRes = {
+        clearCookie: jest.fn(),
+        redirect: jest.fn(),
+      } as unknown as Response;
+
+      await expect(controller.logout(mockReq, mockRes)).rejects.toThrow(
+        'Error during logout',
+      );
+    });
   });
 
   describe('getProfile', () => {
@@ -178,13 +233,12 @@ describe('AuthController', () => {
         lastLogin: new Date(),
       };
 
+      // Create properly typed request with UserProfile
       const mockReq = {
-        user: { sub: 'auth0|123' },
-      } as unknown as Request;
+        user: { sub: 'auth0|123' } as UserProfile,
+      } as AuthenticatedRequest;
 
-      jest
-        .spyOn(userAuthService, 'getUserProfile')
-        .mockResolvedValue(mockDbUser);
+      userAuthService.getUserProfile.mockResolvedValue(mockDbUser);
 
       const result = await controller.getProfile(mockReq);
 
@@ -193,10 +247,25 @@ describe('AuthController', () => {
     });
 
     it('should throw UnauthorizedException if no user in request', async () => {
-      const mockReq = {} as Request;
+      const mockReq = {} as AuthenticatedRequest;
 
       await expect(controller.getProfile(mockReq)).rejects.toThrow(
         UnauthorizedException,
+      );
+    });
+
+    it('should handle database errors', async () => {
+      // Create properly typed request with UserProfile
+      const mockReq = {
+        user: { sub: 'auth0|123' } as UserProfile,
+      } as AuthenticatedRequest;
+
+      userAuthService.getUserProfile.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(controller.getProfile(mockReq)).rejects.toThrow(
+        'Failed to fetch user profile',
       );
     });
   });

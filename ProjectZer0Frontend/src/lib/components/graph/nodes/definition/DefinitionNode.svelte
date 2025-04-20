@@ -270,9 +270,6 @@
                     </div>
                 </foreignObject>
             </g>
-
-            <!-- Rest of the component is unchanged -->
-            <!-- ... -->
             
             <!-- User Context -->
             <g transform="translate(0, -50)">

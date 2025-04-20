@@ -1,3 +1,4 @@
+// src/users/user.model.ts
 export interface UserProfile {
   // Required Auth0 field
   sub: string;
@@ -34,8 +35,12 @@ export interface UserProfile {
   createdAt?: Date;
   lastLogin?: Date;
   mission_statement?: string;
-  // Add any other custom fields here
 
   // This allows for any additional fields that Auth0 might send
   [key: string]: unknown;
+}
+
+// Add type guards to help with type checking
+export function isUserProfile(obj: any): obj is UserProfile {
+  return obj && typeof obj === 'object' && typeof obj.sub === 'string';
 }

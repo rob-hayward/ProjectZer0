@@ -38,7 +38,7 @@ export const LINK_CONSTANTS = {
                 // Strong glow for multi-keyword relationships
                 MAX_INTENSITY: 10.0,
                 // Significant increase in glow per relationship
-                INTENSITY_INCREMENT: 1.,
+                INTENSITY_INCREMENT: 1.0,
                 // Start with subtle glow opacity
                 BASE_OPACITY: 0.15,
                 // Maximum glow opacity - noticeable but not overwhelming

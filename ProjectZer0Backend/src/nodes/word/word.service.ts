@@ -1,5 +1,12 @@
 // src/nodes/word/word.service.ts
-import { Injectable, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  HttpException,
+  HttpStatus,
+  Logger,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { WordSchema } from '../../neo4j/schemas/word.schema';
 import { DictionaryService } from '../../dictionary/dictionary.service';
 import { DiscussionService } from '../discussion/discussion.service';
@@ -16,10 +23,25 @@ export class WordService {
   ) {}
 
   async checkWordExistence(word: string): Promise<boolean> {
-    this.logger.log(`Checking existence of word: ${word}`);
-    const exists = await this.wordSchema.checkWordExistence(word);
-    this.logger.log(`Word '${word}' exists: ${exists}`);
-    return exists;
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Checking existence of word: ${word}`);
+    try {
+      const exists = await this.wordSchema.checkWordExistence(word);
+      this.logger.debug(`Word '${word}' exists: ${exists}`);
+      return exists;
+    } catch (error) {
+      this.logger.error(
+        `Error checking word existence: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        'Error checking if word exists',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   async createWord(wordData: {
@@ -29,33 +51,40 @@ export class WordService {
     discussion?: string;
     publicCredit: boolean;
   }) {
-    this.logger.log(`Creating word: ${JSON.stringify(wordData, null, 2)}`);
+    this.logger.log(`Creating word: ${JSON.stringify(wordData)}`);
+
+    if (!wordData.word || wordData.word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
     try {
+      // Check if word already exists
       const exists = await this.checkWordExistence(wordData.word);
       if (exists) {
         this.logger.warn(`Attempted to create existing word: ${wordData.word}`);
-        throw new HttpException('Word already exists', HttpStatus.CONFLICT);
+        throw new ConflictException('Word already exists');
       }
 
-      const freeDictionaryDefinition =
-        await this.dictionaryService.getDefinition(wordData.word);
-      this.logger.log(
-        `Free Dictionary definition: ${freeDictionaryDefinition}`,
-      );
+      // Always attempt to get definition from API regardless of user input
+      let freeDictionaryDefinition = null;
+      try {
+        freeDictionaryDefinition = await this.dictionaryService.getDefinition(
+          wordData.word,
+        );
+        this.logger.debug(`API definition: ${freeDictionaryDefinition}`);
+      } catch (error) {
+        this.logger.warn(`Failed to get API definition: ${error.message}`);
+        // Continue even if API definition fails
+      }
 
       // Determine the primary definition
-      // If user provided a definition, it becomes the primary
-      // Otherwise use the API definition or a fallback
       const primaryDefinition =
         wordData.definitionText ||
         freeDictionaryDefinition ||
         'No definition available';
 
-      this.logger.log(
+      this.logger.debug(
         `Using primary definition: "${primaryDefinition.substring(0, 30)}..."`,
-      );
-      this.logger.log(
-        `Definition source: ${wordData.definitionText ? 'User' : freeDictionaryDefinition ? 'API' : 'Default'}`,
       );
 
       // Create the word node with primary definition
@@ -65,9 +94,6 @@ export class WordService {
         initialDefinition: primaryDefinition,
         publicCredit: wordData.publicCredit,
       });
-      this.logger.log(
-        `Created word node: ${JSON.stringify(wordNode, null, 2)}`,
-      );
 
       // If user provided a definition AND API returned a different definition
       // Add the API definition as an alternative
@@ -77,71 +103,66 @@ export class WordService {
         freeDictionaryDefinition !== wordData.definitionText
       ) {
         try {
-          this.logger.log('Adding API definition as alternative definition');
-          const freeDefinition = await this.wordSchema.addDefinition({
+          this.logger.debug('Adding API definition as alternative definition');
+          await this.wordSchema.addDefinition({
             word: wordData.word,
             createdBy: 'FreeDictionaryAPI',
             definitionText: freeDictionaryDefinition,
           });
-          this.logger.log(
-            `Added API definition as alternative: ${JSON.stringify(freeDefinition, null, 2)}`,
-          );
         } catch (error) {
           this.logger.warn(`Failed to add API definition: ${error.message}`);
+          // Continue even if adding the API definition fails
         }
       }
 
       // Create discussion if provided
       if (wordData.discussion) {
         try {
-          this.logger.log(`Creating discussion for word: ${wordData.word}`);
+          this.logger.debug(`Creating discussion for word: ${wordData.word}`);
           const discussion = await this.discussionService.createDiscussion({
             createdBy: wordData.createdBy,
             associatedNodeId: wordNode.id,
             associatedNodeType: 'WordNode',
             initialComment: wordData.discussion,
           });
-          this.logger.log(
-            `Created discussion: ${JSON.stringify(discussion, null, 2)}`,
-          );
 
           await this.wordSchema.updateWordWithDiscussionId(
             wordNode.id,
             discussion.id,
           );
-          this.logger.log(
-            `Updated word node with discussion ID: ${discussion.id}`,
-          );
         } catch (error) {
           this.logger.warn(`Failed to create discussion: ${error.message}`);
+          // Continue even if creating the discussion fails
         }
       }
 
       // Fetch and return the complete word node
       const completeWordNode = await this.getWord(wordData.word);
-      this.logger.log(
-        `Fetched complete word node: ${JSON.stringify(completeWordNode, null, 2)}`,
-      );
       return completeWordNode;
     } catch (error) {
-      this.logger.error(`Error in createWord: ${error.message}`);
-      this.logger.error(error.stack);
       if (error instanceof HttpException) {
         throw error;
       }
+
+      this.logger.error(`Error in createWord: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to create word',
+        `Failed to create word: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async getWord(word: string) {
-    this.logger.log(`Fetching word: ${word}`);
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Fetching word: ${word}`);
+
     try {
       const wordNode = await this.wordSchema.getWord(word.toLowerCase());
       if (!wordNode) {
-        this.logger.warn(`Word not found: ${word}`);
+        this.logger.debug(`Word not found: ${word}`);
         return null;
       }
 
@@ -151,54 +172,82 @@ export class WordService {
           wordNode.discussionId,
         );
         wordNode.discussion = discussion;
-        this.logger.log(
-          `Fetched discussion for word: ${JSON.stringify(discussion, null, 2)}`,
+        this.logger.debug(
+          `Fetched discussion for word: ${JSON.stringify(discussion)}`,
         );
       }
 
-      this.logger.log(
-        `Fetched word node: ${JSON.stringify(wordNode, null, 2)}`,
-      );
       return wordNode;
     } catch (error) {
-      this.logger.error(`Error in getWord: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(`Error in getWord: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to fetch word',
+        `Failed to fetch word: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getAllWords() {
+    this.logger.debug('Getting all words');
+    try {
+      const words = await this.wordSchema.getAllWords();
+      this.logger.debug(`Retrieved ${words.length} words`);
+      return words;
+    } catch (error) {
+      this.logger.error(`Error in getAllWords: ${error.message}`, error.stack);
+      throw new HttpException(
+        `Failed to get all words: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async updateWord(word: string, updateData: any) {
-    this.logger.log(
-      `Updating word: ${word} with data: ${JSON.stringify(updateData, null, 2)}`,
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(
+      `Updating word: ${word} with data: ${JSON.stringify(updateData)}`,
     );
+
     try {
       const updatedWord = await this.wordSchema.updateWord(word, updateData);
-      this.logger.log(`Updated word: ${JSON.stringify(updatedWord, null, 2)}`);
+
+      if (!updatedWord) {
+        throw new NotFoundException(`Word "${word}" not found`);
+      }
+
+      this.logger.debug(`Updated word: ${JSON.stringify(updatedWord)}`);
       return updatedWord;
     } catch (error) {
-      this.logger.error(`Error in updateWord: ${error.message}`);
-      this.logger.error(error.stack);
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(`Error in updateWord: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to update word',
+        `Failed to update word: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async deleteWord(word: string) {
-    this.logger.log(`Deleting word: ${word}`);
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Deleting word: ${word}`);
+
     try {
       const result = await this.wordSchema.deleteWord(word);
-      this.logger.log(`Deleted word: ${word}`);
+      this.logger.debug(`Deleted word: ${word}`);
       return result;
     } catch (error) {
-      this.logger.error(`Error in deleteWord: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(`Error in deleteWord: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to delete word',
+        `Failed to delete word: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -209,36 +258,46 @@ export class WordService {
     sub: string,
     isPositive: boolean,
   ): Promise<VoteResult> {
-    this.logger.log(
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!sub) {
+      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(
       `Voting on word: ${word} by user: ${sub}, isPositive: ${isPositive}`,
     );
+
     try {
       const result = await this.wordSchema.voteWord(word, sub, isPositive);
-      this.logger.log(`Vote result: ${JSON.stringify(result, null, 2)}`);
+      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
-      this.logger.error(`Error in voteWord: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(`Error in voteWord: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to vote on word',
+        `Failed to vote on word: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async getWordVotes(word: string): Promise<VoteResult | null> {
-    this.logger.log(`Getting votes for word: ${word}`);
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Getting votes for word: ${word}`);
+
     try {
       const votes = await this.wordSchema.getWordVotes(word);
-      this.logger.log(
-        `Votes for word ${word}: ${JSON.stringify(votes, null, 2)}`,
-      );
+      this.logger.debug(`Votes for word ${word}: ${JSON.stringify(votes)}`);
       return votes;
     } catch (error) {
-      this.logger.error(`Error in getWordVotes: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(`Error in getWordVotes: ${error.message}`, error.stack);
       throw new HttpException(
-        'Failed to get word votes',
+        `Failed to get word votes: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
@@ -248,92 +307,112 @@ export class WordService {
     word: string,
     sub: string,
   ): Promise<VoteStatus | null> {
-    this.logger.log(`Getting vote status for word: ${word} and user: ${sub}`);
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!sub) {
+      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Getting vote status for word: ${word} and user: ${sub}`);
+
     try {
       const status = await this.wordSchema.getWordVoteStatus(word, sub);
-      this.logger.log(
-        `Vote status for word ${word} and user ${sub}: ${JSON.stringify(status, null, 2)}`,
+      this.logger.debug(
+        `Vote status for word ${word} and user ${sub}: ${JSON.stringify(status)}`,
       );
       return status;
     } catch (error) {
-      this.logger.error(`Error in getWordVoteStatus: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(
+        `Error in getWordVoteStatus: ${error.message}`,
+        error.stack,
+      );
       throw new HttpException(
-        'Failed to get word vote status',
+        `Failed to get word vote status: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async removeWordVote(word: string, sub: string): Promise<VoteResult> {
-    this.logger.log(`Removing vote on word: ${word} by user: ${sub}`);
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!sub) {
+      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Removing vote on word: ${word} by user: ${sub}`);
+
     try {
       const result = await this.wordSchema.removeWordVote(word, sub);
-      this.logger.log(`Remove vote result: ${JSON.stringify(result, null, 2)}`);
+      this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
-      this.logger.error(`Error in removeWordVote: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(
+        `Error in removeWordVote: ${error.message}`,
+        error.stack,
+      );
       throw new HttpException(
-        'Failed to remove word vote',
+        `Failed to remove word vote: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async setWordVisibilityStatus(wordId: string, isVisible: boolean) {
-    this.logger.log(
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(
       `Setting visibility status for word ${wordId}: ${isVisible}`,
     );
+
     try {
       const updatedWord = await this.wordSchema.setVisibilityStatus(
         wordId,
         isVisible,
       );
-      this.logger.log(
-        `Updated word visibility status: ${JSON.stringify(updatedWord, null, 2)}`,
+      this.logger.debug(
+        `Updated word visibility status: ${JSON.stringify(updatedWord)}`,
       );
       return updatedWord;
     } catch (error) {
-      this.logger.error(`Error in setWordVisibilityStatus: ${error.message}`);
-      this.logger.error(error.stack);
+      this.logger.error(
+        `Error in setWordVisibilityStatus: ${error.message}`,
+        error.stack,
+      );
       throw new HttpException(
-        'Failed to set word visibility status',
+        `Failed to set word visibility status: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
   async getWordVisibilityStatus(wordId: string) {
-    this.logger.log(`Getting visibility status for word ${wordId}`);
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Getting visibility status for word ${wordId}`);
+
     try {
       const visibilityStatus =
         await this.wordSchema.getVisibilityStatus(wordId);
-      this.logger.log(
+      this.logger.debug(
         `Visibility status for word ${wordId}: ${visibilityStatus}`,
       );
       return visibilityStatus;
     } catch (error) {
-      this.logger.error(`Error in getWordVisibilityStatus: ${error.message}`);
-      this.logger.error(error.stack);
-      throw new HttpException(
-        'Failed to get word visibility status',
-        HttpStatus.INTERNAL_SERVER_ERROR,
+      this.logger.error(
+        `Error in getWordVisibilityStatus: ${error.message}`,
+        error.stack,
       );
-    }
-  }
-
-  async getAllWords() {
-    this.logger.log('Getting all words');
-    try {
-      const words = await this.wordSchema.getAllWords();
-      this.logger.log(`Retrieved ${words.length} words`);
-      return words;
-    } catch (error) {
-      this.logger.error(`Error in getAllWords: ${error.message}`);
-      this.logger.error(error.stack);
       throw new HttpException(
-        'Failed to get all words',
+        `Failed to get word visibility status: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
