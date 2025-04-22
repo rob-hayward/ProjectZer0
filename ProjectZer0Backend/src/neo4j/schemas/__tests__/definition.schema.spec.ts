@@ -1,13 +1,16 @@
-// src/neo4j/schemas/__tests__/definition.schema.spec.ts
-
 import { Test, TestingModule } from '@nestjs/testing';
 import { DefinitionSchema } from '../definition.schema';
 import { Neo4jService } from '../../neo4j.service';
+import { UserSchema } from '../user.schema';
+import { VoteSchema } from '../vote.schema';
 import { Record, Result } from 'neo4j-driver';
+import { Logger } from '@nestjs/common';
 
 describe('DefinitionSchema', () => {
   let definitionSchema: DefinitionSchema;
   let neo4jService: jest.Mocked<Neo4jService>;
+  let userSchema: jest.Mocked<UserSchema>;
+  let voteSchema: jest.Mocked<VoteSchema>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -20,11 +23,36 @@ describe('DefinitionSchema', () => {
             read: jest.fn(),
           },
         },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
+        {
+          provide: VoteSchema,
+          useValue: {
+            vote: jest.fn(),
+            getVoteStatus: jest.fn(),
+            removeVote: jest.fn(),
+          },
+        },
+        {
+          provide: Logger,
+          useValue: {
+            log: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     definitionSchema = module.get<DefinitionSchema>(DefinitionSchema);
     neo4jService = module.get(Neo4jService);
+    userSchema = module.get(UserSchema);
+    voteSchema = module.get(VoteSchema);
   });
 
   describe('createDefinition', () => {
@@ -49,9 +77,12 @@ describe('DefinitionSchema', () => {
 
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (w:WordNode {word: $word})'),
-        mockDefinition,
+        expect.objectContaining(mockDefinition),
       );
       expect(result).toEqual(mockDefinition);
+
+      // Verify userSchema is not used directly in this method
+      expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
     });
   });
 
@@ -122,12 +153,207 @@ describe('DefinitionSchema', () => {
 
   describe('deleteDefinition', () => {
     it('should delete a definition', async () => {
-      await definitionSchema.deleteDefinition('def-id');
+      // Mock the read query that checks if definition exists
+      const mockCheckRecord = {
+        get: jest.fn().mockReturnValue({ properties: { id: 'def-id' } }),
+      } as unknown as Record;
+      const mockCheckResult = {
+        records: [mockCheckRecord],
+      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(mockCheckResult);
 
+      // Mock the delete operation
+      neo4jService.write.mockResolvedValue({
+        records: [],
+      } as unknown as Result);
+
+      const result = await definitionSchema.deleteDefinition('def-id');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (d:DefinitionNode {id: $id})'),
+        { id: 'def-id' },
+      );
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (d:DefinitionNode {id: $id})'),
         { id: 'def-id' },
       );
+      expect(result).toEqual(
+        expect.objectContaining({
+          success: true,
+          message: expect.stringContaining('deleted successfully'),
+        }),
+      );
+    });
+  });
+
+  describe('voteDefinition', () => {
+    it('should vote on a definition', async () => {
+      const mockVoteResult = {
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
+      };
+
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      const result = await definitionSchema.voteDefinition(
+        'def-id',
+        'user-id',
+        true,
+      );
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'DefinitionNode',
+        { id: 'def-id' },
+        'user-id',
+        true,
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+  });
+
+  describe('getDefinitionVoteStatus', () => {
+    it('should get vote status', async () => {
+      const mockVoteStatus = {
+        status: 'agree' as 'agree' | 'disagree',
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
+      };
+
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await definitionSchema.getDefinitionVoteStatus(
+        'def-id',
+        'user-id',
+      );
+
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'DefinitionNode',
+        { id: 'def-id' },
+        'user-id',
+      );
+      expect(result).toEqual(mockVoteStatus);
+    });
+  });
+
+  describe('removeDefinitionVote', () => {
+    it('should remove a vote', async () => {
+      const mockVoteResult = {
+        positiveVotes: 4,
+        negativeVotes: 2,
+        netVotes: 2,
+      };
+
+      voteSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+      const result = await definitionSchema.removeDefinitionVote(
+        'def-id',
+        'user-id',
+      );
+
+      expect(voteSchema.removeVote).toHaveBeenCalledWith(
+        'DefinitionNode',
+        { id: 'def-id' },
+        'user-id',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+  });
+
+  describe('getDefinitionVotes', () => {
+    it('should get all votes for a definition', async () => {
+      const mockVoteStatus = {
+        status: null,
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
+      };
+
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await definitionSchema.getDefinitionVotes('def-id');
+
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'DefinitionNode',
+        { id: 'def-id' },
+        '',
+      );
+      expect(result).toEqual({
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
+      });
+    });
+
+    it('should return null when no votes exist', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(null);
+
+      const result = await definitionSchema.getDefinitionVotes('def-id');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should set visibility status', async () => {
+      const mockDefinition = {
+        id: 'def-id',
+        visibilityStatus: true,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockDefinition }),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await definitionSchema.setVisibilityStatus('def-id', true);
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (d:DefinitionNode {id: $definitionId})'),
+        { definitionId: 'def-id', isVisible: true },
+      );
+      expect(result).toEqual(mockDefinition);
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should get visibility status', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(true),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await definitionSchema.getVisibilityStatus('def-id');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (d:DefinitionNode {id: $definitionId})'),
+        { definitionId: 'def-id' },
+      );
+      expect(result).toBe(true);
+    });
+
+    it('should default to true when visibility status is not found', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(null),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await definitionSchema.getVisibilityStatus('def-id');
+
+      expect(result).toBe(true);
     });
   });
 });

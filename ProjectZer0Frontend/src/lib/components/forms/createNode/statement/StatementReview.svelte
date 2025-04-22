@@ -179,13 +179,6 @@
         </div>
     </foreignObject>
 
-    <!-- Messages -->
-    {#if errorMessage || successMessage}
-        <g transform="translate(0, 240)">
-            <MessageDisplay {errorMessage} {successMessage} />
-        </g>
-    {/if}
-
     <!-- Navigation -->
     <g transform="translate(0, 200)">
         <FormNavigation
