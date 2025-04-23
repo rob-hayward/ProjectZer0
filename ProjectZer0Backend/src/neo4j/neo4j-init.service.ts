@@ -1,3 +1,4 @@
+// src/neo4j/neo4j-init.service.ts
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { Neo4jService } from './neo4j.service';
 
@@ -52,6 +53,12 @@ export class Neo4jInitService implements OnModuleInit {
 
         // User constraints
         'CREATE CONSTRAINT user_sub_unique IF NOT EXISTS FOR (u:User) REQUIRE u.sub IS UNIQUE',
+
+        // Quantity node constraints
+        'CREATE CONSTRAINT quantity_node_id_unique IF NOT EXISTS FOR (q:QuantityNode) REQUIRE q.id IS UNIQUE',
+
+        // Quantity response node constraints
+        'CREATE CONSTRAINT quantity_response_id_unique IF NOT EXISTS FOR (r:QuantityResponseNode) REQUIRE r.id IS UNIQUE',
       ];
 
       for (const constraint of constraints) {
