@@ -59,6 +59,27 @@ export interface StatementNode {
     };
 }
 
+/**
+ * Interface representing a Quantity Node
+ */
+export interface QuantityNode {
+    id: string;
+    question: string;
+    unitCategoryId: string;
+    defaultUnitId: string;
+    createdBy: string;
+    publicCredit: boolean;
+    initialComment?: string;
+    createdAt: string;
+    updatedAt: string;
+    responseCount?: number;
+    keywords?: Keyword[];
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
 // Common types
 export type VoteStatus = 'agree' | 'disagree' | 'none';
 

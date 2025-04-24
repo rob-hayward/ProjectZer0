@@ -20,6 +20,11 @@
     import StatementInput from '$lib/components/forms/createNode/statement/StatementInput.svelte';
     import KeywordInput from '$lib/components/forms/createNode/statement/KeywordInput.svelte';
     import StatementReview from '$lib/components/forms/createNode/statement/StatementReview.svelte';
+    
+    // Quantity related components - Make sure to create these files in the correct location
+    import QuantityInput from '$lib/components/forms/createNode/quantity/QuantityInput.svelte';
+    import UnitCategorySelect from '$lib/components/forms/createNode/quantity/UnitCategorySelect.svelte';
+    import QuantityReview from '$lib/components/forms/createNode/quantity/QuantityReview.svelte';
 
     export let node: RenderableNode;
     
@@ -42,9 +47,12 @@
     let formData = {
         nodeType: '',
         word: '',
-        definitionText: '',  // For word node
-        statement: '',       // For statement node
-        userKeywords: [],    // For statement node
+        definitionText: '',      // For word node
+        statement: '',           // For statement node
+        question: '',            // For quantity node
+        unitCategoryId: '',      // For quantity node
+        defaultUnitId: '',       // For quantity node
+        userKeywords: [],        // For statement node
         discussion: '',
         publicCredit: false
     };
@@ -181,6 +189,22 @@
             } as any, // Type assertion to avoid literal type checking
             highlightColor: COLORS.PRIMARY.GREEN as any // Type assertion
         };
+    } else if (formData.nodeType === 'quantity') {
+        // For quantity nodes, use purple
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.PURPLE}33`,
+                border: `${COLORS.PRIMARY.PURPLE}FF`,
+                text: `${COLORS.PRIMARY.PURPLE}FF`,
+                hover: `${COLORS.PRIMARY.PURPLE}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.PURPLE}66`,
+                    end: `${COLORS.PRIMARY.PURPLE}33`
+                }
+            } as any, // Type assertion to avoid literal type checking
+            highlightColor: COLORS.PRIMARY.PURPLE as any // Type assertion
+        };
     } else if (formData.nodeType !== '') {
         // For other node types, use current style from the animation
         completeStyle = { ...currentStyle };
@@ -201,12 +225,17 @@
                      currentStep === 3 ? 'Add Keywords' :
                      currentStep === 4 ? 'Start Discussion' :
                      'Review Creation') :
+                  formData.nodeType === 'quantity' ?
+                    (currentStep === 2 ? 'Enter Question' :
+                     currentStep === 3 ? 'Select Unit' :
+                     currentStep === 4 ? 'Start Discussion' :
+                     'Review Creation') :
                   'Create New Node';
 
     $: showStepIndicators = currentStep < 5;
 
     // Max steps based on node type
-    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' ? 5 : 1;
+    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' || formData.nodeType === 'quantity' ? 5 : 1;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -230,6 +259,9 @@
             word: '',
             definitionText: '',
             statement: '',
+            question: '',
+            unitCategoryId: '',
+            defaultUnitId: '',
             userKeywords: [],
             discussion: '',
             publicCredit: false
@@ -272,7 +304,7 @@
             <!-- Error/Success Messages -->
             {#if errorMessage || successMessage}
                 <g transform="translate(0, {showStepIndicators ? 70 : 40})">
-                    <MessageDisplay {errorMessage} successMessage={successMessage} />
+                    <MessageDisplay {errorMessage} {successMessage} />
                 </g>
             {/if}
 
@@ -349,6 +381,44 @@
                         <StatementReview
                             statement={formData.statement}
                             userKeywords={formData.userKeywords}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'quantity'}
+                    <!-- Quantity node creation flow -->
+                    {#if currentStep === 2}
+                        <QuantityInput
+                            bind:question={formData.question}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <UnitCategorySelect
+                            bind:unitCategoryId={formData.unitCategoryId}
+                            bind:defaultUnitId={formData.defaultUnitId}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <QuantityReview
+                            question={formData.question}
+                            unitCategoryId={formData.unitCategoryId}
+                            defaultUnitId={formData.defaultUnitId}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}

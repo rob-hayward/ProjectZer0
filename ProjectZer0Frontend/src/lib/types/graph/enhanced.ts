@@ -1,20 +1,20 @@
 // src/lib/types/graph/enhanced.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle, StatementNode } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network' | 'quantity';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'quantity';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'quantity';
 export type LinkType = 'live' | 'alternative' | 'related';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
 export interface NodeMetadata {
     centralRadius?: number;
-    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement';
+    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'quantity';
     fixed?: boolean;
     isDetail?: boolean;
     votes?: number;
@@ -28,7 +28,7 @@ export interface NodeMetadata {
 export interface GraphNode {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
     group: NodeGroup;
     mode?: NodeMode;
 }
@@ -46,7 +46,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -120,8 +120,6 @@ export interface LayoutLink {
     };
 }
 
-// The rest of the file remains unchanged
-
 // Position type for consistent positioning
 export interface NodePosition {
     x: number;
@@ -137,7 +135,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -198,7 +196,8 @@ export interface GraphPageData {
     view: ViewType;
     viewType: ViewType;
     wordData: WordNode | null;
-    statementData: StatementNode | null; // Add this line
+    statementData: StatementNode | null;
+    quantityData?: QuantityNode | null; // Add quantity data
     nodes?: GraphNode[];
     links?: GraphLink[];
     _routeKey?: string; // Added for forcing re-renders on navigation
@@ -231,6 +230,9 @@ export const isNavigationData = (data: any): data is NavigationOption =>
 export const isStatementData = (data: any): data is StatementNode =>
     data && 'statement' in data && typeof data.statement === 'string';
 
+export const isQuantityData = (data: any): data is QuantityNode =>
+    data && 'question' in data && 'unitCategoryId' in data && 'defaultUnitId' in data;
+
 // Node type guards
 export const isDashboardNode = (node: RenderableNode): node is RenderableNode & { data: UserProfile } =>
     node.type === 'dashboard' && isUserProfileData(node.data);
@@ -252,6 +254,9 @@ export const isNavigationNode = (node: RenderableNode): node is RenderableNode &
 
 export const isStatementNode = (node: RenderableNode): node is RenderableNode & { data: StatementNode } =>
     node.type === 'statement' && isStatementData(node.data);
+
+export const isQuantityNode = (node: RenderableNode): node is RenderableNode & { data: QuantityNode } =>
+    node.type === 'quantity' && isQuantityData(node.data);
 
 // Link type guards
 export const isLiveLink = (link: RenderableLink): boolean =>
