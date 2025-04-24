@@ -30,6 +30,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,     // IMPORTANT: Match definition size exactly
                 PREVIEW: 320     // Match definition preview size
             },
+            QUANTITY: {
+                DETAIL: 1800,    // 3x larger than standard nodes
+                PREVIEW: 320     // Keep the same preview size
+            },
             CONTROL: {           // New control node specific sizes
                 DETAIL: 450,     // Smaller detail view for control node
                 PREVIEW: 250     // Smaller preview for control node
@@ -44,7 +48,8 @@ export const COORDINATE_SPACE = {
                 BASE: 20,          // Collision padding for central nodes
                 NAVIGATION: 5,     // Collision padding for navigation nodes
                 DEFINITION: 150,   // Collision padding for definition nodes
-                STATEMENT: 150     // Match definition collision padding
+                STATEMENT: 150,    // Match definition collision padding
+                QUANTITY: 200      // Larger collision padding for quantity nodes
             }
         }
     },
@@ -92,6 +97,7 @@ export const COORDINATE_SPACE = {
                         ALTERNATIVE: -100  // Reduced from -300
                     },
                     STATEMENT: -300,    // Reduced from -1600
+                    QUANTITY: -400,     // New strength for quantity nodes
                     NAVIGATION: -20     // Reduced from -50
                 },
                 DISTANCE: {

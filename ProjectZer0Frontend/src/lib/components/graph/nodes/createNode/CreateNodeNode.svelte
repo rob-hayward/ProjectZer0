@@ -18,13 +18,15 @@
     
     // Statement related imports
     import StatementInput from '$lib/components/forms/createNode/statement/StatementInput.svelte';
-    import KeywordInput from '$lib/components/forms/createNode/statement/KeywordInput.svelte';
     import StatementReview from '$lib/components/forms/createNode/statement/StatementReview.svelte';
     
-    // Quantity related components - Make sure to create these files in the correct location
+    // Quantity related imports
     import QuantityInput from '$lib/components/forms/createNode/quantity/QuantityInput.svelte';
     import UnitCategorySelect from '$lib/components/forms/createNode/quantity/UnitCategorySelect.svelte';
     import QuantityReview from '$lib/components/forms/createNode/quantity/QuantityReview.svelte';
+
+    //  Shared imports
+    import KeywordInput from '$lib/components/forms/createNode/shared/KeywordInput.svelte';
 
     export let node: RenderableNode;
     
@@ -52,7 +54,7 @@
         question: '',            // For quantity node
         unitCategoryId: '',      // For quantity node
         defaultUnitId: '',       // For quantity node
-        userKeywords: [],        // For statement node
+        userKeywords: [],        // For statement and quantity nodes
         discussion: '',
         publicCredit: false
     };
@@ -228,14 +230,16 @@
                   formData.nodeType === 'quantity' ?
                     (currentStep === 2 ? 'Enter Question' :
                      currentStep === 3 ? 'Select Unit' :
-                     currentStep === 4 ? 'Start Discussion' :
+                     currentStep === 4 ? 'Add Keywords' :
+                     currentStep === 5 ? 'Start Discussion' :
                      'Review Creation') :
                   'Create New Node';
 
-    $: showStepIndicators = currentStep < 5;
+    $: showStepIndicators = currentStep < (formData.nodeType === 'quantity' ? 6 : 5);
 
     // Max steps based on node type
-    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' || formData.nodeType === 'quantity' ? 5 : 1;
+    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' ? 5 : 
+                 formData.nodeType === 'quantity' ? 6 : 1;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -277,7 +281,7 @@
 
 <BaseDetailNode {node} style={completeStyle} on:modeChange={handleModeChange}>
     <svelte:fragment slot="default" let:radius>
-        <g transform="translate(0, {-radius + (currentStep === 5 ? 100 : 120)})">
+        <g transform="translate(0, {-radius + (currentStep === (formData.nodeType === 'quantity' ? 6 : 5) ? 100 : 120)})">
             <!-- Title -->
             <text 
                 class="title"
@@ -289,9 +293,9 @@
             <!-- Step Indicators -->
             {#if showStepIndicators}
                 <g transform="translate(0, 40)">
-                    {#each Array(5) as _, i}
+                    {#each Array(formData.nodeType === 'quantity' ? 6 : 5) as _, i}
                         <circle
-                            cx={-40 + (i * 20)}
+                            cx={-50 + (i * 20)}
                             cy="0"
                             r="4"
                             class="step-indicator"
@@ -408,17 +412,25 @@
                             on:proceed={handleNext}
                         />
                     {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
                         />
-                    {:else if currentStep === 5}
+                    {:else if currentStep === 6}
                         <QuantityReview
                             question={formData.question}
                             unitCategoryId={formData.unitCategoryId}
                             defaultUnitId={formData.defaultUnitId}
+                            userKeywords={formData.userKeywords}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}

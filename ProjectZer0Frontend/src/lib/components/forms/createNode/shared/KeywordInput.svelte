@@ -1,13 +1,14 @@
-<!-- src/lib/components/forms/createNode/statement/KeywordInput.svelte -->
+<!-- src/lib/components/forms/createNode/shared/KeywordInput.svelte -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { FORM_STYLES } from '$lib/styles/forms';
-    import FormNavigation from '../shared/FormNavigation.svelte';
+    import FormNavigation from './FormNavigation.svelte';
 	import { TEXT_LIMITS } from '$lib/constants/validation';
     
     // Array of user keywords
     export let userKeywords: string[] = [];
     export let disabled = false;
+    export let description = 'Add keywords to help categorize. AI will also extract keywords.';
     
     // Local state for the current keyword being entered
     let currentKeyword = '';
@@ -102,7 +103,7 @@
         y="0"
         class="description-text"
     >
-        Add keywords to help categorize your statement. AI will also extract keywords.
+        {description}
     </text>
     
     <!-- Keyword Input -->
@@ -150,7 +151,7 @@
         </text>
     {/if}
     
-    <!-- Keywords List -->
+    <!-- Keywords Display -->
     <foreignObject
         x={FORM_STYLES.layout.leftAlign}
         y="75"

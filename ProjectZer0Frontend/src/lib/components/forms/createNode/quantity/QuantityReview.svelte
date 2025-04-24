@@ -11,6 +11,7 @@
     export let question = '';
     export let unitCategoryId = '';
     export let defaultUnitId = '';
+    export let userKeywords: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
@@ -83,6 +84,7 @@
                 createdBy: userId,
                 unitCategoryId: unitCategoryId,
                 defaultUnitId: defaultUnitId,
+                userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
                 initialComment: discussion || '',
                 publicCredit
             };
@@ -155,7 +157,7 @@
         x={FORM_STYLES.layout.leftAlign - 30}
         y="-40"
         width={FORM_STYLES.layout.fieldWidth + 60}
-        height="290"
+        height="320"
     >
         <div class="review-container">
             <!-- Question text -->
@@ -181,6 +183,18 @@
                     <span class="value">{unitName || defaultUnitId} {unitSymbol ? `(${unitSymbol})` : ''}</span>
                 </div>
             </div>
+            
+            <!-- Keywords list -->
+            {#if userKeywords.length > 0}
+                <div class="review-item">
+                    <span class="label">Your Keywords:</span>
+                    <div class="keywords-list">
+                        {#each userKeywords as keyword}
+                            <span class="keyword-chip">{keyword}</span>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
             
             <!-- Discussion -->
             {#if discussion}
@@ -223,7 +237,7 @@
     </foreignObject>
 
     <!-- Navigation -->
-    <g transform="translate(0, 200)">
+    <g transform="translate(0, 240)">
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={handleSubmit}
@@ -279,6 +293,23 @@
         display: flex;
         align-items: center;
         gap: 8px;
+    }
+    
+    :global(.keywords-list) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    :global(.keyword-chip) {
+        background: rgba(142, 68, 173, 0.2);
+        border: 1px solid rgba(142, 68, 173, 0.3);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: white;
+        font-family: 'Orbitron', sans-serif;
     }
 
     :global(.debug-message) {

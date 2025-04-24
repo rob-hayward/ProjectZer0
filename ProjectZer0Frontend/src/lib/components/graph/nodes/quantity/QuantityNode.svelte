@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
 <script lang="ts">
-    import { onMount, createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher, tick } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
@@ -38,12 +38,26 @@
     let defaultUnitSymbol = '';
     let userResponse: any = null;
     let statistics: any = null;
+    let communityResponses: any[] = [];
     let availableUnits: any[] = [];
     let responseValue: string = '';
     let selectedUnitId: string = '';
     let isSubmitting = false;
     let errorMessage: string | null = null;
+    let isLoadingResponses = false;
     
+    // Enhanced detail node size (approximately 3x) - adjust the main constants
+    const DETAIL_NODE_WIDTH = 1200;
+    const DETAIL_NODE_HEIGHT = 900;
+    
+    // Layout constants
+    const METRICS_SPACING = {
+        leftAlign: -520, // Increased to allow more space
+        sectionSpacing: 50,
+        columnWidth: 450,
+        rightAlign: 520,
+    };
+
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
         hover: { isHovered: boolean };
@@ -119,10 +133,22 @@
 
     async function loadStatistics() {
         try {
+            isLoadingResponses = true;
             statistics = await getStatistics(node.id);
             console.log('[QuantityNode] Statistics loaded:', statistics);
+            
+                            // Extract and format community responses if available
+            if (statistics?.responses && Array.isArray(statistics.responses)) {
+                communityResponses = statistics.responses.map((response: { value: number; unitSymbol?: string; unitId: string; }) => ({
+                    ...response,
+                    // Format display value
+                    displayValue: `${formatNumber(response.value)} ${response.unitSymbol || response.unitId}`
+                }));
+            }
         } catch (error) {
             console.error('[QuantityNode] Error loading statistics:', error);
+        } finally {
+            isLoadingResponses = false;
         }
     }
 
@@ -222,12 +248,11 @@
     
     // Prepare display data for statistics
     $: responseCount = statistics?.responseCount || 0;
-    $: responseSummary = statistics ? 
-        `${responseCount} ${responseCount === 1 ? 'response' : 'responses'} • ` +
-        `Min: ${formatNumber(statistics.min)} • ` +
-        `Max: ${formatNumber(statistics.max)} • ` +
-        `Mean: ${formatNumber(statistics.mean)}` : 
-        'No responses yet';
+    $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
+    $: maxValue = statistics?.max !== undefined ? formatNumber(statistics.max) : '-';
+    $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
+    $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
+    $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
     
     // Helper function to format numbers
     function formatNumber(value: number): string {
@@ -252,10 +277,10 @@
             </text>
 
             <!-- Question Display -->
-            <g class="question-display" transform="translate(0, {-radius/2 - 55})">
+            <g transform="translate(0, {-radius + 100})">
                 <foreignObject 
-                    x={-200}
-                    width="400"
+                    x={METRICS_SPACING.leftAlign}
+                    width={Math.abs(METRICS_SPACING.leftAlign) * 2}
                     height="100"
                 >
                     <div class="question-text">
@@ -264,143 +289,211 @@
                 </foreignObject>
             </g>
 
+            <!-- Keywords Display (if any) -->
+            {#if data.keywords && data.keywords.length > 0}
+                <g transform="translate(0, {-radius + 200})">
+                    <text 
+                        x={METRICS_SPACING.leftAlign} 
+                        class="keywords-label left-align"
+                    >
+                        Keywords:
+                    </text>
+                    
+                    <foreignObject 
+                        x={METRICS_SPACING.leftAlign}
+                        y="10"
+                        width={Math.abs(METRICS_SPACING.leftAlign) * 2}
+                        height="50"
+                    >
+                        <div class="keywords-container">
+                            {#each data.keywords as keyword}
+                                <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
+                                    {keyword.word}
+                                </div>
+                            {/each}
+                        </div>
+                    </foreignObject>
+                </g>
+            {/if}
+
             <!-- Unit Information -->
-            <g transform="translate(0, {-radius/4})">
+            <g transform="translate(0, {-radius + 280})">
                 <text 
-                    x={-200} 
-                    class="unit-label left-align"
+                    x={METRICS_SPACING.leftAlign} 
+                    class="section-header left-align"
                 >
-                    Unit Category: <tspan class="unit-value">{categoryName || displayUnitCategoryId}</tspan>
+                    Unit Information
                 </text>
                 
                 <text 
-                    x={-200}
-                    y="25"
+                    x={METRICS_SPACING.leftAlign}
+                    y="30"
+                    class="unit-label left-align"
+                >
+                    Category: <tspan class="unit-value">{categoryName || displayUnitCategoryId}</tspan>
+                </text>
+                
+                <text 
+                    x={METRICS_SPACING.leftAlign}
+                    y="60"
                     class="unit-label left-align"
                 >
                     Default Unit: <tspan class="unit-value">{defaultUnitName || displayDefaultUnitId} {defaultUnitSymbol ? `(${defaultUnitSymbol})` : ''}</tspan>
                 </text>
             </g>
 
-            <!-- Statistics Summary -->
-            <g transform="translate(0, {-radius/8 + 40})">
+            <!-- User Response Section -->
+            <g transform="translate(0, {-radius + 380})">
                 <text 
-                    x={-200} 
-                    class="stats-label left-align"
+                    x={METRICS_SPACING.leftAlign} 
+                    class="section-header left-align"
                 >
-                    Statistics:
-                </text>
-                
-                <text 
-                    x={-200}
-                    y="25"
-                    class="stats-summary left-align"
-                >
-                    {responseSummary}
-                </text>
-            </g>
-
-            <!-- Response Form -->
-            <g transform="translate(0, {radius/4})">
-                <text 
-                    x={-200} 
-                    class="form-label left-align"
-                >
-                    {hasUserResponse ? 'Your Response:' : 'Submit Your Response:'}
+                    {hasUserResponse ? 'Your Response' : 'Add Your Response'}
                 </text>
                 
                 {#if hasUserResponse}
-                    <!-- Show user's current response -->
-                    <text 
-                        x={-200}
-                        y="30"
-                        class="user-response left-align"
-                    >
-                        {userResponse.value} {userResponse.unitSymbol || userResponse.unitId}
-                    </text>
-                    
-                    <!-- Delete response button -->
-                    <foreignObject x={-200} y="45" width="120" height="40">
-                        <button 
-                            class="response-button delete-button"
-                            on:click={handleDeleteResponse}
-                            disabled={isSubmitting}
-                        >
-                            {isSubmitting ? 'Deleting...' : 'Delete Response'}
-                        </button>
-                    </foreignObject>
-                {:else}
-                    <!-- Show response form -->
-                    <foreignObject x={-200} y="30" width="120" height="40">
-                        <input 
-                            type="number" 
-                            class="response-input"
-                            placeholder="Enter value"
-                            bind:value={responseValue}
-                            disabled={isSubmitting}
-                        />
-                    </foreignObject>
-                    
-                    <foreignObject x={-70} y="30" width="150" height="40">
-                        <select 
-                            class="unit-select"
-                            bind:value={selectedUnitId}
-                            disabled={isSubmitting || !availableUnits.length}
-                        >
-                            <option value="">Select unit</option>
-                            {#each availableUnits as unit}
-                                <option value={unit.id}>{unit.name} ({unit.symbol})</option>
-                            {/each}
-                        </select>
-                    </foreignObject>
-                    
-                    <foreignObject x={90} y="30" width="120" height="40">
-                        <button 
-                            class="response-button submit-button"
-                            on:click={handleSubmitResponse}
-                            disabled={isSubmitting || !responseValue || !selectedUnitId}
-                        >
-                            {isSubmitting ? 'Submitting...' : 'Submit'}
-                        </button>
-                    </foreignObject>
-                    
-                    {#if errorMessage}
+                    <g transform="translate(0, 30)">
+                        <!-- Show user's current response -->
                         <text 
-                            x={-200}
-                            y="80"
-                            class="error-message left-align"
+                            x={METRICS_SPACING.leftAlign}
+                            class="user-response-value left-align"
                         >
-                            {errorMessage}
+                            Your answer: <tspan class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
                         </text>
-                    {/if}
+                        
+                        <!-- Update/delete response buttons -->
+                        <foreignObject x={METRICS_SPACING.leftAlign} y="20" width="120" height="40">
+                            <button 
+                                class="response-button edit-button"
+                                on:click={() => hasUserResponse = false}
+                            >
+                                Edit Response
+                            </button>
+                        </foreignObject>
+                        
+                        <foreignObject x={METRICS_SPACING.leftAlign + 130} y="20" width="120" height="40">
+                            <button 
+                                class="response-button delete-button"
+                                on:click={handleDeleteResponse}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Deleting...' : 'Delete Response'}
+                            </button>
+                        </foreignObject>
+                    </g>
+                {:else}
+                    <!-- Response input form -->
+                    <g transform="translate(0, 40)">
+                        <text 
+                            x={METRICS_SPACING.leftAlign}
+                            y="-10"
+                            class="form-label left-align"
+                        >
+                            Enter your answer:
+                        </text>
+                    
+                        <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="150" height="40">
+                            <input 
+                                type="number" 
+                                class="response-input"
+                                placeholder="Enter value"
+                                bind:value={responseValue}
+                                disabled={isSubmitting}
+                            />
+                        </foreignObject>
+                        
+                        <foreignObject x={METRICS_SPACING.leftAlign + 160} y="0" width="180" height="40">
+                            <select 
+                                class="unit-select"
+                                bind:value={selectedUnitId}
+                                disabled={isSubmitting || !availableUnits.length}
+                            >
+                                <option value="">Select unit</option>
+                                {#each availableUnits as unit}
+                                    <option value={unit.id}>{unit.name} ({unit.symbol})</option>
+                                {/each}
+                            </select>
+                        </foreignObject>
+                        
+                        <foreignObject x={METRICS_SPACING.leftAlign + 350} y="0" width="120" height="40">
+                            <button 
+                                class="response-button submit-button"
+                                on:click={handleSubmitResponse}
+                                disabled={isSubmitting || !responseValue || !selectedUnitId}
+                            >
+                                {isSubmitting ? 'Submitting...' : 'Submit'}
+                            </button>
+                        </foreignObject>
+                        
+                        {#if errorMessage}
+                            <text 
+                                x={METRICS_SPACING.leftAlign}
+                                y="50"
+                                class="error-message left-align"
+                            >
+                                {errorMessage}
+                            </text>
+                        {/if}
+                    </g>
                 {/if}
             </g>
 
-            <!-- Visualization Placeholder -->
-            <g transform="translate(0, {radius/2 + 30})">
+            <!-- Community Responses -->
+            <g transform="translate(0, {-radius + 500})">
                 <text 
-                    class="placeholder-text"
+                    x={METRICS_SPACING.leftAlign} 
+                    class="section-header left-align"
                 >
-                    {responseCount > 0 ? 'Distribution of Responses' : 'No response data to visualize yet'}
+                    Community Responses ({responseCount})
                 </text>
                 
-                {#if responseCount > 0 && statistics?.distributionCurve?.length > 0}
-                    <!-- Simple placeholder for the distribution curve -->
-                    <rect 
-                        x={-150}
-                        y="10"
-                        width="300"
-                        height="80"
-                        class="visualization-placeholder"
-                    />
-                    
-                    <text 
-                        y="55"
-                        class="placeholder-text"
-                    >
-                        Distribution Visualization
+                <!-- Statistics summary -->
+                <g transform="translate(0, 30)">
+                    <text x={METRICS_SPACING.leftAlign} class="stats-label left-align">
+                        Mean: <tspan class="stats-value">{meanValue} {defaultUnitSymbol || ''}</tspan>
                     </text>
-                {/if}
+                    
+                    <text x={METRICS_SPACING.leftAlign + 200} class="stats-label left-align">
+                        Median: <tspan class="stats-value">{medianValue} {defaultUnitSymbol || ''}</tspan>
+                    </text>
+                    
+                    <text x={METRICS_SPACING.leftAlign + 400} class="stats-label left-align">
+                        Min: <tspan class="stats-value">{minValue} {defaultUnitSymbol || ''}</tspan>
+                    </text>
+                    
+                    <text x={METRICS_SPACING.leftAlign + 600} class="stats-label left-align">
+                        Max: <tspan class="stats-value">{maxValue} {defaultUnitSymbol || ''}</tspan>
+                    </text>
+                    
+                    <text x={METRICS_SPACING.leftAlign} y="30" class="stats-label left-align">
+                        Standard Deviation: <tspan class="stats-value">{standardDeviation} {defaultUnitSymbol || ''}</tspan>
+                    </text>
+                </g>
+                
+                <!-- List of community responses -->
+                <foreignObject 
+                    x={METRICS_SPACING.leftAlign}
+                    y="70"
+                    width={Math.abs(METRICS_SPACING.leftAlign) * 2}
+                    height="250"
+                >
+                    <div class="community-responses-container">
+                        {#if isLoadingResponses}
+                            <div class="loading-message">Loading responses...</div>
+                        {:else if communityResponses.length === 0}
+                            <div class="no-responses-message">No responses yet. Be the first to respond!</div>
+                        {:else}
+                            <div class="response-list">
+                                {#each communityResponses as response, i}
+                                    <div class="response-item" class:user-response={response.isCurrentUser}>
+                                        <span class="response-value">{response.displayValue}</span>
+                                        <span class="response-username">{response.username || 'Anonymous'}</span>
+                                    </div>
+                                {/each}
+                            </div>
+                        {/if}
+                    </div>
+                </foreignObject>
             </g>
             
             <!-- Creator credits -->
@@ -507,25 +600,26 @@
         fill: rgba(255, 255, 255, 0.7);
         font-size: 12px;
     }
+    
+    .section-header {
+        font-size: 16px;
+        fill: rgba(142, 68, 173, 0.9);
+        font-weight: 500;
+    }
 
-    .unit-label, .stats-label, .form-label {
+    .unit-label, .stats-label {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.7);
     }
 
-    .unit-value {
+    .unit-value, .stats-value, .value-highlight {
         fill: white;
         font-weight: 500;
     }
 
-    .stats-summary {
-        font-size: 12px;
-        fill: rgba(255, 255, 255, 0.9);
-    }
-
-    .user-response {
+    .user-response-value {
         font-size: 14px;
-        fill: white;
+        fill: rgba(255, 255, 255, 0.8);
     }
 
     .error-message {
@@ -533,64 +627,127 @@
         fill: #ff4444;
     }
 
-    .placeholder-text {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.5);
-    }
-
-    .visualization-placeholder {
-        fill: rgba(140, 82, 255, 0.1);
-        stroke: rgba(140, 82, 255, 0.3);
-        stroke-width: 1;
-        rx: 4;
-        ry: 4;
-    }
-
     .creator-label {
         font-size: 10px;
         fill: rgba(255, 255, 255, 0.5);
+    }
+
+    .form-label {
+        font-size: 13px;
+        fill: rgba(255, 255, 255, 0.6);
     }
 
     /* Detail Mode Styling */
     :global(.question-text) {
         color: white;
         font-family: 'Orbitron', sans-serif;
-        font-size: 14px;
-        line-height: 1.4;
+        font-size: 16px;
+        font-weight: 500;
+        line-height: 1.5;
         text-align: left;
-        padding-right: 20px;
+    }
+    
+    :global(.keywords-container) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 5px;
+    }
+    
+    :global(.keyword-chip) {
+        background: rgba(142, 68, 173, 0.2);
+        border: 1px solid rgba(142, 68, 173, 0.3);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: white;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.keyword-chip.ai-keyword) {
+        background: rgba(52, 152, 219, 0.2);
+        border: 1px solid rgba(52, 152, 219, 0.3);
+    }
+    
+    :global(.keyword-chip.user-keyword) {
+        background: rgba(46, 204, 113, 0.2);
+        border: 1px solid rgba(46, 204, 113, 0.3);
+    }
+
+    /* Community Responses Styling */
+    :global(.community-responses-container) {
+        height: 100%;
+        overflow-y: auto;
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.response-list) {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    :global(.response-item) {
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 6px;
+        color: white;
+    }
+    
+    :global(.response-item.user-response) {
+        background: rgba(142, 68, 173, 0.15);
+        border: 1px solid rgba(142, 68, 173, 0.3);
+    }
+    
+    :global(.response-value) {
+        font-weight: 500;
+    }
+    
+    :global(.response-username) {
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.9em;
+    }
+    
+    :global(.no-responses-message), :global(.loading-message) {
+        color: rgba(255, 255, 255, 0.6);
+        font-style: italic;
+        text-align: center;
+        padding: 20px;
     }
 
     /* Form Styling */
     :global(.response-input) {
         width: 100%;
-        background: rgba(0, 0, 0, 0.9);
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
         border: 2px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
         color: white;
-        padding: 6px 8px;
+        padding: 6px 10px;
         font-family: 'Orbitron', sans-serif;
         font-size: 0.9rem;
         box-sizing: border-box;
-        display: block;
     }
 
     :global(.response-input:focus) {
         outline: none;
-        border: 2px solid rgba(255, 255, 255, 0.6);
+        border: 2px solid rgba(142, 68, 173, 0.6);
+        box-shadow: 0 0 0 1px rgba(142, 68, 173, 0.3);
     }
 
     :global(.unit-select) {
         width: 100%;
-        background: rgba(0, 0, 0, 0.9);
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
         border: 2px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
         color: white;
-        padding: 6px 8px;
+        padding: 6px 10px;
         font-family: 'Orbitron', sans-serif;
         font-size: 0.9rem;
         box-sizing: border-box;
-        display: block;
         cursor: pointer;
         -webkit-appearance: none;
         -moz-appearance: none;
@@ -604,34 +761,45 @@
 
     :global(.unit-select:focus) {
         outline: none;
-        border: 2px solid rgba(255, 255, 255, 0.6);
+        border: 2px solid rgba(142, 68, 173, 0.6);
+        box-shadow: 0 0 0 1px rgba(142, 68, 173, 0.3);
     }
 
     :global(.response-button) {
         width: 100%;
+        height: 100%;
         padding: 6px 12px;
         border-radius: 4px;
         font-family: 'Orbitron', sans-serif;
-        font-size: 0.8rem;
+        font-size: 0.85rem;
         cursor: pointer;
         transition: all 0.2s ease;
         display: flex;
         align-items: center;
         justify-content: center;
         box-sizing: border-box;
-        margin: 0;
         color: white;
         white-space: nowrap;
     }
 
     :global(.submit-button) {
-        background: rgba(140, 82, 255, 0.3);
-        border: 1px solid rgba(140, 82, 255, 0.4);
+        background: rgba(142, 68, 173, 0.3);
+        border: 1px solid rgba(142, 68, 173, 0.4);
     }
 
     :global(.submit-button:hover:not(:disabled)) {
-        background: rgba(140, 82, 255, 0.4);
-        border: 1px solid rgba(140, 82, 255, 0.5);
+        background: rgba(142, 68, 173, 0.4);
+        border: 1px solid rgba(142, 68, 173, 0.5);
+    }
+    
+    :global(.edit-button) {
+        background: rgba(52, 152, 219, 0.3);
+        border: 1px solid rgba(52, 152, 219, 0.4);
+    }
+
+    :global(.edit-button:hover:not(:disabled)) {
+        background: rgba(52, 152, 219, 0.4);
+        border: 1px solid rgba(52, 152, 219, 0.5);
     }
 
     :global(.delete-button) {
