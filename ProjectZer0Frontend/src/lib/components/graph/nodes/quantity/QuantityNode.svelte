@@ -47,10 +47,6 @@
     let errorMessage: string | null = null;
     let isLoadingResponses = false;
     
-    // Enhanced detail node size (approximately 3x) - adjust the main constants
-    const DETAIL_NODE_WIDTH = 1200;
-    const DETAIL_NODE_HEIGHT = 900;
-    
     // Layout constants
     const METRICS_SPACING = {
         leftAlign: -520, // Increased to allow more space
@@ -278,7 +274,7 @@
             </text>
 
             <!-- Question Display -->
-            <g transform="translate(0, {-radius + 100})">
+            <g transform="translate(0, {-radius + 420})">
                 <foreignObject 
                     x={METRICS_SPACING.leftAlign}
                     width={Math.abs(METRICS_SPACING.leftAlign) * 2}
@@ -292,7 +288,7 @@
 
             <!-- Keywords Display (if any) -->
             {#if data.keywords && data.keywords.length > 0}
-                <g transform="translate(0, {-radius + 200})">
+                <g transform="translate(0, {-radius + 520})">
                     <text 
                         x={METRICS_SPACING.leftAlign} 
                         class="keywords-label left-align"
@@ -318,7 +314,7 @@
             {/if}
 
             <!-- Unit Information -->
-            <g transform="translate(0, {-radius + 280})">
+            <g transform="translate(0, {-radius + 1080})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -344,7 +340,7 @@
             </g>
 
             <!-- User Response Section -->
-            <g transform="translate(0, {-radius + 380})">
+            <g transform="translate(0, {-radius + 1180})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -440,7 +436,7 @@
             </g>
 
             <!-- Community Responses Visualization -->
-            <g transform="translate(0, {-radius + 500})">
+            <g transform="translate(0, {-radius + 700})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"

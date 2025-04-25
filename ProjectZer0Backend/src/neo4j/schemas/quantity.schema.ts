@@ -32,6 +32,7 @@ export interface QuantityNodeStats {
   standardDeviation: number;
   percentiles: Record<number, number>;
   distributionCurve: number[][];
+  responses?: QuantityNodeResponse[];
 }
 
 @Injectable()
@@ -817,7 +818,7 @@ export class QuantitySchema {
         `Getting statistics for quantity node ${quantityNodeId}`,
       );
 
-      // First, get all normalized responses
+      // Get all responses
       const responses = await this.getAllResponses(quantityNodeId);
 
       if (responses.length === 0) {
@@ -830,6 +831,7 @@ export class QuantitySchema {
           standardDeviation: 0,
           percentiles: {},
           distributionCurve: [],
+          responses: [], // Include empty responses array
         };
       }
 
@@ -880,6 +882,7 @@ export class QuantitySchema {
         standardDeviation,
         percentiles,
         distributionCurve,
+        responses: responses, // Include the raw responses array
       };
     } catch (error) {
       this.logger.error(

@@ -8,10 +8,11 @@
     let container: HTMLDivElement;
     
     // Define types for statistics and userResponse
-    interface DistributionPoint {
-        bin_min: number;
-        bin_max: number;
-        percentage: number;
+    interface Response {
+        value: number;
+        unitId: string;
+        unitSymbol?: string;
+        normalizedValue?: number;
     }
     
     interface Statistics {
@@ -21,13 +22,16 @@
         max?: number;
         standardDeviation?: number;
         responseCount?: number;
-        distributionCurve?: DistributionPoint[];
+        distributionCurve?: [number, number][];
+        responses?: Response[];
+        percentiles?: Record<string, number>;
     }
     
     interface UserResponse {
         value: number;
         unitId: string;
         unitSymbol?: string;
+        normalizedValue?: number;
     }
     
     // Props with proper typing
@@ -38,7 +42,7 @@
     // Dimensions
     const height = 200;
     const width = 900;
-    const margin = { top: 20, right: 40, bottom: 40, left: 40 };
+    const margin = { top: 30, right: 40, bottom: 50, left: 40 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
     
@@ -51,12 +55,27 @@
         median: '#FFCC00',
         userResponse: '#FF6600',
         axis: 'rgba(255, 255, 255, 0.7)',
-        text: 'rgba(255, 255, 255, 0.9)'
+        text: 'rgba(255, 255, 255, 0.9)',
+        dots: {
+            base: 'rgba(26, 188, 156, 0.7)',
+            hover: 'rgba(26, 188, 156, 1.0)',
+            stroke: 'rgba(255, 255, 255, 0.4)'
+        }
     };
+    
+    // Format number with appropriate precision
+    function formatNumber(value: number): string {
+        if (value === undefined || value === null) return '-';
+        return Math.abs(value) < 0.01 
+            ? value.toExponential(2) 
+            : Number.isInteger(value) 
+                ? value.toString() 
+                : value.toFixed(2);
+    }
     
     // Render the visualization
     function renderVisualization() {
-        if (!container || !statistics || !statistics.distributionCurve || statistics.distributionCurve.length === 0) {
+        if (!container || !statistics) {
             return;
         }
         
@@ -71,27 +90,68 @@
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
             
-        // Extract distribution curve data
-        const distributionData = statistics.distributionCurve;
+        // Extract data
+        const distributionData = statistics.distributionCurve || [];
+        const responses = statistics.responses || [];
         
-        // Set up scales
-        const xMin = d3.min(distributionData, d => d.bin_min);
-        const xMax = d3.max(distributionData, d => d.bin_max);
+        // Skip rendering if no distribution data and no responses
+        if (distributionData.length === 0 && responses.length === 0) {
+            svg.append('text')
+                .attr('x', innerWidth / 2)
+                .attr('y', innerHeight / 2)
+                .attr('text-anchor', 'middle')
+                .attr('fill', colors.text)
+                .text('Not enough data to create visualization');
+            return;
+        }
         
-        // Add a small padding to the domain (with null checks)
-        const xPadding = xMin !== undefined && xMax !== undefined ? (xMax - xMin) * 0.05 : 0;
+        // Set up domain for X axis
+        let xMin = statistics.min !== undefined ? statistics.min : 0;
+        let xMax = statistics.max !== undefined ? statistics.max : 100;
         
+        // Ensure we have sensible fallbacks and a minimum domain width
+        if (xMin === xMax) {
+            xMin = xMin * 0.9;
+            xMax = xMax * 1.1;
+            // If value is 0, use a small range around it
+            if (xMin === 0 && xMax === 0) {
+                xMin = -1;
+                xMax = 1;
+            }
+        }
+        
+        // Add padding to domain
+        const xRange = xMax - xMin;
+        const xPadding = xRange * 0.1;
+        
+        // Create x scale
         const x = d3.scaleLinear()
-            .domain([
-                xMin !== undefined ? xMin - xPadding : 0, 
-                xMax !== undefined ? xMax + xPadding : 100
-            ])
+            .domain([xMin - xPadding, xMax + xPadding])
             .range([0, innerWidth]);
             
-        const yMax = d3.max(distributionData, d => d.percentage);
-        const y = d3.scaleLinear()
-            .domain([0, yMax !== undefined ? yMax * 1.1 : 100]) // Add 10% padding at the top
-            .range([innerHeight, 0]);
+        // Set up scales for Y axis - different approaches based on available data
+        let y: d3.ScaleLinear<number, number>;
+        
+        if (distributionData.length > 0) {
+            // For distribution curve data
+            const yMax = d3.max(distributionData, d => d[1]) || 0.1;
+            y = d3.scaleLinear()
+                .domain([0, yMax * 1.1]) // Add 10% padding at the top
+                .range([innerHeight, 0]);
+        } else {
+            // For dot plot (when no distribution curve)
+            // Count occurrences of each value to determine y-scale
+            const valueCounts = new Map<number, number>();
+            responses.forEach(r => {
+                const val = Math.round(r.value * 100) / 100; // Round to 2 decimal places
+                valueCounts.set(val, (valueCounts.get(val) || 0) + 1);
+            });
+            const maxCount = Math.max(...Array.from(valueCounts.values()));
+            
+            y = d3.scaleLinear()
+                .domain([0, maxCount * 1.2]) // Add 20% padding for dots
+                .range([innerHeight, 0]);
+        }
             
         // Create background
         svg.append('rect')
@@ -101,32 +161,121 @@
             .attr('rx', 4)
             .attr('ry', 4);
             
-        // Create density curve
-        const curve = d3.line<DistributionPoint>()
-            .x(d => x((d.bin_min + d.bin_max) / 2))
-            .y(d => y(d.percentage))
-            .curve(d3.curveBasis);
+        // Create grid lines
+        const xGrid = d3.axisBottom(x)
+            .tickSize(-innerHeight)
+            .tickFormat(() => '')
+            .ticks(5);
             
-        // Create area under the curve
-        const area = d3.area<DistributionPoint>()
-            .x(d => x((d.bin_min + d.bin_max) / 2))
-            .y0(innerHeight)
-            .y1(d => y(d.percentage))
-            .curve(d3.curveBasis);
+        svg.append('g')
+            .attr('class', 'grid')
+            .attr('transform', `translate(0,${innerHeight})`)
+            .call(xGrid)
+            .selectAll('line')
+            .attr('stroke', 'rgba(255, 255, 255, 0.1)');
             
-        // Add area under the curve
-        svg.append('path')
-            .datum(distributionData)
-            .attr('fill', colors.area)
-            .attr('d', area);
+        // If we have a distribution curve, render it
+        if (distributionData.length > 0) {
+            // Create curve line
+            const curve = d3.line<[number, number]>()
+                .x(d => x(d[0]))
+                .y(d => y(d[1]))
+                .curve(d3.curveBasis);
+                
+            // Create area under the curve
+            const area = d3.area<[number, number]>()
+                .x(d => x(d[0]))
+                .y0(innerHeight)
+                .y1(d => y(d[1]))
+                .curve(d3.curveBasis);
+                
+            // Add area under the curve
+            svg.append('path')
+                .datum(distributionData)
+                .attr('fill', colors.area)
+                .attr('d', area);
+                
+            // Add the curve
+            svg.append('path')
+                .datum(distributionData)
+                .attr('fill', 'none')
+                .attr('stroke', colors.line)
+                .attr('stroke-width', 2)
+                .attr('d', curve);
+        }
+        
+        // Add dot plot of actual responses regardless of whether we have a curve
+        if (responses.length > 0) {
+            // For the dot plot, we need to "jitter" the y-position if values are the same
+            const jitterMap = new Map<number, number[]>();
             
-        // Add the curve
-        svg.append('path')
-            .datum(distributionData)
-            .attr('fill', 'none')
-            .attr('stroke', colors.line)
-            .attr('stroke-width', 2)
-            .attr('d', curve);
+            // Group responses by their value to create the jitter effect
+            responses.forEach(response => {
+                const val = Math.round(response.value * 100) / 100; // Round to 2 decimal places
+                if (!jitterMap.has(val)) {
+                    jitterMap.set(val, []);
+                }
+                jitterMap.get(val)?.push(response.value);
+            });
+            
+            // Now create dots with jitter
+            jitterMap.forEach((values, key) => {
+                const xPos = x(key);
+                const count = values.length;
+                const dotRadius = 3;
+                
+                // Calculate positions for dots with the same value
+                values.forEach((val, i) => {
+                    // Vertical stacking if multiple dots at same x position
+                    // Use different stacking strategy based on count
+                    let yPos;
+                    if (count <= 3) {
+                        // Simple vertical stack for 3 or fewer dots
+                        const stackHeight = innerHeight * 0.15; // 15% of height
+                        yPos = innerHeight - (stackHeight * (i / Math.max(1, count - 1)));
+                    } else {
+                        // For more dots, use a more compact distribution
+                        const yJitter = d3.scaleLinear()
+                            .domain([0, count - 1])
+                            .range([innerHeight - 5, innerHeight - Math.min(count * 7, innerHeight * 0.5)]);
+                        yPos = yJitter(i);
+                    }
+                    
+                    // Create the dot
+                    svg.append('circle')
+                        .attr('cx', xPos)
+                        .attr('cy', yPos)
+                        .attr('r', dotRadius)
+                        .attr('fill', colors.dots.base)
+                        .attr('stroke', colors.dots.stroke)
+                        .attr('stroke-width', 1)
+                        .attr('class', 'response-dot')
+                        .on('mouseover', function() {
+                            d3.select(this)
+                                .attr('r', dotRadius * 1.5)
+                                .attr('fill', colors.dots.hover);
+                                
+                            // Add tooltip for this dot
+                            svg.append('text')
+                                .attr('class', 'tooltip')
+                                .attr('x', xPos)
+                                .attr('y', yPos - 10)
+                                .attr('text-anchor', 'middle')
+                                .attr('fill', 'white')
+                                .style('font-size', '10px')
+                                .text(`${formatNumber(val)} ${unitSymbol}`);
+                        })
+                        .on('mouseout', function() {
+                            d3.select(this)
+                                .attr('r', dotRadius)
+                                .attr('fill', colors.dots.base);
+                                
+                            // Remove tooltip
+                            svg.selectAll('.tooltip').remove();
+                        });
+                });
+            });
+        }
             
         // Add mean line
         if (statistics.mean !== undefined) {
@@ -141,11 +290,11 @@
                 
             svg.append('text')
                 .attr('x', x(statistics.mean))
-                .attr('y', -5)
+                .attr('y', 15)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.mean)
                 .attr('font-size', '12px')
-                .text(`Mean: ${statistics.mean.toFixed(2)} ${unitSymbol}`);
+                .text(`Mean: ${formatNumber(statistics.mean)} ${unitSymbol}`);
         }
         
         // Add median line
@@ -161,11 +310,11 @@
                 
             svg.append('text')
                 .attr('x', x(statistics.median))
-                .attr('y', 10)
+                .attr('y', 35)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.median)
                 .attr('font-size', '12px')
-                .text(`Median: ${statistics.median.toFixed(2)} ${unitSymbol}`);
+                .text(`Median: ${formatNumber(statistics.median)} ${unitSymbol}`);
         }
         
         // Add user response marker
@@ -174,48 +323,62 @@
             const userRadius = 5;
             
             // Only show if it's within the domain
-            if (xMin !== undefined && xMax !== undefined && userValue >= xMin && userValue <= xMax) {
+            if (userValue >= xMin - xPadding && userValue <= xMax + xPadding) {
                 svg.append('circle')
                     .attr('cx', x(userValue))
                     .attr('cy', innerHeight)
                     .attr('r', userRadius)
-                    .attr('fill', colors.userResponse);
+                    .attr('fill', colors.userResponse)
+                    .attr('stroke', 'white')
+                    .attr('stroke-width', 1);
                     
                 svg.append('text')
                     .attr('x', x(userValue))
-                    .attr('y', innerHeight + 15)
+                    .attr('y', innerHeight + 20)
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.userResponse)
                     .attr('font-size', '12px')
-                    .text(`Your Response: ${userValue} ${unitSymbol}`);
+                    .text(`Your: ${formatNumber(userValue)} ${unitSymbol}`);
             }
         }
         
         // Add x-axis with tick values
         const xAxis = d3.axisBottom(x)
             .ticks(5)
-            .tickSize(-innerHeight)
-            .tickFormat(d => `${d}`);
+            .tickFormat(d => formatNumber(d as number));
             
         svg.append('g')
             .attr('transform', `translate(0,${innerHeight})`)
             .call(xAxis)
-            .call(g => g.select('.domain').remove())
-            .call(g => g.selectAll('.tick line')
-                .attr('stroke', 'rgba(255, 255, 255, 0.1)'))
+            .call(g => g.select('.domain').attr('stroke', 'rgba(255, 255, 255, 0.5)'))
             .call(g => g.selectAll('.tick text')
                 .attr('fill', colors.axis)
                 .attr('font-size', '10px'));
                 
-        // Add statistics summary at the bottom
-        const summary = svg.append('g')
-            .attr('transform', `translate(${innerWidth / 2}, ${innerHeight + 35})`);
+        // Add summary statistics text at the bottom
+        if (statistics.responseCount && statistics.responseCount > 0) {
+            // If min and max are very close, don't show range
+            const showRange = statistics.min !== undefined && 
+                              statistics.max !== undefined && 
+                              (statistics.max - statistics.min) > 0.01;
             
-        summary.append('text')
-            .attr('text-anchor', 'middle')
-            .attr('fill', colors.text)
-            .attr('font-size', '12px')
-            .text(`Responses: ${statistics.responseCount || 0} | Min: ${statistics.min?.toFixed(2) || 'N/A'} | Max: ${statistics.max?.toFixed(2) || 'N/A'} | StdDev: ${statistics.standardDeviation?.toFixed(2) || 'N/A'} ${unitSymbol}`);
+            let summaryText = `n=${statistics.responseCount}`;
+            
+            if (showRange) {
+                summaryText += ` | Range: ${formatNumber(statistics.min as number)} - ${formatNumber(statistics.max as number)} ${unitSymbol}`;
+            }
+            
+            if (statistics.standardDeviation !== undefined) {
+                summaryText += ` | σ=${formatNumber(statistics.standardDeviation)} ${unitSymbol}`;
+            }
+            
+            svg.append('text')
+                .attr('transform', `translate(${innerWidth / 2}, ${innerHeight + 40})`)
+                .attr('text-anchor', 'middle')
+                .attr('fill', colors.text)
+                .attr('font-size', '11px')
+                .text(summaryText);
+        }
     }
     
     // Initialize visualization on mount
@@ -248,5 +411,9 @@
     
     :global(.visualization-container .tick text) {
         font-family: 'Orbitron', sans-serif;
+    }
+    
+    :global(.visualization-container path) {
+        vector-effect: non-scaling-stroke;
     }
 </style>
