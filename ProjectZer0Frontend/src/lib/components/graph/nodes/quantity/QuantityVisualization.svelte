@@ -40,9 +40,9 @@
     export let unitSymbol: string = '';
     
     // Dimensions
-    const height = 200;
+    const height = 250; // Increased from 200 to provide more vertical space
     const width = 900;
-    const margin = { top: 30, right: 40, bottom: 50, left: 40 };
+    const margin = { top: 40, right: 40, bottom: 70, left: 40 }; // Increased top and bottom margins
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
     
@@ -73,6 +73,20 @@
                 : value.toFixed(2);
     }
     
+    // Calculate appropriate standard deviation if missing or zero
+    function calculateStandardDeviation(responses: Response[], mean: number): number {
+        if (!responses || responses.length < 2) return 0;
+        
+        // Calculate sum of squared differences from mean
+        const sumSquaredDiff = responses.reduce((sum, response) => {
+            const diff = response.value - mean;
+            return sum + (diff * diff);
+        }, 0);
+        
+        // Calculate standard deviation
+        return Math.sqrt(sumSquaredDiff / responses.length);
+    }
+    
     // Render the visualization
     function renderVisualization() {
         if (!container || !statistics) {
@@ -89,6 +103,18 @@
             .attr('height', height)
             .append('g')
             .attr('transform', `translate(${margin.left},${margin.top})`);
+            
+        // If standard deviation is missing or zero but we have responses and mean,
+        // calculate it ourselves
+        if ((!statistics.standardDeviation || statistics.standardDeviation <= 0.001) && 
+            statistics.responses && statistics.responses.length > 1 && 
+            statistics.mean !== undefined) {
+            statistics.standardDeviation = calculateStandardDeviation(
+                statistics.responses, 
+                statistics.mean
+            );
+            console.log('Calculated standard deviation:', statistics.standardDeviation);
+        }
             
         // Extract data
         const distributionData = statistics.distributionCurve || [];
@@ -279,6 +305,10 @@
             
         // Add mean line
         if (statistics.mean !== undefined) {
+            // Determine if mean and median are close to each other
+            const isMeanMedianClose = statistics.median !== undefined && 
+                Math.abs(x(statistics.mean) - x(statistics.median as number)) < 30;
+            
             svg.append('line')
                 .attr('x1', x(statistics.mean))
                 .attr('y1', innerHeight)
@@ -287,10 +317,11 @@
                 .attr('stroke', colors.mean)
                 .attr('stroke-width', 1.5)
                 .attr('stroke-dasharray', '3,3');
-                
+            
+            // Position text based on proximity to median    
             svg.append('text')
                 .attr('x', x(statistics.mean))
-                .attr('y', 15)
+                .attr('y', 10) // Positioned higher up
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.mean)
                 .attr('font-size', '12px')
@@ -299,6 +330,10 @@
         
         // Add median line
         if (statistics.median !== undefined) {
+            // Determine if mean and median are close to each other
+            const isMeanMedianClose = statistics.mean !== undefined && 
+                Math.abs(x(statistics.median) - x(statistics.mean as number)) < 30;
+            
             svg.append('line')
                 .attr('x1', x(statistics.median))
                 .attr('y1', innerHeight)
@@ -310,11 +345,56 @@
                 
             svg.append('text')
                 .attr('x', x(statistics.median))
-                .attr('y', 35)
+                .attr('y', 30) // Positioned lower than mean but still above data
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.median)
                 .attr('font-size', '12px')
                 .text(`Median: ${formatNumber(statistics.median)} ${unitSymbol}`);
+        }
+        
+                    // Add standard deviation visualization if available and not zero
+        if (statistics.standardDeviation !== undefined && 
+            statistics.standardDeviation > 0.001 && 
+            statistics.mean !== undefined) {
+            
+            // Add one standard deviation band (mean ± 1σ)
+            const meanValue = statistics.mean;
+            const stdDev = statistics.standardDeviation;
+            
+            // Calculate standard deviation range
+            const minusSigma = meanValue - stdDev;
+            const plusSigma = meanValue + stdDev;
+            
+            // Check if the sigma range is within our visible x domain
+            if (x(minusSigma) >= 0 && x(plusSigma) <= innerWidth) {
+                // Add semi-transparent rectangle for 1 sigma range
+                svg.append('rect')
+                    .attr('x', x(minusSigma))
+                    .attr('y', 0)
+                    .attr('width', x(plusSigma) - x(minusSigma))
+                    .attr('height', innerHeight)
+                    .attr('fill', 'rgba(255, 255, 255, 0.05)')
+                    .attr('stroke', 'rgba(255, 255, 255, 0.2)')
+                    .attr('stroke-width', 0.5)
+                    .attr('stroke-dasharray', '2,2');
+                
+                // Add labels at edges of standard deviation band
+                svg.append('text')
+                    .attr('x', x(minusSigma))
+                    .attr('y', innerHeight - 10) // Positioned near bottom of chart
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', 'rgba(255, 255, 255, 0.6)')
+                    .attr('font-size', '10px')
+                    .text('−1σ');
+                
+                svg.append('text')
+                    .attr('x', x(plusSigma))
+                    .attr('y', innerHeight - 10) // Positioned near bottom of chart
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', 'rgba(255, 255, 255, 0.6)')
+                    .attr('font-size', '10px')
+                    .text('+1σ');
+            }
         }
         
         // Add user response marker
@@ -324,17 +404,28 @@
             
             // Only show if it's within the domain
             if (userValue >= xMin - xPadding && userValue <= xMax + xPadding) {
-                svg.append('circle')
-                    .attr('cx', x(userValue))
-                    .attr('cy', innerHeight)
-                    .attr('r', userRadius)
+                // Create diamond shape for user response to differentiate it
+                const diamondSize = 8;
+                
+                // Calculate diamond points
+                const diamond = [
+                    [x(userValue), innerHeight - diamondSize], // top
+                    [x(userValue) + diamondSize, innerHeight], // right
+                    [x(userValue), innerHeight + diamondSize], // bottom
+                    [x(userValue) - diamondSize, innerHeight]  // left
+                ] as Array<[number, number]>; // Type assertion to fix TS error
+                
+                // Create diamond path
+                svg.append('path')
+                    .attr('d', d3.line()(diamond))
                     .attr('fill', colors.userResponse)
                     .attr('stroke', 'white')
                     .attr('stroke-width', 1);
                     
+                // Position label below x-axis to avoid overlap
                 svg.append('text')
                     .attr('x', x(userValue))
-                    .attr('y', innerHeight + 20)
+                    .attr('y', innerHeight + 50) // Moved much further down below the axis
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.userResponse)
                     .attr('font-size', '12px')
