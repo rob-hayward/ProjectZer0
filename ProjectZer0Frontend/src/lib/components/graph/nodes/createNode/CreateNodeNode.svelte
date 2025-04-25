@@ -192,20 +192,20 @@
             highlightColor: COLORS.PRIMARY.GREEN as any // Type assertion
         };
     } else if (formData.nodeType === 'quantity') {
-        // For quantity nodes, use purple
+        // For quantity nodes, use turquoise
         completeStyle = {
             ...baseStyle,
             colors: {
-                background: `${COLORS.PRIMARY.PURPLE}33`,
-                border: `${COLORS.PRIMARY.PURPLE}FF`,
-                text: `${COLORS.PRIMARY.PURPLE}FF`,
-                hover: `${COLORS.PRIMARY.PURPLE}FF`,
+                background: `${COLORS.PRIMARY.TURQUOISE}33`,
+                border: `${COLORS.PRIMARY.TURQUOISE}FF`,
+                text: `${COLORS.PRIMARY.TURQUOISE}FF`,
+                hover: `${COLORS.PRIMARY.TURQUOISE}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.PURPLE}66`,
-                    end: `${COLORS.PRIMARY.PURPLE}33`
+                    start: `${COLORS.PRIMARY.TURQUOISE}66`,
+                    end: `${COLORS.PRIMARY.TURQUOISE}33`
                 }
             } as any, // Type assertion to avoid literal type checking
-            highlightColor: COLORS.PRIMARY.PURPLE as any // Type assertion
+            highlightColor: COLORS.PRIMARY.TURQUOISE as any // Type assertion
         };
     } else if (formData.nodeType !== '') {
         // For other node types, use current style from the animation

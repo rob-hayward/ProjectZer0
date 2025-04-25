@@ -913,6 +913,12 @@ private getNodeRadius(node: GraphNode | EnhancedNode): number {
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
             break;
+        
+        case 'quantity':
+            radius = node.mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
+            break;      
                 
         case 'navigation':
             radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
@@ -999,6 +1005,8 @@ private getNodeColor(node: EnhancedNode): string {
                 COLORS.PRIMARY.PURPLE;
         case 'statement':
             return COLORS.PRIMARY.GREEN;
+        case 'quantity':
+            return COLORS.PRIMARY.TURQUOISE; 
         case 'navigation':
             return 'transparent'; // Remove the colored border
         case 'dashboard':

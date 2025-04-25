@@ -278,6 +278,11 @@ export abstract class BaseLayoutStrategy {
                 return node.mode === 'detail' ?
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+
+            case 'quantity':
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;        
                 
             case 'navigation':
                 return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;

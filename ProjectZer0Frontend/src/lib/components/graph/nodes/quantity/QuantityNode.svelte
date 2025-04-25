@@ -12,6 +12,7 @@
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     import { COLORS } from '$lib/constants/colors';
+    import QuantityVisualization from './QuantityVisualization.svelte';
     
     export let node: RenderableNode;
     export let question: string = '';
@@ -137,7 +138,7 @@
             statistics = await getStatistics(node.id);
             console.log('[QuantityNode] Statistics loaded:', statistics);
             
-                            // Extract and format community responses if available
+            // Extract and format community responses if available
             if (statistics?.responses && Array.isArray(statistics.responses)) {
                 communityResponses = statistics.responses.map((response: { value: number; unitSymbol?: string; unitId: string; }) => ({
                     ...response,
@@ -438,7 +439,7 @@
                 {/if}
             </g>
 
-            <!-- Community Responses -->
+            <!-- Community Responses Visualization -->
             <g transform="translate(0, {-radius + 500})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
@@ -447,53 +448,71 @@
                     Community Responses ({responseCount})
                 </text>
                 
-                <!-- Statistics summary -->
-                <g transform="translate(0, 30)">
-                    <text x={METRICS_SPACING.leftAlign} class="stats-label left-align">
-                        Mean: <tspan class="stats-value">{meanValue} {defaultUnitSymbol || ''}</tspan>
-                    </text>
-                    
-                    <text x={METRICS_SPACING.leftAlign + 200} class="stats-label left-align">
-                        Median: <tspan class="stats-value">{medianValue} {defaultUnitSymbol || ''}</tspan>
-                    </text>
-                    
-                    <text x={METRICS_SPACING.leftAlign + 400} class="stats-label left-align">
-                        Min: <tspan class="stats-value">{minValue} {defaultUnitSymbol || ''}</tspan>
-                    </text>
-                    
-                    <text x={METRICS_SPACING.leftAlign + 600} class="stats-label left-align">
-                        Max: <tspan class="stats-value">{maxValue} {defaultUnitSymbol || ''}</tspan>
-                    </text>
-                    
-                    <text x={METRICS_SPACING.leftAlign} y="30" class="stats-label left-align">
-                        Standard Deviation: <tspan class="stats-value">{standardDeviation} {defaultUnitSymbol || ''}</tspan>
-                    </text>
-                </g>
-                
-                <!-- List of community responses -->
-                <foreignObject 
+                <foreignObject
                     x={METRICS_SPACING.leftAlign}
-                    y="70"
+                    y="30"
                     width={Math.abs(METRICS_SPACING.leftAlign) * 2}
-                    height="250"
+                    height="230"
                 >
-                    <div class="community-responses-container">
-                        {#if isLoadingResponses}
-                            <div class="loading-message">Loading responses...</div>
-                        {:else if communityResponses.length === 0}
-                            <div class="no-responses-message">No responses yet. Be the first to respond!</div>
-                        {:else}
-                            <div class="response-list">
-                                {#each communityResponses as response, i}
-                                    <div class="response-item" class:user-response={response.isCurrentUser}>
-                                        <span class="response-value">{response.displayValue}</span>
-                                        <span class="response-username">{response.username || 'Anonymous'}</span>
-                                    </div>
-                                {/each}
-                            </div>
-                        {/if}
-                    </div>
+                    {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
+                        <QuantityVisualization 
+                            {statistics}
+                            {userResponse}
+                            unitSymbol={defaultUnitSymbol}
+                        />
+                    {:else if isLoadingResponses}
+                        <div class="loading-message">Loading response data...</div>
+                    {:else if responseCount === 0}
+                        <div class="no-responses-message">No responses yet. Be the first to respond!</div>
+                    {:else}
+                        <div class="no-visualization-message">Not enough data for visualization.</div>
+                    {/if}
                 </foreignObject>
+                
+                <!-- Basic statistics summary if no visualization available -->
+                {#if statistics && (!statistics.distributionCurve || statistics.distributionCurve.length === 0) && responseCount > 0}
+                    <g transform="translate(0, 130)">
+                        <text 
+                            x={METRICS_SPACING.leftAlign}
+                            y="20"
+                            class="stats-summary left-align"
+                        >
+                            Mean: <tspan class="stats-value">{meanValue} {defaultUnitSymbol}</tspan>
+                        </text>
+                        
+                        <text 
+                            x={METRICS_SPACING.leftAlign}
+                            y="50"
+                            class="stats-summary left-align"
+                        >
+                            Median: <tspan class="stats-value">{medianValue} {defaultUnitSymbol}</tspan>
+                        </text>
+                        
+                        <text 
+                            x={METRICS_SPACING.leftAlign + 150}
+                            y="20"
+                            class="stats-summary left-align"
+                        >
+                            Min: <tspan class="stats-value">{minValue} {defaultUnitSymbol}</tspan>
+                        </text>
+                        
+                        <text 
+                            x={METRICS_SPACING.leftAlign + 150}
+                            y="50"
+                            class="stats-summary left-align"
+                        >
+                            Max: <tspan class="stats-value">{maxValue} {defaultUnitSymbol}</tspan>
+                        </text>
+                        
+                        <text 
+                            x={METRICS_SPACING.leftAlign + 300}
+                            y="20"
+                            class="stats-summary left-align"
+                        >
+                            StdDev: <tspan class="stats-value">{standardDeviation} {defaultUnitSymbol}</tspan>
+                        </text>
+                    </g>
+                {/if}
             </g>
             
             <!-- Creator credits -->
@@ -603,7 +622,7 @@
     
     .section-header {
         font-size: 16px;
-        fill: rgba(142, 68, 173, 0.9);
+        fill: rgba(26, 188, 156, 0.9); /* TURQUOISE with opacity */
         font-weight: 500;
     }
 
@@ -636,6 +655,11 @@
         font-size: 13px;
         fill: rgba(255, 255, 255, 0.6);
     }
+    
+    .stats-summary {
+        font-size: 14px;
+        fill: rgba(255, 255, 255, 0.7);
+    }
 
     /* Detail Mode Styling */
     :global(.question-text) {
@@ -655,8 +679,8 @@
     }
     
     :global(.keyword-chip) {
-        background: rgba(142, 68, 173, 0.2);
-        border: 1px solid rgba(142, 68, 173, 0.3);
+        background: rgba(26, 188, 156, 0.2); /* TURQUOISE with opacity */
+        border: 1px solid rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
         border-radius: 12px;
         padding: 2px 8px;
         font-size: 11px;
@@ -675,46 +699,13 @@
     }
 
     /* Community Responses Styling */
-    :global(.community-responses-container) {
-        height: 100%;
-        overflow-y: auto;
-        font-family: 'Orbitron', sans-serif;
-    }
-    
-    :global(.response-list) {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-    }
-    
-    :global(.response-item) {
-        display: flex;
-        justify-content: space-between;
-        padding: 8px 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 6px;
-        color: white;
-    }
-    
-    :global(.response-item.user-response) {
-        background: rgba(142, 68, 173, 0.15);
-        border: 1px solid rgba(142, 68, 173, 0.3);
-    }
-    
-    :global(.response-value) {
-        font-weight: 500;
-    }
-    
-    :global(.response-username) {
-        color: rgba(255, 255, 255, 0.6);
-        font-size: 0.9em;
-    }
-    
-    :global(.no-responses-message), :global(.loading-message) {
+    :global(.loading-message), :global(.no-responses-message), :global(.no-visualization-message) {
         color: rgba(255, 255, 255, 0.6);
         font-style: italic;
         text-align: center;
         padding: 20px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 14px;
     }
 
     /* Form Styling */
@@ -733,8 +724,8 @@
 
     :global(.response-input:focus) {
         outline: none;
-        border: 2px solid rgba(142, 68, 173, 0.6);
-        box-shadow: 0 0 0 1px rgba(142, 68, 173, 0.3);
+        border: 2px solid rgba(26, 188, 156, 0.6); /* TURQUOISE with opacity */
+        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
     }
 
     :global(.unit-select) {
@@ -761,8 +752,8 @@
 
     :global(.unit-select:focus) {
         outline: none;
-        border: 2px solid rgba(142, 68, 173, 0.6);
-        box-shadow: 0 0 0 1px rgba(142, 68, 173, 0.3);
+        border: 2px solid rgba(26, 188, 156, 0.6); /* TURQUOISE with opacity */
+        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
     }
 
     :global(.response-button) {
@@ -783,13 +774,13 @@
     }
 
     :global(.submit-button) {
-        background: rgba(142, 68, 173, 0.3);
-        border: 1px solid rgba(142, 68, 173, 0.4);
+        background: rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
+        border: 1px solid rgba(26, 188, 156, 0.4); /* TURQUOISE with opacity */
     }
 
     :global(.submit-button:hover:not(:disabled)) {
-        background: rgba(142, 68, 173, 0.4);
-        border: 1px solid rgba(142, 68, 173, 0.5);
+        background: rgba(26, 188, 156, 0.4); /* TURQUOISE with opacity */
+        border: 1px solid rgba(26, 188, 156, 0.5); /* TURQUOISE with opacity */
     }
     
     :global(.edit-button) {
