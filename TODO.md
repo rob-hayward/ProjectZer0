@@ -236,3 +236,27 @@ create linked node.
 2. create list views of each network view.
 
 
+3. create testing for:
+  1. /lib/services/api.ts - Core API communication service
+  2. /lib/services/auth0.ts - Authentication service
+  3. /lib/services/graph/GraphManager.ts - Visualization state management
+  4. /lib/stores/JWTStore.ts - Authentication token management
+  5. /lib/stores/userStore.ts - User profile state management
+  6. /lib/stores/graphStore.ts - Graph visualization state
+  7. /lib/utils/neo4j-utils.ts - Database transformation utilities
+  8. /lib/components/graph/Graph.svelte - Main visualization component
+  9. /lib/services/graph/GraphLayoutTransformer.ts - Layout transformation logic
+  10. /lib/services/graph/CoordinateSystem.ts - Coordinate transformation service
+
+    1. /lib/components/forms/createNode/quantity/QuantityInput.svelte - Form validation and
+  input handling
+  2. /lib/components/graph/nodes/quantity/QuantityVisualization.svelte - D3 visualization
+  logic
+  3. /lib/components/graph/nodes/base/NodeUtils.ts - Core node rendering utilities
+  4. /lib/stores/graphFilterStore.ts - Filter and sort state management
+  5. /routes/graph/dashboard/+page.ts - Dashboard route logic
+  6. /routes/graph/word/+page.ts - Word view route logic
+  7. /lib/components/forms/createNode/shared/KeywordInput.svelte - Common form component
+  8. /lib/utils/svgAnimations.ts - Animation utilities
+  9. /lib/constants/graph/force-simulation.ts - Simulation configuration
+  10. /lib/services/quantity.ts - Quantity-specific service logic

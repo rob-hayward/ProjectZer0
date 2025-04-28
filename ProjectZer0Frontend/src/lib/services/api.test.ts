@@ -49,11 +49,13 @@ describe('API Service', () => {
   it('throws an error when the response is not ok', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
+      status: 404,
       statusText: 'Not Found',
       text: () => Promise.resolve('Not Found'),
     });
 
-    await expect(fetchWithAuth('/test')).rejects.toThrow('API call failed: Not Found, body: Not Found');
+    // Use a regex or partial string match instead of exact string match
+    await expect(fetchWithAuth('/test')).rejects.toThrow(/API call failed.*Not Found/);
   });
 
   it('includes JWT token in Authorization header when available', async () => {

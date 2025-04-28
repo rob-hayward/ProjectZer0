@@ -176,29 +176,7 @@ The application uses a graph data model with Neo4j, where:
 
 ## 🧪 Testing
 
-### Graph System Tests
-```bash
-# Force calculation tests
-npm run test:forces
-
-# Layout tests
-npm run test:layout
-
-# Integration tests
-npm run test:integration
-
-# Performance tests
-npm run test:performance
-```
-
-### Component Tests
-```bash
-# Unit tests
-npm run test:unit
-
-# E2E tests
-npm run test:e2e
-```
+npm run test
 
 ## 🔧 Performance Optimization
 
