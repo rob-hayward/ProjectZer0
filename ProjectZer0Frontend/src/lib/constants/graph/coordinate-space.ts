@@ -31,7 +31,7 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 320     // Match definition preview size
             },
             QUANTITY: {
-                DETAIL: 1600,    // 3x larger than standard nodes
+                DETAIL: 1300,    // 3x larger than standard nodes
                 PREVIEW: 320     // Keep the same preview size
             },
             CONTROL: {           // New control node specific sizes

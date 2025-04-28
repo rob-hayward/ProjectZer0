@@ -224,3 +224,15 @@ When implementing features, follow these architectural principles:
    - Document any deviations from patterns
 
 This TODO will be updated as features are completed and priorities evolve.
+
+
+1.implement 4 buttons on each node:
+hide/show,
+expand/collapse,
+discuss,
+create linked node.
+
+
+2. create list views of each network view.
+
+

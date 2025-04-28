@@ -122,6 +122,9 @@
                 // Set form values to user's response
                 responseValue = userResponse.value.toString();
                 selectedUnitId = userResponse.unitId;
+            } else {
+                // Initialize with default unit if no user response
+                selectedUnitId = displayDefaultUnitId;
             }
         } catch (error) {
             console.error('[QuantityNode] Error loading user response:', error);
@@ -206,6 +209,28 @@
         }
     }
 
+    // Validate input to ensure it's a number
+    function handleResponseInput(event: Event) {
+        const input = event.target as HTMLInputElement;
+        const value = input.value;
+        
+        // Allow empty input for now
+        if (!value) {
+            responseValue = '';
+            return;
+        }
+        
+        // Only allow numbers, decimal point, and negative sign
+        if (!/^-?\d*\.?\d*$/.test(value)) {
+            // Invalid input - revert to previous valid value
+            input.value = responseValue;
+            return;
+        }
+        
+        // Valid input - update value
+        responseValue = value;
+    }
+
     // Size calculations for preview mode
     $: textWidth = node.radius * 2 - 45;
     $: maxCharsPerLine = Math.floor(textWidth / 8);
@@ -273,6 +298,33 @@
                 Quantity
             </text>
 
+             <!-- Keywords Display (if any) -->
+             {#if data.keywords && data.keywords.length > 0}
+             <g transform="translate(0, {-radius + 320})">
+                 <text 
+                     x={METRICS_SPACING.leftAlign} 
+                     class="keywords-label left-align"
+                 >
+                     Keywords:
+                 </text>
+                 
+                 <foreignObject 
+                     x={METRICS_SPACING.leftAlign}
+                     y="10"
+                     width={Math.abs(METRICS_SPACING.leftAlign) * 2}
+                     height="50"
+                 >
+                     <div class="keywords-container">
+                         {#each data.keywords as keyword}
+                             <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
+                                 {keyword.word}
+                             </div>
+                         {/each}
+                     </div>
+                 </foreignObject>
+             </g>
+         {/if}
+
             <!-- Question Display -->
             <g transform="translate(0, {-radius + 420})">
                 <foreignObject 
@@ -286,157 +338,8 @@
                 </foreignObject>
             </g>
 
-            <!-- Keywords Display (if any) -->
-            {#if data.keywords && data.keywords.length > 0}
-                <g transform="translate(0, {-radius + 520})">
-                    <text 
-                        x={METRICS_SPACING.leftAlign} 
-                        class="keywords-label left-align"
-                    >
-                        Keywords:
-                    </text>
-                    
-                    <foreignObject 
-                        x={METRICS_SPACING.leftAlign}
-                        y="10"
-                        width={Math.abs(METRICS_SPACING.leftAlign) * 2}
-                        height="50"
-                    >
-                        <div class="keywords-container">
-                            {#each data.keywords as keyword}
-                                <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
-                                    {keyword.word}
-                                </div>
-                            {/each}
-                        </div>
-                    </foreignObject>
-                </g>
-            {/if}
-
-            <!-- Unit Information -->
-            <g transform="translate(0, {-radius + 1080})">
-                <text 
-                    x={METRICS_SPACING.leftAlign} 
-                    class="section-header left-align"
-                >
-                    Unit Information
-                </text>
-                
-                <text 
-                    x={METRICS_SPACING.leftAlign}
-                    y="30"
-                    class="unit-label left-align"
-                >
-                    Category: <tspan class="unit-value">{categoryName || displayUnitCategoryId}</tspan>
-                </text>
-                
-                <text 
-                    x={METRICS_SPACING.leftAlign}
-                    y="60"
-                    class="unit-label left-align"
-                >
-                    Default Unit: <tspan class="unit-value">{defaultUnitName || displayDefaultUnitId} {defaultUnitSymbol ? `(${defaultUnitSymbol})` : ''}</tspan>
-                </text>
-            </g>
-
-            <!-- User Response Section -->
-            <g transform="translate(0, {-radius + 1180})">
-                <text 
-                    x={METRICS_SPACING.leftAlign} 
-                    class="section-header left-align"
-                >
-                    {hasUserResponse ? 'Your Response' : 'Add Your Response'}
-                </text>
-                
-                {#if hasUserResponse}
-                    <g transform="translate(0, 30)">
-                        <!-- Show user's current response -->
-                        <text 
-                            x={METRICS_SPACING.leftAlign}
-                            class="user-response-value left-align"
-                        >
-                            Your answer: <tspan class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
-                        </text>
-                        
-                        <!-- Update/delete response buttons -->
-                        <foreignObject x={METRICS_SPACING.leftAlign} y="20" width="120" height="40">
-                            <button 
-                                class="response-button edit-button"
-                                on:click={() => hasUserResponse = false}
-                            >
-                                Edit Response
-                            </button>
-                        </foreignObject>
-                        
-                        <foreignObject x={METRICS_SPACING.leftAlign + 130} y="20" width="120" height="40">
-                            <button 
-                                class="response-button delete-button"
-                                on:click={handleDeleteResponse}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? 'Deleting...' : 'Delete Response'}
-                            </button>
-                        </foreignObject>
-                    </g>
-                {:else}
-                    <!-- Response input form -->
-                    <g transform="translate(0, 40)">
-                        <text 
-                            x={METRICS_SPACING.leftAlign}
-                            y="-10"
-                            class="form-label left-align"
-                        >
-                            Enter your answer:
-                        </text>
-                    
-                        <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="150" height="40">
-                            <input 
-                                type="number" 
-                                class="response-input"
-                                placeholder="Enter value"
-                                bind:value={responseValue}
-                                disabled={isSubmitting}
-                            />
-                        </foreignObject>
-                        
-                        <foreignObject x={METRICS_SPACING.leftAlign + 160} y="0" width="180" height="40">
-                            <select 
-                                class="unit-select"
-                                bind:value={selectedUnitId}
-                                disabled={isSubmitting || !availableUnits.length}
-                            >
-                                <option value="">Select unit</option>
-                                {#each availableUnits as unit}
-                                    <option value={unit.id}>{unit.name} ({unit.symbol})</option>
-                                {/each}
-                            </select>
-                        </foreignObject>
-                        
-                        <foreignObject x={METRICS_SPACING.leftAlign + 350} y="0" width="120" height="40">
-                            <button 
-                                class="response-button submit-button"
-                                on:click={handleSubmitResponse}
-                                disabled={isSubmitting || !responseValue || !selectedUnitId}
-                            >
-                                {isSubmitting ? 'Submitting...' : 'Submit'}
-                            </button>
-                        </foreignObject>
-                        
-                        {#if errorMessage}
-                            <text 
-                                x={METRICS_SPACING.leftAlign}
-                                y="50"
-                                class="error-message left-align"
-                            >
-                                {errorMessage}
-                            </text>
-                        {/if}
-                    </g>
-                {/if}
-            </g>
-
-            <!-- Community Responses Visualization -->
-            <g transform="translate(0, {-radius + 700})">
+            <!-- Community Responses Visualization - increased size -->
+            <g transform="translate(0, {-radius + 540})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -448,7 +351,7 @@
                     x={METRICS_SPACING.leftAlign}
                     y="30"
                     width={Math.abs(METRICS_SPACING.leftAlign) * 2}
-                    height="230"
+                    height="320"
                 >
                     {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
                         <QuantityVisualization 
@@ -509,6 +412,94 @@
                         </text>
                     </g>
                 {/if}
+            </g>
+
+            <!-- User Response Section - Always show input form -->
+            <g transform="translate(0, {-radius + 880})">
+                <text 
+                    x={METRICS_SPACING.leftAlign} 
+                    class="section-header left-align"
+                >
+                    {hasUserResponse ? 'Your Response' : 'Add Your Response'}
+                </text>
+                
+                <!-- User's current response display (if exists) -->
+                {#if hasUserResponse}
+                    <g transform="translate(0, 30)">
+                        <text 
+                            x={METRICS_SPACING.leftAlign}
+                            class="user-response-value left-align"
+                        >
+                            Current answer: <tspan class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
+                        </text>
+                        
+                        <!-- Delete response button -->
+                        <foreignObject x={METRICS_SPACING.leftAlign + 400} y="-5" width="120" height="40">
+                            <button 
+                                class="response-button delete-button"
+                                on:click={handleDeleteResponse}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? 'Deleting...' : 'Delete Response'}
+                            </button>
+                        </foreignObject>
+                    </g>
+                {/if}
+                
+                <!-- Always show the response input form -->
+                <g transform="translate(0, {hasUserResponse ? 70 : 40})">
+                    <text 
+                        x={METRICS_SPACING.leftAlign}
+                        y="-10"
+                        class="form-label left-align"
+                    >
+                        {hasUserResponse ? 'Update your answer:' : 'Enter your answer:'}
+                    </text>
+                
+                    <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="150" height="40">
+                        <input 
+                            type="text" 
+                            class="response-input"
+                            placeholder="Enter value"
+                            value={responseValue}
+                            on:input={handleResponseInput}
+                            disabled={isSubmitting}
+                        />
+                    </foreignObject>
+                    
+                    <foreignObject x={METRICS_SPACING.leftAlign + 160} y="0" width="180" height="40">
+                        <select 
+                            class="unit-select"
+                            bind:value={selectedUnitId}
+                            disabled={isSubmitting || !availableUnits.length}
+                        >
+                            <option value="">Select unit</option>
+                            {#each availableUnits as unit}
+                                <option value={unit.id}>{unit.name} ({unit.symbol})</option>
+                            {/each}
+                        </select>
+                    </foreignObject>
+                    
+                    <foreignObject x={METRICS_SPACING.leftAlign + 350} y="0" width="120" height="40">
+                        <button 
+                            class="response-button submit-button"
+                            on:click={handleSubmitResponse}
+                            disabled={isSubmitting || !responseValue || !selectedUnitId}
+                        >
+                            {isSubmitting ? 'Submitting...' : (hasUserResponse ? 'Update' : 'Submit')}
+                        </button>
+                    </foreignObject>
+                    
+                    {#if errorMessage}
+                        <text 
+                            x={METRICS_SPACING.leftAlign}
+                            y="50"
+                            class="error-message left-align"
+                        >
+                            {errorMessage}
+                        </text>
+                    {/if}
+                </g>
             </g>
             
             <!-- Creator credits -->
@@ -619,16 +610,6 @@
     .section-header {
         font-size: 16px;
         fill: rgba(26, 188, 156, 0.9); /* TURQUOISE with opacity */
-        font-weight: 500;
-    }
-
-    .unit-label, .stats-label {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.7);
-    }
-
-    .unit-value, .stats-value, .value-highlight {
-        fill: white;
         font-weight: 500;
     }
 

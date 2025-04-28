@@ -40,9 +40,9 @@
     export let unitSymbol: string = '';
     
     // Dimensions
-    const height = 250; // Increased from 200 to provide more vertical space
-    const width = 900;
-    const margin = { top: 40, right: 40, bottom: 70, left: 40 }; // Increased top and bottom margins
+    const height = 280;
+    const width = 1050;
+    const margin = { top: 30, right: 40, bottom: 50, left: 40 };
     const innerWidth = width - margin.left - margin.right;
     const innerHeight = height - margin.top - margin.bottom;
     
@@ -60,6 +60,12 @@
             base: 'rgba(26, 188, 156, 0.7)',
             hover: 'rgba(26, 188, 156, 1.0)',
             stroke: 'rgba(255, 255, 255, 0.4)'
+        },
+        stdDev: {
+            fill: 'rgba(26, 188, 156, 0.08)',
+            stroke: 'rgba(26, 188, 156, 0.3)',
+            line: 'rgba(26, 188, 156, 0.6)',
+            text: 'rgba(26, 188, 156, 0.9)'
         }
     };
     
@@ -184,14 +190,14 @@
             .attr('width', innerWidth)
             .attr('height', innerHeight)
             .attr('fill', colors.background)
-            .attr('rx', 4)
-            .attr('ry', 4);
+            .attr('rx', 6)  // Rounded corners
+            .attr('ry', 6);
             
         // Create grid lines
         const xGrid = d3.axisBottom(x)
             .tickSize(-innerHeight)
             .tickFormat(() => '')
-            .ticks(5);
+            .ticks(8); // More grid lines
             
         svg.append('g')
             .attr('class', 'grid')
@@ -199,6 +205,16 @@
             .call(xGrid)
             .selectAll('line')
             .attr('stroke', 'rgba(255, 255, 255, 0.1)');
+            
+        // Add border around the visualization area
+        svg.append('rect')
+            .attr('width', innerWidth)
+            .attr('height', innerHeight)
+            .attr('fill', 'none')
+            .attr('stroke', 'rgba(255, 255, 255, 0.2)')
+            .attr('stroke-width', 1)
+            .attr('rx', 6)
+            .attr('ry', 6);
             
         // If we have a distribution curve, render it
         if (distributionData.length > 0) {
@@ -248,7 +264,7 @@
             jitterMap.forEach((values, key) => {
                 const xPos = x(key);
                 const count = values.length;
-                const dotRadius = 3;
+                const dotRadius = 4; // Increased dot size
                 
                 // Calculate positions for dots with the same value
                 values.forEach((val, i) => {
@@ -263,7 +279,7 @@
                         // For more dots, use a more compact distribution
                         const yJitter = d3.scaleLinear()
                             .domain([0, count - 1])
-                            .range([innerHeight - 5, innerHeight - Math.min(count * 7, innerHeight * 0.5)]);
+                            .range([innerHeight - 8, innerHeight - Math.min(count * 8, innerHeight * 0.5)]);
                         yPos = yJitter(i);
                     }
                     
@@ -285,7 +301,7 @@
                             svg.append('text')
                                 .attr('class', 'tooltip')
                                 .attr('x', xPos)
-                                .attr('y', yPos - 10)
+                                .attr('y', yPos - 12)
                                 .attr('text-anchor', 'middle')
                                 .attr('fill', 'white')
                                 .style('font-size', '10px')
@@ -302,57 +318,8 @@
                 });
             });
         }
-            
-        // Add mean line
-        if (statistics.mean !== undefined) {
-            // Determine if mean and median are close to each other
-            const isMeanMedianClose = statistics.median !== undefined && 
-                Math.abs(x(statistics.mean) - x(statistics.median as number)) < 30;
-            
-            svg.append('line')
-                .attr('x1', x(statistics.mean))
-                .attr('y1', innerHeight)
-                .attr('x2', x(statistics.mean))
-                .attr('y2', 0)
-                .attr('stroke', colors.mean)
-                .attr('stroke-width', 1.5)
-                .attr('stroke-dasharray', '3,3');
-            
-            // Position text based on proximity to median    
-            svg.append('text')
-                .attr('x', x(statistics.mean))
-                .attr('y', 10) // Positioned higher up
-                .attr('text-anchor', 'middle')
-                .attr('fill', colors.mean)
-                .attr('font-size', '12px')
-                .text(`Mean: ${formatNumber(statistics.mean)} ${unitSymbol}`);
-        }
         
-        // Add median line
-        if (statistics.median !== undefined) {
-            // Determine if mean and median are close to each other
-            const isMeanMedianClose = statistics.mean !== undefined && 
-                Math.abs(x(statistics.median) - x(statistics.mean as number)) < 30;
-            
-            svg.append('line')
-                .attr('x1', x(statistics.median))
-                .attr('y1', innerHeight)
-                .attr('x2', x(statistics.median))
-                .attr('y2', 0)
-                .attr('stroke', colors.median)
-                .attr('stroke-width', 1.5)
-                .attr('stroke-dasharray', '3,3');
-                
-            svg.append('text')
-                .attr('x', x(statistics.median))
-                .attr('y', 30) // Positioned lower than mean but still above data
-                .attr('text-anchor', 'middle')
-                .attr('fill', colors.median)
-                .attr('font-size', '12px')
-                .text(`Median: ${formatNumber(statistics.median)} ${unitSymbol}`);
-        }
-        
-                    // Add standard deviation visualization if available and not zero
+        // Add standard deviation visualization if available and not zero
         if (statistics.standardDeviation !== undefined && 
             statistics.standardDeviation > 0.001 && 
             statistics.mean !== undefined) {
@@ -373,69 +340,124 @@
                     .attr('y', 0)
                     .attr('width', x(plusSigma) - x(minusSigma))
                     .attr('height', innerHeight)
-                    .attr('fill', 'rgba(255, 255, 255, 0.05)')
-                    .attr('stroke', 'rgba(255, 255, 255, 0.2)')
-                    .attr('stroke-width', 0.5)
-                    .attr('stroke-dasharray', '2,2');
+                    .attr('fill', colors.stdDev.fill)
+                    .attr('stroke', colors.stdDev.stroke)
+                    .attr('stroke-width', 1);
                 
-                // Add labels at edges of standard deviation band
+                // Add vertical lines at boundaries of standard deviation
+                svg.append('line')
+                    .attr('x1', x(minusSigma))
+                    .attr('y1', 0)
+                    .attr('x2', x(minusSigma))
+                    .attr('y2', innerHeight)
+                    .attr('stroke', colors.stdDev.line)
+                    .attr('stroke-width', 1)
+                    .attr('stroke-dasharray', '4,2');
+                    
+                svg.append('line')
+                    .attr('x1', x(plusSigma))
+                    .attr('y1', 0)
+                    .attr('x2', x(plusSigma))
+                    .attr('y2', innerHeight)
+                    .attr('stroke', colors.stdDev.line)
+                    .attr('stroke-width', 1)
+                    .attr('stroke-dasharray', '4,2');
+                
+                // Add labels at edges of standard deviation band with better positioning
                 svg.append('text')
                     .attr('x', x(minusSigma))
-                    .attr('y', innerHeight - 10) // Positioned near bottom of chart
+                    .attr('y', 12)
                     .attr('text-anchor', 'middle')
-                    .attr('fill', 'rgba(255, 255, 255, 0.6)')
-                    .attr('font-size', '10px')
+                    .attr('fill', colors.stdDev.text)
+                    .attr('font-size', '11px')
+                    .attr('font-weight', 'bold')
                     .text('−1σ');
                 
                 svg.append('text')
                     .attr('x', x(plusSigma))
-                    .attr('y', innerHeight - 10) // Positioned near bottom of chart
+                    .attr('y', 12)
                     .attr('text-anchor', 'middle')
-                    .attr('fill', 'rgba(255, 255, 255, 0.6)')
-                    .attr('font-size', '10px')
+                    .attr('fill', colors.stdDev.text)
+                    .attr('font-size', '11px')
+                    .attr('font-weight', 'bold')
                     .text('+1σ');
+                    
+                // Add annotation for standard deviation value at the top
+                svg.append('text')
+                    .attr('x', x(meanValue))
+                    .attr('y', -10)
+                    .attr('text-anchor', 'middle')
+                    .attr('fill', colors.stdDev.text)
+                    .attr('font-size', '12px')
+                    .text(`Standard Deviation: ${formatNumber(stdDev)} ${unitSymbol}`);
             }
+        }
+            
+        // Add mean line
+        if (statistics.mean !== undefined) {
+            // Determine if mean and median are close to each other
+            const isMeanMedianClose = statistics.median !== undefined && 
+                Math.abs(x(statistics.mean) - x(statistics.median as number)) < 40;
+            
+            svg.append('line')
+                .attr('x1', x(statistics.mean))
+                .attr('y1', innerHeight)
+                .attr('x2', x(statistics.mean))
+                .attr('y2', 0)
+                .attr('stroke', colors.mean)
+                .attr('stroke-width', 2)    // Thicker line
+                .attr('stroke-dasharray', '4,3');
+            
+            // Position text based on proximity to median    
+            svg.append('text')
+                .attr('x', x(statistics.mean))
+                .attr('y', isMeanMedianClose ? 15 : 20)
+                .attr('text-anchor', 'middle')
+                .attr('fill', colors.mean)
+                .attr('font-size', '13px')  // Larger font
+                .attr('font-weight', 'bold')
+                .text(`Mean: ${formatNumber(statistics.mean)} ${unitSymbol}`);
         }
         
         // Add user response marker
         if (userResponse && typeof userResponse.value === 'number') {
             const userValue = userResponse.value;
-            const userRadius = 5;
             
             // Only show if it's within the domain
             if (userValue >= xMin - xPadding && userValue <= xMax + xPadding) {
                 // Create diamond shape for user response to differentiate it
-                const diamondSize = 8;
+                const diamondSize = 10;
                 
-                // Calculate diamond points
-                const diamond = [
+                // Calculate diamond points - explicitly define as [number, number][]
+                const diamond: [number, number][] = [
                     [x(userValue), innerHeight - diamondSize], // top
                     [x(userValue) + diamondSize, innerHeight], // right
                     [x(userValue), innerHeight + diamondSize], // bottom
                     [x(userValue) - diamondSize, innerHeight]  // left
-                ] as Array<[number, number]>; // Type assertion to fix TS error
+                ];
                 
-                // Create diamond path
+                // Create diamond path with explicit type
                 svg.append('path')
-                    .attr('d', d3.line()(diamond))
+                    .attr('d', d3.line<[number, number]>()(diamond))
                     .attr('fill', colors.userResponse)
                     .attr('stroke', 'white')
-                    .attr('stroke-width', 1);
+                    .attr('stroke-width', 1.5);
                     
-                // Position label below x-axis to avoid overlap
+                // Position label above x-axis to avoid overlap
                 svg.append('text')
                     .attr('x', x(userValue))
-                    .attr('y', innerHeight + 50) // Moved much further down below the axis
+                    .attr('y', innerHeight - 15) // Moved down to avoid overlap with x-axis
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.userResponse)
-                    .attr('font-size', '12px')
+                    .attr('font-size', '13px')
+                    .attr('font-weight', 'bold')
                     .text(`Your: ${formatNumber(userValue)} ${unitSymbol}`);
             }
         }
         
         // Add x-axis with tick values
         const xAxis = d3.axisBottom(x)
-            .ticks(5)
+            .ticks(8)
             .tickFormat(d => formatNumber(d as number));
             
         svg.append('g')
@@ -444,14 +466,14 @@
             .call(g => g.select('.domain').attr('stroke', 'rgba(255, 255, 255, 0.5)'))
             .call(g => g.selectAll('.tick text')
                 .attr('fill', colors.axis)
-                .attr('font-size', '10px'));
+                .attr('font-size', '11px'));
                 
         // Add summary statistics text at the bottom
         if (statistics.responseCount && statistics.responseCount > 0) {
             // If min and max are very close, don't show range
             const showRange = statistics.min !== undefined && 
-                              statistics.max !== undefined && 
-                              (statistics.max - statistics.min) > 0.01;
+                             statistics.max !== undefined && 
+                             (statistics.max - statistics.min) > 0.01;
             
             let summaryText = `n=${statistics.responseCount}`;
             
@@ -467,7 +489,7 @@
                 .attr('transform', `translate(${innerWidth / 2}, ${innerHeight + 40})`)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.text)
-                .attr('font-size', '11px')
+                .attr('font-size', '12px')
                 .text(summaryText);
         }
     }
@@ -506,5 +528,9 @@
     
     :global(.visualization-container path) {
         vector-effect: non-scaling-stroke;
+    }
+    
+    :global(.visualization-container .response-dot:hover) {
+        cursor: pointer;
     }
 </style>
