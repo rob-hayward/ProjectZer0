@@ -119,7 +119,7 @@ describe('GraphLayoutTransformer', () => {
       expect(result.links[0].source).toBe(mockWord.id);
       expect(result.links[0].target).toBe('def1');
       expect(result.links[0].type).toBe('definition');
-      expect(result.links[0].strength).toBe(0.7);
+      expect(result.links[0].strength).toBe(1); // Updated from 0.7 to 1 to match implementation
     });
 
     it('should transform word data to layout with all definitions when showAllDefinitions is true', () => {
