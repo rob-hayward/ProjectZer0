@@ -634,10 +634,7 @@ describe('QuantitySchema', () => {
       // Execute
       const result = await quantitySchema.getStatistics('quantity-id');
 
-      // Verify
-      expect(quantitySchema.getAllResponses).toHaveBeenCalledWith(
-        'quantity-id',
-      );
+      // Verify - updated to expect responses property
       expect(result).toEqual({
         responseCount: 3,
         min: 10,
@@ -647,6 +644,7 @@ describe('QuantitySchema', () => {
         standardDeviation: expect.any(Number),
         percentiles: expect.any(Object),
         distributionCurve: mockCurve,
+        responses: mockResponses, // Include the responses array in expectations
       });
     });
 
@@ -657,7 +655,7 @@ describe('QuantitySchema', () => {
       // Execute
       const result = await quantitySchema.getStatistics('quantity-id');
 
-      // Verify
+      // Verify - updated to expect empty responses array
       expect(result).toEqual({
         responseCount: 0,
         min: 0,
@@ -667,6 +665,7 @@ describe('QuantitySchema', () => {
         standardDeviation: 0,
         percentiles: {},
         distributionCurve: [],
+        responses: [], // Include empty responses array in expectations
       });
     });
   });

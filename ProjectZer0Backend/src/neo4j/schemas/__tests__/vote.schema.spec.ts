@@ -27,134 +27,183 @@ describe('VoteSchema', () => {
     neo4jService = module.get(Neo4jService);
   });
 
-  describe('createSingleChoiceVote', () => {
-    it('should create a single choice vote', async () => {
-      const mockVote = {
-        userId: 'user1',
-        targetId: 'target1',
-        targetType: 'DefinitionNode',
-        voteType: 'singleChoice',
-        value: 1,
+  describe('getVoteStatus', () => {
+    it('should return vote status for a node', async () => {
+      const mockStatus = {
+        status: 'agree',
+        positiveVotes: 10,
+        negativeVotes: 5,
+        netVotes: 5,
       };
 
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockVote }),
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'status') return 'agree';
+          if (key === 'positiveVotes') return 10;
+          if (key === 'negativeVotes') return 5;
+          if (key === 'netVotes') return 5;
+          if (key === 'userExists') return true;
+          return null;
+        }),
       } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
 
-      neo4jService.write.mockResolvedValue(mockResult);
-
-      const result = await voteSchema.createSingleChoiceVote(
-        mockVote.userId,
-        mockVote.targetId,
-        mockVote.targetType,
-      );
-
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MERGE (u)-[v:VOTED_ON]->(t)'),
-        expect.objectContaining(mockVote),
-      );
-      expect(result).toEqual(mockVote);
-    });
-  });
-
-  describe('createBooleanVote', () => {
-    it('should create a boolean vote', async () => {
-      const mockVote = {
-        userId: 'user1',
-        targetId: 'target1',
-        targetType: 'BeliefNode',
-        voteType: 'boolean',
-        value: 1,
-      };
-
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockVote }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.write.mockResolvedValue(mockResult);
-
-      const result = await voteSchema.createBooleanVote(
-        mockVote.userId,
-        mockVote.targetId,
-        mockVote.targetType,
-        true,
-      );
-
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MERGE (u)-[v:VOTED_ON]->(t)'),
-        expect.objectContaining(mockVote),
-      );
-      expect(result).toEqual(mockVote);
-    });
-  });
-
-  describe('createQuantityChoiceVote', () => {
-    it('should create a quantity choice vote', async () => {
-      const mockVote = {
-        userId: 'user1',
-        targetId: 'target1',
-        targetType: 'CommentNode',
-        voteType: 'quantityChoice',
-        value: 5,
-      };
-
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockVote }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.write.mockResolvedValue(mockResult);
-
-      const result = await voteSchema.createQuantityChoiceVote(
-        mockVote.userId,
-        mockVote.targetId,
-        mockVote.targetType,
-        5,
-      );
-
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MERGE (u)-[v:VOTED_ON]->(t)'),
-        expect.objectContaining(mockVote),
-      );
-      expect(result).toEqual(mockVote);
-    });
-  });
-
-  describe('getVoteTally', () => {
-    it('should return vote tally', async () => {
-      const mockTally = {
-        totalVotes: 10,
-        voteSum: 8,
-        voteAverage: 0.8,
-        allVotes: [1, 1, 1, 1, 1, 1, 1, 1, 0, 0],
-      };
-
-      const mockRecord = {
-        toObject: jest.fn().mockReturnValue(mockTally),
-      } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      const result = await voteSchema.getVoteTally('target1', 'boolean');
+      const result = await voteSchema.getVoteStatus(
+        'BeliefNode',
+        { id: 'belief1' },
+        'user1',
+      );
 
       expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'MATCH (t {id: $targetId})<-[v:VOTED_ON {voteType: $voteType}]-()',
-        ),
-        { targetId: 'target1', voteType: 'boolean' },
+        expect.stringContaining('MATCH (n:BeliefNode {id: $nodeValue})'),
+        expect.objectContaining({ nodeValue: 'belief1', sub: 'user1' }),
       );
-      expect(result).toEqual(mockTally);
+      expect(result).toEqual(mockStatus);
+    });
+
+    it('should return null when node is not found', async () => {
+      const mockResult = {
+        records: [],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await voteSchema.getVoteStatus(
+        'BeliefNode',
+        { id: 'nonexistent' },
+        'user1',
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('vote', () => {
+    it('should create a positive vote', async () => {
+      const mockVoteResult = {
+        positiveVotes: 11,
+        negativeVotes: 5,
+        netVotes: 6,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'positiveVotes') return 11;
+          if (key === 'negativeVotes') return 5;
+          if (key === 'netVotes') return 6;
+          return null;
+        }),
+      } as unknown as Record;
+
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await voteSchema.vote(
+        'BeliefNode',
+        { id: 'belief1' },
+        'user1',
+        true, // positive vote
+      );
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (n:BeliefNode {id: $nodeValue})'),
+        expect.objectContaining({
+          nodeValue: 'belief1',
+          sub: 'user1',
+          isPositive: true,
+          status: 'agree',
+        }),
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should create a negative vote', async () => {
+      const mockVoteResult = {
+        positiveVotes: 10,
+        negativeVotes: 6,
+        netVotes: 4,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'positiveVotes') return 10;
+          if (key === 'negativeVotes') return 6;
+          if (key === 'netVotes') return 4;
+          return null;
+        }),
+      } as unknown as Record;
+
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await voteSchema.vote(
+        'BeliefNode',
+        { id: 'belief1' },
+        'user1',
+        false, // negative vote
+      );
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (n:BeliefNode {id: $nodeValue})'),
+        expect.objectContaining({
+          nodeValue: 'belief1',
+          sub: 'user1',
+          isPositive: false,
+          status: 'disagree',
+        }),
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+  });
+
+  describe('removeVote', () => {
+    it('should remove a vote', async () => {
+      const mockVoteResult = {
+        positiveVotes: 9,
+        negativeVotes: 5,
+        netVotes: 4,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'positiveVotes') return 9;
+          if (key === 'negativeVotes') return 5;
+          if (key === 'netVotes') return 4;
+          return null;
+        }),
+      } as unknown as Record;
+
+      const mockResult = {
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await voteSchema.removeVote(
+        'BeliefNode',
+        { id: 'belief1' },
+        'user1',
+      );
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (n:BeliefNode {id: $nodeValue})'),
+        expect.objectContaining({
+          nodeValue: 'belief1',
+          sub: 'user1',
+        }),
+      );
+      expect(result).toEqual(mockVoteResult);
     });
   });
 });

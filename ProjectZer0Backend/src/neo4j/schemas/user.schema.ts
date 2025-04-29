@@ -178,4 +178,40 @@ export class UserSchema {
       { sub },
     );
   }
+
+  /**
+   * Get user statistics
+   */
+  async getUserStats(userId: string) {
+    const result = await this.neo4jService.read(
+      `
+      MATCH (u:User {sub: $userId})
+      
+      // Count nodes created by user
+      OPTIONAL MATCH (u)-[:CREATED]->(n)
+      WITH u, COUNT(n) as nodesCreated
+      
+      // Count user participations (votes, comments, etc.)
+      OPTIONAL MATCH (u)-[:PARTICIPATED_IN]->(p)
+      WITH u, nodesCreated, COUNT(p) as participations
+      
+      // Get actual nodes and participation targets for detailed information
+      OPTIONAL MATCH (u)-[:CREATED]->(actualNode)
+      WITH u, nodesCreated, participations, COLLECT(actualNode) as actualNodesCreated
+      
+      OPTIONAL MATCH (u)-[:PARTICIPATED_IN]->(actualParticipation)
+      WITH u, nodesCreated, participations, actualNodesCreated, COLLECT(actualParticipation) as actualParticipations
+      
+      RETURN {
+        nodesCreated: nodesCreated,
+        participations: participations,
+        actualNodesCreated: SIZE(actualNodesCreated),  
+        actualParticipations: SIZE(actualParticipations)
+      } as stats
+      `,
+      { userId },
+    );
+
+    return result.records[0].toObject().stats;
+  }
 }
