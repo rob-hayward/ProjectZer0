@@ -8,11 +8,13 @@
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
+    import { unitPreferenceStore } from '$lib/stores/unitPreferenceStore';
     import { fetchWithAuth } from '$lib/services/api';
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
+    import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
     
     export let node: RenderableNode;
     export let question: string = '';
@@ -42,10 +44,13 @@
     let communityResponses: any[] = [];
     let availableUnits: any[] = [];
     let responseValue: string = '';
-    let selectedUnitId: string = '';
+    let selectedUnitId: string = ''; // Will be synchronized with displayUnitId
+    let displayUnitId: string = '';
+    let displayUnitSymbol: string = '';
     let isSubmitting = false;
     let errorMessage: string | null = null;
     let isLoadingResponses = false;
+    let isLoadingUnitPreferences = false;
     
     // Layout constants
     const METRICS_SPACING = {
@@ -104,13 +109,58 @@
                     defaultUnitSymbol = defaultUnit.symbol;
                 }
                 
-                // If no unit is selected, select the default unit
-                if (!selectedUnitId) {
+                // Initialize selected and display units
+                if (!displayUnitId) {
+                    displayUnitId = displayDefaultUnitId;
                     selectedUnitId = displayDefaultUnitId;
+                    displayUnitSymbol = defaultUnitSymbol;
                 }
             }
         } catch (error) {
             console.error('[QuantityNode] Error loading unit details:', error);
+        }
+    }
+
+    async function loadUnitPreference() {
+        try {
+            isLoadingUnitPreferences = true;
+            
+            // First check if the store has already been initialized
+            if (!$unitPreferenceStore.isLoaded) {
+                await unitPreferenceStore.loadPreferences();
+            }
+            
+            // Get unit preference for this node
+            const preference = unitPreferenceStore.getPreference(node.id);
+            
+            if (preference) {
+                displayUnitId = preference.unitId;
+                selectedUnitId = preference.unitId; // Sync the selectedUnitId with displayUnitId
+                
+                // Update display unit symbol
+                if (availableUnits.length > 0) {
+                    const unit = availableUnits.find(u => u.id === displayUnitId);
+                    if (unit) {
+                        displayUnitSymbol = unit.symbol;
+                    }
+                }
+                
+                console.log(`[QuantityNode] Loaded unit preference for node ${node.id}: ${displayUnitId}`);
+            } else {
+                // No preference, use default
+                displayUnitId = displayDefaultUnitId;
+                selectedUnitId = displayDefaultUnitId; // Sync the selectedUnitId with displayUnitId
+                displayUnitSymbol = defaultUnitSymbol;
+            }
+        } catch (error) {
+            console.error('[QuantityNode] Error loading unit preference:', error);
+            
+            // Fall back to default unit
+            displayUnitId = displayDefaultUnitId;
+            selectedUnitId = displayDefaultUnitId; // Sync the selectedUnitId with displayUnitId
+            displayUnitSymbol = defaultUnitSymbol;
+        } finally {
+            isLoadingUnitPreferences = false;
         }
     }
 
@@ -121,10 +171,30 @@
             if (userResponse) {
                 // Set form values to user's response
                 responseValue = userResponse.value.toString();
-                selectedUnitId = userResponse.unitId;
+                
+                // If user has a response, set the display unit to match their response unit
+                // unless there's already a unit preference
+                const preference = unitPreferenceStore.getPreference(node.id);
+                if (!preference) {
+                    displayUnitId = userResponse.unitId;
+                    selectedUnitId = userResponse.unitId;
+                }
+                
+                // Load unit symbol for display
+                if (availableUnits.length > 0) {
+                    const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
+                    if (responseUnit) {
+                        userResponse.unitSymbol = responseUnit.symbol;
+                        
+                        // If setting display unit from response, also set symbol
+                        if (displayUnitId === userResponse.unitId) {
+                            displayUnitSymbol = responseUnit.symbol;
+                        }
+                    }
+                }
             } else {
-                // Initialize with default unit if no user response
-                selectedUnitId = displayDefaultUnitId;
+                // No need to initialize selectedUnitId here as it's synchronized with displayUnitId
+                responseValue = '';
             }
         } catch (error) {
             console.error('[QuantityNode] Error loading user response:', error);
@@ -139,6 +209,20 @@
             
             // Extract and format community responses if available
             if (statistics?.responses && Array.isArray(statistics.responses)) {
+                // Add unit symbols to responses
+                if (availableUnits.length > 0) {
+                    statistics.responses = statistics.responses.map((response: any) => {
+                        const unit = availableUnits.find(u => u.id === response.unitId);
+                        if (unit) {
+                            return {
+                                ...response,
+                                unitSymbol: unit.symbol
+                            };
+                        }
+                        return response;
+                    });
+                }
+                
                 communityResponses = statistics.responses.map((response: { value: number; unitSymbol?: string; unitId: string; }) => ({
                     ...response,
                     // Format display value
@@ -151,11 +235,45 @@
             isLoadingResponses = false;
         }
     }
+    
+    async function handleUnitChange(event: Event) {
+        const select = event.target as HTMLSelectElement;
+        const newUnitId = select.value;
+        
+        if (newUnitId === displayUnitId) return;
+        
+        try {
+            // Update both display unit and selected unit (for input)
+            displayUnitId = newUnitId;
+            selectedUnitId = newUnitId;
+            
+            // Update display unit symbol
+            if (availableUnits.length > 0) {
+                const unit = availableUnits.find(u => u.id === displayUnitId);
+                if (unit) {
+                    displayUnitSymbol = unit.symbol;
+                }
+            }
+            
+            // Save unit preference to store and backend
+            await unitPreferenceStore.setPreference(node.id, displayUnitId);
+            
+            console.log(`[QuantityNode] Unit changed to ${displayUnitId}`);
+        } catch (error) {
+            console.error('[QuantityNode] Error changing unit:', error);
+        }
+    }
 
     async function handleSubmitResponse() {
         if (isSubmitting) return;
-        if (!responseValue || !selectedUnitId) {
-            errorMessage = 'Please enter a value and select a unit';
+        if (!responseValue) {
+            errorMessage = 'Please enter a value';
+            return;
+        }
+        
+        // Use displayUnitId for submission
+        if (!displayUnitId) {
+            errorMessage = 'Please select a unit';
             return;
         }
         
@@ -170,8 +288,8 @@
         errorMessage = null;
         
         try {
-            // Submit response to API
-            await submitResponse(node.id, numValue, selectedUnitId);
+            // Submit response to API using the selected display unit
+            await submitResponse(node.id, numValue, displayUnitId);
             
             // Reload user response and statistics
             await loadUserResponse();
@@ -196,7 +314,6 @@
             
             // Reset form values
             responseValue = '';
-            selectedUnitId = displayDefaultUnitId;
             
             // Reload user response and statistics
             userResponse = null;
@@ -230,6 +347,16 @@
         // Valid input - update value
         responseValue = value;
     }
+    
+    // Helper function to format numbers
+    function formatNumber(value: number): string {
+        if (value === undefined || value === null) return '-';
+        return Math.abs(value) < 0.01 
+            ? value.toExponential(2) 
+            : Number.isInteger(value) 
+                ? value.toString() 
+                : value.toFixed(2);
+    }
 
     // Size calculations for preview mode
     $: textWidth = node.radius * 2 - 45;
@@ -257,8 +384,12 @@
             mode: node.mode,
         });
         
+        // Initialize the unit preference store
+        unitPreferenceStore.initialize();
+        
         // Load unit details, user response, and statistics
         await loadUnitDetails();
+        await loadUnitPreference();
         await loadUserResponse();
         await loadStatistics();
     });
@@ -275,12 +406,6 @@
     $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
     $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
     $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
-    
-    // Helper function to format numbers
-    function formatNumber(value: number): string {
-        if (value === undefined || value === null) return '-';
-        return Number.isInteger(value) ? value.toString() : value.toFixed(2);
-    }
 </script>
 
 {#if isDetail}
@@ -337,9 +462,40 @@
                     </div>
                 </foreignObject>
             </g>
+            
+            <!-- Unit Selection Control -->
+            <g transform="translate(0, {-radius + 490})">
+                <text 
+                    x={METRICS_SPACING.leftAlign} 
+                    class="unit-preferences-label left-align"
+                >
+                    Display and Input Units:
+                </text>
+                
+                <foreignObject x={METRICS_SPACING.leftAlign + 170} y="-8" width="200" height="40">
+                    <select 
+                        class="unit-select display-unit-select"
+                        value={displayUnitId}
+                        on:change={handleUnitChange}
+                        disabled={isLoadingUnitPreferences || !availableUnits.length}
+                    >
+                        <option value="">Select unit</option>
+                        {#each availableUnits as unit}
+                            <option value={unit.id}>{unit.name} ({unit.symbol})</option>
+                        {/each}
+                    </select>
+                </foreignObject>
+                
+                <text 
+                    x={METRICS_SPACING.rightAlign - 100} 
+                    class="unit-category-label right-align"
+                >
+                    Category: {categoryName}
+                </text>
+            </g>
 
             <!-- Community Responses Visualization - increased size -->
-            <g transform="translate(0, {-radius + 540})">
+            <g transform="translate(0, {-radius + 560})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -357,7 +513,10 @@
                         <QuantityVisualization 
                             {statistics}
                             {userResponse}
-                            unitSymbol={defaultUnitSymbol}
+                            unitSymbol={displayUnitSymbol}
+                            {displayUnitId}
+                            categoryId={displayUnitCategoryId}
+                            defaultUnitId={displayDefaultUnitId}
                         />
                     {:else if isLoadingResponses}
                         <div class="loading-message">Loading response data...</div>
@@ -376,7 +535,7 @@
                             y="20"
                             class="stats-summary left-align"
                         >
-                            Mean: <tspan class="stats-value">{meanValue} {defaultUnitSymbol}</tspan>
+                            Mean: <tspan class="stats-value">{meanValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
@@ -384,7 +543,7 @@
                             y="50"
                             class="stats-summary left-align"
                         >
-                            Median: <tspan class="stats-value">{medianValue} {defaultUnitSymbol}</tspan>
+                            Median: <tspan class="stats-value">{medianValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
@@ -392,7 +551,7 @@
                             y="20"
                             class="stats-summary left-align"
                         >
-                            Min: <tspan class="stats-value">{minValue} {defaultUnitSymbol}</tspan>
+                            Min: <tspan class="stats-value">{minValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
@@ -400,7 +559,7 @@
                             y="50"
                             class="stats-summary left-align"
                         >
-                            Max: <tspan class="stats-value">{maxValue} {defaultUnitSymbol}</tspan>
+                            Max: <tspan class="stats-value">{maxValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
@@ -408,14 +567,14 @@
                             y="20"
                             class="stats-summary left-align"
                         >
-                            StdDev: <tspan class="stats-value">{standardDeviation} {defaultUnitSymbol}</tspan>
+                            StdDev: <tspan class="stats-value">{standardDeviation} {displayUnitSymbol}</tspan>
                         </text>
                     </g>
                 {/if}
             </g>
 
             <!-- User Response Section - Always show input form -->
-            <g transform="translate(0, {-radius + 880})">
+            <g transform="translate(0, {-radius + 900})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -456,7 +615,7 @@
                         {hasUserResponse ? 'Update your answer:' : 'Enter your answer:'}
                     </text>
                 
-                    <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="150" height="40">
+                    <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="200" height="40">
                         <input 
                             type="text" 
                             class="response-input"
@@ -467,24 +626,11 @@
                         />
                     </foreignObject>
                     
-                    <foreignObject x={METRICS_SPACING.leftAlign + 160} y="0" width="180" height="40">
-                        <select 
-                            class="unit-select"
-                            bind:value={selectedUnitId}
-                            disabled={isSubmitting || !availableUnits.length}
-                        >
-                            <option value="">Select unit</option>
-                            {#each availableUnits as unit}
-                                <option value={unit.id}>{unit.name} ({unit.symbol})</option>
-                            {/each}
-                        </select>
-                    </foreignObject>
-                    
-                    <foreignObject x={METRICS_SPACING.leftAlign + 350} y="0" width="120" height="40">
+                    <foreignObject x={METRICS_SPACING.leftAlign + 210} y="0" width="120" height="40">
                         <button 
                             class="response-button submit-button"
                             on:click={handleSubmitResponse}
-                            disabled={isSubmitting || !responseValue || !selectedUnitId}
+                            disabled={isSubmitting || !responseValue}
                         >
                             {isSubmitting ? 'Submitting...' : (hasUserResponse ? 'Update' : 'Submit')}
                         </button>
@@ -597,6 +743,10 @@
     .left-aligned, .left-align {
         text-anchor: start;
     }
+    
+    .right-align {
+        text-anchor: end;
+    }
 
     .content {
         fill: white;
@@ -636,6 +786,16 @@
     .stats-summary {
         font-size: 14px;
         fill: rgba(255, 255, 255, 0.7);
+    }
+    
+    .unit-preferences-label, .unit-category-label {
+        font-size: 14px;
+        fill: rgba(255, 255, 255, 0.8);
+    }
+    
+    .keywords-label {
+        font-size: 14px;
+        fill: rgba(255, 255, 255, 0.8);
     }
 
     /* Detail Mode Styling */
@@ -726,6 +886,11 @@
         background-size: 16px;
         padding-right: 32px;
     }
+    
+    :global(.display-unit-select) {
+        background-color: rgba(26, 188, 156, 0.15);
+        border-color: rgba(26, 188, 156, 0.4);
+    }
 
     :global(.unit-select:focus) {
         outline: none;
@@ -783,5 +948,10 @@
     :global(.response-button:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+    
+    :global(.value-highlight) {
+        fill: rgba(26, 188, 156, 0.9);
+        font-weight: bold;
     }
 </style>

@@ -3,6 +3,7 @@
     import { onMount, afterUpdate } from 'svelte';
     import * as d3 from 'd3';
     import { COLORS } from '$lib/constants/colors';
+    import { convertValue } from '$lib/services/units';
 
     // Visualization container ref
     let container: HTMLDivElement;
@@ -38,6 +39,18 @@
     export let statistics: Statistics | null = null;
     export let userResponse: UserResponse | null = null;
     export let unitSymbol: string = '';
+    export let displayUnitId: string = '';
+    export let categoryId: string = '';
+    export let defaultUnitId: string = '';
+    
+    // Local state variables
+    let processedStatistics: Statistics | null = null;
+    let processedUserResponse: UserResponse | null = null;
+    let isProcessing: boolean = false;
+
+    // Process data and render whenever props change
+    let processingPromise: Promise<void> | null = null;
+    let processingTimeout: any = null;
     
     // Dimensions
     const height = 280;
@@ -93,9 +106,162 @@
         return Math.sqrt(sumSquaredDiff / responses.length);
     }
     
+    // Process statistics based on display unit
+    async function processStatisticsForDisplayUnit() {
+        if (!statistics || !displayUnitId || !categoryId) {
+            processedStatistics = statistics;
+            return;
+        }
+        
+        // If display unit is the same as default unit, no conversion needed
+        if (displayUnitId === defaultUnitId) {
+            processedStatistics = statistics;
+            return;
+        }
+        
+        isProcessing = true;
+        
+        try {
+            // Deep clone statistics object to avoid modifying the original
+            const processed = JSON.parse(JSON.stringify(statistics)) as Statistics;
+            
+            // Add a maximum of 5 seconds for processing to prevent infinite loops
+            const timeoutPromise = new Promise<Statistics>((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error('Processing timed out'));
+                }, 5000);
+            });
+            
+            // Create the actual processing promise
+            const processingPromise = (async () => {
+                // Convert all numeric values to display unit
+                if (processed.mean !== undefined) {
+                    processed.mean = await convertValue(processed.mean, defaultUnitId, displayUnitId, categoryId);
+                }
+                
+                if (processed.median !== undefined) {
+                    processed.median = await convertValue(processed.median, defaultUnitId, displayUnitId, categoryId);
+                }
+                
+                if (processed.min !== undefined) {
+                    processed.min = await convertValue(processed.min, defaultUnitId, displayUnitId, categoryId);
+                }
+                
+                if (processed.max !== undefined) {
+                    processed.max = await convertValue(processed.max, defaultUnitId, displayUnitId, categoryId);
+                }
+                
+                if (processed.standardDeviation !== undefined) {
+                    processed.standardDeviation = await convertValue(processed.standardDeviation, defaultUnitId, displayUnitId, categoryId);
+                }
+                
+                // Convert distribution curve if available, limited to 30 points to avoid excessive API calls
+                if (processed.distributionCurve && processed.distributionCurve.length > 0) {
+                    // If more than 30 points, sample them to reduce API calls
+                    let pointsToProcess = processed.distributionCurve;
+                    if (processed.distributionCurve.length > 30) {
+                        const step = Math.floor(processed.distributionCurve.length / 30);
+                        pointsToProcess = [];
+                        for (let i = 0; i < processed.distributionCurve.length; i += step) {
+                            pointsToProcess.push(processed.distributionCurve[i]);
+                        }
+                    }
+                    
+                    const convertedCurve: [number, number][] = [];
+                    
+                    for (const point of pointsToProcess) {
+                        const convertedX = await convertValue(point[0], defaultUnitId, displayUnitId, categoryId);
+                        convertedCurve.push([convertedX, point[1]]);
+                    }
+                    
+                    processed.distributionCurve = convertedCurve;
+                }
+                
+                // Convert percentiles if available
+                if (processed.percentiles) {
+                    const convertedPercentiles: Record<string, number> = {};
+                    
+                    // Process percentiles sequentially to avoid too many parallel requests
+                    for (const [percentile, value] of Object.entries(processed.percentiles)) {
+                        convertedPercentiles[percentile] = await convertValue(value, defaultUnitId, displayUnitId, categoryId);
+                    }
+                    
+                    processed.percentiles = convertedPercentiles;
+                }
+                
+                // Convert responses if available, limited to 20 to avoid excessive API calls
+                if (processed.responses && processed.responses.length > 0) {
+                    // Process a maximum of 20 responses to avoid overwhelming API calls
+                    const responsesToProcess = processed.responses.slice(0, 20);
+                    
+                    // Process one at a time to avoid overwhelming API
+                    for (const response of responsesToProcess) {
+                        // Only convert if response is in a different unit
+                        if (response.unitId !== displayUnitId) {
+                            response.value = await convertValue(response.value, response.unitId, displayUnitId, categoryId);
+                            response.unitId = displayUnitId;
+                            response.unitSymbol = unitSymbol;
+                        }
+                    }
+                }
+                
+                return processed;
+            })();
+            
+            // Race between processing and timeout
+            processedStatistics = await Promise.race([processingPromise, timeoutPromise]);
+        } catch (error) {
+            console.error('Error converting statistics to display unit:', error);
+            processedStatistics = statistics; // Fallback to original statistics
+        } finally {
+            isProcessing = false;
+        }
+    }
+    
+    // Process user response based on display unit
+    async function processUserResponseForDisplayUnit() {
+        if (!userResponse || !displayUnitId || !categoryId) {
+            processedUserResponse = userResponse;
+            return;
+        }
+        
+        // If user response is already in display unit, no conversion needed
+        if (userResponse.unitId === displayUnitId) {
+            processedUserResponse = userResponse;
+            return;
+        }
+        
+        try {
+            // Deep clone user response to avoid modifying original
+            const processed = JSON.parse(JSON.stringify(userResponse)) as UserResponse;
+            
+            // Add timeout to prevent hanging on API calls
+            const timeoutPromise = new Promise<UserResponse>((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error('User response processing timed out'));
+                }, 2000);
+            });
+            
+            const processingPromise = (async () => {
+                // Convert value to display unit
+                processed.value = await convertValue(processed.value, processed.unitId, displayUnitId, categoryId);
+                processed.unitId = displayUnitId;
+                processed.unitSymbol = unitSymbol;
+                
+                return processed;
+            })();
+            
+            // Race between processing and timeout
+            processedUserResponse = await Promise.race([processingPromise, timeoutPromise]);
+        } catch (error) {
+            console.error('Error converting user response to display unit:', error);
+            processedUserResponse = userResponse; // Fallback to original response
+        }
+    }
+    
     // Render the visualization
     function renderVisualization() {
-        if (!container || !statistics) {
+        if (!container || !processedStatistics || isProcessing) {
             return;
         }
         
@@ -112,19 +278,19 @@
             
         // If standard deviation is missing or zero but we have responses and mean,
         // calculate it ourselves
-        if ((!statistics.standardDeviation || statistics.standardDeviation <= 0.001) && 
-            statistics.responses && statistics.responses.length > 1 && 
-            statistics.mean !== undefined) {
-            statistics.standardDeviation = calculateStandardDeviation(
-                statistics.responses, 
-                statistics.mean
+        if ((!processedStatistics.standardDeviation || processedStatistics.standardDeviation <= 0.001) && 
+            processedStatistics.responses && processedStatistics.responses.length > 1 && 
+            processedStatistics.mean !== undefined) {
+            processedStatistics.standardDeviation = calculateStandardDeviation(
+                processedStatistics.responses, 
+                processedStatistics.mean
             );
-            console.log('Calculated standard deviation:', statistics.standardDeviation);
+            console.log('Calculated standard deviation:', processedStatistics.standardDeviation);
         }
             
         // Extract data
-        const distributionData = statistics.distributionCurve || [];
-        const responses = statistics.responses || [];
+        const distributionData = processedStatistics.distributionCurve || [];
+        const responses = processedStatistics.responses || [];
         
         // Skip rendering if no distribution data and no responses
         if (distributionData.length === 0 && responses.length === 0) {
@@ -138,8 +304,8 @@
         }
         
         // Set up domain for X axis
-        let xMin = statistics.min !== undefined ? statistics.min : 0;
-        let xMax = statistics.max !== undefined ? statistics.max : 100;
+        let xMin = processedStatistics.min !== undefined ? processedStatistics.min : 0;
+        let xMax = processedStatistics.max !== undefined ? processedStatistics.max : 100;
         
         // Ensure we have sensible fallbacks and a minimum domain width
         if (xMin === xMax) {
@@ -320,13 +486,13 @@
         }
         
         // Add standard deviation visualization if available and not zero
-        if (statistics.standardDeviation !== undefined && 
-            statistics.standardDeviation > 0.001 && 
-            statistics.mean !== undefined) {
+        if (processedStatistics.standardDeviation !== undefined && 
+            processedStatistics.standardDeviation > 0.001 && 
+            processedStatistics.mean !== undefined) {
             
             // Add one standard deviation band (mean ± 1σ)
-            const meanValue = statistics.mean;
-            const stdDev = statistics.standardDeviation;
+            const meanValue = processedStatistics.mean;
+            const stdDev = processedStatistics.standardDeviation;
             
             // Calculate standard deviation range
             const minusSigma = meanValue - stdDev;
@@ -394,34 +560,55 @@
         }
             
         // Add mean line
-        if (statistics.mean !== undefined) {
+        if (processedStatistics.mean !== undefined) {
             // Determine if mean and median are close to each other
-            const isMeanMedianClose = statistics.median !== undefined && 
-                Math.abs(x(statistics.mean) - x(statistics.median as number)) < 40;
+            const isMeanMedianClose = processedStatistics.median !== undefined && 
+                Math.abs(x(processedStatistics.mean) - x(processedStatistics.median as number)) < 40;
             
             svg.append('line')
-                .attr('x1', x(statistics.mean))
+                .attr('x1', x(processedStatistics.mean))
                 .attr('y1', innerHeight)
-                .attr('x2', x(statistics.mean))
+                .attr('x2', x(processedStatistics.mean))
                 .attr('y2', 0)
                 .attr('stroke', colors.mean)
                 .attr('stroke-width', 2)    // Thicker line
                 .attr('stroke-dasharray', '4,3');
             
-            // Position text based on proximity to median    
-            svg.append('text')
-                .attr('x', x(statistics.mean))
+        // Position text based on proximity to median    
+        svg.append('text')
+                .attr('x', x(processedStatistics.mean))
                 .attr('y', isMeanMedianClose ? 15 : 20)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.mean)
                 .attr('font-size', '13px')  // Larger font
                 .attr('font-weight', 'bold')
-                .text(`Mean: ${formatNumber(statistics.mean)} ${unitSymbol}`);
+                .text(`Mean: ${formatNumber(processedStatistics.mean)} ${unitSymbol}`);
+        }
+        
+        // Add median line
+        if (processedStatistics.median !== undefined) {
+            svg.append('line')
+                .attr('x1', x(processedStatistics.median))
+                .attr('y1', innerHeight)
+                .attr('x2', x(processedStatistics.median))
+                .attr('y2', 0)
+                .attr('stroke', colors.median)
+                .attr('stroke-width', 2)
+                .attr('stroke-dasharray', '4,3');
+                
+            svg.append('text')
+                .attr('x', x(processedStatistics.median))
+                .attr('y', 35)  // Position below mean text
+                .attr('text-anchor', 'middle')
+                .attr('fill', colors.median)
+                .attr('font-size', '13px')
+                .attr('font-weight', 'bold')
+                .text(`Median: ${formatNumber(processedStatistics.median)} ${unitSymbol}`);
         }
         
         // Add user response marker
-        if (userResponse && typeof userResponse.value === 'number') {
-            const userValue = userResponse.value;
+        if (processedUserResponse && typeof processedUserResponse.value === 'number') {
+            const userValue = processedUserResponse.value;
             
             // Only show if it's within the domain
             if (userValue >= xMin - xPadding && userValue <= xMax + xPadding) {
@@ -469,20 +656,20 @@
                 .attr('font-size', '11px'));
                 
         // Add summary statistics text at the bottom
-        if (statistics.responseCount && statistics.responseCount > 0) {
+        if (processedStatistics.responseCount && processedStatistics.responseCount > 0) {
             // If min and max are very close, don't show range
-            const showRange = statistics.min !== undefined && 
-                             statistics.max !== undefined && 
-                             (statistics.max - statistics.min) > 0.01;
+            const showRange = processedStatistics.min !== undefined && 
+                             processedStatistics.max !== undefined && 
+                             (processedStatistics.max - processedStatistics.min) > 0.01;
             
-            let summaryText = `n=${statistics.responseCount}`;
+            let summaryText = `n=${processedStatistics.responseCount}`;
             
             if (showRange) {
-                summaryText += ` | Range: ${formatNumber(statistics.min as number)} - ${formatNumber(statistics.max as number)} ${unitSymbol}`;
+                summaryText += ` | Range: ${formatNumber(processedStatistics.min as number)} - ${formatNumber(processedStatistics.max as number)} ${unitSymbol}`;
             }
             
-            if (statistics.standardDeviation !== undefined) {
-                summaryText += ` | σ=${formatNumber(statistics.standardDeviation)} ${unitSymbol}`;
+            if (processedStatistics.standardDeviation !== undefined) {
+                summaryText += ` | σ=${formatNumber(processedStatistics.standardDeviation)} ${unitSymbol}`;
             }
             
             svg.append('text')
@@ -492,30 +679,82 @@
                 .attr('font-size', '12px')
                 .text(summaryText);
         }
+        
+        // Add unit information in top right corner
+        svg.append('text')
+            .attr('x', innerWidth)
+            .attr('y', -10)
+            .attr('text-anchor', 'end')
+            .attr('fill', 'rgba(255, 255, 255, 0.7)')
+            .attr('font-size', '12px')
+            .text(`Units: ${unitSymbol}`);
+    }
+    
+    async function updateVisualization() {
+        // If already processing, don't start a new process
+        if (processingPromise) {
+            return;
+        }
+        
+        // Clear any existing timeout
+        if (processingTimeout) {
+            clearTimeout(processingTimeout);
+        }
+        
+        // Set a new processing promise
+        processingPromise = (async () => {
+            try {
+                // Process statistics and user response based on display unit
+                await processStatisticsForDisplayUnit();
+                await processUserResponseForDisplayUnit();
+                
+                // Render visualization with processed data
+                renderVisualization();
+            } finally {
+                // Clear the processing promise after a small delay
+                // to prevent immediate re-processing
+                processingTimeout = setTimeout(() => {
+                    processingPromise = null;
+                    processingTimeout = null;
+                }, 200);
+            }
+        })();
+        
+        // Wait for processing to complete
+        await processingPromise;
     }
     
     // Initialize visualization on mount
     onMount(() => {
-        renderVisualization();
+        updateVisualization();
     });
     
-    // Re-render when statistics or user response changes
+    // Re-render when statistics, user response, or display unit changes
     afterUpdate(() => {
-        renderVisualization();
+        updateVisualization();
     });
     
-    $: if (statistics && container) {
-        renderVisualization();
-    }
+    // Reactive statements to trigger updates when props change
+    $: if (statistics && container) updateVisualization();
+    $: if (userResponse && container) updateVisualization();
+    $: if (displayUnitId && container) updateVisualization();
 </script>
 
-<div bind:this={container} class="visualization-container"></div>
+<div bind:this={container} class="visualization-container">
+    {#if isProcessing}
+        <div class="loading-overlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Converting units...</div>
+        </div>
+    {/if}
+</div>
 
 <style>
     .visualization-container {
         width: 100%;
         height: 100%;
         overflow: visible;
+        position: relative;
     }
     
     :global(.visualization-container text) {
@@ -532,5 +771,42 @@
     
     :global(.visualization-container .response-dot:hover) {
         cursor: pointer;
+    }
+    
+    .loading-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        border-radius: 6px;
+    }
+    
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid rgba(26, 188, 156, 0.3);
+        border-top-color: rgba(26, 188, 156, 0.8);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 10px;
+    }
+    
+    .loading-text {
+        color: rgba(255, 255, 255, 0.9);
+        font-family: 'Orbitron', sans-serif;
+        font-size: 14px;
+    }
+    
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
     }
 </style>
