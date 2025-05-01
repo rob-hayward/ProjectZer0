@@ -9,9 +9,11 @@
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { unitPreferenceStore } from '$lib/stores/unitPreferenceStore';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { fetchWithAuth } from '$lib/services/api';
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ShowHideButton from '../common/ShowHideButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
     import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
@@ -63,6 +65,7 @@
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
         hover: { isHovered: boolean };
+        visibilityChange: { nodeId: string; isHidden: boolean };
     }>();
 
     function handleModeChange() {
@@ -87,6 +90,30 @@
     
     function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
         dispatch('hover', event.detail);
+    }
+    
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        console.debug(`[QuantityNode] Visibility change requested:`, event.detail);
+        
+        // When in detail mode, emit the event with the node ID so parent components can handle it
+        // This matches how NodeRenderer would dispatch it up to its parent
+        dispatch('visibilityChange', {
+            nodeId: node.id,  // Add the nodeId to match NodeRenderer's event shape
+            isHidden: event.detail.isHidden
+        });
+        
+        // Also directly update visibility in stores
+        // This is necessary since the GraphManager doesn't recognize 'quantity' type
+        try {
+            visibilityStore.setPreference(node.id, !event.detail.isHidden);
+            
+            // Reload after a short delay to reflect changes
+            setTimeout(() => {
+                window.location.reload();
+            }, 100);
+        } catch(err) {
+            console.error('[QuantityNode] Error updating visibility preference:', err);
+        }
     }
 
     async function loadUnitDetails() {
@@ -198,6 +225,21 @@
             }
         } catch (error) {
             console.error('[QuantityNode] Error loading user response:', error);
+        }
+    }
+    
+    async function loadVisibilityPreference() {
+        try {
+            // Always initialize the store to be safe
+            await visibilityStore.initialize();
+            
+            // Get visibility preference for this node
+            const preference = visibilityStore.getPreference(node.id);
+            
+            // Log for debugging
+            console.debug(`[QuantityNode] Loaded visibility preference for node ${node.id}:`, preference);
+        } catch (error) {
+            console.error('[QuantityNode] Error loading visibility preference:', error);
         }
     }
 
@@ -382,17 +424,19 @@
             unitCategoryId: displayUnitCategoryId,
             defaultUnitId: displayDefaultUnitId,
             mode: node.mode,
+            isHidden: node.isHidden
         });
         
         // Initialize the unit preference store
         unitPreferenceStore.initialize();
         
-        // Load unit details, unit preferences, user response, and statistics
+        // Load unit details, unit preferences, user response, statistics, and visibility
         // regardless of node mode (preview or detail)
         await loadUnitDetails();
         await loadUnitPreference();
         await loadUserResponse();
         await loadStatistics();
+        await loadVisibilityPreference();
     });
 
     // Reactive declarations
@@ -411,7 +455,7 @@
 
 {#if isDetail}
     <!-- DETAIL MODE -->
-    <BaseDetailNode {node} on:modeChange={handleModeChange}>
+    <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="default" let:radius>
             <!-- Title -->
             <text
@@ -665,13 +709,22 @@
             <ExpandCollapseButton 
                 mode="collapse"
                 y={radius}
+                x={-20}
                 on:click={handleCollapse}
+            />
+            
+            <!-- Add our own ShowHideButton since NodeRenderer doesn't add it for quantity nodes -->
+            <ShowHideButton 
+                isHidden={false}
+                y={radius} 
+                x={20}
+                on:visibilityChange={handleVisibilityChange}
             />
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover}>
+    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="title" let:radius>
             <text
                 y={-radius + 40}
@@ -747,7 +800,16 @@
             <ExpandCollapseButton 
                 mode="expand"
                 y={radius}
+                x={-20}
                 on:click={handleExpand}
+            />
+            
+            <!-- Add our own ShowHideButton since NodeRenderer doesn't add it for quantity nodes -->
+            <ShowHideButton 
+                isHidden={false}
+                y={radius} 
+                x={20}
+                on:visibilityChange={handleVisibilityChange}
             />
         </svelte:fragment>
     </BasePreviewNode>
@@ -990,4 +1052,4 @@
         fill: rgba(26, 188, 156, 0.9);
         font-weight: bold;
     }
-</style>
+    </style>
