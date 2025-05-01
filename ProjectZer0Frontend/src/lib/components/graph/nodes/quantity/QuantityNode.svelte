@@ -387,7 +387,8 @@
         // Initialize the unit preference store
         unitPreferenceStore.initialize();
         
-        // Load unit details, user response, and statistics
+        // Load unit details, unit preferences, user response, and statistics
+        // regardless of node mode (preview or detail)
         await loadUnitDetails();
         await loadUnitPreference();
         await loadUserResponse();
@@ -463,39 +464,18 @@
                 </foreignObject>
             </g>
             
-            <!-- Unit Selection Control -->
+            <!-- Category Display (moved from unit selection) --> 
             <g transform="translate(0, {-radius + 490})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
-                    class="unit-preferences-label left-align"
-                >
-                    Display and Input Units:
-                </text>
-                
-                <foreignObject x={METRICS_SPACING.leftAlign + 170} y="-8" width="200" height="40">
-                    <select 
-                        class="unit-select display-unit-select"
-                        value={displayUnitId}
-                        on:change={handleUnitChange}
-                        disabled={isLoadingUnitPreferences || !availableUnits.length}
-                    >
-                        <option value="">Select unit</option>
-                        {#each availableUnits as unit}
-                            <option value={unit.id}>{unit.name} ({unit.symbol})</option>
-                        {/each}
-                    </select>
-                </foreignObject>
-                
-                <text 
-                    x={METRICS_SPACING.rightAlign - 100} 
-                    class="unit-category-label right-align"
+                    class="unit-category-label left-align"
                 >
                     Category: {categoryName}
                 </text>
             </g>
 
             <!-- Community Responses Visualization - increased size -->
-            <g transform="translate(0, {-radius + 560})">
+            <g transform="translate(0, {-radius + 530})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -573,8 +553,8 @@
                 {/if}
             </g>
 
-            <!-- User Response Section - Always show input form -->
-            <g transform="translate(0, {-radius + 900})">
+            <!-- User Response Section combined with Unit Selection -->
+            <g transform="translate(0, {-radius + 870})">
                 <text 
                     x={METRICS_SPACING.leftAlign} 
                     class="section-header left-align"
@@ -592,14 +572,14 @@
                             Current answer: <tspan class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
                         </text>
                         
-                        <!-- Delete response button -->
-                        <foreignObject x={METRICS_SPACING.leftAlign + 400} y="-5" width="120" height="40">
+                        <!-- Delete response button moved here -->
+                        <foreignObject x={METRICS_SPACING.rightAlign - 120} y="-5" width="120" height="40">
                             <button 
                                 class="response-button delete-button"
                                 on:click={handleDeleteResponse}
                                 disabled={isSubmitting}
                             >
-                                {isSubmitting ? 'Deleting...' : 'Delete Response'}
+                                {isSubmitting ? 'Deleting...' : 'Delete'}
                             </button>
                         </foreignObject>
                     </g>
@@ -607,6 +587,7 @@
                 
                 <!-- Always show the response input form -->
                 <g transform="translate(0, {hasUserResponse ? 70 : 40})">
+                    <!-- First row -->
                     <text 
                         x={METRICS_SPACING.leftAlign}
                         y="-10"
@@ -645,9 +626,32 @@
                             {errorMessage}
                         </text>
                     {/if}
+                    
+                    <!-- Second row - Unit Selection Control (moved from above) -->
+                    <text 
+                        x={METRICS_SPACING.leftAlign}
+                        y="70"
+                        class="unit-preferences-label left-align"
+                    >
+                        Change Units:
+                    </text>
+                    
+                    <foreignObject x={METRICS_SPACING.leftAlign + 110} y="60" width="200" height="40">
+                        <select 
+                            class="unit-select display-unit-select"
+                            value={displayUnitId}
+                            on:change={handleUnitChange}
+                            disabled={isLoadingUnitPreferences || !availableUnits.length}
+                        >
+                            <option value="">Select unit</option>
+                            {#each availableUnits as unit}
+                                <option value={unit.id}>{unit.name} ({unit.symbol})</option>
+                            {/each}
+                        </select>
+                    </foreignObject>
                 </g>
             </g>
-            
+                        
             <!-- Creator credits -->
             {#if data.createdBy}
                 <g transform="translate(0, {radius - 55})">
@@ -701,8 +705,10 @@
         </svelte:fragment>
 
         <svelte:fragment slot="score" let:radius>
+            <!-- Moved up stats to prevent them from falling out of the node -->
+            <!-- Show category -->
             <text
-                y={radius - 30}
+                y={radius - 70}
                 class="unit-info"
                 style:font-family={NODE_CONSTANTS.FONTS.word.family}
                 style:font-size={NODE_CONSTANTS.FONTS.value.size}
@@ -710,6 +716,30 @@
             >
                 {categoryName || displayUnitCategoryId}
             </text>
+            
+            <!-- Show number of responses -->
+            <text
+                y={radius - 50}
+                class="stats-info"
+                style:font-family={NODE_CONSTANTS.FONTS.word.family}
+                style:font-size={NODE_CONSTANTS.FONTS.value.size}
+                style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+            >
+                {responseCount} {responseCount === 1 ? 'response' : 'responses'}
+            </text>
+            
+            <!-- Show mean value if we have responses -->
+            {#if responseCount > 0 && statistics?.mean !== undefined}
+                <text
+                    y={radius - 30}
+                    class="stats-value"
+                    style:font-family={NODE_CONSTANTS.FONTS.word.family}
+                    style:font-size={NODE_CONSTANTS.FONTS.value.size}
+                    style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+                >
+                    Mean: {formatNumber(statistics.mean)} {displayUnitSymbol}
+                </text>
+            {/if}
         </svelte:fragment>
 
         <!-- Expand Button in Preview Mode -->
@@ -743,10 +773,6 @@
     .left-aligned, .left-align {
         text-anchor: start;
     }
-    
-    .right-align {
-        text-anchor: end;
-    }
 
     .content {
         fill: white;
@@ -754,6 +780,16 @@
 
     .unit-info {
         fill: rgba(255, 255, 255, 0.7);
+        font-size: 12px;
+    }
+    
+    .stats-info {
+        fill: rgba(255, 255, 255, 0.7);
+        font-size: 12px;
+    }
+    
+    .stats-value {
+        fill: rgba(26, 188, 156, 0.9); /* TURQUOISE color for highlighting the value */
         font-size: 12px;
     }
     
