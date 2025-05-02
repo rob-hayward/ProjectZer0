@@ -65,7 +65,7 @@
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
         hover: { isHovered: boolean };
-        visibilityChange: { nodeId: string; isHidden: boolean };
+        visibilityChange: { isHidden: boolean };
     }>();
 
     function handleModeChange() {
@@ -95,25 +95,9 @@
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         console.debug(`[QuantityNode] Visibility change requested:`, event.detail);
         
-        // When in detail mode, emit the event with the node ID so parent components can handle it
-        // This matches how NodeRenderer would dispatch it up to its parent
-        dispatch('visibilityChange', {
-            nodeId: node.id,  // Add the nodeId to match NodeRenderer's event shape
-            isHidden: event.detail.isHidden
-        });
-        
-        // Also directly update visibility in stores
-        // This is necessary since the GraphManager doesn't recognize 'quantity' type
-        try {
-            visibilityStore.setPreference(node.id, !event.detail.isHidden);
-            
-            // Reload after a short delay to reflect changes
-            setTimeout(() => {
-                window.location.reload();
-            }, 100);
-        } catch(err) {
-            console.error('[QuantityNode] Error updating visibility preference:', err);
-        }
+        // Simply forward the visibility change event to NodeRenderer
+        // This will be handled by the parent components and graph store
+        dispatch('visibilityChange', event.detail);
     }
 
     async function loadUnitDetails() {
@@ -467,6 +451,16 @@
             >
                 Quantity
             </text>
+            <!-- Title -->
+            <text
+                y={-radius + 40}
+                class="title"
+                style:font-family={NODE_CONSTANTS.FONTS.title.family}
+                style:font-size={NODE_CONSTANTS.FONTS.title.size}
+                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+            >
+                Quantity
+            </text>
 
              <!-- Keywords Display (if any) -->
              {#if data.keywords && data.keywords.length > 0}
@@ -704,22 +698,6 @@
                     </text>
                 </g>
             {/if}
-
-            <!-- Collapse button -->
-            <ExpandCollapseButton 
-                mode="collapse"
-                y={radius}
-                x={-20}
-                on:click={handleCollapse}
-            />
-            
-            <!-- Add our own ShowHideButton since NodeRenderer doesn't add it for quantity nodes -->
-            <ShowHideButton 
-                isHidden={false}
-                y={radius} 
-                x={20}
-                on:visibilityChange={handleVisibilityChange}
-            />
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
@@ -795,23 +773,8 @@
             {/if}
         </svelte:fragment>
 
-        <!-- Expand Button in Preview Mode -->
-        <svelte:fragment slot="button" let:radius>
-            <ExpandCollapseButton 
-                mode="expand"
-                y={radius}
-                x={-20}
-                on:click={handleExpand}
-            />
-            
-            <!-- Add our own ShowHideButton since NodeRenderer doesn't add it for quantity nodes -->
-            <ShowHideButton 
-                isHidden={false}
-                y={radius} 
-                x={20}
-                on:visibilityChange={handleVisibilityChange}
-            />
-        </svelte:fragment>
+        <!-- Button slot is no longer needed since the base component will handle both buttons -->
+        <!-- We just need to make sure to forward the events -->
     </BasePreviewNode>
 {/if}
 
@@ -1052,4 +1015,4 @@
         fill: rgba(26, 188, 156, 0.9);
         font-weight: bold;
     }
-    </style>
+</style>    

@@ -414,13 +414,6 @@
                     </text>
                 </g>
             {/if}
-     
-            <!-- Contract button -->
-            <ExpandCollapseButton 
-                mode="collapse"
-                y={radius}
-                on:click={handleModeChange}
-            />
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
@@ -456,14 +449,6 @@
             </text>
         </svelte:fragment>
 
-        <!-- Expand Button in Preview Mode -->
-        <svelte:fragment slot="button" let:radius>
-            <ExpandCollapseButton 
-                mode="expand"
-                y={radius}
-                on:click={handleModeChange}
-            />
-        </svelte:fragment>
     </BasePreviewNode>
 {/if}
 

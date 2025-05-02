@@ -29,7 +29,13 @@
             position?: { x: number; y: number };
         };
         click: void;
+        visibilityChange: { isHidden: boolean };
     }>();
+    
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        // Forward the visibility change event
+        dispatch('visibilityChange', event.detail);
+    }
 
     interface $$Slots {
         title: {
@@ -143,25 +149,28 @@
                 />
             {/if}
 
-            <!-- Expand/Collapse Button (positioned to the left) -->
+            <!-- Button slot section -->
             {#if $$slots.button}
                 <slot 
                     name="button" 
                     {radius}
                     style={NODE_CONSTANTS}
-                >
-                    <ExpandCollapseButton 
-                        mode="expand"
-                        y={radius}
-                        x={-20}
-                        nodeX={nodeX}
-                        nodeY={nodeY}
-                        nodeId={node.id}
-                        on:click={handleButtonClick}
-                        on:modeChange={handleModeChange}
-                    />
-                </slot>
+                />
             {/if}
+            
+            <!-- Expand Button (positioned at 7:30) -->
+            <ExpandCollapseButton 
+                mode="expand"
+                y={radius * 0.7071}
+                x={-radius * 0.7071}
+                nodeX={nodeX}
+                nodeY={nodeY}
+                nodeId={node.id}
+                on:click={handleButtonClick}
+                on:modeChange={handleModeChange}
+            />
+            
+            <!-- ShowHideButton is now handled by NodeRenderer, so it's removed from here -->
         </svelte:fragment>
     </BaseNode>
 </g>

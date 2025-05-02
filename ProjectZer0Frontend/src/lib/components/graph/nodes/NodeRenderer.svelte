@@ -4,9 +4,11 @@
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
+    import ExpandCollapseButton from './common/ExpandCollapseButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';
+    import { graphStore } from '$lib/stores/graphStore';
     
     // The node to render
     export let node: RenderableNode;
@@ -70,7 +72,42 @@
     
     // Handle visibility change events
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-        // Dispatch event to update local state
+        // Log complete information
+        console.log('[NodeRenderer] Visibility change requested:', {
+            nodeId: node.id,
+            currentVisibility: node.isHidden ? 'hidden' : 'visible',
+            newVisibility: event.detail.isHidden ? 'hidden' : 'visible',
+            nodeType: node.type
+        });
+
+        // The visibility store uses isVisible (true = visible, false = hidden)
+        // So we need to invert isHidden to get isVisible
+        const isVisible = !event.detail.isHidden;
+        
+        // First update the visibility store directly
+        visibilityStore.setPreference(node.id, isVisible);
+        console.log('[NodeRenderer] Updated visibility store for:', {
+            nodeId: node.id,
+            isVisible: isVisible
+        });
+        
+        // Then update the graph store directly - this is the key to immediate UI updates
+        if (graphStore) {
+            // Call the correct method on graphStore to update visibility
+            graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
+            console.log('[NodeRenderer] Updated graphStore visibility for:', {
+                nodeId: node.id,
+                isHidden: event.detail.isHidden
+            });
+            
+            // Force ticks to refresh layout
+            graphStore.forceTick(5);
+        }
+        
+        // Directly update the node's visibility state (redundant with above, but just to be sure)
+        node.isHidden = event.detail.isHidden;
+        
+        // Dispatch event to update local state and parent components
         dispatch('visibilityChange', { 
             nodeId: node.id, 
             isHidden: event.detail.isHidden 
@@ -107,7 +144,7 @@
             }
         });
         
-        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement') {
+        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
                 const shouldBeHidden = !preference;
@@ -145,7 +182,6 @@
             on:modeChange={handleModeChange}
         />
     {:else}
-
         <!-- Render regular node using slot, passing node position data -->
         <slot 
             {node}
@@ -154,12 +190,12 @@
             handleModeChange={handleModeChange}
         />
     
-        <!-- Add show/hide button to qualifying nodes -->
-        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement'}
+        <!-- Add show/hide button to qualifying nodes - positioned at 4:30 -->
+        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity'}
             <ShowHideButton 
                 isHidden={false}
-                y={node.radius} 
-                x={20}  
+                y={node.radius * 0.7071}  
+                x={node.radius * 0.7071}  
                 nodeId={node.id}
                 on:visibilityChange={handleVisibilityChange}
             />

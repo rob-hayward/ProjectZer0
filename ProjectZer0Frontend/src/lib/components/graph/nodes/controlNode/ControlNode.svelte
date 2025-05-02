@@ -552,13 +552,6 @@
                     </div>
                 </foreignObject>
             </g>
-            
-            <!-- Contract button -->
-            <ExpandCollapseButton 
-                mode="collapse"
-                y={radius}
-                on:click={handleModeChange}
-            />
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
@@ -624,15 +617,6 @@
                     </foreignObject>
                 {/if}
             </g>
-        </svelte:fragment>
-
-        <!-- Expand Button in Preview Mode -->
-        <svelte:fragment slot="button" let:radius>
-            <ExpandCollapseButton 
-                mode="expand"
-                y={radius}
-                on:click={handleModeChange}
-            />
         </svelte:fragment>
     </BasePreviewNode>
 {/if}

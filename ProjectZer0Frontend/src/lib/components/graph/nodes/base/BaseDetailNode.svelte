@@ -38,7 +38,13 @@
             position?: { x: number; y: number };
         };
         click: void;
+        visibilityChange: { isHidden: boolean };
     }>();
+    
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        // Forward the visibility change event
+        dispatch('visibilityChange', event.detail);
+    }
 
     interface $$Slots {
         default: {
@@ -124,17 +130,19 @@
                 {gradientId}
             />
             
-            <!-- Collapse Button (positioned to the left) - pass node position data -->
+            <!-- Collapse Button (positioned at 7:30) - pass node position data -->
             <ExpandCollapseButton 
                 mode="collapse"
-                y={radius}
-                x={-20} 
+                y={radius * 0.7071}
+                x={-radius * 0.7071}
                 nodeX={nodeX}
                 nodeY={nodeY}
                 nodeId={node.id}
                 on:click={handleButtonClick}
                 on:modeChange={handleModeChange}
             />
+            
+            <!-- ShowHideButton is now handled by NodeRenderer, so it's removed from here -->
         </svelte:fragment>
     </BaseNode>
 </g>
