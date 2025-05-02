@@ -5,6 +5,8 @@
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
     import ExpandCollapseButton from './common/ExpandCollapseButton.svelte';
+    import DiscussButton from './common/DiscussButton.svelte';
+    import CreateLinkedNodeButton from './common/CreateLinkedNodeButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';
@@ -13,7 +15,7 @@
     // The node to render
     export let node: RenderableNode;
     
-    // Event dispatcher for mode changes and visibility changes
+    // Event dispatcher for mode changes, visibility changes, discussions, and linked nodes
     const dispatch = createEventDispatcher<{
         modeChange: { 
             nodeId: string; 
@@ -21,6 +23,14 @@
             position?: { x: number; y: number };
         };
         visibilityChange: { nodeId: string; isHidden: boolean };
+        discuss: { 
+            nodeId: string;
+            nodeType: string;
+        };
+        createLinkedNode: {
+            nodeId: string;
+            nodeType: string;
+        };
     }>();
     
     // Handle mode change events from child components
@@ -199,6 +209,45 @@
                 nodeId={node.id}
                 on:visibilityChange={handleVisibilityChange}
             />
+            
+            <!-- Add discuss button to qualifying nodes - positioned at 2:30 -->
+            <DiscussButton 
+                y={-node.radius * 0.7071}  
+                x={node.radius * 0.7071}
+                nodeId={node.id}
+                on:discuss={event => {
+                    console.log(`[NodeRenderer] Discuss event received for node ${event.detail.nodeId}`);
+                    // Forward the discuss event to parent components
+                    dispatch('discuss', {
+                        nodeId: event.detail.nodeId || node.id,
+                        nodeType: node.type
+                    });
+                    
+                    // Temporary alert until implementation is complete
+                    alert(`Discussion system not yet implemented for node ${event.detail.nodeId || node.id}`);
+                }}
+            />
+            
+            <!-- Add create linked node button only to statement and quantity nodes - positioned at 10:30 -->
+            {#if node.type === 'statement' || node.type === 'quantity'}
+                <CreateLinkedNodeButton 
+                    y={-node.radius * 0.7071}  
+                    x={-node.radius * 0.7071}
+                    nodeId={node.id}
+                    nodeType={node.type}
+                    on:createLinkedNode={event => {
+                        console.log(`[NodeRenderer] Create linked node event received for node ${event.detail.nodeId} of type ${event.detail.nodeType}`);
+                        // Forward the createLinkedNode event to parent components
+                        dispatch('createLinkedNode', {
+                            nodeId: event.detail.nodeId || node.id,
+                            nodeType: event.detail.nodeType || node.type
+                        });
+                        
+                        // Temporary alert until implementation is complete
+                        alert(`Create linked node system not yet implemented for ${event.detail.nodeType || node.type} node ${event.detail.nodeId || node.id}`);
+                    }}
+                />
+            {/if}
         {/if}
     {/if}
 </g>
