@@ -1,11 +1,16 @@
+// src/nodes/statement/statement.controller.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { StatementController } from './statement.controller';
 import { StatementService } from './statement.service';
-import { BadRequestException } from '@nestjs/common';
+import { DiscussionService } from '../discussion/discussion.service';
+import { CommentService } from '../comment/comment.service';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('StatementController', () => {
   let controller: StatementController;
-  let service: jest.Mocked<StatementService>;
+  let statementService: jest.Mocked<StatementService>;
+  let discussionService: jest.Mocked<DiscussionService>;
+  let commentService: jest.Mocked<CommentService>;
 
   const mockStatementService = {
     createStatement: jest.fn(),
@@ -26,6 +31,16 @@ describe('StatementController', () => {
     checkStatements: jest.fn(),
   };
 
+  const mockDiscussionService = {
+    createDiscussion: jest.fn(),
+    getDiscussion: jest.fn(),
+  };
+
+  const mockCommentService = {
+    createComment: jest.fn(),
+    getCommentsByDiscussionId: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -36,11 +51,21 @@ describe('StatementController', () => {
           provide: StatementService,
           useValue: mockStatementService,
         },
+        {
+          provide: DiscussionService,
+          useValue: mockDiscussionService,
+        },
+        {
+          provide: CommentService,
+          useValue: mockCommentService,
+        },
       ],
     }).compile();
 
     controller = module.get<StatementController>(StatementController);
-    service = module.get(StatementService);
+    statementService = module.get(StatementService);
+    discussionService = module.get(DiscussionService);
+    commentService = module.get(CommentService);
   });
 
   it('should be defined', () => {
@@ -76,7 +101,7 @@ describe('StatementController', () => {
         ...expectedServiceInput,
       };
 
-      service.createStatement.mockResolvedValue(expectedResult);
+      statementService.createStatement.mockResolvedValue(expectedResult);
 
       // Call the controller with request object
       const result = await controller.createStatement(
@@ -85,7 +110,7 @@ describe('StatementController', () => {
       );
 
       // Verify service was called with the correct data
-      expect(service.createStatement).toHaveBeenCalledWith(
+      expect(statementService.createStatement).toHaveBeenCalledWith(
         expectedServiceInput,
       );
       expect(result).toEqual(expectedResult);
@@ -123,14 +148,225 @@ describe('StatementController', () => {
     });
   });
 
+  // Add tests for the discussion endpoints
+  describe('getStatementWithDiscussion', () => {
+    it('should get a statement with its discussion', async () => {
+      const mockStatement = {
+        id: 'test-id',
+        statement: 'Test statement',
+        discussionId: 'disc-id',
+      };
+
+      statementService.getStatement.mockResolvedValue(mockStatement);
+
+      const result = await controller.getStatementWithDiscussion('test-id');
+
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
+      expect(result).toEqual(mockStatement);
+    });
+
+    it('should throw BadRequestException when id is empty', async () => {
+      await expect(controller.getStatementWithDiscussion('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw NotFoundException when statement is not found', async () => {
+      statementService.getStatement.mockResolvedValue(null);
+
+      await expect(
+        controller.getStatementWithDiscussion('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getStatementComments', () => {
+    it('should get comments for a statement with a discussion', async () => {
+      const mockStatement = {
+        id: 'test-id',
+        statement: 'Test statement',
+        discussionId: 'disc-id',
+      };
+
+      const mockComments = [
+        { id: 'comment1', commentText: 'Comment 1', createdBy: 'user1' },
+        { id: 'comment2', commentText: 'Comment 2', createdBy: 'user2' },
+      ];
+
+      statementService.getStatement.mockResolvedValue(mockStatement);
+      commentService.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      const result = await controller.getStatementComments('test-id');
+
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
+      expect(commentService.getCommentsByDiscussionId).toHaveBeenCalledWith(
+        'disc-id',
+      );
+      expect(result).toEqual({ comments: mockComments });
+    });
+
+    it('should return empty comments array if statement has no discussion', async () => {
+      const mockStatement = {
+        id: 'test-id',
+        statement: 'Test statement',
+        // No discussionId
+      };
+
+      statementService.getStatement.mockResolvedValue(mockStatement);
+
+      const result = await controller.getStatementComments('test-id');
+
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
+      expect(commentService.getCommentsByDiscussionId).not.toHaveBeenCalled();
+      expect(result).toEqual({ comments: [] });
+    });
+
+    it('should throw BadRequestException when id is empty', async () => {
+      await expect(controller.getStatementComments('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw NotFoundException when statement is not found', async () => {
+      statementService.getStatement.mockResolvedValue(null);
+
+      await expect(
+        controller.getStatementComments('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('addStatementComment', () => {
+    const mockRequest = { user: { sub: 'test-user-id' } };
+    const validCommentData = { commentText: 'Test comment' };
+
+    it('should add a comment to an existing discussion', async () => {
+      const mockStatement = {
+        id: 'test-id',
+        statement: 'Test statement',
+        discussionId: 'disc-id',
+      };
+
+      const mockCreatedComment = {
+        id: 'comment1',
+        createdBy: 'test-user-id',
+        discussionId: 'disc-id',
+        commentText: 'Test comment',
+        createdAt: new Date().toISOString(),
+      };
+
+      statementService.getStatement.mockResolvedValue(mockStatement);
+      commentService.createComment.mockResolvedValue(mockCreatedComment);
+
+      const result = await controller.addStatementComment(
+        'test-id',
+        validCommentData,
+        mockRequest,
+      );
+
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
+      expect(commentService.createComment).toHaveBeenCalledWith({
+        createdBy: 'test-user-id',
+        discussionId: 'disc-id',
+        commentText: 'Test comment',
+        parentCommentId: undefined,
+      });
+      expect(result).toEqual(mockCreatedComment);
+    });
+
+    it('should create a discussion and add comment if statement has no discussion', async () => {
+      const mockStatement = {
+        id: 'test-id',
+        statement: 'Test statement',
+        // No discussionId
+      };
+
+      const mockCreatedDiscussion = {
+        id: 'new-disc-id',
+        createdBy: 'test-user-id',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'StatementNode',
+      };
+
+      const mockCreatedComment = {
+        id: 'comment1',
+        createdBy: 'test-user-id',
+        discussionId: 'new-disc-id',
+        commentText: 'Test comment',
+        createdAt: new Date().toISOString(),
+      };
+
+      statementService.getStatement.mockResolvedValue(mockStatement);
+      discussionService.createDiscussion.mockResolvedValue(
+        mockCreatedDiscussion,
+      );
+      statementService.updateStatement.mockResolvedValue({
+        ...mockStatement,
+        discussionId: 'new-disc-id',
+      });
+      commentService.createComment.mockResolvedValue(mockCreatedComment);
+
+      const result = await controller.addStatementComment(
+        'test-id',
+        validCommentData,
+        mockRequest,
+      );
+
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
+      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+        createdBy: 'test-user-id',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'StatementNode',
+      });
+      expect(statementService.updateStatement).toHaveBeenCalledWith('test-id', {
+        discussionId: 'new-disc-id',
+      });
+      expect(commentService.createComment).toHaveBeenCalledWith({
+        createdBy: 'test-user-id',
+        discussionId: 'new-disc-id',
+        commentText: 'Test comment',
+        parentCommentId: undefined,
+      });
+      expect(result).toEqual(mockCreatedComment);
+    });
+
+    it('should throw BadRequestException when id is empty', async () => {
+      await expect(
+        controller.addStatementComment('', validCommentData, mockRequest),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException when comment text is empty', async () => {
+      await expect(
+        controller.addStatementComment(
+          'test-id',
+          { commentText: '' },
+          mockRequest,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException when statement is not found', async () => {
+      statementService.getStatement.mockResolvedValue(null);
+
+      await expect(
+        controller.addStatementComment(
+          'nonexistent-id',
+          validCommentData,
+          mockRequest,
+        ),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('getStatementNetwork', () => {
     it('should get statement network with default parameters', async () => {
       const mockStatements = [{ id: 'statement1' }];
-      service.getStatementNetwork.mockResolvedValue(mockStatements);
+      statementService.getStatementNetwork.mockResolvedValue(mockStatements);
 
       const result = await controller.getStatementNetwork();
 
-      expect(service.getStatementNetwork).toHaveBeenCalledWith({
+      expect(statementService.getStatementNetwork).toHaveBeenCalledWith({
         limit: undefined,
         offset: undefined,
         sortBy: 'netPositive',
@@ -143,7 +379,7 @@ describe('StatementController', () => {
 
     it('should get statement network with provided parameters', async () => {
       const mockStatements = [{ id: 'statement1' }];
-      service.getStatementNetwork.mockResolvedValue(mockStatements);
+      statementService.getStatementNetwork.mockResolvedValue(mockStatements);
 
       const result = await controller.getStatementNetwork(
         10,
@@ -154,7 +390,7 @@ describe('StatementController', () => {
         'user1',
       );
 
-      expect(service.getStatementNetwork).toHaveBeenCalledWith({
+      expect(statementService.getStatementNetwork).toHaveBeenCalledWith({
         limit: 10,
         offset: 5,
         sortBy: 'chronological',
@@ -169,11 +405,11 @@ describe('StatementController', () => {
   describe('getStatement', () => {
     it('should get a statement by id', async () => {
       const mockStatement = { id: 'test-id', statement: 'Test statement' };
-      service.getStatement.mockResolvedValue(mockStatement);
+      statementService.getStatement.mockResolvedValue(mockStatement);
 
       const result = await controller.getStatement('test-id');
 
-      expect(service.getStatement).toHaveBeenCalledWith('test-id');
+      expect(statementService.getStatement).toHaveBeenCalledWith('test-id');
       expect(result).toEqual(mockStatement);
     });
 
@@ -196,11 +432,11 @@ describe('StatementController', () => {
         ...updateData,
       };
 
-      service.updateStatement.mockResolvedValue(updatedStatement);
+      statementService.updateStatement.mockResolvedValue(updatedStatement);
 
       const result = await controller.updateStatement('test-id', updateData);
 
-      expect(service.updateStatement).toHaveBeenCalledWith(
+      expect(statementService.updateStatement).toHaveBeenCalledWith(
         'test-id',
         updateData,
       );
@@ -222,14 +458,14 @@ describe('StatementController', () => {
 
   describe('deleteStatement', () => {
     it('should delete a statement', async () => {
-      service.deleteStatement.mockResolvedValue({
+      statementService.deleteStatement.mockResolvedValue({
         success: true,
         message: 'Statement deleted successfully',
       });
 
       await controller.deleteStatement('test-id');
 
-      expect(service.deleteStatement).toHaveBeenCalledWith('test-id');
+      expect(statementService.deleteStatement).toHaveBeenCalledWith('test-id');
     });
 
     it('should throw BadRequestException when id is empty', async () => {
@@ -244,14 +480,17 @@ describe('StatementController', () => {
       const visibilityData = { isVisible: true };
       const updatedStatement = { id: 'test-id', visibilityStatus: true };
 
-      service.setVisibilityStatus.mockResolvedValue(updatedStatement);
+      statementService.setVisibilityStatus.mockResolvedValue(updatedStatement);
 
       const result = await controller.setVisibilityStatus(
         'test-id',
         visibilityData,
       );
 
-      expect(service.setVisibilityStatus).toHaveBeenCalledWith('test-id', true);
+      expect(statementService.setVisibilityStatus).toHaveBeenCalledWith(
+        'test-id',
+        true,
+      );
       expect(result).toEqual(updatedStatement);
     });
 
@@ -277,7 +516,7 @@ describe('StatementController', () => {
       const mockRequest = { user: { sub: 'test-user-id' } };
       const voteResult = { positiveVotes: 5, negativeVotes: 2, netVotes: 3 };
 
-      service.voteStatement.mockResolvedValue(voteResult);
+      statementService.voteStatement.mockResolvedValue(voteResult);
 
       const result = await controller.voteStatement(
         'test-id',
@@ -285,7 +524,7 @@ describe('StatementController', () => {
         mockRequest,
       );
 
-      expect(service.voteStatement).toHaveBeenCalledWith(
+      expect(statementService.voteStatement).toHaveBeenCalledWith(
         'test-id',
         'test-user-id',
         true,
@@ -325,14 +564,14 @@ describe('StatementController', () => {
         netVotes: 3,
       };
 
-      service.getStatementVoteStatus.mockResolvedValue(voteStatus);
+      statementService.getStatementVoteStatus.mockResolvedValue(voteStatus);
 
       const result = await controller.getStatementVoteStatus(
         'test-id',
         mockRequest,
       );
 
-      expect(service.getStatementVoteStatus).toHaveBeenCalledWith(
+      expect(statementService.getStatementVoteStatus).toHaveBeenCalledWith(
         'test-id',
         'test-user-id',
       );
@@ -364,7 +603,7 @@ describe('StatementController', () => {
         createdBy: 'test-user-id',
       };
 
-      service.createRelatedStatement.mockResolvedValue(newStatement);
+      statementService.createRelatedStatement.mockResolvedValue(newStatement);
 
       const result = await controller.createRelatedStatement(
         'existing-id',
@@ -372,7 +611,7 @@ describe('StatementController', () => {
         mockRequest,
       );
 
-      expect(service.createRelatedStatement).toHaveBeenCalledWith(
+      expect(statementService.createRelatedStatement).toHaveBeenCalledWith(
         'existing-id',
         {
           ...statementData,
@@ -415,11 +654,13 @@ describe('StatementController', () => {
 
   describe('createDirectRelationship', () => {
     it('should create a direct relationship between two statements', async () => {
-      service.createDirectRelationship.mockResolvedValue({ success: true });
+      statementService.createDirectRelationship.mockResolvedValue({
+        success: true,
+      });
 
       const result = await controller.createDirectRelationship('id1', 'id2');
 
-      expect(service.createDirectRelationship).toHaveBeenCalledWith(
+      expect(statementService.createDirectRelationship).toHaveBeenCalledWith(
         'id1',
         'id2',
       );
@@ -444,11 +685,13 @@ describe('StatementController', () => {
 
   describe('removeDirectRelationship', () => {
     it('should remove a direct relationship between two statements', async () => {
-      service.removeDirectRelationship.mockResolvedValue({ success: true });
+      statementService.removeDirectRelationship.mockResolvedValue({
+        success: true,
+      });
 
       const result = await controller.removeDirectRelationship('id1', 'id2');
 
-      expect(service.removeDirectRelationship).toHaveBeenCalledWith(
+      expect(statementService.removeDirectRelationship).toHaveBeenCalledWith(
         'id1',
         'id2',
       );
@@ -472,15 +715,15 @@ describe('StatementController', () => {
         { id: 'related2', statement: 'Related 2' },
       ];
 
-      service.getDirectlyRelatedStatements.mockResolvedValue(
+      statementService.getDirectlyRelatedStatements.mockResolvedValue(
         mockRelatedStatements,
       );
 
       const result = await controller.getDirectlyRelatedStatements('test-id');
 
-      expect(service.getDirectlyRelatedStatements).toHaveBeenCalledWith(
-        'test-id',
-      );
+      expect(
+        statementService.getDirectlyRelatedStatements,
+      ).toHaveBeenCalledWith('test-id');
       expect(result).toEqual(mockRelatedStatements);
     });
 
@@ -493,11 +736,11 @@ describe('StatementController', () => {
 
   describe('checkStatements', () => {
     it('should check statements', async () => {
-      service.checkStatements.mockResolvedValue({ count: 42 });
+      statementService.checkStatements.mockResolvedValue({ count: 42 });
 
       const result = await controller.checkStatements();
 
-      expect(service.checkStatements).toHaveBeenCalled();
+      expect(statementService.checkStatements).toHaveBeenCalled();
       expect(result).toEqual({ count: 42 });
     });
   });

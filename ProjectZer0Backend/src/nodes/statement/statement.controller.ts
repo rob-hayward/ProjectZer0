@@ -1,5 +1,4 @@
 // src/nodes/statement/statement.controller.ts
-
 import {
   Controller,
   Get,
@@ -15,16 +14,23 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { StatementService } from './statement.service';
+import { DiscussionService } from '../discussion/discussion.service';
+import { CommentService } from '../comment/comment.service';
 
 @Controller('nodes/statement')
 @UseGuards(JwtAuthGuard)
 export class StatementController {
   private readonly logger = new Logger(StatementController.name);
 
-  constructor(private readonly statementService: StatementService) {}
+  constructor(
+    private readonly statementService: StatementService,
+    private readonly discussionService: DiscussionService,
+    private readonly commentService: CommentService,
+  ) {}
 
   @Get('network')
   async getStatementNetwork(
@@ -213,6 +219,99 @@ export class StatementController {
     }
 
     return await this.statementService.getStatementVotes(id);
+  }
+
+  // New endpoints for discussions and comments
+  @Get(':id/discussion')
+  async getStatementWithDiscussion(@Param('id') id: string) {
+    this.logger.debug(
+      `Received request to get statement ${id} with discussion`,
+    );
+
+    if (!id) {
+      throw new BadRequestException('Statement ID is required');
+    }
+
+    const statement = await this.statementService.getStatement(id);
+
+    if (!statement) {
+      throw new NotFoundException(`Statement with ID ${id} not found`);
+    }
+
+    return statement; // The getStatement method already includes discussion info
+  }
+
+  @Get(':id/comments')
+  async getStatementComments(@Param('id') id: string) {
+    this.logger.debug(`Received request to get comments for statement ${id}`);
+
+    if (!id) {
+      throw new BadRequestException('Statement ID is required');
+    }
+
+    const statement = await this.statementService.getStatement(id);
+
+    if (!statement) {
+      throw new NotFoundException(`Statement with ID ${id} not found`);
+    }
+
+    if (!statement.discussionId) {
+      return { comments: [] };
+    }
+
+    const comments = await this.commentService.getCommentsByDiscussionId(
+      statement.discussionId,
+    );
+    return { comments };
+  }
+
+  @Post(':id/comments')
+  async addStatementComment(
+    @Param('id') id: string,
+    @Body() commentData: { commentText: string; parentCommentId?: string },
+    @Request() req: any,
+  ) {
+    this.logger.log(`Received request to add comment to statement ${id}`);
+
+    if (!id) {
+      throw new BadRequestException('Statement ID is required');
+    }
+
+    if (!commentData.commentText || commentData.commentText.trim() === '') {
+      throw new BadRequestException('Comment text is required');
+    }
+
+    const statement = await this.statementService.getStatement(id);
+
+    if (!statement) {
+      throw new NotFoundException(`Statement with ID ${id} not found`);
+    }
+
+    // If no discussion exists, create one
+    let discussionId = statement.discussionId;
+
+    if (!discussionId) {
+      const discussion = await this.discussionService.createDiscussion({
+        createdBy: req.user.sub,
+        associatedNodeId: id,
+        associatedNodeType: 'StatementNode',
+      });
+
+      discussionId = discussion.id;
+
+      // Update statement with discussion ID
+      await this.statementService.updateStatement(id, { discussionId });
+    }
+
+    // Create the comment
+    const comment = await this.commentService.createComment({
+      createdBy: req.user.sub,
+      discussionId,
+      commentText: commentData.commentText,
+      parentCommentId: commentData.parentCommentId,
+    });
+
+    return comment;
   }
 
   /**

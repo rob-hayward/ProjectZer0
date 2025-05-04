@@ -31,6 +31,7 @@ interface UpdateQuantityNodeData {
   defaultUnitId?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  discussionId?: string;
 }
 
 interface SubmitResponseData {

@@ -1,3 +1,4 @@
+// src/nodes/definition/definition.controller.ts
 import {
   Controller,
   Get,
@@ -16,6 +17,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { DefinitionService } from './definition.service';
+import { DiscussionService } from '../discussion/discussion.service';
+import { CommentService } from '../comment/comment.service';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 import { TEXT_LIMITS } from '../../constants/validation';
 
@@ -24,6 +27,7 @@ interface CreateDefinitionDto {
   word: string;
   createdBy: string;
   definitionText: string;
+  discussion?: string;
 }
 
 interface UpdateDefinitionDto {
@@ -43,7 +47,11 @@ interface VisibilityDto {
 export class DefinitionController {
   private readonly logger = new Logger(DefinitionController.name);
 
-  constructor(private readonly definitionService: DefinitionService) {}
+  constructor(
+    private readonly definitionService: DefinitionService,
+    private readonly discussionService: DiscussionService,
+    private readonly commentService: CommentService,
+  ) {}
 
   @Post()
   async createDefinition(@Body() definitionData: CreateDefinitionDto) {
@@ -313,6 +321,113 @@ export class DefinitionController {
         error,
         `Error getting visibility status for definition: ${id}`,
       );
+    }
+  }
+
+  @Get(':id/discussion')
+  async getDefinitionWithDiscussion(@Param('id') id: string) {
+    try {
+      if (!id || id.trim() === '') {
+        throw new BadRequestException('Definition ID is required');
+      }
+
+      this.logger.log(`Getting definition with discussion: ${id}`);
+      const definition =
+        await this.definitionService.getDefinitionWithDiscussion(id);
+
+      if (!definition) {
+        throw new NotFoundException(`Definition with ID ${id} not found`);
+      }
+
+      return definition;
+    } catch (error) {
+      this.handleError(
+        error,
+        `Error retrieving definition with discussion: ${id}`,
+      );
+    }
+  }
+
+  @Get(':id/comments')
+  async getDefinitionComments(@Param('id') id: string) {
+    try {
+      if (!id || id.trim() === '') {
+        throw new BadRequestException('Definition ID is required');
+      }
+
+      const definition = await this.definitionService.getDefinition(id);
+
+      if (!definition) {
+        throw new NotFoundException(`Definition with ID ${id} not found`);
+      }
+
+      if (!definition.discussionId) {
+        return { comments: [] };
+      }
+
+      const comments = await this.commentService.getCommentsByDiscussionId(
+        definition.discussionId,
+      );
+      return { comments };
+    } catch (error) {
+      this.handleError(
+        error,
+        `Error retrieving comments for definition: ${id}`,
+      );
+    }
+  }
+
+  @Post(':id/comments')
+  async addDefinitionComment(
+    @Param('id') id: string,
+    @Body() commentData: { commentText: string; parentCommentId?: string },
+    @Request() req: any,
+  ) {
+    try {
+      if (!id || id.trim() === '') {
+        throw new BadRequestException('Definition ID is required');
+      }
+
+      if (!commentData.commentText || commentData.commentText.trim() === '') {
+        throw new BadRequestException('Comment text is required');
+      }
+
+      const definition = await this.definitionService.getDefinition(id);
+
+      if (!definition) {
+        throw new NotFoundException(`Definition with ID ${id} not found`);
+      }
+
+      // If no discussion exists, create one
+      let discussionId = definition.discussionId;
+
+      if (!discussionId) {
+        const discussion = await this.discussionService.createDiscussion({
+          createdBy: req.user.sub,
+          associatedNodeId: id,
+          associatedNodeType: 'DefinitionNode',
+        });
+
+        discussionId = discussion.id;
+
+        // Update definition with discussion ID
+        await this.definitionService.updateDefinition(id, {
+          definitionText: definition.definitionText,
+          discussionId,
+        });
+      }
+
+      // Create the comment
+      const comment = await this.commentService.createComment({
+        createdBy: req.user.sub,
+        discussionId,
+        commentText: commentData.commentText,
+        parentCommentId: commentData.parentCommentId,
+      });
+
+      return comment;
+    } catch (error) {
+      this.handleError(error, `Error adding comment to definition: ${id}`);
     }
   }
 

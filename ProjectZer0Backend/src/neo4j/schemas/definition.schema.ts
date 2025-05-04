@@ -1,3 +1,4 @@
+// src/neo4j/schemas/definition.schema.ts
 import {
   Injectable,
   BadRequestException,
@@ -156,6 +157,7 @@ export class DefinitionSchema {
     id: string,
     updateData: {
       definitionText?: string;
+      discussionId?: string;
     },
   ) {
     try {
@@ -206,6 +208,45 @@ export class DefinitionSchema {
         error.stack,
       );
       throw new Error(`Failed to update definition: ${error.message}`);
+    }
+  }
+
+  async updateDefinitionWithDiscussionId(
+    definitionId: string,
+    discussionId: string,
+  ) {
+    try {
+      this.logger.debug(
+        `Updating definition ${definitionId} with discussion ID ${discussionId}`,
+      );
+
+      const result = await this.neo4jService.write(
+        `
+        MATCH (d:DefinitionNode {id: $definitionId})
+        SET d.discussionId = $discussionId,
+            d.updatedAt = datetime()
+        RETURN d
+        `,
+        { definitionId, discussionId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        throw new NotFoundException(
+          `Definition with ID ${definitionId} not found`,
+        );
+      }
+
+      const updatedDefinition = result.records[0].get('d').properties;
+      this.logger.debug(
+        `Updated definition with discussion ID: ${JSON.stringify(updatedDefinition)}`,
+      );
+      return updatedDefinition;
+    } catch (error) {
+      this.logger.error(
+        `Error updating definition with discussion ID: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     }
   }
 

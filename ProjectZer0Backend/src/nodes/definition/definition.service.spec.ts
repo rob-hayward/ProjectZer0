@@ -1,7 +1,9 @@
+// src/nodes/definition/definition.service.spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
 import { DefinitionService } from './definition.service';
 import { DefinitionSchema } from '../../neo4j/schemas/definition.schema';
 import { UserSchema } from '../../neo4j/schemas/user.schema';
+import { DiscussionService } from '../discussion/discussion.service';
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { TEXT_LIMITS } from '../../constants/validation';
 
@@ -9,6 +11,7 @@ describe('DefinitionService', () => {
   let service: DefinitionService;
   let schema: jest.Mocked<DefinitionSchema>;
   let userSchema: jest.Mocked<UserSchema>;
+  let discussionService: jest.Mocked<DiscussionService>;
 
   beforeEach(async () => {
     // Create mock implementations
@@ -23,11 +26,21 @@ describe('DefinitionService', () => {
       getDefinitionVoteStatus: jest.fn(),
       removeDefinitionVote: jest.fn(),
       getDefinitionVotes: jest.fn(),
+      updateDefinitionWithDiscussionId: jest.fn(),
     };
 
     const mockUserSchema = {
       addCreatedNode: jest.fn(),
       addParticipation: jest.fn(),
+    };
+
+    const mockDiscussionService = {
+      createDiscussion: jest.fn(),
+      getDiscussion: jest.fn(),
+      updateDiscussion: jest.fn(),
+      deleteDiscussion: jest.fn(),
+      setVisibilityStatus: jest.fn(),
+      getVisibilityStatus: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -40,6 +53,10 @@ describe('DefinitionService', () => {
         {
           provide: UserSchema,
           useValue: mockUserSchema,
+        },
+        {
+          provide: DiscussionService,
+          useValue: mockDiscussionService,
         },
         {
           provide: Logger,
@@ -56,6 +73,7 @@ describe('DefinitionService', () => {
     service = module.get<DefinitionService>(DefinitionService);
     schema = module.get(DefinitionSchema);
     userSchema = module.get(UserSchema);
+    discussionService = module.get(DiscussionService);
   });
 
   afterEach(() => {
@@ -96,6 +114,67 @@ describe('DefinitionService', () => {
         'definition',
       );
       expect(result).toEqual(expectedResult);
+    });
+
+    it('should create a definition with discussion if discussion is provided', async () => {
+      const definitionDataWithDiscussion = {
+        ...validDefinitionData,
+        discussion: 'Initial discussion comment',
+      };
+
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
+
+      const createdDiscussion = {
+        id: 'disc-id',
+        createdBy: 'user1',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'DefinitionNode',
+        initialComment: 'Initial discussion comment',
+      };
+
+      schema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(createdDiscussion);
+      schema.updateDefinitionWithDiscussionId.mockResolvedValue({
+        ...createdDefinition,
+        discussionId: 'disc-id',
+      });
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      const result = await service.createDefinition(
+        definitionDataWithDiscussion,
+      );
+
+      expect(schema.createDefinition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          word: 'test',
+          createdBy: 'user1',
+          definitionText: 'A test definition',
+          id: expect.any(String),
+        }),
+      );
+
+      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+        createdBy: 'user1',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'DefinitionNode',
+        initialComment: 'Initial discussion comment',
+      });
+
+      expect(schema.updateDefinitionWithDiscussionId).toHaveBeenCalledWith(
+        'test-id',
+        'disc-id',
+      );
+
+      expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
+        'user1',
+        'test-id',
+        'definition',
+      );
+
+      expect(result).toEqual(createdDefinition);
     });
 
     it('should not track creation for API-created definitions', async () => {
@@ -179,6 +258,32 @@ describe('DefinitionService', () => {
       const result = await service.createDefinition(validDefinitionData);
       expect(result).toEqual(expectedResult);
     });
+
+    it('should handle discussion creation errors gracefully', async () => {
+      const definitionDataWithDiscussion = {
+        ...validDefinitionData,
+        discussion: 'Initial discussion comment',
+      };
+
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
+
+      schema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockRejectedValue(
+        new Error('Discussion creation error'),
+      );
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      // Should not throw despite discussion creation error
+      const result = await service.createDefinition(
+        definitionDataWithDiscussion,
+      );
+      expect(result).toEqual(createdDefinition);
+      expect(discussionService.createDiscussion).toHaveBeenCalled();
+      expect(schema.updateDefinitionWithDiscussionId).not.toHaveBeenCalled();
+    });
   });
 
   describe('getDefinition', () => {
@@ -211,6 +316,64 @@ describe('DefinitionService', () => {
     });
   });
 
+  describe('getDefinitionWithDiscussion', () => {
+    it('should return a definition with its discussion', async () => {
+      const mockDefinition = {
+        id: 'test-id',
+        definitionText: 'Test definition',
+        discussionId: 'disc-id',
+      };
+
+      const mockDiscussion = {
+        id: 'disc-id',
+        createdBy: 'user1',
+        createdAt: new Date().toISOString(),
+      };
+
+      schema.getDefinition.mockResolvedValue(mockDefinition);
+      discussionService.getDiscussion.mockResolvedValue(mockDiscussion);
+
+      const result = await service.getDefinitionWithDiscussion('test-id');
+
+      expect(schema.getDefinition).toHaveBeenCalledWith('test-id');
+      expect(discussionService.getDiscussion).toHaveBeenCalledWith('disc-id');
+      expect(result).toEqual({
+        ...mockDefinition,
+        discussion: mockDiscussion,
+      });
+    });
+
+    it('should return definition without discussion if no discussionId', async () => {
+      const mockDefinition = {
+        id: 'test-id',
+        definitionText: 'Test definition',
+      };
+
+      schema.getDefinition.mockResolvedValue(mockDefinition);
+
+      const result = await service.getDefinitionWithDiscussion('test-id');
+
+      expect(schema.getDefinition).toHaveBeenCalledWith('test-id');
+      expect(discussionService.getDiscussion).not.toHaveBeenCalled();
+      expect(result).toEqual(mockDefinition);
+    });
+
+    it('should throw BadRequestException for empty ID', async () => {
+      await expect(service.getDefinitionWithDiscussion('')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(schema.getDefinition).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when definition not found', async () => {
+      schema.getDefinition.mockResolvedValue(null);
+
+      await expect(
+        service.getDefinitionWithDiscussion('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('updateDefinition', () => {
     const validUpdateData = { definitionText: 'Updated definition' };
 
@@ -227,6 +390,32 @@ describe('DefinitionService', () => {
       expect(schema.updateDefinition).toHaveBeenCalledWith(
         'test-id',
         validUpdateData,
+      );
+      expect(result).toEqual(expectedResult);
+    });
+
+    it('should update a definition with discussionId', async () => {
+      const updateDataWithDiscussionId = {
+        definitionText: 'Updated definition',
+        discussionId: 'disc-id',
+      };
+
+      const expectedResult = {
+        id: 'test-id',
+        definitionText: 'Updated definition',
+        discussionId: 'disc-id',
+      };
+
+      schema.updateDefinition.mockResolvedValue(expectedResult);
+
+      const result = await service.updateDefinition(
+        'test-id',
+        updateDataWithDiscussionId,
+      );
+
+      expect(schema.updateDefinition).toHaveBeenCalledWith(
+        'test-id',
+        updateDataWithDiscussionId,
       );
       expect(result).toEqual(expectedResult);
     });

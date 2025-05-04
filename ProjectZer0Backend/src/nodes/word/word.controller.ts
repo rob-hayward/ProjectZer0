@@ -15,6 +15,8 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
+import { DiscussionService } from '../discussion/discussion.service';
+import { CommentService } from '../comment/comment.service';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 // Define standardized DTO for word creation
@@ -32,7 +34,11 @@ interface CreateWordDto {
 export class WordController {
   private readonly logger = new Logger(WordController.name);
 
-  constructor(private readonly wordService: WordService) {}
+  constructor(
+    private readonly wordService: WordService,
+    private readonly discussionService: DiscussionService,
+    private readonly commentService: CommentService,
+  ) {}
 
   // IMPORTANT: The 'all' route must be defined before any parameterized routes
   // to ensure proper routing in NestJS
@@ -300,5 +306,108 @@ export class WordController {
 
     this.logger.debug(`Visibility status: ${visibilityStatus}`);
     return { visibilityStatus };
+  }
+
+  // New endpoints for discussions and comments
+  @Get(':word/discussion')
+  async getWordWithDiscussion(@Param('word') word: string) {
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Getting word with discussion: ${word}`);
+    const wordNode = await this.wordService.getWord(word.toLowerCase());
+
+    if (!wordNode) {
+      this.logger.debug(`Word not found: ${word}`);
+      return null;
+    }
+
+    return wordNode; // The getWord method already includes discussion info
+  }
+
+  @Get(':word/comments')
+  async getWordComments(@Param('word') word: string) {
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Getting comments for word: ${word}`);
+    const wordNode = await this.wordService.getWord(word.toLowerCase());
+
+    if (!wordNode) {
+      this.logger.debug(`Word not found: ${word}`);
+      return { comments: [] };
+    }
+
+    if (!wordNode.discussionId) {
+      return { comments: [] };
+    }
+
+    const comments = await this.commentService.getCommentsByDiscussionId(
+      wordNode.discussionId,
+    );
+    return { comments };
+  }
+
+  @Post(':word/comments')
+  async addWordComment(
+    @Param('word') word: string,
+    @Body() commentData: { commentText: string; parentCommentId?: string },
+    @Request() req: any,
+  ) {
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    if (!commentData.commentText || commentData.commentText.trim() === '') {
+      throw new HttpException(
+        'Comment text is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Adding comment to word: ${word}`);
+    const wordNode = await this.wordService.getWord(word.toLowerCase());
+
+    if (!wordNode) {
+      this.logger.debug(`Word not found: ${word}`);
+      throw new HttpException(`Word "${word}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    // If no discussion exists, create one
+    let discussionId = wordNode.discussionId;
+
+    if (!discussionId) {
+      const discussion = await this.discussionService.createDiscussion({
+        createdBy: req.user.sub,
+        associatedNodeId: wordNode.id,
+        associatedNodeType: 'WordNode',
+      });
+
+      discussionId = discussion.id;
+
+      // Update word with discussion ID
+      await this.wordService.updateWord(word, { discussionId });
+    }
+
+    // Create the comment
+    const comment = await this.commentService.createComment({
+      createdBy: req.user.sub,
+      discussionId,
+      commentText: commentData.commentText,
+      parentCommentId: commentData.parentCommentId,
+    });
+
+    return comment;
   }
 }

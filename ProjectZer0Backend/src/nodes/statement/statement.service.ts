@@ -26,6 +26,7 @@ interface UpdateStatementData {
   statement?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  discussionId?: string;
 }
 
 interface GetStatementNetworkOptions {

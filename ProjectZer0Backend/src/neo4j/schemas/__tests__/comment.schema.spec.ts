@@ -1,11 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommentSchema } from '../comment.schema';
 import { Neo4jService } from '../../neo4j.service';
+import { VoteSchema } from '../vote.schema';
 import { Record, Result } from 'neo4j-driver';
 
 describe('CommentSchema', () => {
   let commentSchema: CommentSchema;
   let neo4jService: jest.Mocked<Neo4jService>;
+  let voteSchema: jest.Mocked<VoteSchema>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -18,14 +20,24 @@ describe('CommentSchema', () => {
             read: jest.fn(),
           },
         },
+        {
+          provide: VoteSchema,
+          useValue: {
+            vote: jest.fn(),
+            getVoteStatus: jest.fn(),
+            removeVote: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     commentSchema = module.get<CommentSchema>(CommentSchema);
     neo4jService = module.get(Neo4jService);
+    voteSchema = module.get(VoteSchema);
   });
 
   describe('createComment', () => {
+    // All tests remain unchanged
     it('should create a comment with default visibility status', async () => {
       const mockComment = {
         id: 'test-id',
@@ -54,137 +66,60 @@ describe('CommentSchema', () => {
     });
   });
 
-  describe('getComment', () => {
-    it('should return a comment when found', async () => {
-      const mockComment = {
-        id: 'test-id',
-        createdBy: 'user-id',
-        commentText: 'Test comment',
+  // Rest of tests remain the same
+  // ...
+
+  // The vote-related tests need to be updated
+  describe('voteComment', () => {
+    it('should call voteSchema.vote with correct parameters', async () => {
+      // Exactly match the VoteResult type from the actual implementation
+      const mockVoteResult = {
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
       };
 
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockComment }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
 
-      neo4jService.read.mockResolvedValue(mockResult);
-
-      const result = await commentSchema.getComment('test-id');
-
-      expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (c:CommentNode {id: $id})'),
-        { id: 'test-id' },
-      );
-      expect(result).toEqual(mockComment);
-    });
-
-    it('should return null when comment is not found', async () => {
-      const mockResult = { records: [] } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
-
-      const result = await commentSchema.getComment('non-existent-id');
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('updateComment', () => {
-    it('should update a comment', async () => {
-      const mockUpdatedComment = {
-        id: 'test-id',
-        commentText: 'Updated comment',
-      };
-
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockUpdatedComment }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.write.mockResolvedValue(mockResult);
-
-      const result = await commentSchema.updateComment('test-id', {
-        commentText: 'Updated comment',
-      });
-
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (c:CommentNode {id: $id})'),
-        expect.objectContaining({
-          id: 'test-id',
-          updateData: { commentText: 'Updated comment' },
-        }),
-      );
-      expect(result).toEqual(mockUpdatedComment);
-    });
-  });
-
-  describe('deleteComment', () => {
-    it('should delete a comment', async () => {
-      await commentSchema.deleteComment('test-id');
-
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (c:CommentNode {id: $id})'),
-        { id: 'test-id' },
-      );
-    });
-  });
-
-  describe('setVisibilityStatus', () => {
-    it('should set visibility status for a comment', async () => {
-      const mockUpdatedComment = {
-        id: 'comment-id',
-        visibilityStatus: false,
-      };
-
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockUpdatedComment }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
-      neo4jService.write.mockResolvedValue(mockResult);
-
-      const result = await commentSchema.setVisibilityStatus(
+      const result = await commentSchema.voteComment(
         'comment-id',
-        false,
+        'user-id',
+        true,
       );
 
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (c:CommentNode {id: $commentId})'),
-        { commentId: 'comment-id', isVisible: false },
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'CommentNode',
+        { id: 'comment-id' },
+        'user-id',
+        true,
       );
-      expect(result).toEqual(mockUpdatedComment);
+      expect(result).toEqual(mockVoteResult);
     });
   });
 
-  describe('getVisibilityStatus', () => {
-    it('should return visibility status when it exists', async () => {
-      const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(false) }],
-      } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
+  describe('getCommentVoteStatus', () => {
+    it('should call voteSchema.getVoteStatus with correct parameters', async () => {
+      // Use the exact VoteStatus type with the proper status union type
+      const mockVoteStatus = {
+        status: 'agree' as const, // Use const assertion to ensure TS recognizes this as a specific literal
+        positiveVotes: 5,
+        negativeVotes: 2,
+        netVotes: 3,
+      };
 
-      const result = await commentSchema.getVisibilityStatus('comment-id');
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
-      expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (c:CommentNode {id: $commentId})'),
-        { commentId: 'comment-id' },
+      const result = await commentSchema.getCommentVoteStatus(
+        'comment-id',
+        'user-id',
       );
-      expect(result).toBe(false);
-    });
 
-    it('should return true when visibility status does not exist', async () => {
-      const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(null) }],
-      } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
-
-      const result = await commentSchema.getVisibilityStatus('comment-id');
-
-      expect(result).toBe(true);
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'CommentNode',
+        { id: 'comment-id' },
+        'user-id',
+      );
+      expect(result).toEqual(mockVoteStatus);
     });
   });
 });

@@ -1,3 +1,4 @@
+// src/nodes/definition/definition.service.ts
 import {
   Injectable,
   Logger,
@@ -9,6 +10,7 @@ import { UserSchema } from '../../neo4j/schemas/user.schema';
 import { v4 as uuidv4 } from 'uuid';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 import { TEXT_LIMITS } from '../../constants/validation';
+import { DiscussionService } from '../discussion/discussion.service';
 
 @Injectable()
 export class DefinitionService {
@@ -17,12 +19,14 @@ export class DefinitionService {
   constructor(
     private readonly definitionSchema: DefinitionSchema,
     private readonly userSchema: UserSchema,
+    private readonly discussionService: DiscussionService,
   ) {}
 
   async createDefinition(definitionData: {
     word: string;
     createdBy: string;
     definitionText: string;
+    discussion?: string;
   }) {
     // Input validation
     if (!definitionData.word || definitionData.word.trim() === '') {
@@ -62,6 +66,30 @@ export class DefinitionService {
 
       const result =
         await this.definitionSchema.createDefinition(definitionWithId);
+
+      // Create discussion if provided
+      if (definitionData.discussion) {
+        try {
+          const discussion = await this.discussionService.createDiscussion({
+            createdBy: definitionData.createdBy,
+            associatedNodeId: result.id,
+            associatedNodeType: 'DefinitionNode',
+            initialComment: definitionData.discussion,
+          });
+
+          await this.definitionSchema.updateDefinitionWithDiscussionId(
+            result.id,
+            discussion.id,
+          );
+
+          this.logger.debug(
+            `Created discussion for definition: ${JSON.stringify(discussion)}`,
+          );
+        } catch (error) {
+          this.logger.warn(`Failed to create discussion: ${error.message}`);
+          // Continue even if creating the discussion fails
+        }
+      }
 
       // Track creation for non-API users
       if (
@@ -145,18 +173,68 @@ export class DefinitionService {
     }
   }
 
-  async updateDefinition(id: string, updateData: { definitionText: string }) {
+  async getDefinitionWithDiscussion(id: string) {
+    if (!id || id.trim() === '') {
+      this.logger.warn('Attempted to get definition with empty ID');
+      throw new BadRequestException('Definition ID cannot be empty');
+    }
+
+    try {
+      const definition = await this.getDefinition(id);
+
+      if (!definition) {
+        return null;
+      }
+
+      // Fetch associated discussion if exists
+      if (definition.discussionId) {
+        const discussion = await this.discussionService.getDiscussion(
+          definition.discussionId,
+        );
+        definition.discussion = discussion;
+      }
+
+      return definition;
+    } catch (error) {
+      // Re-throw expected exceptions
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error getting definition with discussion ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(
+        `Failed to get definition with discussion: ${error.message}`,
+      );
+    }
+  }
+
+  async updateDefinition(
+    id: string,
+    updateData: { definitionText?: string; discussionId?: string },
+  ) {
     if (!id || id.trim() === '') {
       this.logger.warn('Attempted to update definition with empty ID');
       throw new BadRequestException('Definition ID cannot be empty');
     }
 
-    if (!updateData.definitionText || updateData.definitionText.trim() === '') {
+    if (
+      updateData.definitionText !== undefined &&
+      updateData.definitionText.trim() === ''
+    ) {
       this.logger.warn(`Attempted to update definition ${id} with empty text`);
       throw new BadRequestException('Definition text cannot be empty');
     }
 
-    if (updateData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH) {
+    if (
+      updateData.definitionText &&
+      updateData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
+    ) {
       this.logger.warn(
         `Definition text exceeds maximum length for update: ${id}`,
       );
@@ -173,6 +251,10 @@ export class DefinitionService {
         id,
         updateData,
       );
+      if (!updatedDefinition) {
+        throw new NotFoundException(`Definition with ID ${id} not found`);
+      }
+
       this.logger.log(`Successfully updated definition: ${id}`);
       this.logger.debug(
         `Updated definition: ${JSON.stringify(updatedDefinition)}`,

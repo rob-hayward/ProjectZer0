@@ -9,6 +9,7 @@ import { KeywordExtractionModule } from '../../services/keyword-extraction/keywo
 import { VoteSchema } from '../../neo4j/schemas/vote.schema';
 import { VoteModule } from '../../neo4j/vote/vote.module';
 import { DiscussionModule } from '../discussion/discussion.module';
+import { CommentModule } from '../comment/comment.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { DiscussionModule } from '../discussion/discussion.module';
     KeywordExtractionModule,
     VoteModule,
     DiscussionModule,
+    CommentModule,
   ],
   controllers: [QuantityController],
   providers: [QuantityService, QuantitySchema, VoteSchema, Logger],

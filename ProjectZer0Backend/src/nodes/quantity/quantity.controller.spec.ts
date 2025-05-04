@@ -2,11 +2,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { QuantityController } from './quantity.controller';
 import { QuantityService } from './quantity.service';
+import { DiscussionService } from '../discussion/discussion.service';
+import { CommentService } from '../comment/comment.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('QuantityController', () => {
   let controller: QuantityController;
   let service: jest.Mocked<QuantityService>;
+  let discussionService: jest.Mocked<DiscussionService>;
+  let commentService: jest.Mocked<CommentService>;
 
   beforeEach(async () => {
     const mockQuantityService = {
@@ -22,6 +26,16 @@ describe('QuantityController', () => {
       getVisibilityStatus: jest.fn(),
     };
 
+    const mockDiscussionService = {
+      createDiscussion: jest.fn(),
+      getDiscussion: jest.fn(),
+    };
+
+    const mockCommentService = {
+      createComment: jest.fn(),
+      getCommentsByDiscussionId: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [QuantityController],
       providers: [
@@ -29,11 +43,21 @@ describe('QuantityController', () => {
           provide: QuantityService,
           useValue: mockQuantityService,
         },
+        {
+          provide: DiscussionService,
+          useValue: mockDiscussionService,
+        },
+        {
+          provide: CommentService,
+          useValue: mockCommentService,
+        },
       ],
     }).compile();
 
     controller = module.get<QuantityController>(QuantityController);
     service = module.get(QuantityService);
+    discussionService = module.get(DiscussionService);
+    commentService = module.get(CommentService);
   });
 
   it('should be defined', () => {
@@ -439,6 +463,211 @@ describe('QuantityController', () => {
         BadRequestException,
       );
       expect(service.getStatistics).not.toHaveBeenCalled();
+    });
+  });
+
+  // New tests for discussion functionality
+  describe('getQuantityNodeWithDiscussion', () => {
+    it('should get a quantity node with its discussion', async () => {
+      const mockNode = {
+        id: 'test-id',
+        question: 'Test question?',
+        discussionId: 'discussion-id',
+      };
+      service.getQuantityNode.mockResolvedValue(mockNode);
+
+      const result = await controller.getQuantityNodeWithDiscussion('test-id');
+
+      expect(service.getQuantityNode).toHaveBeenCalledWith('test-id');
+      expect(result).toEqual(mockNode);
+    });
+
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(
+        controller.getQuantityNodeWithDiscussion(''),
+      ).rejects.toThrow(BadRequestException);
+      expect(service.getQuantityNode).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when node not found', async () => {
+      service.getQuantityNode.mockResolvedValue(null);
+
+      await expect(
+        controller.getQuantityNodeWithDiscussion('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getQuantityNodeComments', () => {
+    it('should get comments for a quantity node with discussion', async () => {
+      const mockNode = {
+        id: 'test-id',
+        discussionId: 'discussion-id',
+      };
+      service.getQuantityNode.mockResolvedValue(mockNode);
+
+      const mockComments = [
+        { id: 'comment-1', commentText: 'First comment' },
+        { id: 'comment-2', commentText: 'Second comment' },
+      ];
+      commentService.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      const result = await controller.getQuantityNodeComments('test-id');
+
+      expect(service.getQuantityNode).toHaveBeenCalledWith('test-id');
+      expect(commentService.getCommentsByDiscussionId).toHaveBeenCalledWith(
+        'discussion-id',
+      );
+      expect(result).toEqual({ comments: mockComments });
+    });
+
+    it('should return empty comments array when node has no discussion', async () => {
+      const mockNode = {
+        id: 'test-id',
+        // No discussionId
+      };
+      service.getQuantityNode.mockResolvedValue(mockNode);
+
+      const result = await controller.getQuantityNodeComments('test-id');
+
+      expect(service.getQuantityNode).toHaveBeenCalledWith('test-id');
+      expect(commentService.getCommentsByDiscussionId).not.toHaveBeenCalled();
+      expect(result).toEqual({ comments: [] });
+    });
+
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(controller.getQuantityNodeComments('')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(service.getQuantityNode).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when node not found', async () => {
+      service.getQuantityNode.mockResolvedValue(null);
+
+      await expect(
+        controller.getQuantityNodeComments('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('addQuantityNodeComment', () => {
+    const commentData = {
+      commentText: 'This is a test comment',
+      parentCommentId: 'parent-comment-id',
+    };
+
+    const mockRequest = {
+      user: { sub: 'user1' },
+    };
+
+    it('should create a comment for a quantity node with existing discussion', async () => {
+      const mockNode = {
+        id: 'test-id',
+        discussionId: 'discussion-id',
+      };
+      service.getQuantityNode.mockResolvedValue(mockNode);
+
+      const mockComment = {
+        id: 'comment-id',
+        commentText: 'This is a test comment',
+        createdBy: 'user1',
+        discussionId: 'discussion-id',
+        parentCommentId: 'parent-comment-id',
+      };
+      commentService.createComment.mockResolvedValue(mockComment);
+
+      const result = await controller.addQuantityNodeComment(
+        'test-id',
+        commentData,
+        mockRequest,
+      );
+
+      expect(service.getQuantityNode).toHaveBeenCalledWith('test-id');
+      expect(discussionService.createDiscussion).not.toHaveBeenCalled();
+      expect(commentService.createComment).toHaveBeenCalledWith({
+        createdBy: 'user1',
+        discussionId: 'discussion-id',
+        commentText: 'This is a test comment',
+        parentCommentId: 'parent-comment-id',
+      });
+      expect(result).toEqual(mockComment);
+    });
+
+    it('should create a discussion and comment for a node without discussion', async () => {
+      const mockNode = {
+        id: 'test-id',
+        // No discussionId
+      };
+      service.getQuantityNode.mockResolvedValue(mockNode);
+
+      const mockDiscussion = {
+        id: 'new-discussion-id',
+        createdBy: 'user1',
+      };
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussion);
+
+      const mockComment = {
+        id: 'comment-id',
+        commentText: 'This is a test comment',
+        createdBy: 'user1',
+        discussionId: 'new-discussion-id',
+        parentCommentId: 'parent-comment-id',
+      };
+      commentService.createComment.mockResolvedValue(mockComment);
+
+      const result = await controller.addQuantityNodeComment(
+        'test-id',
+        commentData,
+        mockRequest,
+      );
+
+      expect(service.getQuantityNode).toHaveBeenCalledWith('test-id');
+      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+        createdBy: 'user1',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'QuantityNode',
+      });
+      expect(service.updateQuantityNode).toHaveBeenCalledWith('test-id', {
+        discussionId: 'new-discussion-id',
+      });
+      expect(commentService.createComment).toHaveBeenCalledWith({
+        createdBy: 'user1',
+        discussionId: 'new-discussion-id',
+        commentText: 'This is a test comment',
+        parentCommentId: 'parent-comment-id',
+      });
+      expect(result).toEqual(mockComment);
+    });
+
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(
+        controller.addQuantityNodeComment('', commentData, mockRequest),
+      ).rejects.toThrow(BadRequestException);
+      expect(service.getQuantityNode).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException for empty comment text', async () => {
+      await expect(
+        controller.addQuantityNodeComment(
+          'test-id',
+          { ...commentData, commentText: '' },
+          mockRequest,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(service.getQuantityNode).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when node not found', async () => {
+      service.getQuantityNode.mockResolvedValue(null);
+
+      await expect(
+        controller.addQuantityNodeComment(
+          'nonexistent-id',
+          commentData,
+          mockRequest,
+        ),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
