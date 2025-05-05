@@ -1,20 +1,20 @@
 // src/lib/types/graph/enhanced.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode, CommentNode } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network' | 'quantity';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'quantity';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'quantity';
-export type LinkType = 'live' | 'alternative' | 'related';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'quantity' |'comment' | 'comment-form';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'quantity' | 'comment' | 'comment-form';
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
 export interface NodeMetadata {
     centralRadius?: number;
-    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'quantity';
+    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'quantity'| 'comment' | 'comment-form';
     fixed?: boolean;
     isDetail?: boolean;
     votes?: number;
@@ -28,7 +28,7 @@ export interface NodeMetadata {
 export interface GraphNode {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData;
     group: NodeGroup;
     mode?: NodeMode;
 }
@@ -257,6 +257,12 @@ export const isStatementNode = (node: RenderableNode): node is RenderableNode & 
 
 export const isQuantityNode = (node: RenderableNode): node is RenderableNode & { data: QuantityNode } =>
     node.type === 'quantity' && isQuantityData(node.data);
+
+export const isCommentNode = (node: RenderableNode): node is RenderableNode & { data: CommentNode } =>
+    node.type === 'comment';
+    
+export const isCommentFormNode = (node: RenderableNode): boolean =>
+    node.type === 'comment-form';
 
 // Link type guards
 export const isLiveLink = (link: RenderableLink): boolean =>

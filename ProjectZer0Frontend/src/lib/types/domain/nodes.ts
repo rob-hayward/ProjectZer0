@@ -80,6 +80,38 @@ export interface QuantityNode {
     };
 }
 
+/**
+ * Interface representing a Comment Node
+ */
+export interface CommentNode {
+    id: string;
+    commentText: string;
+    createdBy: string;
+    createdAt: string | Date;
+    updatedAt?: string | Date;
+    parentCommentId?: string;
+    positiveVotes: number;
+    negativeVotes: number;
+    publicCredit?: boolean;
+    childComments?: CommentNode[];
+    depth?: number;
+    isVisible?: boolean;
+    isExpanded?: boolean;
+}
+
+/**
+ * Simple interface for comment form data
+ */
+export interface CommentFormData {
+    id: string;
+    parentCommentId?: string | null;
+    // Add these properties to satisfy union type compatibility
+    // The actual implementation won't use these, but TypeScript needs them
+    sub?: string; // To satisfy UserProfile
+    label?: string; // To satisfy NavigationOption
+    word?: string; // To satisfy WordNode
+}
+
 // Common types
 export type VoteStatus = 'agree' | 'disagree' | 'none';
 

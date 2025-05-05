@@ -16,7 +16,7 @@ export const NavigationOptionId = {
     CREATIONS: 'creations',
     LOGOUT: 'logout',
     ALTERNATIVE_DEFINITIONS: 'alternative-definitions',
-    CREATE_DEFINITION: 'create-definition', // Renamed from CREATE_ALTERNATIVE
+    CREATE_DEFINITION: 'create-definition', 
     DISCUSS: 'discuss'
 } as const;
 
