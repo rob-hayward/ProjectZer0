@@ -62,15 +62,125 @@ function updateGraphStore(viewType: ViewType): void {
     }
 }
 
+/**
+ * Determines the appropriate API endpoint for node discussions based on node type
+ * 
+ * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeId The ID of the node
+ * @param nodeText Optional text representation (for word nodes)
+ * @returns The appropriate API endpoint
+ */
+export function getNodeDiscussionEndpoint(
+    nodeType: string, 
+    nodeId: string, 
+    nodeText?: string,
+    wordObject?: any
+  ): string {
+    switch (nodeType) {
+      case 'statement':
+      case 'quantity':
+        // These node types use ID-based endpoints with a standard pattern
+        return `/nodes/${nodeType}/${nodeId}/discussion`;
+      case 'word':
+        // For word nodes, we need the actual word text, not ID
+        if (wordObject && wordObject.word) {
+          return `/nodes/word/${wordObject.word}/discussion`;
+        } else if (nodeText) {
+          return `/nodes/word/${nodeText}/discussion`;
+        } else {
+          console.warn('Word node requires word text for discussion endpoint');
+          return '';
+        }
+      case 'definition':
+        // Definition nodes use a different base path
+        return `/definitions/${nodeId}/discussion`;
+      default:
+        console.warn(`Unknown node type: ${nodeType}`);
+        return '';
+    }
+  }
+
+/**
+ * Determines the appropriate API endpoint for node comments based on node type
+ * 
+ * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeId The ID of the node
+ * @param nodeText Optional text representation (for word nodes)
+ * @returns The appropriate API endpoint
+ */
+export function getNodeCommentsEndpoint(
+    nodeType: string, 
+    nodeId: string, 
+    nodeText?: string,
+    wordObject?: any
+  ): string {
+    switch (nodeType) {
+      case 'statement':
+      case 'quantity':
+        // These node types use ID-based endpoints with a standard pattern
+        return `/nodes/${nodeType}/${nodeId}/comments`;
+      case 'word':
+        // For word nodes, we need the actual word text, not ID
+        if (wordObject && wordObject.word) {
+          return `/nodes/word/${wordObject.word}/comments`;
+        } else if (nodeText) {
+          return `/nodes/word/${nodeText}/comments`;
+        } else {
+          console.warn('Word node requires word text for comments endpoint');
+          return '';
+        }
+      case 'definition':
+        // Definition nodes use a different base path
+        return `/definitions/${nodeId}/comments`;
+      default:
+        console.warn(`Unknown node type: ${nodeType}`);
+        return '';
+    }
+  }
+
+/**
+ * Determines the appropriate API endpoint for fetching node data based on node type
+ * 
+ * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeId The ID of the node
+ * @param nodeText Optional text representation (for word nodes)
+ * @returns The appropriate API endpoint
+ */
+export function getNodeDataEndpoint(
+    nodeType: string, 
+    nodeId: string, 
+    nodeText?: string
+  ): string {
+    switch (nodeType) {
+      case 'statement':
+      case 'quantity':
+        // These node types use ID-based endpoints
+        return `/nodes/${nodeType}/${nodeId}`;
+      case 'word':
+        // For word nodes, try to find the word by ID first, and if that fails, 
+        // we'll need to implement a lookup by ID
+        return `/nodes/word/id/${nodeId}`;
+      case 'definition':
+        // Definition nodes use a different base path
+        return `/definitions/${nodeId}`;
+      default:
+        console.warn(`Unknown node type: ${nodeType}`);
+        return '';
+    }
+  }
+
 // New function for node-specific navigation to discussion
-export function navigateToNodeDiscussion(nodeType: string, nodeId: string): void {
+export function navigateToNodeDiscussion(nodeType: string, nodeId: string, nodeText?: string): void {
     console.log(`[Navigation] Navigating to discussion for ${nodeType} node: ${nodeId}`);
     
     // First update the graph store to discussion view
     updateGraphStore('discussion');
     
+    // For word nodes, use the text instead of ID in the URL if available
+    const useId = nodeType === 'word' && nodeText ? nodeText : nodeId;
+    
     // Then navigate to the discussion view for this node
-    window.location.href = `/graph/discussion/${nodeType}/${nodeId}`;
+    window.location.href = `/graph/discussion/${nodeType}/${useId}`;
 }
 
 // Navigation action handlers
@@ -140,7 +250,7 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
         
         if (currentWord) {
             // Use the new navigation function for consistency
-            navigateToNodeDiscussion('word', currentWord.id);
+            navigateToNodeDiscussion('word', currentWord.id, currentWord.word);
         } else {
             // Try to get word from URL if we're already in a word view
             console.warn('[Navigation] No word in store, checking URL for word parameter');

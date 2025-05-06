@@ -10,11 +10,16 @@
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import CommentNode from '$lib/components/graph/nodes/comment/CommentNode.svelte';
     import CommentFormNode from '$lib/components/graph/nodes/comment/CommentForm.svelte';
-    import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
+    import { 
+        getNavigationOptions, 
+        NavigationContext, 
+        getNodeDataEndpoint 
+    } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { discussionStore, type CommentSortMode } from '$lib/stores/discussionStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
+    import { discussionService } from '$lib/services/discussionService';
     import type { 
         GraphData, 
         GraphNode, 
@@ -47,6 +52,9 @@
     $: nodeType = $page.params.nodeType || '';
     $: nodeId = $page.params.nodeId || '';
     
+    // For word nodes, nodeId might be the word text
+    $: nodeText = nodeType === 'word' ? nodeId : undefined;
+    
     // Track initialization states
     let authInitialized = false;
     let dataInitialized = false;
@@ -65,60 +73,90 @@
     
     // Initialize data and authenticate user
     async function initializeData() {
-        try {
-            await auth0.handleAuthCallback();
-            const fetchedUser = await auth0.getAuth0User();
-            
-            if (!fetchedUser) {
-                auth0.login();
-                return;
-            }
-            
-            authInitialized = true;
-            userStore.set(fetchedUser);
-            
-            // Validate parameters
-            if (!nodeType || !nodeId) {
-                error = 'Invalid node type or ID';
-                isLoading = false;
-                return;
-            }
-            
-            // Load discussion and comments
-            await discussionStore.loadDiscussion(nodeType, nodeId, sortMode);
-            
-            // Load visibility preferences
-            await visibilityStore.loadPreferences();
-            
-            // Fetch the central node data based on node type
-            // Updated to use fetchWithAuth for consistent authentication and correct API path
-            try {
-                const centralNodeData = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}`);
-                
-                if (centralNodeData) {
-                    centralNode = centralNodeData;
-                    dataInitialized = true;
-                } else {
-                    throw new Error(`No ${nodeType} data returned from API`);
-                }
-            } catch (nodeError) {
-                console.error(`Error fetching ${nodeType} data:`, nodeError);
-                throw new Error(`Failed to fetch ${nodeType} data`);
-            }
-            
-            isLoading = false;
-            
-            // Set the correct view type in graph store and force update
-            if (graphStore) {
-                graphStore.setViewType(viewType);
-                graphStore.forceTick();
-            }
-        } catch (err) {
-            console.error('Error initializing discussion view:', err);
-            error = err instanceof Error ? err.message : 'An error occurred';
-            isLoading = false;
+    try {
+        await auth0.handleAuthCallback();
+        const fetchedUser = await auth0.getAuth0User();
+        
+        if (!fetchedUser) {
+            auth0.login();
+            return;
         }
+        
+        authInitialized = true;
+        userStore.set(fetchedUser);
+        
+        // Validate parameters
+        if (!nodeType || !nodeId) {
+            error = 'Invalid node type or ID';
+            isLoading = false;
+            return;
+        }
+        
+        // For word nodes, we need to handle them differently
+        if (nodeType === 'word') {
+            try {
+                // First get all words to find the one with matching ID
+                const allWords = await fetchWithAuth('/nodes/word/all');
+                if (Array.isArray(allWords)) {
+                    const wordData = allWords.find(word => word.id === nodeId);
+                    if (wordData) {
+                        // Now we have the word text, fetch the full word data
+                        const fullWordData = await fetchWithAuth(`/nodes/word/${wordData.word}`);
+                        if (fullWordData) {
+                            centralNode = fullWordData;
+                            nodeText = wordData.word; // Set nodeText for API calls
+                            
+                            // Load discussion using the word text
+                            await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
+                            dataInitialized = true;
+                        } else {
+                            throw new Error(`Full word data not found for: ${wordData.word}`);
+                        }
+                    } else {
+                        throw new Error(`Word with ID ${nodeId} not found`);
+                    }
+                } else {
+                    throw new Error('Failed to fetch word list');
+                }
+            } catch (wordError) {
+                if (wordError instanceof Error) {
+                    console.error(`Error processing word node: ${wordError.message}`);
+                } else {
+                    console.error('Error processing word node:', wordError);
+                }
+                throw new Error(`Failed to process word node: ${wordError instanceof Error ? wordError.message : String(wordError)}`);
+            }
+        } else {
+            // For other node types, proceed normally
+            // Load discussion and comments
+            await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
+            
+            // Fetch the central node data
+            centralNode = await discussionService.getNodeData(nodeType, nodeId, nodeText);
+            
+            if (!centralNode) {
+                throw new Error(`No ${nodeType} data returned from API`);
+            }
+            
+            dataInitialized = true;
+        }
+        
+        // Load visibility preferences
+        await visibilityStore.loadPreferences();
+        
+        isLoading = false;
+        
+        // Set the correct view type in graph store and force update
+        if (graphStore) {
+            graphStore.setViewType(viewType);
+            graphStore.forceTick();
+        }
+    } catch (err) {
+        console.error('Error initializing discussion view:', err);
+        error = err instanceof Error ? err.message : 'An error occurred';
+        isLoading = false;
     }
+}
     
     // Event handlers
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
@@ -154,12 +192,13 @@
         const { text, parentId } = event.detail;
         
         try {
-            // Convert null to undefined if needed for discussionStore API
+            // Pass nodeText for word nodes and convert null to undefined if needed
             const newComment = await discussionStore.addComment(
                 nodeType, 
                 nodeId, 
                 text, 
-                parentId !== null ? parentId : undefined
+                parentId !== null ? parentId : undefined,
+                nodeText
             );
             
             if (newComment) {

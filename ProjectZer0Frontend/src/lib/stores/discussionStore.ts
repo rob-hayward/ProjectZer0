@@ -3,6 +3,7 @@ import { writable, derived, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { userStore } from '$lib/stores/userStore';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+import { discussionService } from '$lib/services/discussionService';
 
 export type CommentSortMode = 'popularity' | 'newest' | 'oldest';
 
@@ -178,19 +179,19 @@ function createDiscussionStore() {
         subscribe,
         
         // Load a discussion and its comments
-        async loadDiscussion(nodeType: string, nodeId: string, sortMode: CommentSortMode = 'popularity'): Promise<void> {
+        async loadDiscussion(nodeType: string, nodeId: string, sortMode: CommentSortMode = 'popularity', nodeText?: string): Promise<void> {
             update(state => ({ ...state, isLoading: true, error: null }));
             
             try {
-                // Fetch the discussion
-                const discussion = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/discussion`);
+                // Use discussionService to handle different API patterns
+                const discussion = await discussionService.getDiscussion(nodeType, nodeId, nodeText);
                 
                 if (!discussion) {
                     throw new Error('Discussion not found');
                 }
                 
-                // Fetch comments with the specified sort mode
-                const comments = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/comments?sortBy=${sortMode}`);
+                // Fetch comments with the specified sort mode, using discussionService
+                const comments = await discussionService.getComments(nodeType, nodeId, sortMode, nodeText);
                 
                 const processedComments = Array.isArray(comments) ? comments : [];
                 
@@ -298,7 +299,7 @@ function createDiscussionStore() {
         },
         
         // Add a new comment to the discussion
-        async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string): Promise<Comment | null> {
+        async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
             const currentUser = get(userStore);
             if (!currentUser) return null;
             
@@ -310,13 +311,14 @@ function createDiscussionStore() {
             }));
             
             try {
-                const response = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/comments`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        commentText,
-                        parentCommentId
-                    })
-                });
+                // Use discussionService to handle different API patterns
+                const response = await discussionService.addComment(
+                    nodeType, 
+                    nodeId, 
+                    commentText, 
+                    parentCommentId, 
+                    nodeText
+                );
                 
                 if (!response || !response.id) {
                     throw new Error('Failed to create comment');
@@ -391,17 +393,10 @@ function createDiscussionStore() {
                 
                 if (voteType === 'none') {
                     // Remove vote
-                    result = await fetchWithAuth(`/comments/${commentId}/vote/remove`, {
-                        method: 'POST'
-                    });
+                    result = await discussionService.removeVote(commentId);
                 } else {
                     // Add/update vote
-                    result = await fetchWithAuth(`/comments/${commentId}/vote`, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            isPositive: voteType === 'agree'
-                        })
-                    });
+                    result = await discussionService.voteOnComment(commentId, voteType === 'agree');
                 }
                 
                 if (!result) {

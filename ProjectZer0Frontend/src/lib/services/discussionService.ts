@@ -1,6 +1,7 @@
 // src/lib/services/discussionService.ts
 import { fetchWithAuth } from './api';
 import type { Discussion, Comment, CommentSortMode } from '$lib/stores/discussionStore';
+import { getNodeDiscussionEndpoint, getNodeCommentsEndpoint, getNodeDataEndpoint } from './navigation';
 
 /**
  * Service to handle discussion-related API operations
@@ -9,9 +10,16 @@ export const discussionService = {
     /**
      * Get a discussion by node type and ID
      */
-    async getDiscussion(nodeType: string, nodeId: string): Promise<Discussion | null> {
+    async getDiscussion(nodeType: string, nodeId: string, nodeText?: string): Promise<Discussion | null> {
         try {
-            const discussion = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/discussion`);
+            // Use the utility function to get the correct endpoint
+            const endpoint = getNodeDiscussionEndpoint(nodeType, nodeId, nodeText);
+            
+            if (!endpoint) {
+                throw new Error(`Unable to determine discussion endpoint for ${nodeType} node`);
+            }
+            
+            const discussion = await fetchWithAuth(endpoint);
             return discussion;
         } catch (error) {
             console.error(`Error fetching discussion for ${nodeType}/${nodeId}:`, error);
@@ -22,9 +30,16 @@ export const discussionService = {
     /**
      * Get comments for a discussion with optional sorting
      */
-    async getComments(nodeType: string, nodeId: string, sortBy: CommentSortMode = 'popularity'): Promise<Comment[]> {
+    async getComments(nodeType: string, nodeId: string, sortBy: CommentSortMode = 'popularity', nodeText?: string): Promise<Comment[]> {
         try {
-            const comments = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/comments?sortBy=${sortBy}`);
+            // Use the utility function to get the correct endpoint
+            const endpoint = getNodeCommentsEndpoint(nodeType, nodeId, nodeText);
+            
+            if (!endpoint) {
+                throw new Error(`Unable to determine comments endpoint for ${nodeType} node`);
+            }
+            
+            const comments = await fetchWithAuth(`${endpoint}?sortBy=${sortBy}`);
             return Array.isArray(comments) ? comments : [];
         } catch (error) {
             console.error(`Error fetching comments for ${nodeType}/${nodeId}:`, error);
@@ -35,9 +50,16 @@ export const discussionService = {
     /**
      * Add a comment to a discussion
      */
-    async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string): Promise<Comment | null> {
+    async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
         try {
-            const response = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}/comments`, {
+            // Use the utility function to get the correct endpoint
+            const endpoint = getNodeCommentsEndpoint(nodeType, nodeId, nodeText);
+            
+            if (!endpoint) {
+                throw new Error(`Unable to determine comments endpoint for ${nodeType} node`);
+            }
+            
+            const response = await fetchWithAuth(endpoint, {
                 method: 'POST',
                 body: JSON.stringify({
                     commentText,
@@ -49,6 +71,45 @@ export const discussionService = {
         } catch (error) {
             console.error('Error adding comment:', error);
             return null;
+        }
+    },
+    
+   
+    /**
+     * Get node data based on node type
+     */
+    async getNodeData(nodeType: string, nodeId: string, nodeText?: string): Promise<any> {
+        try {
+        if (nodeType === 'word') {
+            // Special handling for word nodes since they require the word text, not ID
+            if (nodeText) {
+            // If we have the word text, use it directly
+            return await fetchWithAuth(`/nodes/word/${nodeText}`);
+            } else {
+            // If we only have the ID, we need to first fetch all words and find the matching one
+            const allWords = await fetchWithAuth('/nodes/word/all');
+            if (Array.isArray(allWords)) {
+                const wordData = allWords.find(word => word.id === nodeId);
+                if (wordData) {
+                // Now fetch the complete word data using the word text
+                return await fetchWithAuth(`/nodes/word/${wordData.word}`);
+                }
+            }
+            throw new Error(`Word with ID ${nodeId} not found`);
+            }
+        } else {
+            // For other node types, use the standard endpoint
+            const endpoint = getNodeDataEndpoint(nodeType, nodeId, nodeText);
+            
+            if (!endpoint) {
+            throw new Error(`Unable to determine data endpoint for ${nodeType} node`);
+            }
+            
+            return await fetchWithAuth(endpoint);
+        }
+        } catch (error) {
+        console.error(`Error fetching ${nodeType} data:`, error);
+        return null;
         }
     },
     
