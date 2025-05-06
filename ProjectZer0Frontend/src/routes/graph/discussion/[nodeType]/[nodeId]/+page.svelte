@@ -1,6 +1,6 @@
 <!-- src/routes/graph/discussion/[nodeType]/[nodeId]/+page.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, afterUpdate } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
     import Graph from '$lib/components/graph/Graph.svelte';
     import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
@@ -73,93 +73,116 @@
     
     // Initialize data and authenticate user
     async function initializeData() {
-    try {
-        await auth0.handleAuthCallback();
-        const fetchedUser = await auth0.getAuth0User();
-        
-        if (!fetchedUser) {
-            auth0.login();
-            return;
-        }
-        
-        authInitialized = true;
-        userStore.set(fetchedUser);
-        
-        // Validate parameters
-        if (!nodeType || !nodeId) {
-            error = 'Invalid node type or ID';
-            isLoading = false;
-            return;
-        }
-        
-        // For word nodes, we need to handle them differently
-        if (nodeType === 'word') {
-            try {
-                // First get all words to find the one with matching ID
-                const allWords = await fetchWithAuth('/nodes/word/all');
-                if (Array.isArray(allWords)) {
-                    const wordData = allWords.find(word => word.id === nodeId);
-                    if (wordData) {
-                        // Now we have the word text, fetch the full word data
-                        const fullWordData = await fetchWithAuth(`/nodes/word/${wordData.word}`);
-                        if (fullWordData) {
-                            centralNode = fullWordData;
-                            nodeText = wordData.word; // Set nodeText for API calls
+        console.log('[DiscussionView] Starting data initialization...');
+        try {
+            await auth0.handleAuthCallback();
+            const fetchedUser = await auth0.getAuth0User();
+            
+            if (!fetchedUser) {
+                console.log('[DiscussionView] No user found, redirecting to login');
+                auth0.login();
+                return;
+            }
+            
+            authInitialized = true;
+            userStore.set(fetchedUser);
+            console.log('[DiscussionView] User authenticated:', fetchedUser.sub);
+            
+            // Validate parameters
+            if (!nodeType || !nodeId) {
+                error = 'Invalid node type or ID';
+                isLoading = false;
+                console.error('[DiscussionView] Missing node type or ID:', { nodeType, nodeId });
+                return;
+            }
+            
+            console.log(`[DiscussionView] Loading discussion for ${nodeType}/${nodeId}`);
+            
+            // For word nodes, we need to handle them differently
+            if (nodeType === 'word') {
+                try {
+                    console.log('[DiscussionView] Handling word node, fetching all words first');
+                    // First get all words to find the one with matching ID
+                    const allWords = await fetchWithAuth('/nodes/word/all');
+                    console.log('[DiscussionView] Fetched all words, count:', allWords?.length);
+                    
+                    if (Array.isArray(allWords)) {
+                        const wordData = allWords.find(word => word.id === nodeId);
+                        if (wordData) {
+                            console.log('[DiscussionView] Found matching word:', wordData.word);
+                            // Now we have the word text, fetch the full word data
+                            const fullWordData = await fetchWithAuth(`/nodes/word/${wordData.word}`);
+                            console.log('[DiscussionView] Fetched full word data:', fullWordData?.id);
                             
-                            // Load discussion using the word text
-                            await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
-                            dataInitialized = true;
+                            if (fullWordData) {
+                                centralNode = fullWordData;
+                                nodeText = wordData.word; // Set nodeText for API calls
+                                
+                                // Load discussion using the word text
+                                console.log(`[DiscussionView] Loading discussion for word: ${nodeText}`);
+                                await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
+                                console.log('[DiscussionView] Discussion loaded, comments:', $discussionStore.comments?.length);
+                                dataInitialized = true;
+                            } else {
+                                throw new Error(`Full word data not found for: ${wordData.word}`);
+                            }
                         } else {
-                            throw new Error(`Full word data not found for: ${wordData.word}`);
+                            throw new Error(`Word with ID ${nodeId} not found`);
                         }
                     } else {
-                        throw new Error(`Word with ID ${nodeId} not found`);
+                        throw new Error('Failed to fetch word list');
                     }
-                } else {
-                    throw new Error('Failed to fetch word list');
+                } catch (wordError) {
+                    if (wordError instanceof Error) {
+                        console.error(`[DiscussionView] Error processing word node: ${wordError.message}`);
+                    } else {
+                        console.error('[DiscussionView] Error processing word node:', wordError);
+                    }
+                    throw new Error(`Failed to process word node: ${wordError instanceof Error ? wordError.message : String(wordError)}`);
                 }
-            } catch (wordError) {
-                if (wordError instanceof Error) {
-                    console.error(`Error processing word node: ${wordError.message}`);
-                } else {
-                    console.error('Error processing word node:', wordError);
+            } else {
+                // For other node types, proceed normally
+                console.log(`[DiscussionView] Loading discussion for ${nodeType}/${nodeId} directly`);
+                // Load discussion and comments
+                await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
+                console.log('[DiscussionView] Discussion loaded, comments:', $discussionStore.comments?.length);
+                
+                // Fetch the central node data
+                console.log(`[DiscussionView] Fetching central node data for ${nodeType}/${nodeId}`);
+                centralNode = await discussionService.getNodeData(nodeType, nodeId, nodeText);
+                console.log('[DiscussionView] Central node data fetched:', centralNode?.id);
+                
+                if (!centralNode) {
+                    throw new Error(`No ${nodeType} data returned from API`);
                 }
-                throw new Error(`Failed to process word node: ${wordError instanceof Error ? wordError.message : String(wordError)}`);
-            }
-        } else {
-            // For other node types, proceed normally
-            // Load discussion and comments
-            await discussionStore.loadDiscussion(nodeType, nodeId, sortMode, nodeText);
-            
-            // Fetch the central node data
-            centralNode = await discussionService.getNodeData(nodeType, nodeId, nodeText);
-            
-            if (!centralNode) {
-                throw new Error(`No ${nodeType} data returned from API`);
+                
+                dataInitialized = true;
             }
             
-            dataInitialized = true;
+            // Load visibility preferences
+            console.log('[DiscussionView] Loading visibility preferences');
+            await visibilityStore.loadPreferences();
+            
+            isLoading = false;
+            
+            // Set the correct view type in graph store and force update
+            if (graphStore) {
+                console.log('[DiscussionView] Setting graph store view type to:', viewType);
+                graphStore.setViewType(viewType);
+                graphStore.forceTick();
+            }
+            
+            console.log('[DiscussionView] Data initialization complete');
+        } catch (err) {
+            console.error('[DiscussionView] Error initializing discussion view:', err);
+            error = err instanceof Error ? err.message : 'An error occurred';
+            isLoading = false;
         }
-        
-        // Load visibility preferences
-        await visibilityStore.loadPreferences();
-        
-        isLoading = false;
-        
-        // Set the correct view type in graph store and force update
-        if (graphStore) {
-            graphStore.setViewType(viewType);
-            graphStore.forceTick();
-        }
-    } catch (err) {
-        console.error('Error initializing discussion view:', err);
-        error = err instanceof Error ? err.message : 'An error occurred';
-        isLoading = false;
     }
-}
     
     // Event handlers
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode }>) {
+        console.log('[DiscussionView] Node mode change event:', event.detail);
         // Update the graph store
         if (graphStore) {
             graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
@@ -167,6 +190,7 @@
     }
     
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
+        console.log('[DiscussionView] Visibility change event:', event.detail);
         // Update visibility in stores
         visibilityStore.setPreference(event.detail.nodeId, !event.detail.isHidden);
         discussionStore.setVisibilityPreference(event.detail.nodeId, !event.detail.isHidden);
@@ -178,6 +202,7 @@
     }
     
     function handleSortChange(mode: CommentSortMode) {
+        console.log('[DiscussionView] Sort mode changed to:', mode);
         sortMode = mode;
         discussionStore.setSortMode(mode);
         // Force re-render with new key
@@ -185,11 +210,13 @@
     }
     
     function handleAddRootComment() {
+        console.log('[DiscussionView] Add root comment button clicked');
         isAddingRootComment = true;
     }
     
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
         const { text, parentId } = event.detail;
+        console.log('[DiscussionView] Comment submit event:', { text, parentId });
         
         try {
             // Pass nodeText for word nodes and convert null to undefined if needed
@@ -202,38 +229,41 @@
             );
             
             if (newComment) {
-                console.log('Comment added successfully:', newComment);
+                console.log('[DiscussionView] Comment added successfully:', newComment.id);
                 // Reset state
                 isAddingRootComment = false;
                 // Force re-render
                 routeKey = `${viewType}-${nodeType}-${nodeId}-${Date.now()}`;
             }
         } catch (err) {
-            console.error('Error adding comment:', err);
+            console.error('[DiscussionView] Error adding comment:', err);
         }
     }
     
     function handleCommentCancel() {
+        console.log('[DiscussionView] Comment cancelled');
         isAddingRootComment = false;
         discussionStore.cancelAddingComment();
     }
     
     function handleReply(event: CustomEvent<{ commentId: string }>) {
+        console.log('[DiscussionView] Reply event:', event.detail);
         discussionStore.startReply(event.detail.commentId);
     }
     
     function handleEditComment(event: CustomEvent<{ commentId: string; text: string }>) {
-        console.log('Edit comment:', event.detail);
+        console.log('[DiscussionView] Edit comment event:', event.detail);
         // TODO: Implement comment editing
     }
     
     function handleDeleteComment(event: CustomEvent<{ commentId: string }>) {
-        console.log('Delete comment:', event.detail);
+        console.log('[DiscussionView] Delete comment event:', event.detail);
         // TODO: Implement comment deletion
     }
     
     // Create graph data
     function createGraphData(): GraphData {
+        console.log('[DiscussionView] Creating graph data, central node:', centralNode?.id);
         if (!centralNode) {
             return { nodes: [], links: [] };
         }
@@ -247,6 +277,8 @@
                 data: option,
                 group: 'navigation' as NodeGroup
             }));
+        
+        console.log('[DiscussionView] Created navigation nodes:', navigationNodes.length);
         
         // Create central node based on node type
         const centralGraphNode: GraphNode = {
@@ -269,9 +301,15 @@
         
         // Get all comments from the discussion store
         const comments = $discussionStore.comments || [];
+        console.log('[DiscussionView] Creating comment nodes from store, comments count:', comments.length);
         
         // Process all comments
         comments.forEach(comment => {
+            console.log('[DiscussionView] Processing comment:', comment.id, {
+                text: comment.commentText?.substring(0, 20) + '...',
+                parentId: comment.parentCommentId || 'root'
+            });
+            
             // Create metadata for the comment node
             const commentMetadata: NodeMetadata = {
                 group: 'comment' as NodeMetadata['group'],
@@ -303,6 +341,10 @@
                     target: comment.id,
                     type: 'reply' as LinkType
                 });
+                console.log('[DiscussionView] Created reply link:', {
+                    source: comment.parentCommentId,
+                    target: comment.id
+                });
             } else {
                 // Link to central node
                 commentLinks.push({
@@ -311,8 +353,15 @@
                     target: comment.id,
                     type: 'comment' as LinkType
                 });
+                console.log('[DiscussionView] Created root comment link:', {
+                    source: centralNode.id,
+                    target: comment.id
+                });
             }
         });
+        
+        console.log('[DiscussionView] Created comment nodes:', commentNodes.length);
+        console.log('[DiscussionView] Created comment links:', commentLinks.length);
         
         // Add comment form node if adding a comment
         if (isAddingRootComment) {
@@ -348,6 +397,8 @@
                 target: commentFormNode.id,
                 type: 'comment-form' as LinkType
             });
+            
+            console.log('[DiscussionView] Added comment form node:', commentFormNode.id);
         }
         
         // Add reply forms if replying to comments
@@ -387,12 +438,62 @@
                 target: replyFormNode.id,
                 type: 'reply-form' as LinkType
             });
+            
+            console.log('[DiscussionView] Added reply form node:', replyFormNode.id, 'for parent:', parentId);
         }
         
-        return {
+        const finalData = {
             nodes: [...baseNodes, ...commentNodes],
             links: commentLinks
         };
+        
+        console.log('[DiscussionView] Final graph data created:', {
+            nodeCount: finalData.nodes.length,
+            linkCount: finalData.links.length
+        });
+        
+        return finalData;
+    }
+    
+    // Debug helper function
+    function debugDiscussion() {
+        console.log("===== DISCUSSION DEBUG =====");
+        console.log("Discussion store state:", $discussionStore);
+        console.log("Comment count:", $discussionStore.comments?.length || 0);
+        console.log("Root comments:", $discussionStore.rootComments?.length || 0);
+        
+        // Log detailed comment information
+        if ($discussionStore.comments && $discussionStore.comments.length > 0) {
+            console.log("=== Comment Details ===");
+            $discussionStore.comments.forEach((comment, index) => {
+                console.log(`Comment ${index + 1}:`, {
+                    id: comment.id,
+                    text: comment.commentText?.substring(0, 30) + "...",
+                    parentId: comment.parentCommentId || "root",
+                    votes: {
+                        positive: comment.positiveVotes,
+                        negative: comment.negativeVotes,
+                        net: comment.positiveVotes - comment.negativeVotes
+                    },
+                    createdAt: comment.createdAt,
+                    createdBy: comment.createdBy,
+                    depth: comment.depth || 0
+                });
+            });
+        }
+        
+        console.log("=== Graph Data ===");
+        const currentGraphData = createGraphData();
+        console.log("Nodes:", currentGraphData.nodes.length);
+        console.log("Links:", currentGraphData.links.length);
+        
+        // Count comment nodes specifically
+        const commentNodes = currentGraphData.nodes.filter(n => n.type === 'comment');
+        console.log("Comment nodes:", commentNodes.length);
+        
+        // Force re-render
+        routeKey = `${viewType}-${nodeType}-${nodeId}-debug-${Date.now()}`;
+        console.log("Forced re-render with new key:", routeKey);
     }
     
     // Reactive declarations
@@ -402,16 +503,27 @@
     
     // Initialize on mount
     onMount(() => {
+        console.log('[DiscussionView] Component mounted');
         initializeData();
+    });
+    
+    // After updates
+    afterUpdate(() => {
+        console.log('[DiscussionView] Component updated, isReady:', isReady);
+        if (isReady) {
+            console.log('[DiscussionView] Ready state - Comment count:', commentCount);
+        }
     });
     
     // Clean up on destroy
     onDestroy(() => {
+        console.log('[DiscussionView] Component being destroyed, cleaning up');
         discussionStore.reset();
     });
     
     // Force update when discussion store changes
     $: if ($discussionStore && isReady) {
+        console.log('[DiscussionView] Discussion store updated, forcing re-render');
         routeKey = `${viewType}-${nodeType}-${nodeId}-${Date.now()}`;
     }
 </script>
@@ -474,6 +586,11 @@
                 Add Comment
             </button>
         </div>
+    </div>
+
+    <!-- Debug Panel -->
+    <div class="debug-panel">
+        <button class="debug-button" on:click={debugDiscussion}>Debug Discussion</button>
     </div>
 
     {#key routeKey}
@@ -702,6 +819,32 @@
     
     .add-comment-button:active {
         transform: translateY(0);
+    }
+
+    /* Debug panel styling */
+    .debug-panel {
+        position: absolute;
+        top: 5rem;
+        right: 1rem;
+        z-index: 1000;
+    }
+
+    .debug-button {
+        background-color: rgba(0, 0, 0, 0.6);
+        color: white;
+        border: 1px solid rgba(52, 152, 219, 0.6);
+        border-radius: 4px;
+        padding: 0.5rem;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 0.8rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .debug-button:hover {
+        background-color: rgba(0, 0, 0, 0.8);
+        transform: translateY(-1px);
+        border-color: rgba(52, 152, 219, 0.8);
     }
 
     @keyframes spin {

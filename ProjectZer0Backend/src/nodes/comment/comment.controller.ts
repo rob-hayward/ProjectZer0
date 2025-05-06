@@ -169,6 +169,31 @@ export class CommentController {
     return this.commentService.getCommentVotes(id);
   }
 
+  @Get('users/comments/votes')
+  @UseGuards(JwtAuthGuard)
+  async getUserCommentVotes(@Request() req: any) {
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    try {
+      // This is a simple implementation - in a full solution you would
+      // query the database for all votes by this user on comments
+      const userVotes = {}; // Empty votes for now
+
+      return { votes: userVotes };
+    } catch (error) {
+      this.logger.error(
+        `Error getting user comment votes: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get user comment votes: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   @Put(':id/visibility')
   async setVisibilityStatus(
     @Param('id') id: string,
