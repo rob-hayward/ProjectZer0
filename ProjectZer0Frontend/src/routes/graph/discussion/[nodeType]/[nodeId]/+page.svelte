@@ -24,6 +24,7 @@
         NodeGroup,
         NodeMode,
         ViewType,
+        LinkType,
         NodeMetadata
     } from '$lib/types/graph/enhanced';
     import { 
@@ -37,6 +38,7 @@
     import type { CommentNode as CommentNodeType, CommentFormData } from '$lib/types/domain/nodes';
     import { page } from '$app/stores';
     import { goto } from '$app/navigation';
+    import { fetchWithAuth } from '$lib/services/api';
     
     // View type with type assertion
     const viewType = 'discussion' as ViewType;
@@ -89,14 +91,21 @@
             await visibilityStore.loadPreferences();
             
             // Fetch the central node data based on node type
-            const response = await fetch(`/api/nodes/${nodeType}/${nodeId}`);
-            if (!response.ok) {
+            // Updated to use fetchWithAuth for consistent authentication and correct API path
+            try {
+                const centralNodeData = await fetchWithAuth(`/nodes/${nodeType}/${nodeId}`);
+                
+                if (centralNodeData) {
+                    centralNode = centralNodeData;
+                    dataInitialized = true;
+                } else {
+                    throw new Error(`No ${nodeType} data returned from API`);
+                }
+            } catch (nodeError) {
+                console.error(`Error fetching ${nodeType} data:`, nodeError);
                 throw new Error(`Failed to fetch ${nodeType} data`);
             }
             
-            centralNode = await response.json();
-            
-            dataInitialized = true;
             isLoading = false;
             
             // Set the correct view type in graph store and force update
@@ -142,10 +151,16 @@
     }
     
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
-        const { text, parentId = null } = event.detail;
+        const { text, parentId } = event.detail;
         
         try {
-            const newComment = await discussionStore.addComment(nodeType, nodeId, text, parentId);
+            // Convert null to undefined if needed for discussionStore API
+            const newComment = await discussionStore.addComment(
+                nodeType, 
+                nodeId, 
+                text, 
+                parentId !== null ? parentId : undefined
+            );
             
             if (newComment) {
                 console.log('Comment added successfully:', newComment);
@@ -185,8 +200,8 @@
         }
         
         // Get navigation options for discussion context
-        // Using type assertion for NavigationContext
-        const navigationNodes: GraphNode[] = getNavigationOptions(NavigationContext.DISCUSSION || 'discussion' as any)
+        // Use string literal instead of enum to avoid type issues
+        const navigationNodes: GraphNode[] = getNavigationOptions('discussion')
             .map(option => ({
                 id: option.id,
                 type: 'navigation' as NodeType,
@@ -218,22 +233,24 @@
         
         // Process all comments
         comments.forEach(comment => {
-            // Create comment node with type assertions
+            // Create metadata for the comment node
+            const commentMetadata: NodeMetadata = {
+                group: 'comment' as NodeMetadata['group'],
+                parentCommentId: comment.parentCommentId,
+                votes: comment.positiveVotes - comment.negativeVotes,
+                createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
+                depth: comment.depth || 0,
+                isExpanded: comment.isExpanded || false
+            };
+            
+            // Create comment node with proper metadata
             const commentNode: GraphNode = {
                 id: comment.id,
                 type: 'comment' as NodeType,
                 data: comment as unknown as CommentNodeType,
                 group: 'comment' as NodeGroup,
                 mode: 'preview' as NodeMode, // Start in preview mode
-                // Add metadata
-                metadata: {
-                    group: 'comment' as NodeMetadata['group'],
-                    parentCommentId: comment.parentCommentId,
-                    votes: comment.positiveVotes - comment.negativeVotes,
-                    createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
-                    depth: comment.depth || 0,
-                    isExpanded: comment.isExpanded || false
-                }
+                metadata: commentMetadata
             };
             
             commentNodes.push(commentNode);
@@ -269,15 +286,18 @@
                 word: ''
             };
             
+            // Create metadata for the form node
+            const formMetadata: NodeMetadata = {
+                group: 'comment-form' as NodeMetadata['group']
+            };
+            
             const commentFormNode: GraphNode = {
                 id: formData.id,
                 type: 'comment-form' as NodeType,
                 data: formData as any, // Type assertion
                 group: 'comment-form' as NodeGroup,
                 mode: 'detail' as NodeMode,
-                metadata: {
-                    group: 'comment-form' as NodeMetadata['group']
-                }
+                metadata: formMetadata
             };
             
             commentNodes.push(commentFormNode);
@@ -304,16 +324,19 @@
                 word: ''
             };
             
+            // Create metadata for the reply form node
+            const replyFormMetadata: NodeMetadata = {
+                group: 'comment-form' as NodeMetadata['group'],
+                parentCommentId: parentId
+            };
+            
             const replyFormNode: GraphNode = {
                 id: formData.id,
                 type: 'comment-form' as NodeType,
                 data: formData as any, // Type assertion
                 group: 'comment-form' as NodeGroup,
                 mode: 'detail' as NodeMode,
-                metadata: {
-                    group: 'comment-form' as NodeMetadata['group'],
-                    parentCommentId: parentId
-                }
+                metadata: replyFormMetadata
             };
             
             commentNodes.push(replyFormNode);

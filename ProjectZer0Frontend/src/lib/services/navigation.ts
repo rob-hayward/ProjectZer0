@@ -40,6 +40,7 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.NETWORK]: 'network',
     [NavigationOptionId.CREATE_DEFINITION]: 'create-definition', // Updated to use new name
     [NavigationOptionId.EXPLORE]: 'statement-network', // Added mapping for EXPLORE
+    [NavigationOptionId.DISCUSS]: 'discussion', // Added mapping for DISCUSS
 };
 
 // Helper to update graph store without TypeScript errors
@@ -59,6 +60,17 @@ function updateGraphStore(viewType: ViewType): void {
     } catch (e) {
         console.warn('[Navigation] Error calling forceTick:', e);
     }
+}
+
+// New function for node-specific navigation to discussion
+export function navigateToNodeDiscussion(nodeType: string, nodeId: string): void {
+    console.log(`[Navigation] Navigating to discussion for ${nodeType} node: ${nodeId}`);
+    
+    // First update the graph store to discussion view
+    updateGraphStore('discussion');
+    
+    // Then navigate to the discussion view for this node
+    window.location.href = `/graph/discussion/${nodeType}/${nodeId}`;
 }
 
 // Navigation action handlers
@@ -122,7 +134,31 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
             }
         }
     },
-    [NavigationOptionId.DISCUSS]: () => navigateWithWord('/graph/discuss')
+    [NavigationOptionId.DISCUSS]: () => {
+        const currentWord = get(wordStore);
+        console.log(`[Navigation] DISCUSS handler called, currentWord:`, currentWord);
+        
+        if (currentWord) {
+            // Use the new navigation function for consistency
+            navigateToNodeDiscussion('word', currentWord.id);
+        } else {
+            // Try to get word from URL if we're already in a word view
+            console.warn('[Navigation] No word in store, checking URL for word parameter');
+            const url = new URL(window.location.href);
+            const wordParam = url.searchParams.get('word');
+            
+            if (wordParam) {
+                console.log(`[Navigation] Found word parameter in URL: ${wordParam}`);
+                // In this case, we need to fetch the word data first
+                // For now, redirect to dashboard
+                console.warn('[Navigation] Cannot discuss word without ID, redirecting to dashboard');
+                window.location.href = '/graph/dashboard';
+            } else {
+                console.warn('[Navigation] Cannot discuss word: No word found in store or URL');
+                window.location.href = '/graph/dashboard';
+            }
+        }
+    }
 };
 
 export const NavigationContext = {
@@ -131,6 +167,7 @@ export const NavigationContext = {
     EXPLORE: 'explore',
     WORD: 'word',
     EDIT_PROFILE: 'edit-profile',
+    DISCUSSION: 'discussion'  // Added DISCUSSION context
 } as const;
 
 export type NavigationContext = typeof NavigationContext[keyof typeof NavigationContext];
@@ -189,6 +226,13 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.DISCUSS,
         NavigationOptionId.DASHBOARD
     ],
+    [NavigationContext.DISCUSSION]: [  // Added navigation options for discussion context
+        NavigationOptionId.DASHBOARD,
+        NavigationOptionId.EXPLORE,
+        NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.LOGOUT,
+        NavigationOptionId.EDIT_PROFILE
+    ]
 } as const;
 
 export function handleNavigation(optionId: NavigationOptionId): void {

@@ -210,13 +210,21 @@ function createDiscussionStore() {
                 const sortedRoots = sortComments(roots, sortMode);
                 
                 // Fetch user vote status for all comments
-                if ($userStore) {
+                const currentUser = get(userStore);
+                if (currentUser) {
                     try {
                         const votesResponse = await fetchWithAuth(`/users/comments/votes`);
                         if (votesResponse && votesResponse.votes) {
                             // Update user votes based on response
+                            // Use proper type casting to ensure we're setting valid vote types
                             Object.entries(votesResponse.votes).forEach(([commentId, status]) => {
-                                userVotes[commentId] = status as 'agree' | 'disagree' | 'none';
+                                const voteStatus = status as string;
+                                if (voteStatus === 'agree' || voteStatus === 'disagree' || voteStatus === 'none') {
+                                    userVotes[commentId] = voteStatus;
+                                } else {
+                                    // Default to 'none' for invalid values
+                                    userVotes[commentId] = 'none';
+                                }
                             });
                         }
                     } catch (error) {
@@ -291,7 +299,8 @@ function createDiscussionStore() {
         
         // Add a new comment to the discussion
         async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string): Promise<Comment | null> {
-            if (!$userStore) return null;
+            const currentUser = get(userStore);
+            if (!currentUser) return null;
             
             update(state => ({ 
                 ...state, 
@@ -338,7 +347,7 @@ function createDiscussionStore() {
                     // Set user vote status to none for the new comment
                     const updatedUserVotes = {
                         ...state.userVotes,
-                        [newComment.id]: 'none'
+                        [newComment.id]: 'none' as const
                     };
                     
                     return {
@@ -369,7 +378,8 @@ function createDiscussionStore() {
         
         // Vote on a comment
         async voteOnComment(commentId: string, voteType: 'agree' | 'disagree' | 'none'): Promise<boolean> {
-            if (!$userStore) return false;
+            const currentUser = get(userStore);
+            if (!currentUser) return false;
             
             const state = get({ subscribe });
             const comment = state.comments.find(c => c.id === commentId);
@@ -415,7 +425,7 @@ function createDiscussionStore() {
                     const voteData = calculateVoteData(updatedComment);
                     state.voteCache.set(commentId, voteData);
                     
-                    // Update user vote status
+                    // Update user vote status with proper type assertion
                     const updatedUserVotes = {
                         ...state.userVotes,
                         [commentId]: voteType

@@ -22,7 +22,7 @@
     const dispatch = createEventDispatcher<{
         submit: { 
             text: string; 
-            parentId: string | null;
+            parentId: string | null; // Changed from string | undefined to string | null
         };
         cancel: void;
     }>();

@@ -1,6 +1,6 @@
 // src/lib/types/graph/enhanced.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode, CommentNode } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
@@ -22,6 +22,9 @@ export interface NodeMetadata {
     angle?: number;    // For navigation node positioning
     radius?: number;   // For radial positioning
     golden?: number;   // For golden ratio-based layouts
+    parentCommentId?: string; // Added for comment threading
+    depth?: number;    // Added for comment nesting level
+    isExpanded?: boolean; // Added for expanded comments
 }
 
 // Core node interface for initial data
@@ -31,6 +34,7 @@ export interface GraphNode {
     data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData;
     group: NodeGroup;
     mode?: NodeMode;
+    metadata?: NodeMetadata; // Make metadata optional in GraphNode
 }
 
 // Core link interface for initial data
@@ -46,7 +50,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -135,7 +139,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -233,6 +237,12 @@ export const isStatementData = (data: any): data is StatementNode =>
 export const isQuantityData = (data: any): data is QuantityNode =>
     data && 'question' in data && 'unitCategoryId' in data && 'defaultUnitId' in data;
 
+export const isCommentData = (data: any): data is CommentNode =>
+    data && 'commentText' in data && 'createdBy' in data;
+
+export const isCommentFormData = (data: any): data is CommentFormData =>
+    data && 'id' in data && ('parentCommentId' in data || data.parentCommentId === null);
+
 // Node type guards
 export const isDashboardNode = (node: RenderableNode): node is RenderableNode & { data: UserProfile } =>
     node.type === 'dashboard' && isUserProfileData(node.data);
@@ -259,10 +269,10 @@ export const isQuantityNode = (node: RenderableNode): node is RenderableNode & {
     node.type === 'quantity' && isQuantityData(node.data);
 
 export const isCommentNode = (node: RenderableNode): node is RenderableNode & { data: CommentNode } =>
-    node.type === 'comment';
+    node.type === 'comment' && isCommentData(node.data);
     
 export const isCommentFormNode = (node: RenderableNode): boolean =>
-    node.type === 'comment-form';
+    node.type === 'comment-form' && isCommentFormData(node.data);
 
 // Link type guards
 export const isLiveLink = (link: RenderableLink): boolean =>

@@ -9,6 +9,7 @@
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
+    import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
     import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
@@ -36,7 +37,8 @@
     }
     
     // Type assertion for comment data
-    const data = node.data as CommentData;
+    // Cast to CommentData using type assertion
+    const data = node.data as unknown as CommentData;
     
     // Layout constants
     const LAYOUT = {
@@ -102,6 +104,27 @@
         dispatch('edit', { commentId: node.id, text: editText });
         isEditing = false;
     }
+
+    // Add keyboard event handler for accessibility
+    function handleKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' || event.key === 'Space') {
+            const target = event.currentTarget as HTMLElement;
+            if (target.classList.contains('vote-button')) {
+                const voteType = target.classList.contains('upvote') ? 
+                    (userVoteStatus === 'agree' ? 'none' : 'agree') : 
+                    (userVoteStatus === 'disagree' ? 'none' : 'disagree');
+                handleVote(voteType);
+            } else if (target.classList.contains('action-button')) {
+                if (target.classList.contains('edit')) {
+                    handleEdit();
+                } else if (target.classList.contains('delete')) {
+                    handleDelete();
+                } else if (target.classList.contains('reply')) {
+                    handleReply();
+                }
+            }
+        }
+    }
     
     // Format the creation date for display
     function formatDate(date: string | Date): string {
@@ -115,7 +138,7 @@
     }
     
     async function handleVote(voteType: VoteStatus) {
-        if (!$userStore || isVoting) return;
+        if (!get(userStore) || isVoting) return;
         isVoting = true;
         
         try {
@@ -217,7 +240,7 @@
     }
     
     // Reactive declarations
-    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    $: userName = get(userStore)?.preferred_username || get(userStore)?.name || 'Anonymous';
     $: formattedDate = formatDate(data.createdAt);
     $: creatorName = getDisplayName(data.createdBy, null, !data.publicCredit);
     
@@ -294,6 +317,11 @@
                     class:active={userVoteStatus === 'agree'}
                     transform="translate(-20, 0)"
                     on:click={() => handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
+                    on:keydown={handleKeydown}
+                    tabindex="0"
+                    role="button"
+                    aria-label="Upvote comment"
+                    aria-pressed={userVoteStatus === 'agree'}
                 >
                     <circle r="10" class="vote-bg" />
                     <path d="M0 -4 L4 0 L0 0 L0 4 L-4 0 L0 0 Z" class="vote-arrow" />
@@ -314,6 +342,11 @@
                     class:active={userVoteStatus === 'disagree'}
                     transform="translate(20, 0)"
                     on:click={() => handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
+                    on:keydown={handleKeydown}
+                    tabindex="0"
+                    role="button"
+                    aria-label="Downvote comment"
+                    aria-pressed={userVoteStatus === 'disagree'}
                 >
                     <circle r="10" class="vote-bg" />
                     <path d="M0 4 L4 0 L0 0 L0 -4 L-4 0 L0 0 Z" class="vote-arrow" />
@@ -322,12 +355,16 @@
             
             <!-- Action buttons (edit, delete, reply) -->
             <g class="action-buttons" transform="translate(0, {LAYOUT.metadataY + 30})">
-                {#if data.createdBy === $userStore?.sub}
+                {#if data.createdBy === get(userStore)?.sub}
                     <!-- Edit button -->
                     <g 
                         class="action-button edit"
                         transform="translate(-60, 0)"
                         on:click={handleEdit}
+                        on:keydown={handleKeydown}
+                        tabindex="0"
+                        role="button"
+                        aria-label="Edit comment"
                     >
                         <rect width="40" height="20" rx="3" ry="3" class="button-bg" />
                         <text x="20" y="14" class="button-text">Edit</text>
@@ -338,6 +375,10 @@
                         class="action-button delete"
                         transform="translate(0, 0)"
                         on:click={handleDelete}
+                        on:keydown={handleKeydown}
+                        tabindex="0"
+                        role="button"
+                        aria-label="Delete comment"
                     >
                         <rect width="50" height="20" rx="3" ry="3" class="button-bg" />
                         <text x="25" y="14" class="button-text">Delete</text>
@@ -349,6 +390,10 @@
                     class="action-button reply"
                     transform="translate(60, 0)"
                     on:click={handleReply}
+                    on:keydown={handleKeydown}
+                    tabindex="0"
+                    role="button"
+                    aria-label="Reply to comment"
                 >
                     <rect width="40" height="20" rx="3" ry="3" class="button-bg" />
                     <text x="20" y="14" class="button-text">Reply</text>

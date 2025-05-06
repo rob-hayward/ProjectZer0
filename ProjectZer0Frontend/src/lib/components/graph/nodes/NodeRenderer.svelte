@@ -11,6 +11,7 @@
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';
     import { graphStore } from '$lib/stores/graphStore';
+    import { navigateToNodeDiscussion } from '$lib/services/navigation'; // Import the new navigation function
     
     // The node to render
     export let node: RenderableNode;
@@ -124,6 +125,21 @@
         });
     }
     
+    // Handle discuss button click - use the navigation service to navigate to discussion view
+    function handleDiscussClick(event: CustomEvent<{ nodeId: string | undefined }>) {
+        const nodeId = event.detail.nodeId || node.id;
+        console.log(`[NodeRenderer] Discuss event received for node ${nodeId}`);
+        
+        // Navigate to the discussion view for this node using the new navigation function
+        navigateToNodeDiscussion(node.type, node.id);
+        
+        // Forward the event to parent components (optional, may not be needed with direct navigation)
+        dispatch('discuss', {
+            nodeId: nodeId,
+            nodeType: node.type
+        });
+    }
+    
     // Position information from node
     $: posX = node.position.x;
     $: posY = node.position.y;
@@ -215,17 +231,7 @@
                 y={-node.radius * 0.7071}  
                 x={node.radius * 0.7071}
                 nodeId={node.id}
-                on:discuss={event => {
-                    console.log(`[NodeRenderer] Discuss event received for node ${event.detail.nodeId}`);
-                    // Forward the discuss event to parent components
-                    dispatch('discuss', {
-                        nodeId: event.detail.nodeId || node.id,
-                        nodeType: node.type
-                    });
-                    
-                    // Temporary alert until implementation is complete
-                    alert(`Discussion system not yet implemented for node ${event.detail.nodeId || node.id}`);
-                }}
+                on:discuss={handleDiscussClick}
             />
             
             <!-- Add create linked node button only to statement and quantity nodes - positioned at 10:30 -->

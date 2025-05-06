@@ -944,10 +944,19 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                 if (parent) {
                     const parentAngle = this.commentAngles.get(parentId) || 0;
                     const formAngle = parentAngle + (Math.PI / 8);
-                    const formRadius = Math.sqrt(parent.x * parent.x + parent.y * parent.y) * 1.15;
                     
-                    form.x = Math.cos(formAngle) * formRadius;
-                    form.y = Math.sin(formAngle) * formRadius;
+                    // Safe access to parent.x and parent.y with proper null/undefined checks
+                    if (parent.x !== null && parent.x !== undefined && 
+                        parent.y !== null && parent.y !== undefined) {
+                        const formRadius = Math.sqrt(parent.x * parent.x + parent.y * parent.y) * 1.15;
+                        form.x = Math.cos(formAngle) * formRadius;
+                        form.y = Math.sin(formAngle) * formRadius;
+                    } else {
+                        // Fallback positioning if parent position is invalid
+                        const defaultRadius = 200; // Default distance from center
+                        form.x = Math.cos(formAngle) * defaultRadius;
+                        form.y = Math.sin(formAngle) * defaultRadius;
+                    }
                 }
             }
         });
