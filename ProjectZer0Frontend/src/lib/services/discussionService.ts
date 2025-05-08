@@ -39,8 +39,20 @@ export const discussionService = {
                 throw new Error(`Unable to determine comments endpoint for ${nodeType} node`);
             }
             
-            const comments = await fetchWithAuth(`${endpoint}?sortBy=${sortBy}`);
-            return Array.isArray(comments) ? comments : [];
+            const response = await fetchWithAuth(`${endpoint}?sortBy=${sortBy}`);
+            
+            // Check if response is an object with a comments property
+            if (response && response.comments && Array.isArray(response.comments)) {
+                return response.comments;
+            }
+            
+            // Check if response itself is an array
+            if (Array.isArray(response)) {
+                return response;
+            }
+            
+            // Return empty array as fallback
+            return [];
         } catch (error) {
             console.error(`Error fetching comments for ${nodeType}/${nodeId}:`, error);
             return [];

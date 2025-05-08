@@ -5,21 +5,19 @@
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BaseNode from '../base/BaseNode.svelte';
-    import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import { COLORS } from '$lib/constants/colors';
     
     export let node: RenderableNode;
     export let isReply: boolean = false;
     
-    // Optional position props that will be passed from NodeRenderer
-    export let nodeX: number | undefined = undefined;
-    export let nodeY: number | undefined = undefined;
+    // Use export const for position properties since they're only for external reference
+    export const nodeX: number | undefined = undefined;
+    export const nodeY: number | undefined = undefined;
     
     // We expect the comment data to have the following structure
     interface CommentData {
@@ -40,14 +38,6 @@
     // Cast to CommentData using type assertion
     const data = node.data as unknown as CommentData;
     
-    // Layout constants
-    const LAYOUT = {
-        contentMaxWidth: node.mode === 'detail' ? 280 : 180, // Maximum width for comment text
-        contentY: 0, // Centered vertically
-        metadataY: node.mode === 'detail' ? 60 : 40, // Position for metadata (author, date)
-        votesY: node.mode === 'detail' ? 40 : 25 // Position for votes display
-    };
-    
     // Get vote data from discussion store
     $: voteData = discussionStore.getVoteData(node.id);
     $: userVoteStatus = discussionStore.getUserVoteStatus(node.id);
@@ -58,10 +48,6 @@
     
     // Track replying state
     $: isReplying = $discussionStore.isAddingReply && $discussionStore.replyToCommentId === node.id;
-    
-    // Track editing state
-    let isEditing = false;
-    let editText = '';
     
     // Track voting state
     let isVoting = false;
@@ -81,30 +67,6 @@
         discussionStore.startReply(node.id);
     }
     
-    function handleEdit() {
-        isEditing = true;
-        editText = data.commentText;
-    }
-    
-    function handleDelete() {
-        dispatch('delete', { commentId: node.id });
-    }
-    
-    function cancelEdit() {
-        isEditing = false;
-        editText = '';
-    }
-    
-    function saveEdit() {
-        if (editText.trim() === data.commentText.trim()) {
-            cancelEdit();
-            return;
-        }
-        
-        dispatch('edit', { commentId: node.id, text: editText });
-        isEditing = false;
-    }
-
     // Add keyboard event handler for accessibility
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' || event.key === 'Space') {
@@ -114,14 +76,8 @@
                     (userVoteStatus === 'agree' ? 'none' : 'agree') : 
                     (userVoteStatus === 'disagree' ? 'none' : 'disagree');
                 handleVote(voteType);
-            } else if (target.classList.contains('action-button')) {
-                if (target.classList.contains('edit')) {
-                    handleEdit();
-                } else if (target.classList.contains('delete')) {
-                    handleDelete();
-                } else if (target.classList.contains('reply')) {
-                    handleReply();
-                }
+            } else if (target.classList.contains('reply-button')) {
+                handleReply();
             }
         }
     }
@@ -161,34 +117,20 @@
         }
     }
     
-    function handleModeChange() {
-        // Determine next mode (toggle between preview and detail)
-        const nextMode = node.mode === 'detail' ? 'preview' : 'detail';
-        
-        // Position details if available
-        const position = nodeX !== undefined && nodeY !== undefined
-            ? { x: nodeX, y: nodeY }
-            : undefined;
-            
-        // Dispatch mode change event
-        dispatch('modeChange', { 
-            mode: nextMode,
-            position
-        });
+    // Helper function to truncate text
+    function truncateText(text: string, maxLength: number): string {
+        if (!text) return '';
+        return text.length > maxLength
+            ? text.substring(0, maxLength) + '...'
+            : text;
     }
     
-    // Calculate vote-based styling
-    $: voteColor = getVoteBasedColor(netVotes);
-    $: textColor = getContrastingTextColor(voteColor);
-    
-    // Calculate vote-based styling enhancements based on net votes
-    $: voteBasedStyles = calculateVoteBasedStyles(netVotes);
-    
     // Size calculations for text wrapping
-    $: textWidth = LAYOUT.contentMaxWidth;
-    $: maxCharsPerLine = Math.floor(textWidth / 7); // Estimate characters per line
-    
-    // Text wrapping for comment
+    $: radius = node.radius || 90; // Default size if radius is not set
+    $: textWidth = radius * 1.5; // Adjust this multiplier as needed
+    $: maxCharsPerLine = Math.floor(textWidth / 5.5); // Approx characters per line
+
+    // Text wrapping for content
     $: lines = data.commentText.split(' ').reduce((acc, word) => {
         const currentLine = acc[acc.length - 1] || '';
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
@@ -200,6 +142,13 @@
         }
         return acc;
     }, ['']);
+    
+    // Calculate vote-based styling
+    $: voteColor = getVoteBasedColor(netVotes);
+    $: textColor = getContrastingTextColor(voteColor);
+    
+    // Calculate vote-based styling enhancements based on net votes
+    $: voteBasedStyles = calculateVoteBasedStyles(netVotes);
     
     // Function to calculate styling based on vote count
     function calculateVoteBasedStyles(votes: number) {
@@ -239,6 +188,25 @@
         };
     }
     
+    // Define comment node color using the NODE_CONSTANTS
+    $: commentColor = COLORS.PRIMARY.ORANGE;
+    
+    // Override the node style with our custom styles
+    $: customStyle = {
+        ...node.style,
+        colors: {
+            background: `${commentColor}33`, // Background with transparency
+            border: `${commentColor}FF`,     // Border in full color
+            text: COLORS.UI.TEXT.PRIMARY,    // Text in white
+            hover: `${commentColor}FF`,      // Hover color
+            gradient: {
+                start: `${commentColor}66`,  // Gradient start with medium transparency
+                end: `${commentColor}33`     // Gradient end with more transparency
+            }
+        },
+        highlightColor: commentColor         // Highlight in comment color
+    };
+    
     // Reactive declarations
     $: userName = get(userStore)?.preferred_username || get(userStore)?.name || 'Anonymous';
     $: formattedDate = formatDate(data.createdAt);
@@ -255,196 +223,102 @@
     });
 </script>
 
-<!-- Choose between preview and detail mode -->
-{#if node.mode === 'detail'}
-    <!-- DETAIL MODE -->
-    <BaseDetailNode {node} {voteBasedStyles} on:modeChange={handleModeChange}>
-        <svelte:fragment slot="default" let:radius>
-            <!-- Title -->
-            <text
-                y={-radius + 20}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size="12px"
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                {isReply ? 'Reply' : 'Comment'}
-            </text>
+<!-- Use BaseNode with proper styling parameters -->
+<BaseNode {node} style={customStyle} {voteBasedStyles}>
+    <svelte:fragment slot="default" let:radius>
+        <!-- Title -->
+        <text
+            y={-radius + 15}
+            class="title"
+            style:font-family={NODE_CONSTANTS.FONTS.title.family}
+            style:font-size="10px"
+            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+        >
+            {isReply ? 'Reply' : 'Comment'}
+        </text>
 
-            <!-- Comment text -->
-            <g class="comment-text" transform="translate(0, {LAYOUT.contentY})">
-                {#if isEditing}
-                    <!-- Edit mode -->
-                    <foreignObject 
-                        x={-LAYOUT.contentMaxWidth/2} 
-                        y={-80} 
-                        width={LAYOUT.contentMaxWidth} 
-                        height="160"
-                    >
-                        <div class="edit-container">
-                            <textarea 
-                                class="edit-textarea" 
-                                bind:value={editText}
-                                rows="5"
-                            ></textarea>
-                            <div class="edit-controls">
-                                <button class="edit-button save" on:click={saveEdit}>Save</button>
-                                <button class="edit-button cancel" on:click={cancelEdit}>Cancel</button>
-                            </div>
-                        </div>
-                    </foreignObject>
-                {:else}
-                    <!-- Display comment text -->
-                    {#each lines as line, i}
-                        <text
-                            x="0"
-                            y={-lines.length * 10 / 2 + i * 15}
-                            class="text-line"
-                            style:font-family="'Orbitron', sans-serif"
-                            style:font-size="11px"
-                        >
-                            {line}
-                        </text>
-                    {/each}
-                {/if}
-            </g>
-            
-            <!-- Vote controls -->
-            <g class="vote-controls" transform="translate(0, {LAYOUT.votesY})">
-                <!-- Upvote button -->
-                <g 
-                    class="vote-button upvote"
-                    class:active={userVoteStatus === 'agree'}
-                    transform="translate(-20, 0)"
-                    on:click={() => handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
-                    on:keydown={handleKeydown}
-                    tabindex="0"
-                    role="button"
-                    aria-label="Upvote comment"
-                    aria-pressed={userVoteStatus === 'agree'}
-                >
-                    <circle r="10" class="vote-bg" />
-                    <path d="M0 -4 L4 0 L0 0 L0 4 L-4 0 L0 0 Z" class="vote-arrow" />
-                </g>
-                
-                <!-- Vote count -->
+        <!-- Comment text - wrapped to fit -->
+        <g class="comment-text">
+            {#each lines as line, i}
                 <text
-                    class="vote-count"
-                    style:font-family={NODE_CONSTANTS.FONTS.value.family}
-                    style:font-size="12px"
+                    y={-15 + (i * 12)} 
+                    class="comment-content"
+                    style:font-family="'Orbitron', sans-serif"
+                    style:font-size="9px"
                 >
-                    {scoreDisplay}
+                    {truncateText(line, maxCharsPerLine)}
                 </text>
-                
-                <!-- Downvote button -->
-                <g 
-                    class="vote-button downvote"
-                    class:active={userVoteStatus === 'disagree'}
-                    transform="translate(20, 0)"
-                    on:click={() => handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
-                    on:keydown={handleKeydown}
-                    tabindex="0"
-                    role="button"
-                    aria-label="Downvote comment"
-                    aria-pressed={userVoteStatus === 'disagree'}
-                >
-                    <circle r="10" class="vote-bg" />
-                    <path d="M0 4 L4 0 L0 0 L0 -4 L-4 0 L0 0 Z" class="vote-arrow" />
-                </g>
-            </g>
-            
-            <!-- Action buttons (edit, delete, reply) -->
-            <g class="action-buttons" transform="translate(0, {LAYOUT.metadataY + 30})">
-                {#if data.createdBy === get(userStore)?.sub}
-                    <!-- Edit button -->
-                    <g 
-                        class="action-button edit"
-                        transform="translate(-60, 0)"
-                        on:click={handleEdit}
-                        on:keydown={handleKeydown}
-                        tabindex="0"
-                        role="button"
-                        aria-label="Edit comment"
-                    >
-                        <rect width="40" height="20" rx="3" ry="3" class="button-bg" />
-                        <text x="20" y="14" class="button-text">Edit</text>
-                    </g>
-                    
-                    <!-- Delete button -->
-                    <g 
-                        class="action-button delete"
-                        transform="translate(0, 0)"
-                        on:click={handleDelete}
-                        on:keydown={handleKeydown}
-                        tabindex="0"
-                        role="button"
-                        aria-label="Delete comment"
-                    >
-                        <rect width="50" height="20" rx="3" ry="3" class="button-bg" />
-                        <text x="25" y="14" class="button-text">Delete</text>
-                    </g>
-                {/if}
-                
-                <!-- Reply button -->
-                <g 
-                    class="action-button reply"
-                    transform="translate(60, 0)"
-                    on:click={handleReply}
-                    on:keydown={handleKeydown}
-                    tabindex="0"
-                    role="button"
-                    aria-label="Reply to comment"
-                >
-                    <rect width="40" height="20" rx="3" ry="3" class="button-bg" />
-                    <text x="20" y="14" class="button-text">Reply</text>
-                </g>
-            </g>
-            
-            <!-- Creator and date -->
-            <g transform="translate(0, {LAYOUT.metadataY})">
-                <text class="metadata">
-                    {creatorName} · {formattedDate}
-                </text>
-            </g>
-        </svelte:fragment>
-    </BaseDetailNode>
-{:else}
-    <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} {voteBasedStyles} on:modeChange={handleModeChange}>
-        <svelte:fragment slot="title" let:radius>
-            <text
-                y={-radius + 20}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+            {/each}
+        </g>
+        
+        <!-- Author and date -->
+        <text
+            y={radius - 25}
+            class="metadata"
+            style:font-size="7px"
+        >
+            {creatorName} · {formattedDate}
+        </text>
+        
+        <!-- Vote controls -->
+        <g class="vote-controls" transform="translate(0, {radius - 45})">
+            <!-- Upvote button -->
+            <g 
+                class="vote-button upvote"
+                class:active={userVoteStatus === 'agree'}
+                transform="translate(-20, 0)"
+                on:click={() => handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
+                on:keydown={handleKeydown}
+                tabindex="0"
+                role="button"
+                aria-label="Upvote comment"
+                aria-pressed={userVoteStatus === 'agree'}
             >
-                {isReply ? 'Reply' : 'Comment'}
-            </text>
-        </svelte:fragment>
-
-        <svelte:fragment slot="content" let:radius>
-            <!-- Display truncated comment text -->
-            {#if lines.length > 0}
-                <text
-                    y="0"
-                    class="preview-text"
-                >
-                    {lines[0].length > 20 ? lines[0].slice(0, 20) + '...' : lines[0]}
-                </text>
-            {/if}
-        </svelte:fragment>
-
-        <svelte:fragment slot="score" let:radius>
+                <circle r="8" class="vote-bg" />
+                <path d="M0 -3 L3 0 L0 0 L0 3 L-3 0 L0 0 Z" class="vote-arrow" />
+            </g>
+            
+            <!-- Vote count -->
             <text
-                y={radius - 20}
-                class="score"
+                class="vote-count"
+                style:font-family={NODE_CONSTANTS.FONTS.value.family}
+                style:font-size="10px"
             >
                 {scoreDisplay}
             </text>
-        </svelte:fragment>
-    </BasePreviewNode>
-{/if}
+            
+            <!-- Downvote button -->
+            <g 
+                class="vote-button downvote"
+                class:active={userVoteStatus === 'disagree'}
+                transform="translate(20, 0)"
+                on:click={() => handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
+                on:keydown={handleKeydown}
+                tabindex="0"
+                role="button"
+                aria-label="Downvote comment"
+                aria-pressed={userVoteStatus === 'disagree'}
+            >
+                <circle r="8" class="vote-bg" />
+                <path d="M0 3 L3 0 L0 0 L0 -3 L-3 0 L0 0 Z" class="vote-arrow" />
+            </g>
+        </g>
+        
+        <!-- Reply button -->
+        <g 
+            class="reply-button"
+            transform="translate(0, {radius - 12})"
+            on:click={handleReply}
+            on:keydown={handleKeydown}
+            tabindex="0"
+            role="button"
+            aria-label="Reply to comment"
+        >
+            <rect width="50" height="16" rx="3" ry="3" class="button-bg" />
+            <text x="25" y="11" class="button-text">Reply</text>
+        </g>
+    </svelte:fragment>
+</BaseNode>
 
 <style>
     /* Base Text Styles */
@@ -459,24 +333,15 @@
         fill: rgba(255, 255, 255, 0.7);
     }
 
-    .text-line {
-        text-anchor: middle;
-        fill: white;
-    }
-    
-    .preview-text {
-        font-size: 12px;
+    .comment-content {
+        font-size: 9px;
         fill: rgba(255, 255, 255, 0.9);
+        text-anchor: middle;
     }
 
     .metadata {
-        font-size: 9px;
+        font-size: 7px;
         fill: rgba(255, 255, 255, 0.6);
-    }
-    
-    .score {
-        font-size: 14px;
-        opacity: 0.8;
     }
 
     /* Vote Controls */
@@ -522,119 +387,24 @@
         fill: rgba(255, 255, 255, 0.9);
     }
     
-    /* Action Buttons */
-    .action-button {
+    /* Reply button */
+    .reply-button {
         cursor: pointer;
     }
     
     .button-bg {
-        fill: rgba(0, 0, 0, 0.3);
-        stroke: rgba(255, 255, 255, 0.3);
+        fill: rgba(255, 165, 0, 0.2); /* Semi-transparent orange for orange theme */
+        stroke: rgba(255, 165, 0, 0.4); /* Light orange stroke */
         stroke-width: 1;
     }
     
     .button-text {
-        font-size: 10px;
+        font-size: 8px;
         fill: rgba(255, 255, 255, 0.9);
     }
     
-    .action-button:hover .button-bg {
-        fill: rgba(0, 0, 0, 0.5);
-        stroke: rgba(255, 255, 255, 0.5);
-    }
-    
-    .action-button.edit .button-bg {
-        fill: rgba(52, 152, 219, 0.2);
-        stroke: rgba(52, 152, 219, 0.4);
-    }
-    
-    .action-button.delete .button-bg {
-        fill: rgba(231, 76, 60, 0.2);
-        stroke: rgba(231, 76, 60, 0.4);
-    }
-    
-    .action-button.reply .button-bg {
-        fill: rgba(155, 89, 182, 0.2);
-        stroke: rgba(155, 89, 182, 0.4);
-    }
-    
-    .action-button.edit:hover .button-bg {
-        fill: rgba(52, 152, 219, 0.3);
-        stroke: rgba(52, 152, 219, 0.6);
-    }
-    
-    .action-button.delete:hover .button-bg {
-        fill: rgba(231, 76, 60, 0.3);
-        stroke: rgba(231, 76, 60, 0.6);
-    }
-    
-    .action-button.reply:hover .button-bg {
-        fill: rgba(155, 89, 182, 0.3);
-        stroke: rgba(155, 89, 182, 0.6);
-    }
-    
-    /* Edit Mode */
-    :global(.edit-container) {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        background-color: rgba(0, 0, 0, 0.8);
-        border-radius: 8px;
-        padding: 8px;
-    }
-    
-    :global(.edit-textarea) {
-        width: 100%;
-        height: 100px;
-        background-color: rgba(0, 0, 0, 0.6);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 4px;
-        padding: 8px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 12px;
-        resize: none;
-    }
-    
-    :global(.edit-controls) {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 8px;
-    }
-    
-    :global(.edit-button) {
-        background-color: rgba(0, 0, 0, 0.5);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 4px;
-        padding: 4px 8px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 10px;
-        cursor: pointer;
-    }
-    
-    :global(.edit-button.save) {
-        background-color: rgba(46, 204, 113, 0.2);
-        border-color: rgba(46, 204, 113, 0.4);
-    }
-    
-    :global(.edit-button.cancel) {
-        background-color: rgba(231, 76, 60, 0.2);
-        border-color: rgba(231, 76, 60, 0.4);
-    }
-    
-    :global(.edit-button:hover) {
-        transform: translateY(-1px);
-    }
-    
-    :global(.edit-button.save:hover) {
-        background-color: rgba(46, 204, 113, 0.3);
-        border-color: rgba(46, 204, 113, 0.6);
-    }
-    
-    :global(.edit-button.cancel:hover) {
-        background-color: rgba(231, 76, 60, 0.3);
-        border-color: rgba(231, 76, 60, 0.6);
+    .reply-button:hover .button-bg {
+        fill: rgba(255, 165, 0, 0.3); /* Slightly more opaque on hover */
+        stroke: rgba(255, 165, 0, 0.6); /* More visible stroke on hover */
     }
 </style>

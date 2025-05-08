@@ -20,6 +20,7 @@ import { StatementNetworkLayout } from './layouts/StatementNetworkLayout';
 import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
+import { DiscussionLayout } from './layouts/DiscussionLayout';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -28,7 +29,7 @@ export class GraphManager {
     private _viewType: ViewType;
     private managerId: string;
     private simulationActive = false;
-    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | null = null;
+    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | null = null;
     private isUpdatingStore = writable(false);
     
     // Caches for better performance
@@ -546,82 +547,92 @@ export class GraphManager {
         return simulation;
     }
 
-    private applyLayoutStrategy(): void {
-        // Stop current layout strategy if exists
-        if (this.currentLayoutStrategy) {
-            this.currentLayoutStrategy.stop();
-        }
-        
-        // Select appropriate layout strategy
-        if (this._viewType === 'statement-network') {
-            this.currentLayoutStrategy = new StatementNetworkLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-            
-            // Apply extra strictness for statement network
-            this.simulation.force('charge', null);
-            this.simulation.force('collision', null);
-            this.simulation.force('center', null);
-            this.simulation.velocityDecay(0.8); // Higher value to dampen movement
-            
-            // Add a tick handler specifically for statement network view
-            this.simulation.on('tick.fixedPosition', () => {
-                this.enforceFixedPositionsStrict();
-            });
-        }
-        else if (this._viewType === 'dashboard' || 
-            this._viewType === 'edit-profile' || 
-            this._viewType === 'create-node' ||
-            this._viewType === 'statement') {
-            // Single central node views - including statement view
-            this.currentLayoutStrategy = new SingleNodeLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-        } 
-        else if (this._viewType === 'word') {
-            // Word definition view
-            this.currentLayoutStrategy = new WordDefinitionLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-        }
-        else {
-            // Default to SingleNodeLayout for any other view
-            this.currentLayoutStrategy = new SingleNodeLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-        }
-        
-        // Apply the selected strategy
-        if (this.currentLayoutStrategy) {
-            // Get current nodes
-            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-            
-            // Get links if available
-            const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
-            const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
-            
-            // Set the simulation for the strategy
-            this.currentLayoutStrategy.setSimulation(this.simulation as any);
-            
-            // Let the strategy initialize positions and forces
-            this.currentLayoutStrategy.initializeNodePositions(nodes);
-            this.currentLayoutStrategy.configureForces();
-            
-            // Update simulation with strategy-applied nodes
-            this.simulation.nodes(asD3Nodes(nodes));
-            
-            // Call enforceFixedPositionsStrict to ensure fixed positions
-            this.enforceFixedPositionsStrict();
-        }
+    // In GraphManager.ts - the applyLayoutStrategy method
+
+private applyLayoutStrategy(): void {
+    // Stop current layout strategy if exists
+    if (this.currentLayoutStrategy) {
+        this.currentLayoutStrategy.stop();
     }
+    
+    // Select appropriate layout strategy
+    if (this._viewType === 'statement-network') {
+        this.currentLayoutStrategy = new StatementNetworkLayout(
+            COORDINATE_SPACE.WORLD.WIDTH,
+            COORDINATE_SPACE.WORLD.HEIGHT,
+            this._viewType
+        );
+        
+        // Apply extra strictness for statement network
+        this.simulation.force('charge', null);
+        this.simulation.force('collision', null);
+        this.simulation.force('center', null);
+        this.simulation.velocityDecay(0.8); // Higher value to dampen movement
+        
+        // Add a tick handler specifically for statement network view
+        this.simulation.on('tick.fixedPosition', () => {
+            this.enforceFixedPositionsStrict();
+        });
+    }
+    else if (this._viewType === 'discussion') {
+        // Use the discussion layout for discussion views
+        this.currentLayoutStrategy = new DiscussionLayout(
+            COORDINATE_SPACE.WORLD.WIDTH,
+            COORDINATE_SPACE.WORLD.HEIGHT,
+            this._viewType
+        );
+    }
+    else if (this._viewType === 'dashboard' || 
+        this._viewType === 'edit-profile' || 
+        this._viewType === 'create-node' ||
+        this._viewType === 'statement') {
+        // Single central node views - including statement view
+        this.currentLayoutStrategy = new SingleNodeLayout(
+            COORDINATE_SPACE.WORLD.WIDTH,
+            COORDINATE_SPACE.WORLD.HEIGHT,
+            this._viewType
+        );
+    } 
+    else if (this._viewType === 'word') {
+        // Word definition view
+        this.currentLayoutStrategy = new WordDefinitionLayout(
+            COORDINATE_SPACE.WORLD.WIDTH,
+            COORDINATE_SPACE.WORLD.HEIGHT,
+            this._viewType
+        );
+    }
+    else {
+        // Default to SingleNodeLayout for any other view
+        this.currentLayoutStrategy = new SingleNodeLayout(
+            COORDINATE_SPACE.WORLD.WIDTH,
+            COORDINATE_SPACE.WORLD.HEIGHT,
+            this._viewType
+        );
+    }
+    
+    // Apply the selected strategy
+    if (this.currentLayoutStrategy) {
+        // Get current nodes
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Get links if available
+        const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
+        const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
+        
+        // Set the simulation for the strategy
+        this.currentLayoutStrategy.setSimulation(this.simulation as any);
+        
+        // Let the strategy initialize positions and forces
+        this.currentLayoutStrategy.initializeNodePositions(nodes);
+        this.currentLayoutStrategy.configureForces();
+        
+        // Update simulation with strategy-applied nodes
+        this.simulation.nodes(asD3Nodes(nodes));
+        
+        // Call enforceFixedPositionsStrict to ensure fixed positions
+        this.enforceFixedPositionsStrict();
+    }
+}
 
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
         // Reuse existing enhanced nodes when possible
@@ -877,6 +888,8 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
 }
 
 
+// In GraphManager.ts - the getNodeRadius method
+
 private getNodeRadius(node: GraphNode | EnhancedNode): number {
     // Generate a cache key based on node properties that affect radius
     const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
@@ -919,6 +932,16 @@ private getNodeRadius(node: GraphNode | EnhancedNode): number {
                 COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
                 COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
             break;      
+        
+        case 'comment':
+            // Use fixed size for comment nodes regardless of mode
+            radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+            break;
+            
+        case 'comment-form':
+            // Use fixed size for comment form nodes
+            radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+            break;
                 
         case 'navigation':
             radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
@@ -1007,6 +1030,10 @@ private getNodeColor(node: EnhancedNode): string {
             return COLORS.PRIMARY.GREEN;
         case 'quantity':
             return COLORS.PRIMARY.TURQUOISE; 
+        case 'comment':
+            return COLORS.PRIMARY.ORANGE; // Use orange for comment nodes
+        case 'comment-form':
+            return COLORS.PRIMARY.ORANGE; // Also use orange for comment form nodes
         case 'navigation':
             return 'transparent'; // Remove the colored border
         case 'dashboard':

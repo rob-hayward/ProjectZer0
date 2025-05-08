@@ -324,13 +324,23 @@ export class DiscussionLayout extends BaseLayoutStrategy {
 
         // CRITICAL: Start with no forces at all
         this.clearAllForces();
+
+        // Add collision detection - this helps prevent overlapping
+        this.simulation.force('collision', d3.forceCollide()
+            .radius((node: any) => (node as EnhancedNode).radius * 1.8) // 80% buffer around nodes
+            .strength(0.8) // Strong enough to prevent overlap
+            .iterations(4) // More iterations = more accurate
+        );
+        
+        // Add very weak charge force to help separate nodes
+        this.simulation.force('charge', d3.forceManyBody()
+            .strength((node: any) => (node as EnhancedNode).type === 'comment' ? -150 : -50) // Stronger repulsion for comments
+            .distanceMax(600) // Limit the distance to avoid nodes flying away
+        );
         
         // Configure minimal forces for navigation nodes
         NavigationNodeLayout.configureNoForces(this.simulation);
 
-        // NO FORCES: We don't add any forces to the simulation,
-        // relying completely on fixed positions instead
-        
         // Add a tick handler that enforces central node position on EVERY tick
         this.simulation.on('tick.fixedPosition', () => {
             const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -359,7 +369,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         });
         
         // Start with a VERY mild alpha - just avoid movement
-        this.simulation.alpha(0.01).restart();
+        this.simulation.alpha(0.1).restart();
     }
 
     /**
@@ -379,31 +389,45 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             return dateB - dateA;
         });
         
-        // Calculate positions with golden angle
+        // Calculate base radius for root comments
+        const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
+        
+        // Calculate spacing angle based on number of comments
+        // More comments = smaller spacing to fit them all
+        const totalComments = sortedComments.length;
+        
+        // Increase the spacing factor to further separate nodes
+        // Higher spacing factor = more space between nodes
+        const spacingFactor = Math.max(1.5, Math.min(3.0, 10 / totalComments));
+        
+        // Position each comment around the circle
         sortedComments.forEach((comment, index) => {
             // Store ring index (1 for root comments)
             this.commentRingIndices.set(comment.id, 1);
             
-            // Calculate angle using golden ratio for even distribution
-            const angle = this.FIRST_COMMENT_ANGLE + (this.GOLDEN_ANGLE * index);
+            // Calculate angle with better distribution based on comment count
+            // Using index * spacingFactor * GOLDEN_ANGLE gives better spacing
+            const angle = this.FIRST_COMMENT_ANGLE + (this.GOLDEN_ANGLE * index * spacingFactor);
             
             // Store angle for consistency
             this.commentAngles.set(comment.id, angle);
             
-            // Calculate position with all adjustments
-            const position = this.calculateCommentPosition(comment, angle, 1);
+            // Calculate additional spacing adjustment based on node radius
+            // Larger spacing multiplier to ensure nodes don't overlap
+            const nodeRadiusAdjustment = comment.radius * 1.2;
             
-            // Apply position
-            comment.x = position.x;
-            comment.y = position.y;
+            // Apply position using angle and adjusted radius
+            // Larger base radius to provide more room for comments
+            const adjustedRadius = baseRadius + nodeRadiusAdjustment + (totalComments * 5); // Scale with comment count
+            comment.x = Math.cos(angle) * adjustedRadius;
+            comment.y = Math.sin(angle) * adjustedRadius;
             
             console.debug('[DiscussionLayout] Positioned root comment:', {
                 id: comment.id,
                 index,
                 angle: angle * (180 / Math.PI), // Convert to degrees for readability
                 position: { x: comment.x, y: comment.y },
-                isDetail: comment.mode === 'detail',
-                isHidden: comment.isHidden
+                adjustedRadius
             });
             
             // Position any reply form associated with this comment
@@ -415,7 +439,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             if (replyForm) {
                 // Position slightly offset from parent comment
                 const replyAngle = angle + (Math.PI / 8); // Offset angle
-                const replyRadius = position.radius * 1.2; // Slightly larger radius
+                const replyRadius = adjustedRadius * 1.2; // Slightly larger radius
                 
                 replyForm.x = Math.cos(replyAngle) * replyRadius;
                 replyForm.y = Math.sin(replyAngle) * replyRadius;
@@ -433,7 +457,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
      * Position reply comments around their parent comments
      */
     private positionReplyComments(comments: EnhancedNode[]): void {
-        // Build a map of comments by parent ID for easier lookup
+        // Get comments grouped by parent
         const commentsByParent = new Map<string, EnhancedNode[]>();
         
         comments.forEach(comment => {
@@ -467,42 +491,83 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                 return dateB - dateA;
             });
             
-            // Get parent angle from map or calculate it
+            // Get parent angle and ring index
             const parentAngle = this.commentAngles.get(parentId) || 0;
-            
-            // Get parent ring index
             const parentRingIndex = this.getRingIndex(parentId);
             
-            // Position replies around parent with golden angle distribution
+            // Calculate how to distribute replies around the parent
+            // More replies = wider arc
+            const replyCount = sortedReplies.length;
+            
+            // Increase arc size to provide more space between reply nodes
+            const arcSize = Math.min(Math.PI * 1.5, Math.max(Math.PI / 2, replyCount * 0.3 * Math.PI));
+            
+            // Position replies around parent with better distribution
             sortedReplies.forEach((reply, index) => {
                 // Set ring index (parent's index + 1)
                 const ringIndex = parentRingIndex + 1;
                 this.commentRingIndices.set(reply.id, ringIndex);
                 
-                // Calculate angle based on parent's angle and child index
-                // We want replies to be distributed around their parent
-                const baseAngle = parentAngle;
-                const replyAngle = baseAngle + (this.GOLDEN_ANGLE * index * 0.5);
+                // Calculate angle based on position in the replies arc
+                // This creates a "fan" of replies around the parent
+                const fraction = replyCount > 1 ? index / (replyCount - 1) : 0.5;
+                const replyAngle = parentAngle + (arcSize * (fraction - 0.5));
                 
                 // Store angle for consistency and future use
                 this.commentAngles.set(reply.id, replyAngle);
                 
-                // Calculate position with all adjustments
-                const position = this.calculateCommentPosition(reply, replyAngle, ringIndex);
+                // Calculate radius with progressive increase for deeper nesting
+                const radiusIncrement = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.REPLY_RADIUS_INCREMENT || 200;
                 
-                // Apply position
-                reply.x = position.x;
-                reply.y = position.y;
+                // Increase the radius increment based on the number of replies
+                // More replies = more spacing between rings
+                const adjustedRadiusIncrement = radiusIncrement * (1 + (replyCount * 0.05));
                 
-                console.debug('[DiscussionLayout] Positioned reply comment:', {
-                    id: reply.id,
-                    parentId,
-                    ringIndex,
-                    angle: replyAngle * (180 / Math.PI), // Convert to degrees for readability
-                    position: { x: reply.x, y: reply.y },
-                    isDetail: reply.mode === 'detail',
-                    isHidden: reply.isHidden
-                });
+                // Calculate base position from parent's position instead of center
+                // This creates better clustering of related comments
+                if (parent.x !== undefined && parent.y !== undefined) {
+                    // Add extra spacing for larger nodes
+                    const nodeRadiusAdjustment = reply.radius * 1.5;
+                    
+                    // Calculate position
+                    const replyDistance = Math.max(200, parent.radius * 2 + reply.radius * 2 + 50);
+                    const posX = (parent.x ?? 0) + Math.cos(replyAngle) * replyDistance;
+                    const posY = (parent.y ?? 0) + Math.sin(replyAngle) * replyDistance;
+                    
+                    // Apply position
+                    reply.x = posX;
+                    reply.y = posY;
+                    
+                    console.debug('[DiscussionLayout] Positioned reply comment (relative):', {
+                        id: reply.id,
+                        parentId,
+                        ringIndex,
+                        angle: replyAngle * (180 / Math.PI),
+                        position: { x: reply.x, y: reply.y },
+                        distance: replyDistance
+                    });
+                } else {
+                    // Fallback to absolute positioning if parent position is not available
+                    const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
+                    const nestingRadius = baseRadius + ((ringIndex - 1) * adjustedRadiusIncrement);
+                    
+                    // Add extra spacing for larger nodes
+                    const nodeRadiusAdjustment = reply.radius * 1.5;
+                    const adjustedRadius = nestingRadius + nodeRadiusAdjustment;
+                    
+                    // Apply position
+                    reply.x = Math.cos(replyAngle) * adjustedRadius;
+                    reply.y = Math.sin(replyAngle) * adjustedRadius;
+                    
+                    console.debug('[DiscussionLayout] Positioned reply comment (absolute):', {
+                        id: reply.id,
+                        parentId,
+                        ringIndex,
+                        angle: replyAngle * (180 / Math.PI),
+                        position: { x: reply.x, y: reply.y },
+                        adjustedRadius
+                    });
+                }
                 
                 // Position any reply form associated with this comment
                 const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
@@ -513,16 +578,21 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                 if (replyForm) {
                     // Position slightly offset from parent comment
                     const formAngle = replyAngle + (Math.PI / 8); // Offset angle
-                    const formRadius = position.radius * 1.15; // Slightly larger radius
                     
-                    replyForm.x = Math.cos(formAngle) * formRadius;
-                    replyForm.y = Math.sin(formAngle) * formRadius;
-                    
-                    console.debug('[DiscussionLayout] Positioned nested reply form:', {
-                        id: replyForm.id,
-                        parentId: reply.id,
-                        position: { x: replyForm.x, y: replyForm.y }
-                    });
+                    if (reply.x !== undefined && reply.y !== undefined) {
+                        // Calculate distance based on node sizes
+                        const formDistance = reply.radius + 40; // Some additional spacing
+                        
+                        // Position relative to the reply comment
+                        replyForm.x = reply.x + Math.cos(formAngle) * formDistance;
+                        replyForm.y = reply.y + Math.sin(formAngle) * formDistance;
+                        
+                        console.debug('[DiscussionLayout] Positioned nested reply form (relative):', {
+                            id: replyForm.id,
+                            parentId: reply.id,
+                            position: { x: replyForm.x, y: replyForm.y }
+                        });
+                    }
                 }
             });
         });
@@ -532,9 +602,12 @@ export class DiscussionLayout extends BaseLayoutStrategy {
      * Calculate position for a comment with all adjustments
      */
     private calculateCommentPosition(node: EnhancedNode, angle: number, ringIndex: number): { x: number, y: number, radius: number } {
-        // Calculate base radius from coordinate space constants - larger for deeper nesting
-        const baseRadius = COORDINATE_SPACE.LAYOUT.RING_SPACING.INITIAL * 
-            (1 + (ringIndex * COORDINATE_SPACE.LAYOUT.RING_SPACING.INCREMENT));
+        // Get constants from COORDINATE_SPACE
+        const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
+        const radiusIncrement = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.REPLY_RADIUS_INCREMENT || 200;
+        
+        // Calculate radius based on ring index - with more spacing for higher ring indices
+        const ringRadius = baseRadius + ((ringIndex - 1) * radiusIncrement * 1.5);
 
         // Retrieve the central node to check its state
         const centralNode = (this.simulation.nodes() as unknown as EnhancedNode[])
@@ -578,14 +651,18 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             }
         });
         
+        // Add spacing adjustment based on node radius to prevent overlap
+        const nodeRadiusAdjustment = node.radius * 2;
+        
         // Calculate final radius with all adjustments
-        const radius = baseRadius + 
+        const radius = ringRadius + 
                       expansionAdjustment + 
                       hiddenAdjustment - 
                       centralAdjustment - 
                       centralHiddenAdjustment + 
                       innerExpandedAdjustment + 
-                      innerHiddenAdjustment;
+                      innerHiddenAdjustment +
+                      nodeRadiusAdjustment;
 
         // Calculate position using angle and radius
         const x = Math.cos(angle) * radius;
@@ -703,6 +780,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             }
         }
 
+
         // For central node, we need to update all nodes
         if (node.group === 'central') {
             console.debug('[DiscussionLayout] Central node mode changed, repositioning all nodes');
@@ -771,7 +849,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             
             // Calculate adjustment for this node when hidden (negative to pull inward)
             const adjustment = -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - 
-                               COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                            COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
                 
             // Update tracking
             if (isHidden) {
@@ -845,9 +923,9 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                         
                         // Calculate adjustment
                         const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
-                                          COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
-                                          COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
-                                          
+                                        COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
+                                        COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
+                                        
                         this.expandedComments.set(node.id, { ringIndex, adjustment });
                     } else {
                         this.expandedComments.delete(node.id);
@@ -883,8 +961,8 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                         
                         // Calculate adjustment (negative value to pull inward)
                         const adjustment = -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - 
-                                          COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
-                                          
+                                        COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
+                                        
                         this.hiddenNodes.set(node.id, { ringIndex, adjustment });
                         
                         console.debug('[DiscussionLayout] Added hidden node tracking:', {
@@ -904,7 +982,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             }
         });
     }
-    
+
     /**
      * Reposition all comments
      */
@@ -1036,7 +1114,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         // Ensure fixed positions after update
         this.enforceFixedPositions();
     }
-    
+
     /**
      * Stops the layout strategy and clears all forces
      */

@@ -38,6 +38,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 450,     // Smaller detail view for control node
                 PREVIEW: 250     // Smaller preview for control node
             },
+            // Add fixed size for comment nodes - smaller than other node types
+            COMMENT: {
+                STANDARD: 180    // Fixed size for comment nodes (no preview/detail distinction)
+            },
             NAVIGATION: 80,
             HIDDEN: 100
         },
@@ -49,7 +53,8 @@ export const COORDINATE_SPACE = {
                 NAVIGATION: 5,     // Collision padding for navigation nodes
                 DEFINITION: 150,   // Collision padding for definition nodes
                 STATEMENT: 150,    // Match definition collision padding
-                QUANTITY: 200      // Larger collision padding for quantity nodes
+                QUANTITY: 200,     // Larger collision padding for quantity nodes
+                COMMENT: 10        // Small collision padding for comment nodes
             }
         }
     },
@@ -87,6 +92,14 @@ export const COORDINATE_SPACE = {
                 }
             }
         },
+        // Add specific settings for discussion view layout
+        DISCUSSION: {
+            COMMENT_RINGS: {
+                ROOT_RADIUS: 400,          // Distance of root comments from central node
+                REPLY_RADIUS_INCREMENT: 200, // Additional distance for each level of replies
+                SPACING_FACTOR: 1.2        // Spacing between comments in the same ring
+            }
+        },
         FORCES: {
             CHARGE: {
                 STRENGTH: {
@@ -98,7 +111,8 @@ export const COORDINATE_SPACE = {
                     },
                     STATEMENT: -300,    // Reduced from -1600
                     QUANTITY: -400,     // New strength for quantity nodes
-                    NAVIGATION: -20     // Reduced from -50
+                    NAVIGATION: -20,    // Reduced from -50
+                    COMMENT: -100       // Weak repulsion for comment nodes
                 },
                 DISTANCE: {
                     MIN: 50,            // Reduced from 200

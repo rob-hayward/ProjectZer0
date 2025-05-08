@@ -114,6 +114,37 @@ export const NODE_CONSTANTS = {
                     end: `${COLORS.PRIMARY.PURPLE}33`
                 }
             }
+        },
+        STATEMENT: {
+            background: `${COLORS.PRIMARY.GREEN}33`,
+            border: `${COLORS.PRIMARY.GREEN}FF`,
+            text: `${COLORS.PRIMARY.GREEN}FF`,
+            hover: `${COLORS.PRIMARY.GREEN}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.GREEN}66`,
+                end: `${COLORS.PRIMARY.GREEN}33`
+            }
+        },
+        QUANTITY: {
+            background: `${COLORS.PRIMARY.TURQUOISE}33`,
+            border: `${COLORS.PRIMARY.TURQUOISE}FF`,
+            text: `${COLORS.PRIMARY.TURQUOISE}FF`,
+            hover: `${COLORS.PRIMARY.TURQUOISE}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.TURQUOISE}66`,
+                end: `${COLORS.PRIMARY.TURQUOISE}33`
+            }
+        },
+        // Add color definition for comment nodes
+        COMMENT: {
+            background: `${COLORS.PRIMARY.ORANGE}33`,
+            border: `${COLORS.PRIMARY.ORANGE}FF`,
+            text: `${COLORS.PRIMARY.ORANGE}FF`,
+            hover: `${COLORS.PRIMARY.ORANGE}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.ORANGE}66`,
+                end: `${COLORS.PRIMARY.ORANGE}33`
+            }
         }
     },
     FONTS: {
