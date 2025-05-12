@@ -548,91 +548,224 @@ export class GraphManager {
     }
 
     // In GraphManager.ts - the applyLayoutStrategy method
-
-private applyLayoutStrategy(): void {
-    // Stop current layout strategy if exists
-    if (this.currentLayoutStrategy) {
-        this.currentLayoutStrategy.stop();
-    }
-    
-    // Select appropriate layout strategy
-    if (this._viewType === 'statement-network') {
-        this.currentLayoutStrategy = new StatementNetworkLayout(
-            COORDINATE_SPACE.WORLD.WIDTH,
-            COORDINATE_SPACE.WORLD.HEIGHT,
-            this._viewType
-        );
+    private applyLayoutStrategy(): void {
+        // Stop current layout strategy if exists
+        if (this.currentLayoutStrategy) {
+            this.currentLayoutStrategy.stop();
+        }
         
-        // Apply extra strictness for statement network
-        this.simulation.force('charge', null);
-        this.simulation.force('collision', null);
-        this.simulation.force('center', null);
-        this.simulation.velocityDecay(0.8); // Higher value to dampen movement
+        // Select appropriate layout strategy
+        if (this._viewType === 'statement-network') {
+            this.currentLayoutStrategy = new StatementNetworkLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+            
+            // Apply extra strictness for statement network
+            this.simulation.force('charge', null);
+            this.simulation.force('collision', null);
+            this.simulation.force('center', null);
+            this.simulation.velocityDecay(0.8); // Higher value to dampen movement
+            
+            // Add a tick handler specifically for statement network view
+            this.simulation.on('tick.fixedPosition', () => {
+                this.enforceFixedPositionsStrict();
+            });
+        }
+        else if (this._viewType === 'discussion') {
+            // Use the discussion layout for discussion views
+            this.currentLayoutStrategy = new DiscussionLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+            
+            // Configure discussion-specific forces
+            this.configureDiscussionForces();
+        }
+        else if (this._viewType === 'dashboard' || 
+            this._viewType === 'edit-profile' || 
+            this._viewType === 'create-node' ||
+            this._viewType === 'statement') {
+            // Single central node views - including statement view
+            this.currentLayoutStrategy = new SingleNodeLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        } 
+        else if (this._viewType === 'word') {
+            // Word definition view
+            this.currentLayoutStrategy = new WordDefinitionLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        }
+        else {
+            // Default to SingleNodeLayout for any other view
+            this.currentLayoutStrategy = new SingleNodeLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        }
         
-        // Add a tick handler specifically for statement network view
-        this.simulation.on('tick.fixedPosition', () => {
+        // Apply the selected strategy
+        if (this.currentLayoutStrategy) {
+            // Get current nodes
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            
+            // Get links if available
+            const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
+            const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
+            
+            // Set the simulation for the strategy
+            this.currentLayoutStrategy.setSimulation(this.simulation as any);
+            
+            // Let the strategy initialize positions and forces
+            this.currentLayoutStrategy.initializeNodePositions(nodes);
+            this.currentLayoutStrategy.configureForces();
+            
+            // Update simulation with strategy-applied nodes
+            this.simulation.nodes(asD3Nodes(nodes));
+            
+            // Call enforceFixedPositionsStrict to ensure fixed positions
             this.enforceFixedPositionsStrict();
+        }
+    }
+
+    /**
+     * Configure discussion-specific forces
+     * This is critical for proper hierarchical comments
+     */
+    public configureDiscussionForces(): void {
+        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Configuring discussion-specific forces');
+        
+        // Clear any existing tick handlers that might interfere
+        this.simulation.on('tick.fixedPosition', null);
+        
+        // Add our specialized tick handler for discussions
+        this.simulation.on('tick.discussionLayout', () => {
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            
+            // Create a map for fast node lookups
+            const nodeMap = new Map<string, EnhancedNode>();
+            nodes.forEach(node => nodeMap.set(node.id, node));
+            
+            // Process each node individually based on its type and relationships
+            nodes.forEach(node => {
+                if (node.fixed || node.group === 'central') {
+                    // Central node always at origin
+                    node.x = 0;
+                    node.y = 0;
+                    node.fx = 0;
+                    node.fy = 0;
+                    node.vx = 0;
+                    node.vy = 0;
+                } 
+                else if (node.type === 'navigation') {
+                    // Navigation nodes stay at their fixed positions
+                    if (node.fx !== undefined) node.x = node.fx;
+                    if (node.fy !== undefined) node.y = node.fy;
+                    node.vx = 0;
+                    node.vy = 0;
+                }
+                else if (node.type === 'comment' && node.metadata?.parentCommentId) {
+                    // For reply comments, ensure they stay reasonably close to their parent
+                    const parentId = node.metadata.parentCommentId;
+                    const parentNode = nodeMap.get(parentId);
+                    
+                    if (parentNode && !node.fixed) {
+                        // Get current vector from parent to child
+                        const dx = (node.x ?? 0) - (parentNode.x ?? 0);
+                        const dy = (node.y ?? 0) - (parentNode.y ?? 0);
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        // Calculate ideal distance based on node radii
+                        const idealDistance = parentNode.radius + node.radius + 50;
+                        
+                        // If too far or too close, adjust position
+                        if (Math.abs(distance - idealDistance) > 20) {
+                            // Create unit vector
+                            const ux = dx / distance;
+                            const uy = dy / distance;
+                            
+                            // Move node to ideal distance along same direction (with partial adjustment)
+                            const adjustmentFactor = 0.2; // 20% adjustment per tick for smoothness
+                            node.x = (parentNode.x ?? 0) + ux * (idealDistance * adjustmentFactor + distance * (1 - adjustmentFactor));
+                            node.y = (parentNode.y ?? 0) + uy * (idealDistance * adjustmentFactor + distance * (1 - adjustmentFactor));
+                            
+                            // Set a small velocity to stabilize
+                            node.vx = 0;
+                            node.vy = 0;
+                        }
+                    }
+                }
+            });
         });
-    }
-    else if (this._viewType === 'discussion') {
-        // Use the discussion layout for discussion views
-        this.currentLayoutStrategy = new DiscussionLayout(
-            COORDINATE_SPACE.WORLD.WIDTH,
-            COORDINATE_SPACE.WORLD.HEIGHT,
-            this._viewType
+        
+        // Adjust simulation parameters for discussion view
+        this.simulation.velocityDecay(0.5); // Moderate velocity decay
+        
+        // Add strong collision force to prevent overlap
+        this.simulation.force('collision', d3.forceCollide()
+            .radius((node: any) => (node as EnhancedNode).radius * 1.5) // 50% buffer around nodes
+            .strength(0.8)
+            .iterations(3)
+        );
+        
+        // Add a gentle charge force
+        this.simulation.force('charge', d3.forceManyBody()
+            .strength((node: any) => {
+                // Different charge forces based on node type
+                const n = node as EnhancedNode;
+                if (n.type === 'comment') {
+                    return n.metadata?.parentCommentId ? -150 : -200; // Stronger for root comments
+                }
+                return -50; // Default charge
+            })
+            .distanceMax(500) // Limit the distance of effect
+        );
+        
+        // Use specialized link force for discussion
+        this.simulation.force('link', d3.forceLink()
+            .id((d: any) => (d as EnhancedNode).id)
+            .strength((l: any) => {
+                const link = l as EnhancedLink;
+                // Customize strength based on link type
+                if (link.type === 'comment') {
+                    return 0.5; // Root comments to central node
+                } else if (link.type === 'reply') {
+                    return 0.7; // Replies to parent comments (stronger)
+                } else if (link.type === 'comment-form' || link.type === 'reply-form') {
+                    return 0.9; // Form connections (strongest)
+                }
+                return link.strength || 0.3; // Default
+            })
+            .distance((l: any) => {
+                const link = l as EnhancedLink;
+                
+                // Try to get source and target nodes
+                const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+                const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+                
+                const sourceNode = this.simulation.nodes().find((n: any) => 
+                    (n as EnhancedNode).id === sourceId
+                ) as EnhancedNode;
+                
+                const targetNode = this.simulation.nodes().find((n: any) => 
+                    (n as EnhancedNode).id === targetId
+                ) as EnhancedNode;
+                
+                if (!sourceNode || !targetNode) return 100; // Default distance
+                
+                // Calculate distance based on node radii plus padding
+                return sourceNode.radius + targetNode.radius + 50;
+            })
         );
     }
-    else if (this._viewType === 'dashboard' || 
-        this._viewType === 'edit-profile' || 
-        this._viewType === 'create-node' ||
-        this._viewType === 'statement') {
-        // Single central node views - including statement view
-        this.currentLayoutStrategy = new SingleNodeLayout(
-            COORDINATE_SPACE.WORLD.WIDTH,
-            COORDINATE_SPACE.WORLD.HEIGHT,
-            this._viewType
-        );
-    } 
-    else if (this._viewType === 'word') {
-        // Word definition view
-        this.currentLayoutStrategy = new WordDefinitionLayout(
-            COORDINATE_SPACE.WORLD.WIDTH,
-            COORDINATE_SPACE.WORLD.HEIGHT,
-            this._viewType
-        );
-    }
-    else {
-        // Default to SingleNodeLayout for any other view
-        this.currentLayoutStrategy = new SingleNodeLayout(
-            COORDINATE_SPACE.WORLD.WIDTH,
-            COORDINATE_SPACE.WORLD.HEIGHT,
-            this._viewType
-        );
-    }
-    
-    // Apply the selected strategy
-    if (this.currentLayoutStrategy) {
-        // Get current nodes
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        
-        // Get links if available
-        const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
-        const links = linkForce ? linkForce.links() as unknown as EnhancedLink[] : [];
-        
-        // Set the simulation for the strategy
-        this.currentLayoutStrategy.setSimulation(this.simulation as any);
-        
-        // Let the strategy initialize positions and forces
-        this.currentLayoutStrategy.initializeNodePositions(nodes);
-        this.currentLayoutStrategy.configureForces();
-        
-        // Update simulation with strategy-applied nodes
-        this.simulation.nodes(asD3Nodes(nodes));
-        
-        // Call enforceFixedPositionsStrict to ensure fixed positions
-        this.enforceFixedPositionsStrict();
-    }
-}
 
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
         // Reuse existing enhanced nodes when possible
@@ -701,7 +834,11 @@ private applyLayoutStrategy(): void {
                             typeof node.data.createdAt === 'string' ? 
                                 node.data.createdAt : 
                                 undefined) : 
-                            undefined
+                            undefined,
+                    // CRITICAL: Preserve parentCommentId for reply comments
+                    parentCommentId: node.type === 'comment' && 'parentCommentId' in node.data ? 
+                        (node.data as any).parentCommentId : 
+                        node.metadata?.parentCommentId
                 }
             };
             
@@ -718,7 +855,19 @@ private applyLayoutStrategy(): void {
 }
 
 private transformLinks(links: GraphLink[]): EnhancedLink[] {
+    // Log incoming links for debugging comment hierarchy
+    console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Transforming links:', 
+        links.map(link => ({
+            id: link.id,
+            source: typeof link.source === 'string' ? link.source : link.source.id,
+            target: typeof link.target === 'string' ? link.target : link.target.id,
+            type: link.type,
+            metadata: link.metadata
+        }))
+    );
+    
     return links.map(link => {
+        // Ensure proper handling of source/target which might be objects or strings
         const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
         const targetId = typeof link.target === 'string' ? link.target : link.target.id;
         
@@ -726,24 +875,48 @@ private transformLinks(links: GraphLink[]): EnhancedLink[] {
         let relationshipType: 'direct' | 'keyword' = 'keyword';
         let strength = 0.3;
         
+        // CRITICAL FIX: Adjust link strengths based on link type to maintain proper hierarchical structure
         if (link.type === 'related') {
             relationshipType = 'direct';
             strength = 0.7; // Stronger connections for direct relationships
         } else if (link.type === 'live') {
             strength = 0.7;
+        } else if (link.type === 'comment') {
+            // Root comments to central node - moderate strength
+            strength = 0.5;
+            relationshipType = 'direct';
+        } else if (link.type === 'reply') {
+            // Replies to parent comments - stronger to keep them close to parent
+            strength = 0.7;
+            relationshipType = 'direct';
+            console.log(`[COMMENT_HIERARCHY_GRAPHMANAGER] Processing reply link: ${sourceId} -> ${targetId}`);
+        } else if (link.type === 'comment-form' || link.type === 'reply-form') {
+            // Form connections - strongest to keep forms right next to their targets
+            strength = 0.9;
+            relationshipType = 'direct';
         }
         
-        // Preserve the metadata from the original link
-        return {
+        // Preserve explicit link type in the metadata
+        const linkMetadata = {
+            ...(link.metadata || {}), // Keep existing metadata
+            linkType: link.type,      // Add the link type for debugging
+            sourceId,                 // Track the source ID
+            targetId                  // Track the target ID
+        };
+        
+        // Create enhanced link with the improved properties
+        const enhancedLink: EnhancedLink = {
             id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
-            source: sourceId,
-            target: targetId,
+            source: sourceId, // Keep as string to prevent d3 from modifying it
+            target: targetId, // Keep as string to prevent d3 from modifying it
             type: link.type,
             relationshipType: relationshipType,
             strength: strength,
-            // Preserve the original metadata
-            metadata: (link as any).metadata
+            // Use the enhanced metadata
+            metadata: linkMetadata
         };
+        
+        return enhancedLink;
     });
 }
 
@@ -824,6 +997,9 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
         nodeMap.set(node.id, node);
     });
     
+    // Log links for debugging
+    console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Creating renderable links from', links.length, 'links');
+    
     return links.map(link => {
         const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
         const targetId = typeof link.target === 'string' ? link.target : link.target.id;
@@ -833,6 +1009,7 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
         const target = nodeMap.get(targetId);
         
         if (!source || !target) {
+            console.warn(`[COMMENT_HIERARCHY_GRAPHMANAGER] Missing node for link: ${sourceId} -> ${targetId}`);
             return null;
         }
         
@@ -848,6 +1025,18 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
         const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
         const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
         
+        // Determine strength based on link type
+        let strength = link.strength || 0.3;
+        
+        // Adjust strength for comment links
+        if (link.type === 'comment') {
+            strength = 0.5; // Root comments to central node
+        } else if (link.type === 'reply') {
+            strength = 0.7; // Replies to parent comments (stronger)
+        } else if (link.type === 'comment-form' || link.type === 'reply-form') {
+            strength = 0.9; // Form connections (strongest)
+        }
+        
         // CRITICAL: Preserve the existing metadata for statement relations
         // This ensures we don't lose relationCount or sharedWords
         const metadata = link.type === 'related' ? {
@@ -858,7 +1047,7 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
             ...link.metadata
         } : link.metadata;
         
-        // Create the renderable link
+        // Create the renderable link with improved metadata
         const renderableLink: RenderableLink = {
             id: link.id,
             type: link.type,
@@ -877,7 +1066,7 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
                 y: target.y ?? 0,
                 svgTransform: targetTransform
             },
-            strength: link.strength,
+            strength,
             relationshipType: link.relationshipType,
             // Use the preserved metadata
             metadata
@@ -886,9 +1075,6 @@ private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): Ren
         return renderableLink;
     }).filter(Boolean) as RenderableLink[];
 }
-
-
-// In GraphManager.ts - the getNodeRadius method
 
 private getNodeRadius(node: GraphNode | EnhancedNode): number {
     // Generate a cache key based on node properties that affect radius
@@ -1066,16 +1252,44 @@ private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
     const unitX = dx / distance;
     const unitY = dy / distance;
     
-    // Simpler scaling factor calculation - use a fixed percentage of radius
-    const sourceRadius = source.radius * 0.95; // 95% of radius
-    const targetRadius = target.radius * 0.95; // 95% of radius
-    
-    // Calculate points on perimeter
-    const startX = sourceX + (unitX * sourceRadius);
-    const startY = sourceY + (unitY * sourceRadius);
-    const endX = targetX - (unitX * targetRadius);
-    const endY = targetY - (unitY * targetRadius);
-    
-    return `M${startX},${startY}L${endX},${endY}`;
+    // IMPROVED: Adjust calculations based on link type
+    // For reply links, make a curved path to better show the hierarchy
+    if (source.type === 'comment' && target.type === 'comment') {
+        // Curved path for comment replies
+        const startX = sourceX + (unitX * source.radius * 0.95);
+        const startY = sourceY + (unitY * source.radius * 0.95);
+        const endX = targetX - (unitX * target.radius * 0.95);
+        const endY = targetY - (unitY * target.radius * 0.95);
+        
+        // Calculate control point for the curve (perpendicular to the line)
+        const midX = (startX + endX) / 2;
+        const midY = (startY + endY) / 2;
+        const perpX = -unitY; // Perpendicular vector
+        const perpY = unitX;
+        
+        // Calculate curve offset proportional to distance
+        const curveOffset = Math.min(distance * 0.2, 30); // Cap at max 30 pixels offset
+        
+        // Create control point offset from midpoint
+        const ctrlX = midX + perpX * curveOffset;
+        const ctrlY = midY + perpY * curveOffset;
+        
+        // Create a quadratic bezier curve path
+        return `M${startX},${startY} Q${ctrlX},${ctrlY} ${endX},${endY}`;
+    } else {
+        // Use the original simple calculation with straight lines for other link types
+        // Simpler scaling factor calculation - use a fixed percentage of radius
+        const sourceRadius = source.radius * 0.95; // 95% of radius
+        const targetRadius = target.radius * 0.95; // 95% of radius
+        
+        // Calculate points on perimeter
+        const startX = sourceX + (unitX * sourceRadius);
+        const startY = sourceY + (unitY * sourceRadius);
+        const endX = targetX - (unitX * targetRadius);
+        const endY = targetY - (unitY * targetRadius);
+        
+        // Create a straight line path
+        return `M${startX},${startY}L${endX},${endY}`;
+    }
 }
 }

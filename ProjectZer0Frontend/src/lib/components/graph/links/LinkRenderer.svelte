@@ -3,6 +3,7 @@
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
     import { LINK_CONSTANTS } from '$lib/constants/graph/links';
+    import { COLORS } from '$lib/constants/colors';
     
     export let link: RenderableLink;
     
@@ -14,16 +15,14 @@
     // Determine link types
     $: isLiveDefinition = link.type === 'live';
     $: isStatementRelation = link.type === 'related';
+    $: isComment = link.type === 'comment';
+    $: isReply = link.type === 'reply';
+    $: isCommentForm = link.type === 'comment-form';
+    $: isReplyForm = link.type === 'reply-form';
     
-    // Get source and target colors based on link type
-    $: sourceColor = isStatementRelation ? 
-        LINK_CONSTANTS.COLORS.STATEMENT : 
-        LINK_CONSTANTS.COLORS.WORD;
-    $: targetColor = isStatementRelation ? 
-        LINK_CONSTANTS.COLORS.STATEMENT : 
-        (isLiveDefinition ? 
-            LINK_CONSTANTS.COLORS.DEFINITION.LIVE : 
-            LINK_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE);
+    // ENHANCED: Get source and target colors based on node types
+    $: sourceColor = getSourceColor(link);
+    $: targetColor = getTargetColor(link);
     
     // Get relationship count from metadata if it exists (for statement relations)
     $: relationCount = isStatementRelation ? 
@@ -31,38 +30,11 @@
         1;
     
     // Enhanced visual properties based on relationship count
-    $: strokeWidth = isStatementRelation ?
-        // For statement relations, adjust based on relation count
-        Math.min(
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.MAX_STROKE_WIDTH,
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.BASE_STROKE_WIDTH + 
-            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.STROKE_WIDTH_INCREMENT
-        ) :
-        // For other links, use standard values
-        (isLiveDefinition ?
-            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
-            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.STROKE_WIDTH);
+    $: strokeWidth = getStrokeWidth(link, relationCount);
     
     // Calculate gradient opacity based on relationship count for statement relations
-    $: gradientStartOpacity = isStatementRelation ?
-        Math.min(
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
-            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
-        ) :
-        isLiveDefinition ? 
-            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY :
-            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.START_OPACITY;
-    
-    $: gradientEndOpacity = isStatementRelation ?
-        Math.min(
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
-            LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
-            (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
-        ) :
-        isLiveDefinition ? 
-            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY :
-            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.END_OPACITY;
+    $: gradientStartOpacity = getGradientOpacity(link, relationCount, 'start');
+    $: gradientEndOpacity = getGradientOpacity(link, relationCount, 'end');
     
     // Calculate glow intensity based on relationship count for statement relations
     $: glowIntensity = isStatementRelation ? 
@@ -79,6 +51,150 @@
             LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.BASE_OPACITY + 
             (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GLOW.OPACITY_INCREMENT
         ) : 0.5;
+    
+    /**
+     * Get the source color based on the source node type
+     */
+    function getSourceColor(link: RenderableLink): string {
+        if (isStatementRelation) {
+            return LINK_CONSTANTS.COLORS.STATEMENT;
+        }
+        
+        if (isComment) {
+            // Comment from central node to comment node - use the source node type color
+            if (link.sourceType === 'word') {
+                return COLORS.PRIMARY.BLUE; // Word node color
+            } else if (link.sourceType === 'statement') {
+                return COLORS.PRIMARY.GREEN; // Statement node color
+            } else if (link.sourceType === 'definition') {
+                return COLORS.PRIMARY.PURPLE; // Definition node color
+            } else if (link.sourceType === 'quantity') {
+                return COLORS.PRIMARY.TURQUOISE; // Quantity node color
+            }
+        }
+        
+        if (isReply || isReplyForm) {
+            // Reply from comment to comment - use comment color
+            return COLORS.PRIMARY.ORANGE; // Comment node color
+        }
+        
+        if (isCommentForm) {
+            // Form from central or comment node
+            if (link.sourceType === 'comment') {
+                return COLORS.PRIMARY.ORANGE; // From comment node
+            } else {
+                // From central node - use central node color
+                if (link.sourceType === 'word') {
+                    return COLORS.PRIMARY.BLUE;
+                } else if (link.sourceType === 'statement') {
+                    return COLORS.PRIMARY.GREEN;
+                } else if (link.sourceType === 'definition') {
+                    return COLORS.PRIMARY.PURPLE;
+                } else if (link.sourceType === 'quantity') {
+                    return COLORS.PRIMARY.TURQUOISE;
+                }
+            }
+        }
+        
+        // Default for word-definition links
+        return LINK_CONSTANTS.COLORS.WORD;
+    }
+    
+    /**
+     * Get the target color based on the target node type
+     */
+    function getTargetColor(link: RenderableLink): string {
+        if (isStatementRelation) {
+            return LINK_CONSTANTS.COLORS.STATEMENT;
+        }
+        
+        if (isComment || isCommentForm) {
+            // Link to a comment or comment form - always orange
+            return COLORS.PRIMARY.ORANGE;
+        }
+        
+        if (isReply || isReplyForm) {
+            // Reply to another comment - always orange
+            return COLORS.PRIMARY.ORANGE;
+        }
+        
+        // Default handling for word-definition links
+        return isLiveDefinition ? 
+            LINK_CONSTANTS.COLORS.DEFINITION.LIVE : 
+            LINK_CONSTANTS.COLORS.DEFINITION.ALTERNATIVE;
+    }
+    
+    /**
+     * Get stroke width based on link type
+     */
+    function getStrokeWidth(link: RenderableLink, relationCount: number): number {
+        if (isStatementRelation) {
+            // For statement relations, adjust based on relation count
+            return Math.min(
+                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.MAX_STROKE_WIDTH,
+                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.BASE_STROKE_WIDTH + 
+                (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.STROKE_WIDTH_INCREMENT
+            );
+        }
+        
+        if (isComment) {
+            // Root comments - medium thickness
+            return 2.0;
+        }
+        
+        if (isReply) {
+            // Replies - slightly thinner
+            return 1.5;
+        }
+        
+        if (isCommentForm || isReplyForm) {
+            // Forms - dashed line effect
+            return 1.5;
+        }
+        
+        // Default for word-definition links
+        return isLiveDefinition ?
+            LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
+            LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.STROKE_WIDTH;
+    }
+    
+    /**
+     * Get gradient opacity based on link type
+     */
+    function getGradientOpacity(link: RenderableLink, relationCount: number, position: 'start' | 'end'): number {
+        if (isStatementRelation) {
+            return Math.min(
+                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
+                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
+                (relationCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
+            );
+        }
+        
+        // Comment links - higher opacity
+        if (isComment || isReply) {
+            return position === 'start' ? 0.9 : 0.9;
+        }
+        
+        // Comment form links - dashed effect with lower opacity
+        if (isCommentForm || isReplyForm) {
+            return position === 'start' ? 0.7 : 0.7;
+        }
+        
+        // Default for word-definition links
+        return position === 'start' ?
+            (isLiveDefinition ? 
+                LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY :
+                LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.START_OPACITY) :
+            (isLiveDefinition ? 
+                LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY :
+                LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.END_OPACITY);
+    }
+    
+    /**
+     * Get the stroke-dasharray for the link
+     * Used to create dashed lines for form links
+     */
+    $: dashArray = (isCommentForm || isReplyForm) ? '5,5' : 'none';
 </script>
 
 {#if link.path}
@@ -141,6 +257,7 @@
             class="link-path"
             stroke-width={strokeWidth}
             stroke-linecap="round"
+            stroke-dasharray={dashArray}
             opacity="1"
             vector-effect="non-scaling-stroke"
         />

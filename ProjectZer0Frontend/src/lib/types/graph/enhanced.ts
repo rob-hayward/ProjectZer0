@@ -43,6 +43,7 @@ export interface GraphLink {
     source: string | GraphNode;
     target: string | GraphNode;
     type: LinkType;
+    metadata?: Record<string, any>;
 }
 
 // D3 compatible node interface
