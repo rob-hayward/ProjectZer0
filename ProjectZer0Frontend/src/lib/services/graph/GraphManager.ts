@@ -844,441 +844,566 @@ export class GraphManager {
             
            // If this is a central/fixed node, explicitly set position
            if (enhancedNode.fixed || enhancedNode.group === 'central') {
-            enhancedNode.fx = 0; // Force X position to center
-            enhancedNode.fy = 0; // Force Y position to center
-            enhancedNode.x = 0;  // Initial X position
-            enhancedNode.y = 0;  // Initial Y position
-        }
-        
-        return enhancedNode;
-    });
-}
-
-private transformLinks(links: GraphLink[]): EnhancedLink[] {
-    // Log incoming links for debugging comment hierarchy
-    console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Transforming links:', 
-        links.map(link => ({
-            id: link.id,
-            source: typeof link.source === 'string' ? link.source : link.source.id,
-            target: typeof link.target === 'string' ? link.target : link.target.id,
-            type: link.type,
-            metadata: link.metadata
-        }))
-    );
-    
-    return links.map(link => {
-        // Ensure proper handling of source/target which might be objects or strings
-        const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
-        const targetId = typeof link.target === 'string' ? link.target : link.target.id;
-        
-        // Determine relationship type and strength
-        let relationshipType: 'direct' | 'keyword' = 'keyword';
-        let strength = 0.3;
-        
-        // CRITICAL FIX: Adjust link strengths based on link type to maintain proper hierarchical structure
-        if (link.type === 'related') {
-            relationshipType = 'direct';
-            strength = 0.7; // Stronger connections for direct relationships
-        } else if (link.type === 'live') {
-            strength = 0.7;
-        } else if (link.type === 'comment') {
-            // Root comments to central node - moderate strength
-            strength = 0.5;
-            relationshipType = 'direct';
-        } else if (link.type === 'reply') {
-            // Replies to parent comments - stronger to keep them close to parent
-            strength = 0.7;
-            relationshipType = 'direct';
-            console.log(`[COMMENT_HIERARCHY_GRAPHMANAGER] Processing reply link: ${sourceId} -> ${targetId}`);
-        } else if (link.type === 'comment-form' || link.type === 'reply-form') {
-            // Form connections - strongest to keep forms right next to their targets
-            strength = 0.9;
-            relationshipType = 'direct';
-        }
-        
-        // Preserve explicit link type in the metadata
-        const linkMetadata = {
-            ...(link.metadata || {}), // Keep existing metadata
-            linkType: link.type,      // Add the link type for debugging
-            sourceId,                 // Track the source ID
-            targetId                  // Track the target ID
-        };
-        
-        // Create enhanced link with the improved properties
-        const enhancedLink: EnhancedLink = {
-            id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
-            source: sourceId, // Keep as string to prevent d3 from modifying it
-            target: targetId, // Keep as string to prevent d3 from modifying it
-            type: link.type,
-            relationshipType: relationshipType,
-            strength: strength,
-            // Use the enhanced metadata
-            metadata: linkMetadata
-        };
-        
-        return enhancedLink;
-    });
-}
-
-private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
-    return nodes.map(node => {
-        // Use the current node.radius directly
-        const radius = node.radius;
-        const baseSize = radius * 2;
-        
-        // Simple position calculation with null checking
-        const x = node.x ?? 0;
-        const y = node.y ?? 0;
-        
-        // Create SVG transform string using coordinateSystem helper
-        const svgTransform = coordinateSystem.createSVGTransform(x, y);
-        
-        return {
-            id: node.id,
-            type: node.type,
-            group: node.group,
-            mode: node.mode,
-            data: node.data,
-            radius: radius,
-            isHidden: node.isHidden,
-            hiddenReason: node.hiddenReason,
-            position: {
-                x,
-                y,
-                svgTransform
-            },
-            metadata: node.metadata,
-            style: {
-                previewSize: baseSize,
-                detailSize: baseSize * 2,
-                colors: {
-                    background: this.getNodeColor(node),
-                    border: this.getNodeColor(node),
-                    text: COLORS.UI.TEXT.PRIMARY,
-                    hover: this.getNodeColor(node),
-                    gradient: {
-                        start: `${this.getNodeColor(node)}66`,
-                        end: `${this.getNodeColor(node)}33`
-                    }
-                },
-                padding: {
-                    preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-                    detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-                },
-                lineHeight: {
-                    preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
-                    detail: NODE_CONSTANTS.LINE_HEIGHT.detail
-                },
-                stroke: {
-                    preview: {
-                        normal: NODE_CONSTANTS.STROKE.preview.normal,
-                        hover: NODE_CONSTANTS.STROKE.preview.hover
-                    },
-                    detail: {
-                        normal: NODE_CONSTANTS.STROKE.detail.normal,
-                        hover: NODE_CONSTANTS.STROKE.detail.hover
-                    }
-                },
-                highlightColor: this.getNodeColor(node)
+                enhancedNode.fx = 0; // Force X position to center
+                enhancedNode.fy = 0; // Force Y position to center
+                enhancedNode.x = 0;  // Initial X position
+                enhancedNode.y = 0;  // Initial Y position
             }
-        };
-    });
-}
-
-private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
-    // Skip link calculation entirely if we have no nodes or links
-    if (nodes.length === 0 || links.length === 0) {
-        return [];
+        
+            return enhancedNode;
+        });
     }
-    
-    // Create a node lookup map for faster access
-    const nodeMap = new Map<string, EnhancedNode>();
-    nodes.forEach(node => {
-        nodeMap.set(node.id, node);
-    });
-    
-    // Log links for debugging
-    console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Creating renderable links from', links.length, 'links');
-    
-    return links.map(link => {
-        const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
-        const targetId = typeof link.target === 'string' ? link.target : link.target.id;
-        
-        // Look up nodes in our map
-        const source = nodeMap.get(sourceId);
-        const target = nodeMap.get(targetId);
-        
-        if (!source || !target) {
-            console.warn(`[COMMENT_HIERARCHY_GRAPHMANAGER] Missing node for link: ${sourceId} -> ${targetId}`);
-            return null;
-        }
-        
-        // Skip calculation if either node is hidden
-        if (source.isHidden || target.isHidden) {
-            return null;
-        }
-        
-        // Calculate link path
-        const path = this.calculateLinkPath(source, target);
-        
-        // Create SVG transform strings for source and target positions
-        const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
-        const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
-        
-        // Determine strength based on link type
-        let strength = link.strength || 0.3;
-        
-        // Adjust strength for comment links
-        if (link.type === 'comment') {
-            strength = 0.5; // Root comments to central node
-        } else if (link.type === 'reply') {
-            strength = 0.7; // Replies to parent comments (stronger)
-        } else if (link.type === 'comment-form' || link.type === 'reply-form') {
-            strength = 0.9; // Form connections (strongest)
-        }
-        
-        // CRITICAL: Preserve the existing metadata for statement relations
-        // This ensures we don't lose relationCount or sharedWords
-        const metadata = link.type === 'related' ? {
-            // Use the existing metadata values directly
-            sharedWords: link.metadata?.sharedWords || [],
-            relationCount: link.metadata?.relationCount || 1,
-            // Keep any other metadata properties
-            ...link.metadata
-        } : link.metadata;
-        
-        // Create the renderable link with improved metadata
-        const renderableLink: RenderableLink = {
-            id: link.id,
-            type: link.type,
-            sourceId: source.id,
-            targetId: target.id,
-            sourceType: source.type,
-            targetType: target.type,
-            path,
-            sourcePosition: { 
-                x: source.x ?? 0, 
-                y: source.y ?? 0,
-                svgTransform: sourceTransform
-            },
-            targetPosition: { 
-                x: target.x ?? 0, 
-                y: target.y ?? 0,
-                svgTransform: targetTransform
-            },
-            strength,
-            relationshipType: link.relationshipType,
-            // Use the preserved metadata
-            metadata
-        };
-        
-        return renderableLink;
-    }).filter(Boolean) as RenderableLink[];
-}
 
-private getNodeRadius(node: GraphNode | EnhancedNode): number {
-    // Generate a cache key based on node properties that affect radius
-    const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
-    
-    // Use cached value if available
-    if (this.nodeRadiusCache.has(cacheKey)) {
-        return this.nodeRadiusCache.get(cacheKey) || 0;
+    private transformLinks(links: GraphLink[]): EnhancedLink[] {
+        // Log incoming links for debugging comment hierarchy
+        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Transforming links:', 
+            links.map(link => ({
+                id: link.id,
+                source: typeof link.source === 'string' ? link.source : link.source.id,
+                target: typeof link.target === 'string' ? link.target : link.target.id,
+                type: link.type,
+                metadata: link.metadata
+            }))
+        );
+        
+        return links.map(link => {
+            // Ensure proper handling of source/target which might be objects or strings
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            
+            // Determine relationship type and strength
+            let relationshipType: 'direct' | 'keyword' = 'keyword';
+            let strength = 0.3;
+            
+            // CRITICAL FIX: Adjust link strengths based on link type to maintain proper hierarchical structure
+            if (link.type === 'related') {
+                relationshipType = 'direct';
+                strength = 0.7; // Stronger connections for direct relationships
+            } else if (link.type === 'live') {
+                strength = 0.7;
+            } else if (link.type === 'comment') {
+                // Root comments to central node - moderate strength
+                strength = 0.5;
+                relationshipType = 'direct';
+            } else if (link.type === 'reply') {
+                // Replies to parent comments - stronger to keep them close to parent
+                strength = 0.7;
+                relationshipType = 'direct';
+                console.log(`[COMMENT_HIERARCHY_GRAPHMANAGER] Processing reply link: ${sourceId} -> ${targetId}`);
+            } else if (link.type === 'comment-form' || link.type === 'reply-form') {
+                // Form connections - strongest to keep forms right next to their targets
+                strength = 0.9;
+                relationshipType = 'direct';
+            }
+            
+            // Preserve explicit link type in the metadata
+            const linkMetadata = {
+                ...(link.metadata || {}), // Keep existing metadata
+                linkType: link.type,      // Add the link type for debugging
+                sourceId,                 // Track the source ID
+                targetId                  // Track the target ID
+            };
+            
+            // Create enhanced link with the improved properties
+            const enhancedLink: EnhancedLink = {
+                id: link.id || `${sourceId}-${targetId}`, // Use provided ID or generate one
+                source: sourceId, // Keep as string to prevent d3 from modifying it
+                target: targetId, // Keep as string to prevent d3 from modifying it
+                type: link.type,
+                relationshipType: relationshipType,
+                strength: strength,
+                // Use the enhanced metadata
+                metadata: linkMetadata
+            };
+            
+            return enhancedLink;
+        });
     }
-    
-    // First check if node is hidden - hidden nodes have the smallest radius
-    if ('isHidden' in node && node.isHidden) {
-        const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+
+    private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
+        return nodes.map(node => {
+            // Use the current node.radius directly
+            const radius = node.radius;
+            const baseSize = radius * 2;
+            
+            // Simple position calculation with null checking
+            const x = node.x ?? 0;
+            const y = node.y ?? 0;
+            
+            // Create SVG transform string using coordinateSystem helper
+            const svgTransform = coordinateSystem.createSVGTransform(x, y);
+            
+            return {
+                id: node.id,
+                type: node.type,
+                group: node.group,
+                mode: node.mode,
+                data: node.data,
+                radius: radius,
+                isHidden: node.isHidden,
+                hiddenReason: node.hiddenReason,
+                position: {
+                    x,
+                    y,
+                    svgTransform
+                },
+                metadata: node.metadata,
+                style: {
+                    previewSize: baseSize,
+                    detailSize: baseSize * 2,
+                    colors: {
+                        background: this.getNodeBackground(node),
+                        border: this.getNodeBorder(node),
+                        text: COLORS.UI.TEXT.PRIMARY,
+                        hover: this.getNodeHover(node),
+                        gradient: {
+                            start: this.getNodeGradientStart(node),
+                            end: this.getNodeGradientEnd(node)
+                        }
+                    },
+                    padding: {
+                        preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+                        detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+                    },
+                    lineHeight: {
+                        preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
+                        detail: NODE_CONSTANTS.LINE_HEIGHT.detail
+                    },
+                    stroke: {
+                        preview: {
+                            normal: NODE_CONSTANTS.STROKE.preview.normal,
+                            hover: NODE_CONSTANTS.STROKE.preview.hover
+                        },
+                        detail: {
+                            normal: NODE_CONSTANTS.STROKE.detail.normal,
+                            hover: NODE_CONSTANTS.STROKE.detail.hover
+                        }
+                    },
+                    highlightColor: this.getNodeColor(node)
+                }
+            };
+        });
+    }
+
+    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
+        // Skip link calculation entirely if we have no nodes or links
+        if (nodes.length === 0 || links.length === 0) {
+            return [];
+        }
+        
+        // Create a node lookup map for faster access
+        const nodeMap = new Map<string, EnhancedNode>();
+        nodes.forEach(node => {
+            nodeMap.set(node.id, node);
+        });
+        
+        // Log links for debugging
+        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Creating renderable links from', links.length, 'links');
+        
+        return links.map(link => {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            
+            // Look up nodes in our map
+            const source = nodeMap.get(sourceId);
+            const target = nodeMap.get(targetId);
+            
+            if (!source || !target) {
+                console.warn(`[COMMENT_HIERARCHY_GRAPHMANAGER] Missing node for link: ${sourceId} -> ${targetId}`);
+                return null;
+            }
+            
+            // Skip calculation if either node is hidden
+            if (source.isHidden || target.isHidden) {
+                return null;
+            }
+            
+            // Calculate link path
+            const path = this.calculateLinkPath(source, target);
+            
+            // Create SVG transform strings for source and target positions
+            const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
+            const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
+            
+            // Determine strength based on link type
+            let strength = link.strength || 0.3;
+            
+            // Adjust strength for comment links
+            if (link.type === 'comment') {
+                strength = 0.5; // Root comments to central node
+            } else if (link.type === 'reply') {
+                strength = 0.7; // Replies to parent comments (stronger)
+            } else if (link.type === 'comment-form' || link.type === 'reply-form') {
+                strength = 0.9; // Form connections (strongest)
+            }
+            
+            // CRITICAL: Preserve the existing metadata for statement relations
+            // This ensures we don't lose relationCount or sharedWords
+            const metadata = link.type === 'related' ? {
+                // Use the existing metadata values directly
+                sharedWords: link.metadata?.sharedWords || [],
+                relationCount: link.metadata?.relationCount || 1,
+                // Keep any other metadata properties
+                ...link.metadata
+            } : link.metadata;
+            
+            // Create the renderable link with improved metadata
+            const renderableLink: RenderableLink = {
+                id: link.id,
+                type: link.type,
+                sourceId: source.id,
+                targetId: target.id,
+                sourceType: source.type,
+                targetType: target.type,
+                path,
+                sourcePosition: { 
+                    x: source.x ?? 0, 
+                    y: source.y ?? 0,
+                    svgTransform: sourceTransform
+                },
+                targetPosition: { 
+                    x: target.x ?? 0, 
+                    y: target.y ?? 0,
+                    svgTransform: targetTransform
+                },
+                strength,
+                relationshipType: link.relationshipType,
+                // Use the preserved metadata
+                metadata
+            };
+            
+            return renderableLink;
+        }).filter(Boolean) as RenderableLink[];
+    }
+
+    private getNodeRadius(node: GraphNode | EnhancedNode): number {
+        // Generate a cache key based on node properties that affect radius
+        const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
+        
+        // Use cached value if available
+        if (this.nodeRadiusCache.has(cacheKey)) {
+            return this.nodeRadiusCache.get(cacheKey) || 0;
+        }
+        
+        // First check if node is hidden - hidden nodes have the smallest radius
+        if ('isHidden' in node && node.isHidden) {
+            const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+            this.nodeRadiusCache.set(cacheKey, radius);
+            return radius;
+        }
+        
+        // If not hidden, calculate based on type and mode
+        let radius = 0;
+        switch(node.type) {
+            case 'word':
+                radius = node.mode === 'detail' ? 
+                    COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
+                    COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
+                break;
+                    
+            case 'definition':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+                break;
+                    
+            case 'statement':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+                break;
+            
+            case 'quantity':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
+                break;      
+            
+            case 'comment':
+                // Use fixed size for comment nodes regardless of mode
+                radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+                break;
+                
+            case 'comment-form':
+                // Use fixed size for comment form nodes
+                radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+                break;
+                    
+            case 'navigation':
+                radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
+                break;
+                
+            case 'dashboard':
+                // Special case for the control node/dashboard view
+                if (node.data && 'sub' in node.data && node.data.sub === 'controls') {
+                    radius = node.mode === 'detail' ?
+                        COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                        COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+                } else {
+                    radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+                }
+                break;
+                
+            case 'edit-profile':
+            case 'create-node':
+                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+                break;
+                
+            default:
+                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+        }
+        
+        // Cache the result
         this.nodeRadiusCache.set(cacheKey, radius);
         return radius;
     }
-    
-    // If not hidden, calculate based on type and mode
-    let radius = 0;
-    switch(node.type) {
-        case 'word':
-            radius = node.mode === 'detail' ? 
-                COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 : 
-                COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
-            break;
-                
-        case 'definition':
-            radius = node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
-            break;
-                
-        case 'statement':
-            radius = node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
-            break;
+
+    private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
+        if (node.group === 'central') return 'central';
+        if (node.group === 'live-definition' || node.group === 'alternative-definition') return 'definition';
+        return node.type as "word" | "navigation" | "statement";
+    }
+
+    private getNodeVotes(node: GraphNode): number {
+        // Use cached value if available
+        if (this.nodeVotesCache.has(node.id)) {
+            return this.nodeVotesCache.get(node.id) || 0;
+        }
         
-        case 'quantity':
-            radius = node.mode === 'detail' ?
-                COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
-                COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
-            break;      
+        let netVotes = 0;
         
-        case 'comment':
-            // Use fixed size for comment nodes regardless of mode
-            radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
-            break;
-            
-        case 'comment-form':
-            // Use fixed size for comment form nodes
-            radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
-            break;
-                
-        case 'navigation':
-            radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
-            break;
-            
-        case 'dashboard':
-            // Special case for the control node/dashboard view
-            if (node.data && 'sub' in node.data && node.data.sub === 'controls') {
-                radius = node.mode === 'detail' ?
-                    COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
-                    COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
-            } else {
-                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+        // For statement nodes, use the statementNetworkStore as single source of truth
+        if (node.type === 'statement') {
+            try {
+                // Attempt to get from statement network store (the authoritative source)
+                const voteData = statementNetworkStore.getVoteData(node.id);
+                netVotes = voteData.netVotes;
+            } catch (error) {
+                // Fallback to direct calculation only if the store fails
+                const statement = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+                const posVotes = getNeo4jNumber(statement.positiveVotes);
+                const negVotes = getNeo4jNumber(statement.negativeVotes);
+                netVotes = posVotes - negVotes;
             }
-            break;
-            
-        case 'edit-profile':
-        case 'create-node':
-            radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
-            break;
-            
-        default:
-            radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
-    }
-    
-    // Cache the result
-    this.nodeRadiusCache.set(cacheKey, radius);
-    return radius;
-}
-
-private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
-    if (node.group === 'central') return 'central';
-    if (node.group === 'live-definition' || node.group === 'alternative-definition') return 'definition';
-    return node.type as "word" | "navigation" | "statement";
-}
-
-private getNodeVotes(node: GraphNode): number {
-    // Use cached value if available
-    if (this.nodeVotesCache.has(node.id)) {
-        return this.nodeVotesCache.get(node.id) || 0;
-    }
-    
-    let netVotes = 0;
-    
-    // For statement nodes, use the statementNetworkStore as single source of truth
-    if (node.type === 'statement') {
-        try {
-            // Attempt to get from statement network store (the authoritative source)
-            const voteData = statementNetworkStore.getVoteData(node.id);
-            netVotes = voteData.netVotes;
-        } catch (error) {
-            // Fallback to direct calculation only if the store fails
-            const statement = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
-            const posVotes = getNeo4jNumber(statement.positiveVotes);
-            const negVotes = getNeo4jNumber(statement.negativeVotes);
+        }
+        else if (node.type === 'definition' && 'data' in node) {
+            const def = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = getNeo4jNumber(def.positiveVotes);
+            const negVotes = getNeo4jNumber(def.negativeVotes);
             netVotes = posVotes - negVotes;
         }
+        else if (node.type === 'word' && 'data' in node) {
+            const word = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = getNeo4jNumber(word.positiveVotes);
+            const negVotes = getNeo4jNumber(word.negativeVotes);
+            netVotes = posVotes - negVotes;
+        }
+        
+        // Cache the result
+        this.nodeVotesCache.set(node.id, netVotes);
+        return netVotes;
     }
-    else if (node.type === 'definition' && 'data' in node) {
-        const def = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
-        const posVotes = getNeo4jNumber(def.positiveVotes);
-        const negVotes = getNeo4jNumber(def.negativeVotes);
-        netVotes = posVotes - negVotes;
-    }
-    else if (node.type === 'word' && 'data' in node) {
-        const word = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
-        const posVotes = getNeo4jNumber(word.positiveVotes);
-        const negVotes = getNeo4jNumber(word.negativeVotes);
-        netVotes = posVotes - negVotes;
-    }
-    
-    // Cache the result
-    this.nodeVotesCache.set(node.id, netVotes);
-    return netVotes;
-}
 
-private getNodeColor(node: EnhancedNode): string {
-    switch (node.type) {
-        case 'word':
-            return COLORS.PRIMARY.BLUE;
-        case 'definition':
-            return node.subtype === 'live' ? 
-                COLORS.PRIMARY.BLUE : 
-                COLORS.PRIMARY.PURPLE;
-        case 'statement':
-            return COLORS.PRIMARY.GREEN;
-        case 'quantity':
-            return COLORS.PRIMARY.TURQUOISE; 
-        case 'comment':
-            return COLORS.PRIMARY.ORANGE; // Use orange for comment nodes
-        case 'comment-form':
-            return COLORS.PRIMARY.ORANGE; // Also use orange for comment form nodes
-        case 'navigation':
-            return 'transparent'; // Remove the colored border
-        case 'dashboard':
-        case 'edit-profile':
-        case 'create-node':
-            return COLORS.UI.TEXT.PRIMARY; // White color for dashboard nodes
-        default:
-            return COLORS.UI.TEXT.PRIMARY; // Default to white
+    /**
+     * Get the primary color for a node
+     * UPDATED to use NODE_CONSTANTS instead of direct color references
+     */
+    private getNodeColor(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.live) : 
+                    this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.alternative);
+            case 'statement':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            case 'quantity':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+            case 'comment':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
+            case 'comment-form':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
+            case 'navigation':
+                return 'transparent';
+            case 'dashboard':
+            case 'edit-profile':
+            case 'create-node':
+                return COLORS.UI.TEXT.PRIMARY;
+            default:
+                return COLORS.UI.TEXT.PRIMARY;
+        }
     }
-}
 
-private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
-    // Get positions with null safety
-    const sourceX = source.x ?? 0;
-    const sourceY = source.y ?? 0;
-    const targetX = target.x ?? 0;
-    const targetY = target.y ?? 0;
-    
-    // Skip calculation if nodes are at the same position
-    if (sourceX === targetX && sourceY === targetY) {
-        return '';
+    /**
+     * Extract the base color from a node style definition
+     */
+    private extractBaseColorFromStyle(style: any): string {
+        // If the style has a border property, use it (removing any alpha channel)
+        if (style.border) {
+            return style.border.substring(0, 7); // Extract the hex color without alpha
+        }
+        return COLORS.UI.TEXT.PRIMARY; // Default to white
     }
-    
-    // Calculate vector
-    const dx = targetX - sourceX;
-    const dy = targetY - sourceY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Calculate unit vector
-    const unitX = dx / distance;
-    const unitY = dy / distance;
-    
-    // IMPROVED: Adjust calculations based on link type
-    // For reply links, make a curved path to better show the hierarchy
-    if (source.type === 'comment' && target.type === 'comment') {
-        // Curved path for comment replies
-        const startX = sourceX + (unitX * source.radius * 0.95);
-        const startY = sourceY + (unitY * source.radius * 0.95);
-        const endX = targetX - (unitX * target.radius * 0.95);
-        const endY = targetY - (unitY * target.radius * 0.95);
+
+    /**
+     * Get node background color
+     * UPDATED to use NODE_CONSTANTS instead of hardcoded color references
+     */
+    private getNodeBackground(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.background;
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    NODE_CONSTANTS.COLORS.DEFINITION.live.background : 
+                    NODE_CONSTANTS.COLORS.DEFINITION.alternative.background;
+            case 'statement':
+                return NODE_CONSTANTS.COLORS.STATEMENT.background;
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY.background;
+            case 'comment':
+                return NODE_CONSTANTS.COLORS.COMMENT.background;
+            case 'comment-form':
+                return NODE_CONSTANTS.COLORS.COMMENT.background;
+            case 'dashboard':
+                return NODE_CONSTANTS.COLORS.DASHBOARD.background;
+            default:
+                return 'rgba(0, 0, 0, 0.5)';
+        }
+    }
+
+    /**
+     * Get node border color
+     * UPDATED to use NODE_CONSTANTS instead of hardcoded color references
+     */
+    private getNodeBorder(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.border;
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    NODE_CONSTANTS.COLORS.DEFINITION.live.border : 
+                    NODE_CONSTANTS.COLORS.DEFINITION.alternative.border;
+            case 'statement':
+                return NODE_CONSTANTS.COLORS.STATEMENT.border;
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY.border;
+            case 'comment':
+                return NODE_CONSTANTS.COLORS.COMMENT.border;
+            case 'comment-form':
+                return NODE_CONSTANTS.COLORS.COMMENT.border;
+            case 'dashboard':
+                return NODE_CONSTANTS.COLORS.DASHBOARD.border;
+            default:
+                return 'rgba(255, 255, 255, 1)';
+        }
+    }
+
+    /**
+     * Get node hover color
+     * UPDATED to use NODE_CONSTANTS instead of hardcoded color references
+     */
+    private getNodeHover(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.hover;
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    NODE_CONSTANTS.COLORS.DEFINITION.live.hover : 
+                    NODE_CONSTANTS.COLORS.DEFINITION.alternative.hover;
+            case 'statement':
+                return NODE_CONSTANTS.COLORS.STATEMENT.hover;
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY.hover;
+            case 'comment':
+                return NODE_CONSTANTS.COLORS.COMMENT.hover;
+            case 'comment-form':
+                return NODE_CONSTANTS.COLORS.COMMENT.hover;
+            case 'dashboard':
+                return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
+            default:
+                return 'rgba(255, 255, 255, 1)';
+        }
+    }
+
+    /**
+     * Get node gradient start color
+     * UPDATED to use NODE_CONSTANTS instead of hardcoded color references
+     */
+    private getNodeGradientStart(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.gradient.start;
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    NODE_CONSTANTS.COLORS.DEFINITION.live.gradient.start : 
+                    NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.start;
+            case 'statement':
+                return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY.gradient.start;
+            case 'comment':
+                return NODE_CONSTANTS.COLORS.COMMENT.gradient.start;
+            case 'comment-form':
+                return NODE_CONSTANTS.COLORS.COMMENT.gradient.start;
+            case 'dashboard':
+                return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
+            default:
+                return 'rgba(255, 255, 255, 0.4)';
+        }
+    }
+
+    /**
+     * Get node gradient end color
+     * UPDATED to use NODE_CONSTANTS instead of hardcoded color references
+     */
+    private getNodeGradientEnd(node: EnhancedNode): string {
+        switch (node.type) {
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.gradient.end;
+            case 'definition':
+                return node.subtype === 'live' ? 
+                    NODE_CONSTANTS.COLORS.DEFINITION.live.gradient.end : 
+                    NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.end;
+            case 'statement':
+                return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY.gradient.end;
+            case 'comment':
+                return NODE_CONSTANTS.COLORS.COMMENT.gradient.end;
+            case 'comment-form':
+                return NODE_CONSTANTS.COLORS.COMMENT.gradient.end;
+            case 'dashboard':
+                return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
+            default:
+                return 'rgba(255, 255, 255, 0.2)';
+        }
+    }
+
+    private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
+        // Get positions with null safety
+        const sourceX = source.x ?? 0;
+        const sourceY = source.y ?? 0;
+        const targetX = target.x ?? 0;
+        const targetY = target.y ?? 0;
         
-        // Calculate control point for the curve (perpendicular to the line)
-        const midX = (startX + endX) / 2;
-        const midY = (startY + endY) / 2;
-        const perpX = -unitY; // Perpendicular vector
-        const perpY = unitX;
+        // Skip calculation if nodes are at the same position
+        if (sourceX === targetX && sourceY === targetY) {
+            return '';
+        }
         
-        // Calculate curve offset proportional to distance
-        const curveOffset = Math.min(distance * 0.2, 30); // Cap at max 30 pixels offset
+        // Calculate vector
+        const dx = targetX - sourceX;
+        const dy = targetY - sourceY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
         
-        // Create control point offset from midpoint
-        const ctrlX = midX + perpX * curveOffset;
-        const ctrlY = midY + perpY * curveOffset;
+        // Calculate unit vector
+        const unitX = dx / distance;
+        const unitY = dy / distance;
         
-        // Create a quadratic bezier curve path
-        return `M${startX},${startY} Q${ctrlX},${ctrlY} ${endX},${endY}`;
-    } else {
-        // Use the original simple calculation with straight lines for other link types
-        // Simpler scaling factor calculation - use a fixed percentage of radius
+        // UPDATED: Always use straight lines for all links including comment-to-comment links
+        // Use the original simple calculation with straight lines for all link types
         const sourceRadius = source.radius * 0.95; // 95% of radius
         const targetRadius = target.radius * 0.95; // 95% of radius
         
@@ -1291,5 +1416,4 @@ private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
         // Create a straight line path
         return `M${startX},${startY}L${endX},${endY}`;
     }
-}
 }

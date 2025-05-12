@@ -3,14 +3,13 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import BaseNode from '../base/BaseNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
-    import { COLORS } from '$lib/constants/colors';
     
     export let node: RenderableNode;
     export let isReply: boolean = false;
@@ -150,6 +149,17 @@
     // Calculate vote-based styling enhancements based on net votes
     $: voteBasedStyles = calculateVoteBasedStyles(netVotes);
     
+    // Extract color values from NODE_CONSTANTS for comment styling
+    // Get base color and add different alpha values
+    $: commentNodeColors = NODE_CONSTANTS.COLORS.COMMENT;
+    $: baseColor = commentNodeColors.border.substring(0, 7); // First 7 chars (hex without alpha)
+    
+    // CSS variables for button styling
+    $: buttonBgColor = `${baseColor}33`; // 20% opacity
+    $: buttonStrokeColor = `${baseColor}66`; // 40% opacity
+    $: buttonBgHoverColor = `${baseColor}4D`; // 30% opacity
+    $: buttonStrokeHoverColor = `${baseColor}99`; // 60% opacity
+    
     // Function to calculate styling based on vote count
     function calculateVoteBasedStyles(votes: number) {
         // Ensure votes is a non-negative value for styling calculations
@@ -189,22 +199,19 @@
     }
     
     // Define comment node color using the NODE_CONSTANTS
-    $: commentColor = COLORS.PRIMARY.ORANGE;
-    
-    // Override the node style with our custom styles
     $: customStyle = {
         ...node.style,
         colors: {
-            background: `${commentColor}33`, // Background with transparency
-            border: `${commentColor}FF`,     // Border in full color
-            text: COLORS.UI.TEXT.PRIMARY,    // Text in white
-            hover: `${commentColor}FF`,      // Hover color
+            background: commentNodeColors.background,
+            border: commentNodeColors.border,
+            text: NODE_CONSTANTS.FONTS.title.family,
+            hover: commentNodeColors.hover,
             gradient: {
-                start: `${commentColor}66`,  // Gradient start with medium transparency
-                end: `${commentColor}33`     // Gradient end with more transparency
+                start: commentNodeColors.gradient.start,
+                end: commentNodeColors.gradient.end
             }
         },
-        highlightColor: commentColor         // Highlight in comment color
+        highlightColor: baseColor // Highlight in comment color
     };
     
     // Reactive declarations
@@ -387,14 +394,14 @@
         fill: rgba(255, 255, 255, 0.9);
     }
     
-    /* Reply button */
+    /* Reply button - Use CSS variables to reference the Svelte props */
     .reply-button {
         cursor: pointer;
     }
     
     .button-bg {
-        fill: rgba(255, 165, 0, 0.2); /* Semi-transparent orange for orange theme */
-        stroke: rgba(255, 165, 0, 0.4); /* Light orange stroke */
+        fill: var(--button-bg-color);
+        stroke: var(--button-stroke-color);
         stroke-width: 1;
     }
     
@@ -404,7 +411,10 @@
     }
     
     .reply-button:hover .button-bg {
-        fill: rgba(255, 165, 0, 0.3); /* Slightly more opaque on hover */
-        stroke: rgba(255, 165, 0, 0.6); /* More visible stroke on hover */
+        fill: var(--button-bg-hover-color);
+        stroke: var(--button-stroke-hover-color);
     }
 </style>
+
+<!-- CSS variables for button styling -->
+<div style="display:none;--button-bg-color:{buttonBgColor};--button-stroke-color:{buttonStrokeColor};--button-bg-hover-color:{buttonBgHoverColor};--button-stroke-hover-color:{buttonStrokeHoverColor}"></div>

@@ -1,8 +1,8 @@
-<!-- src/lib/components/graph/nodes/comment/CommentFormNode.svelte -->
+<!-- src/lib/components/graph/nodes/comment/CommentForm.svelte -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import BaseNode from '../base/BaseNode.svelte';
     import { userStore } from '$lib/stores/userStore';
     import { discussionStore } from '$lib/stores/discussionStore';
@@ -33,6 +33,41 @@
         isValid = commentText.trim().length > 0 && charCount <= MAX_CHARS;
     }
     
+    // Extract color values from NODE_CONSTANTS for styling
+    $: commentNodeColors = NODE_CONSTANTS.COLORS.COMMENT;
+    $: baseColor = commentNodeColors.border.substring(0, 7); // First 7 chars (hex without alpha)
+    
+    // Define custom style using NODE_CONSTANTS
+    $: customStyle = {
+        ...node.style,
+        colors: {
+            background: commentNodeColors.background,
+            border: commentNodeColors.border,
+            text: commentNodeColors.text,
+            hover: commentNodeColors.hover,
+            gradient: {
+                start: commentNodeColors.gradient.start,
+                end: commentNodeColors.gradient.end
+            }
+        },
+        highlightColor: baseColor
+    };
+    
+    // Extract base colors for button styling
+    $: successColor = NODE_CONSTANTS.COLORS.STATEMENT.border.substring(0, 7); // Green color for submit
+    $: errorColor = '#e74c3c'; // Red color for cancel
+    
+    // Derived button styling
+    $: submitBgColor = `${successColor}33`; // 20% opacity
+    $: submitBorderColor = `${successColor}66`; // 40% opacity 
+    $: submitBgHoverColor = `${successColor}4D`; // 30% opacity
+    $: submitBorderHoverColor = `${successColor}99`; // 60% opacity
+    
+    $: cancelBgColor = `${errorColor}33`; // 20% opacity
+    $: cancelBorderColor = `${errorColor}66`; // 40% opacity
+    $: cancelBgHoverColor = `${errorColor}4D`; // 30% opacity
+    $: cancelBorderHoverColor = `${errorColor}99`; // 60% opacity
+    
     function handleSubmit() {
         if (!isValid || isSubmitting) return;
         
@@ -58,7 +93,7 @@
     });
 </script>
 
-<BaseNode {node}>
+<BaseNode {node} style={customStyle}>
     <svelte:fragment slot="default" let:radius>
         <!-- Title -->
         <text
@@ -95,11 +130,16 @@
                         class="form-button submit" 
                         on:click={handleSubmit}
                         disabled={!isValid || isSubmitting}
+                        style="background-color: {submitBgColor}; border-color: {submitBorderColor};"
                     >
                         {isSubmitting ? 'Submitting...' : isReply ? 'Reply' : 'Comment'}
                     </button>
                     
-                    <button class="form-button cancel" on:click={handleCancel}>
+                    <button 
+                        class="form-button cancel" 
+                        on:click={handleCancel}
+                        style="background-color: {cancelBgColor}; border-color: {cancelBorderColor};"
+                    >
                         Cancel
                     </button>
                 </div>
@@ -180,28 +220,20 @@
         transition: all 0.2s ease;
     }
     
-    :global(.form-button.submit) {
-        background-color: rgba(46, 204, 113, 0.2);
-        border-color: rgba(46, 204, 113, 0.4);
-    }
-    
-    :global(.form-button.cancel) {
-        background-color: rgba(231, 76, 60, 0.2);
-        border-color: rgba(231, 76, 60, 0.4);
-    }
-    
     :global(.form-button:hover:not(:disabled)) {
         transform: translateY(-1px);
     }
     
+    /* Dynamic hover styles for buttons - handled inline with style attributes */
+    
     :global(.form-button.submit:hover:not(:disabled)) {
-        background-color: rgba(46, 204, 113, 0.3);
-        border-color: rgba(46, 204, 113, 0.6);
+        background-color: var(--submit-bg-hover-color);
+        border-color: var(--submit-border-hover-color);
     }
     
     :global(.form-button.cancel:hover) {
-        background-color: rgba(231, 76, 60, 0.3);
-        border-color: rgba(231, 76, 60, 0.6);
+        background-color: var(--cancel-bg-hover-color);
+        border-color: var(--cancel-border-hover-color);
     }
     
     :global(.form-button:disabled) {
@@ -209,3 +241,11 @@
         cursor: not-allowed;
     }
 </style>
+
+<!-- CSS variables for hover effects -->
+<div style="display:none;
+            --submit-bg-hover-color:{submitBgHoverColor};
+            --submit-border-hover-color:{submitBorderHoverColor};
+            --cancel-bg-hover-color:{cancelBgHoverColor};
+            --cancel-border-hover-color:{cancelBorderHoverColor};">
+</div>

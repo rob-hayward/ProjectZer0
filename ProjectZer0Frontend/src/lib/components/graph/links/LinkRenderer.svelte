@@ -3,7 +3,7 @@
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
     import { LINK_CONSTANTS } from '$lib/constants/graph/links';
-    import { COLORS } from '$lib/constants/colors';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     
     export let link: RenderableLink;
     
@@ -53,45 +53,57 @@
         ) : 0.5;
     
     /**
+     * Helper to extract base color from NODE_CONSTANTS
+     */
+    function extractBaseColorFromStyle(style: any): string {
+        // If the style has a border property, use it (removing any alpha channel)
+        if (style.border) {
+            return style.border.substring(0, 7); // Extract the hex color without alpha
+        }
+        return "#FFFFFF"; // Default to white
+    }
+    
+    /**
      * Get the source color based on the source node type
+     * UPDATED to use NODE_CONSTANTS instead of direct color references
      */
     function getSourceColor(link: RenderableLink): string {
         if (isStatementRelation) {
-            return LINK_CONSTANTS.COLORS.STATEMENT;
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
         }
         
         if (isComment) {
             // Comment from central node to comment node - use the source node type color
             if (link.sourceType === 'word') {
-                return COLORS.PRIMARY.BLUE; // Word node color
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
             } else if (link.sourceType === 'statement') {
-                return COLORS.PRIMARY.GREEN; // Statement node color
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
             } else if (link.sourceType === 'definition') {
-                return COLORS.PRIMARY.PURPLE; // Definition node color
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.live);
             } else if (link.sourceType === 'quantity') {
-                return COLORS.PRIMARY.TURQUOISE; // Quantity node color
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
             }
         }
         
         if (isReply || isReplyForm) {
             // Reply from comment to comment - use comment color
-            return COLORS.PRIMARY.ORANGE; // Comment node color
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
         }
         
         if (isCommentForm) {
             // Form from central or comment node
             if (link.sourceType === 'comment') {
-                return COLORS.PRIMARY.ORANGE; // From comment node
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
             } else {
                 // From central node - use central node color
                 if (link.sourceType === 'word') {
-                    return COLORS.PRIMARY.BLUE;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
                 } else if (link.sourceType === 'statement') {
-                    return COLORS.PRIMARY.GREEN;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
                 } else if (link.sourceType === 'definition') {
-                    return COLORS.PRIMARY.PURPLE;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.live);
                 } else if (link.sourceType === 'quantity') {
-                    return COLORS.PRIMARY.TURQUOISE;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
                 }
             }
         }
@@ -99,23 +111,24 @@
         // Default for word-definition links
         return LINK_CONSTANTS.COLORS.WORD;
     }
-    
+
     /**
      * Get the target color based on the target node type
+     * UPDATED to use NODE_CONSTANTS instead of direct color references
      */
     function getTargetColor(link: RenderableLink): string {
         if (isStatementRelation) {
-            return LINK_CONSTANTS.COLORS.STATEMENT;
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
         }
         
         if (isComment || isCommentForm) {
-            // Link to a comment or comment form - always orange
-            return COLORS.PRIMARY.ORANGE;
+            // Link to a comment or comment form - always use comment color from NODE_CONSTANTS
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
         }
         
         if (isReply || isReplyForm) {
-            // Reply to another comment - always orange
-            return COLORS.PRIMARY.ORANGE;
+            // Reply to another comment - always use comment color from NODE_CONSTANTS
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
         }
         
         // Default handling for word-definition links

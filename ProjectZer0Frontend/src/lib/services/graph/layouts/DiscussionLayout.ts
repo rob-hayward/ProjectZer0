@@ -866,45 +866,48 @@ export class DiscussionLayout extends BaseLayoutStrategy {
                 });
             }
             
-            /**
-             * Calculate the path for a link between two nodes
-             * Always use straight lines for all links in discussion view
-             */
-            private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
-                // Get positions with null safety
-                const sourceX = source.x ?? 0;
-                const sourceY = source.y ?? 0;
-                const targetX = target.x ?? 0;
-                const targetY = target.y ?? 0;
-                
-                // Skip calculation if nodes are at the same position
-                if (sourceX === targetX && sourceY === targetY) {
-                    return '';
-                }
-                
-                // Calculate vector
-                const dx = targetX - sourceX;
-                const dy = targetY - sourceY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                
-                // Calculate unit vector
-                const unitX = dx / distance;
-                const unitY = dy / distance;
-                
-                // Use a straight line path for ALL links in discussion view
-                // Calculate points on perimeter based on node radii
-                const sourceRadius = source.radius * 0.95; // 95% of radius
-                const targetRadius = target.radius * 0.95; // 95% of radius
-                
-                // Calculate points on perimeter
-                const startX = sourceX + (unitX * sourceRadius);
-                const startY = sourceY + (unitY * sourceRadius);
-                const endX = targetX - (unitX * targetRadius);
-                const endY = targetY - (unitY * targetRadius);
-                
-                // Create a straight line path
-                return `M${startX},${startY}L${endX},${endY}`;
-            }
+            // Changes needed in ProjectZer0Frontend/src/lib/services/graph/layouts/DiscussionLayout.ts
+// Update the calculateLinkPath method to ensure all links are straight
+
+/**
+ * Calculate the path for a link between two nodes
+ * Always use straight lines for all links in discussion view
+ */
+private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
+    // Get positions with null safety
+    const sourceX = source.x ?? 0;
+    const sourceY = source.y ?? 0;
+    const targetX = target.x ?? 0;
+    const targetY = target.y ?? 0;
+    
+    // Skip calculation if nodes are at the same position
+    if (sourceX === targetX && sourceY === targetY) {
+        return '';
+    }
+    
+    // Calculate vector
+    const dx = targetX - sourceX;
+    const dy = targetY - sourceY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // Calculate unit vector
+    const unitX = dx / distance;
+    const unitY = dy / distance;
+    
+    // Use a straight line path for ALL links in discussion view
+    // Calculate points on perimeter based on node radii
+    const sourceRadius = source.radius * 0.95; // 95% of radius
+    const targetRadius = target.radius * 0.95; // 95% of radius
+    
+    // Calculate points on perimeter
+    const startX = sourceX + (unitX * sourceRadius);
+    const startY = sourceY + (unitY * sourceRadius);
+    const endX = targetX - (unitX * targetRadius);
+    const endY = targetY - (unitY * targetRadius);
+    
+    // Create a straight line path
+    return `M${startX},${startY}L${endX},${endY}`;
+}
             
             /**
              * Calculate position for a comment with all adjustments
