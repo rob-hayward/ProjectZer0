@@ -5,7 +5,6 @@ import { NavigationNodeLayout } from './common/NavigationNodeLayout';
 import type { EnhancedNode, EnhancedLink } from '../../../types/graph/enhanced';
 import { asD3Nodes, asD3Links } from '../../../types/graph/enhanced';
 import type { 
-    GraphData, 
     ViewType, 
     NodeMode, 
     NodeType,
@@ -22,22 +21,32 @@ import { COORDINATE_SPACE } from '../../../constants/graph';
  * - Central node (word, definition, statement, quantity) fixed at the center (0,0)
  * - Navigation nodes in a circle around the central node
  * - Root comments positioned around the central node in a circle
- * - Reply comments positioned around their parent comments in a smaller circle
- * - Support for sorting by popularity, newest, oldest
- * - Support for hidden nodes with smaller size and adjusted positioning
+ * - Reply comments positioned to the outer side of their parent comments
+ * - Clear visualization of comment hierarchies
+ * - Support for hidden nodes with smaller size
  */
 export class DiscussionLayout extends BaseLayoutStrategy {
     private readonly GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
     private readonly FIRST_COMMENT_ANGLE = Math.PI / 2; // Start at top
-    private commentAngles: Map<string, number> = new Map();
-    private expansionState: Map<string, boolean> = new Map();
-    private expandedComments: Map<string, { ringIndex: number, adjustment: number }> = new Map();
-    private hiddenNodes: Map<string, { ringIndex: number, adjustment: number }> = new Map();
-    private parentChildMap: Map<string, string[]> = new Map();
-    private commentRingIndices: Map<string, number> = new Map();
     
-    // Separate lookup for comment nodes vs other types
+    // Tracking maps for node positions and relationships
+    private commentAngles: Map<string, number> = new Map();
+    private commentDistances: Map<string, number> = new Map();
+    private parentChildMap: Map<string, string[]> = new Map();
+    private childParentMap: Map<string, string> = new Map();
+    private commentDepthMap: Map<string, number> = new Map();
     private nodeTypeMap: Map<string, NodeType> = new Map();
+    
+    // Tracking for expanded/hidden states
+    private expansionState: Map<string, boolean> = new Map();
+    
+    // Base configuration parameters 
+    private readonly BASE_RADIUS = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
+    private readonly RADIUS_INCREMENT = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.REPLY_RADIUS_INCREMENT || 150;
+    
+    // Arc configuration for child distribution
+    private readonly ROOT_ARC_ANGLE = Math.PI * 0.3; // Angle for distributing children around parent
+    private readonly MAX_ROOT_SPACING = Math.PI * 0.1; // Max spacing between root nodes
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(width, height, viewType);
@@ -50,12 +59,12 @@ export class DiscussionLayout extends BaseLayoutStrategy {
 
     /**
      * Clear ALL forces from the simulation
-     * This ensures no forces can affect node positions
+     * This ensures no forces affect node positions
      */
     private clearAllForces(): void {
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Clearing all forces');
+        console.debug('[DiscussionLayout] Clearing all forces');
         
-        // Get all force names
+        // Get simulation instance
         const sim = this.simulation as any;
         
         // List all forces that might be present
@@ -75,17 +84,14 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             }
         });
         
-        // Check if there are still any forces left
+        // Check for any remaining forces and clear them too
         const remainingForces = Object.keys(sim._forces || {});
         if (remainingForces.length > 0) {
-            console.warn('[COMMENT_HIERARCHY_LAYOUT] Some forces still remain:', remainingForces);
-            
-            // Try to remove these as well
             remainingForces.forEach(name => {
                 try {
                     sim.force(name, null);
                 } catch (e) {
-                    console.warn(`[COMMENT_HIERARCHY_LAYOUT] Cannot remove force: ${name}`);
+                    // Ignore errors
                 }
             });
         }
@@ -95,7 +101,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
      * Set initial positions for all nodes
      */
     initializeNodePositions(nodes: EnhancedNode[]): void {
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Initializing node positions', {
+        console.debug('[DiscussionLayout] Initializing node positions', {
             nodeCount: nodes.length,
             nodeTypeBreakdown: this.countNodesByType(nodes)
         });
@@ -103,39 +109,31 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         // Stop simulation during initialization
         this.simulation.stop();
         
-        // CRITICAL: Clear all forces before positioning nodes
+        // Clear all forces before positioning nodes
         this.clearAllForces();
 
         // Reset maps
-        this.nodeTypeMap.clear();
-        this.commentRingIndices.clear();
-        this.parentChildMap.clear();
+        this.resetDataStructures();
+        
+        // Build node maps, including parent-child relationships
+        this.buildNodeMaps(nodes);
         
         // Update expansion state tracking
         this.updateExpansionState(nodes);
-        
-        // Update hidden node tracking
-        this.updateHiddenState(nodes);
-        
-        // Build lookup maps for node types and parent-child relationships
-        this.buildNodeMaps(nodes);
 
-        // Reset velocities but preserve existing positions
+        // Reset velocities for all nodes
         nodes.forEach(node => {
             node.vx = 0;
             node.vy = 0;
 
-            // Clear fixed positions for non-central nodes
-            if (!node.fixed && node.group !== 'central') {
+            // Clear fixed positions except for central and navigation nodes
+            if (!node.fixed && node.group !== 'central' && node.type !== 'navigation') {
                 node.fx = undefined;
                 node.fy = undefined;
             }
-            
-            // Store node type for quick lookup
-            this.nodeTypeMap.set(node.id, node.type);
         });
 
-        // Position navigation nodes using NavigationNodeLayout
+        // Position navigation nodes first (around central node)
         NavigationNodeLayout.positionNavigationNodes(
             nodes, 
             this.getNodeRadius.bind(this)
@@ -144,73 +142,55 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         // Find and position central node
         const centralNode = nodes.find(n => n.fixed || n.group === 'central');
         if (!centralNode) {
-            console.warn('[COMMENT_HIERARCHY_LAYOUT] No central node found');
+            console.warn('[DiscussionLayout] No central node found');
             return;
         }
 
-        // Center the central node with EXPLICIT POSITION FIXING
+        // Center the central node with explicit position fixing
         centralNode.fx = 0;
         centralNode.fy = 0;
         centralNode.x = 0;
         centralNode.y = 0;
         centralNode.vx = 0;
         centralNode.vy = 0;
-        centralNode.fixed = true; // Ensure fixed flag is set
+        centralNode.fixed = true;
         
-        // Ensure metadata reflects this
         if (centralNode.metadata) {
             centralNode.metadata.fixed = true;
         }
 
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Central node positioned at center with fixed constraints', {
+        console.debug('[DiscussionLayout] Central node positioned at center', {
             id: centralNode.id,
             position: { x: centralNode.x, y: centralNode.y },
             fixed: { fx: centralNode.fx, fy: centralNode.fy }
         });
         
-        // Calculate position for the "New Comment" form if present
-        const commentFormNode = nodes.find(n => n.type === 'comment-form' && !n.metadata?.parentCommentId);
-        if (commentFormNode) {
-            // Position the comment form at the bottom of the layout
-            commentFormNode.x = 0;
-            commentFormNode.y = 300; // Position below central node
-            console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned comment form node', {
-                id: commentFormNode.id,
-                position: { x: commentFormNode.x, y: commentFormNode.y }
-            });
-        }
+        // Position the "New Comment" form if present
+        this.positionCommentForm(nodes, centralNode);
 
-        // Position root comments (comments that connect directly to the central node)
-        const rootComments = nodes.filter(n => 
-            n.type === 'comment' && 
-            // Look at parent-child map to find root comments
-            !this.getParentId(n.id)
-        );
+        // Now build the complete comment hierarchy based on parent-child relationships
+        this.buildCommentHierarchy(centralNode.id);
         
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Found root comments:', {
-            count: rootComments.length,
-            ids: rootComments.map(c => c.id)
-        });
+        // Position all comments statically
+        this.positionAllComments(centralNode);
         
-        // Position root comments with golden angle distribution
-        this.positionRootComments(rootComments);
+        // Enforce fixed positions at the end
+        this.fixPositions(nodes);
         
-        // Position reply comments (comments that connect to other comments)
-        const replyComments = nodes.filter(n => 
-            n.type === 'comment' && 
-            this.getParentId(n.id) !== null
-        );
-        
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Found reply comments:', {
-            count: replyComments.length,
-            ids: replyComments.map(c => c.id)
-        });
-        
-        // Position reply comments around their parents
-        this.positionReplyComments(replyComments);
-        
-        // Final enforcement of fixed positions
-        this.enforceFixedPositions();
+        console.debug('[DiscussionLayout] Finished initializing node positions, hierarchy depth:', this.getMaxDepth());
+    }
+    
+    /**
+     * Reset all data structures used for tracking the comment hierarchy
+     */
+    private resetDataStructures(): void {
+        this.nodeTypeMap.clear();
+        this.commentAngles.clear();
+        this.commentDistances.clear();
+        this.parentChildMap.clear();
+        this.childParentMap.clear();
+        this.commentDepthMap.clear();
+        this.expansionState.clear();
     }
     
     /**
@@ -228,139 +208,223 @@ export class DiscussionLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Build lookup maps for node relations - IMPROVED VERSION
+     * Build lookup maps for node relations
      */
     private buildNodeMaps(nodes: EnhancedNode[]): void {
-        // Reset existing maps
-        this.parentChildMap.clear();
-        this.commentRingIndices.clear();
-        
         // Create node ID map for validation
         const nodeIdSet = new Set<string>();
         nodes.forEach(node => nodeIdSet.add(node.id));
         
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Building node maps from', nodes.length, 'nodes');
+        console.debug('[DiscussionLayout] Building node maps from', nodes.length, 'nodes');
         
-        // First pass - identify parent-child relationships
+        // Create maps for type lookup and hierarchical relationships
         nodes.forEach(node => {
-            // Store node type in type map for later lookup
+            // Store node type for quick lookup
             this.nodeTypeMap.set(node.id, node.type);
             
-            // Check if this is a comment node with a parent
-            if (node.type === 'comment') {
-                // IMPROVED: Check both metadata and data for parentCommentId
-                let parentId = node.metadata?.parentCommentId;
-                
-                // If not in metadata, try to get from data
-                if (!parentId && node.data && 'parentCommentId' in node.data) {
-                    parentId = (node.data as any).parentCommentId;
-                    
-                    // If found in data but not in metadata, repair the metadata
-                    if (parentId && !node.metadata?.parentCommentId) {
-                        console.debug(`[COMMENT_HIERARCHY_LAYOUT] Repairing missing parentCommentId in metadata for node ${node.id}`);
-                        if (!node.metadata) node.metadata = { group: 'comment' as NodeMetadata['group'] };
-                        node.metadata.parentCommentId = parentId;
-                    }
-                }
+            // Process comments to build the parent-child relationship maps
+            if (node.type === 'comment' || node.type === 'comment-form') {
+                // First, try to find the parent ID from various sources
+                let parentId = this.extractParentId(node);
                 
                 // Only process valid parent IDs that exist in our node set
                 if (parentId && nodeIdSet.has(parentId)) {
-                    // Initialize parent's children array if needed
+                    // Register the parent-child relationship
                     if (!this.parentChildMap.has(parentId)) {
                         this.parentChildMap.set(parentId, []);
                     }
                     
-                    // Add this node to parent's children
                     this.parentChildMap.get(parentId)!.push(node.id);
+                    this.childParentMap.set(node.id, parentId);
                     
-                    console.debug(`[COMMENT_HIERARCHY_LAYOUT] Added parent-child relationship: ${parentId} -> ${node.id}`);
+                    console.debug(`[DiscussionLayout] Registered parent-child: ${parentId} -> ${node.id}`);
                 } else if (parentId) {
-                    console.warn(`[COMMENT_HIERARCHY_LAYOUT] Parent node ${parentId} not found for comment ${node.id}`);
-                }
-            }
-            
-            // Also handle comment forms
-            if (node.type === 'comment-form' && node.metadata?.parentCommentId) {
-                const parentId = node.metadata.parentCommentId;
-                
-                // Only process if parent exists
-                if (nodeIdSet.has(parentId)) {
-                    // Initialize parent's children array if needed
-                    if (!this.parentChildMap.has(parentId)) {
-                        this.parentChildMap.set(parentId, []);
-                    }
-                    
-                    // Add this node to parent's children
-                    this.parentChildMap.get(parentId)!.push(node.id);
+                    console.warn(`[DiscussionLayout] Parent node ${parentId} not found for node ${node.id}, will be treated as root comment`);
                 }
             }
         });
         
-        // Second pass - calculate ring indices (depth in the comment tree)
-        // Root comments (directly attached to central node) have ring index 1
-        // Their replies have ring index 2, etc.
-        const calculateRingIndex = (nodeId: string, depth: number = 1): void => {
-            this.commentRingIndices.set(nodeId, depth);
+        // Log for debugging
+        this.logParentChildStructure();
+    }
+    
+    /**
+     * Position the comment form for adding new comments
+     */
+    private positionCommentForm(nodes: EnhancedNode[], centralNode: EnhancedNode): void {
+        // Find comment form without parent (root comment form)
+        const commentFormNode = nodes.find(n => 
+            n.type === 'comment-form' && 
+            !this.extractParentId(n)
+        );
+        
+        if (commentFormNode) {
+            // Position below central node
+            commentFormNode.x = 0;
+            commentFormNode.y = centralNode.radius * 3;
+            commentFormNode.fx = commentFormNode.x;
+            commentFormNode.fy = commentFormNode.y;
             
-            // Process children recursively
+            console.debug('[DiscussionLayout] Positioned root comment form', {
+                id: commentFormNode.id,
+                position: { x: commentFormNode.x, y: commentFormNode.y }
+            });
+        }
+    }
+    
+    /**
+     * Extract parentId from a node using multiple sources
+     */
+    private extractParentId(node: EnhancedNode): string | null {
+        // Try to get from metadata first
+        if (node.metadata?.parentCommentId) {
+            return node.metadata.parentCommentId;
+        }
+        
+        // Then try from data
+        if (node.data && typeof node.data === 'object' && 'parentCommentId' in node.data) {
+            return (node.data as any).parentCommentId;
+        }
+        
+        // Check our mapping as a last resort
+        return this.childParentMap.get(node.id) || null;
+    }
+
+    /**
+     * Build the comment hierarchy depth map
+     */
+    private buildCommentHierarchy(centralNodeId: string): void {
+        // For any node without a parent, it's a root comment (depth 1)
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const commentNodes = nodes.filter(n => n.type === 'comment' || n.type === 'comment-form');
+        
+        // First, identify all root comments (direct children of central node)
+        const rootCommentIds: string[] = [];
+        
+        commentNodes.forEach(node => {
+            const parentId = this.extractParentId(node);
+            
+            if (!parentId || parentId === centralNodeId) {
+                // This is a root comment (directly connected to central node)
+                rootCommentIds.push(node.id);
+                this.commentDepthMap.set(node.id, 1); // Depth 1 for root comments
+                
+                // Ensure they're properly linked to central node in our maps
+                if (!this.parentChildMap.has(centralNodeId)) {
+                    this.parentChildMap.set(centralNodeId, []);
+                }
+                
+                if (!this.parentChildMap.get(centralNodeId)!.includes(node.id)) {
+                    this.parentChildMap.get(centralNodeId)!.push(node.id);
+                }
+                
+                this.childParentMap.set(node.id, centralNodeId);
+            }
+        });
+        
+        // Log root comments
+        console.debug('[DiscussionLayout] Identified root comments:', rootCommentIds);
+        
+        // Now recursively compute depth for all comments
+        const calculateDepth = (nodeId: string, depth: number): void => {
+            this.commentDepthMap.set(nodeId, depth);
+            
+            // Process all children
             const children = this.parentChildMap.get(nodeId) || [];
             children.forEach(childId => {
-                calculateRingIndex(childId, depth + 1);
+                calculateDepth(childId, depth + 1);
             });
         };
         
-        // Find central node
-        const centralNode = nodes.find(n => n.group === 'central');
-        if (!centralNode) {
-            console.warn('[COMMENT_HIERARCHY_LAYOUT] No central node found for ring calculation');
-            // Instead of returning, assign all comments as ring index 1 (root level)
-            nodes.filter(n => n.type === 'comment').forEach(node => {
-                this.commentRingIndices.set(node.id, 1);
-            });
-            return;
-        }
-        
-        // Get all comments that are direct children of the central node (root comments)
-        const rootCommentIds = this.parentChildMap.get(centralNode.id) || [];
-        
-        // Also include any comment nodes without a parent as root comments
-        const orphanRootComments = nodes.filter(node => 
-            node.type === 'comment' && 
-            !node.metadata?.parentCommentId &&
-            (!node.data || !('parentCommentId' in node.data) || !(node.data as any).parentCommentId)
-        );
-        
-        orphanRootComments.forEach(node => {
-            if (!rootCommentIds.includes(node.id)) {
-                rootCommentIds.push(node.id);
-            }
-        });
-        
-        // Calculate ring indices starting from each root comment
+        // Start calculation from each root comment
         rootCommentIds.forEach(commentId => {
-            calculateRingIndex(commentId, 1);
+            calculateDepth(commentId, 1);
         });
         
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Built node maps:', {
-            nodeTypes: this.nodeTypeMap.size,
-            parentChild: this.parentChildMap.size,
-            ringIndices: this.commentRingIndices.size,
-            rootCommentCount: rootCommentIds.length
+        // Log depth map statistics
+        console.debug('[DiscussionLayout] Built comment hierarchy depth map:', {
+            total: this.commentDepthMap.size,
+            maxDepth: this.getMaxDepth(),
+            distribution: this.getDepthDistribution()
         });
+    }
+    
+    /**
+     * Get the maximum depth in the comment hierarchy
+     */
+    private getMaxDepth(): number {
+        let maxDepth = 0;
+        this.commentDepthMap.forEach(depth => {
+            if (depth > maxDepth) maxDepth = depth;
+        });
+        return maxDepth;
+    }
+    
+    /**
+     * Get distribution of comments by depth
+     */
+    private getDepthDistribution(): Record<number, number> {
+        const distribution: Record<number, number> = {};
+        this.commentDepthMap.forEach(depth => {
+            if (!distribution[depth]) distribution[depth] = 0;
+            distribution[depth]++;
+        });
+        return distribution;
+    }
+    
+    /**
+     * Log the parent-child structure for debugging
+     */
+    private logParentChildStructure(): void {
+        console.group('[DiscussionLayout] Parent-Child Hierarchy');
+        
+        // Count nodes by parent
+        let totalRelationships = 0;
+        this.parentChildMap.forEach((children, parentId) => {
+            console.debug(`Parent ${parentId} has ${children.length} children: ${children.join(', ')}`);
+            totalRelationships += children.length;
+        });
+        
+        console.debug(`Total parent-child relationships: ${totalRelationships}`);
+        console.debug(`Total parent nodes: ${this.parentChildMap.size}`);
+        console.debug(`Total child nodes: ${this.childParentMap.size}`);
+        
+        console.groupEnd();
+    }
+    
+    /**
+     * Check if a node is a root comment (directly connected to central node)
+     */
+    private isRootComment(node: EnhancedNode): boolean {
+        if (node.type !== 'comment') return false;
+        
+        const parentId = this.getParentId(node.id);
+        if (!parentId) return true;
+        
+        // Check if parent is the central node
+        const parent = (this.simulation.nodes() as unknown as EnhancedNode[])
+            .find(n => n.id === parentId);
+            
+        return parent?.group === 'central';
     }
     
     /**
      * Get parent ID for a comment - improved with multiple sources
      */
     private getParentId(nodeId: string): string | null {
-        // First check our parent-child map
+        // First check our child-parent map (most reliable)
+        if (this.childParentMap.has(nodeId)) {
+            return this.childParentMap.get(nodeId)!;
+        }
+        
+        // Then check if it exists in the parent-child map
         for (const [parentId, children] of this.parentChildMap.entries()) {
             if (children.includes(nodeId)) {
                 return parentId;
             }
         }
         
-        // If not found, check the nodes directly
+        // If not found, check the node directly
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
         const node = nodes.find(n => n.id === nodeId);
         
@@ -380,747 +444,555 @@ export class DiscussionLayout extends BaseLayoutStrategy {
     }
     
     /**
-     * Get children IDs for a comment
+     * Get children IDs for a node
      */
     private getChildrenIds(nodeId: string): string[] {
         return this.parentChildMap.get(nodeId) || [];
     }
     
     /**
-     * Get ring index for a comment (distance from central node)
+     * Get depth for a comment (distance from central node in the hierarchy)
      */
-    private getRingIndex(nodeId: string): number {
-        return this.commentRingIndices.get(nodeId) || 1;
+    private getDepth(nodeId: string): number {
+        return this.commentDepthMap.get(nodeId) || 1;
     }
 
     /**
-     * Configure forces for this layout
+     * Configure forces for this layout - USING NO FORCES APPROACH
      */
     configureForces(): void {
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Configuring forces');
+        console.debug('[DiscussionLayout] Configuring forces (static positioning)');
 
-        // CRITICAL: Start with no forces at all
+        // Start with no forces at all
         this.clearAllForces();
 
-        // Add collision detection - this helps prevent overlapping
+        // Add only a minimal collision force to prevent complete overlap
         this.simulation.force('collision', d3.forceCollide()
-            .radius((node: any) => (node as EnhancedNode).radius * 1.8) // 80% buffer around nodes
-            .strength(0.8) // Strong enough to prevent overlap
-            .iterations(4) // More iterations = more accurate
+            .radius((node: any) => {
+                const n = node as EnhancedNode;
+                return n.radius * 1.1; // Just 10% buffer
+            })
+            .strength(0.5)
+            .iterations(2)
         );
         
-        // Add very weak charge force to help separate nodes
-        this.simulation.force('charge', d3.forceManyBody()
-                    .strength((node: any) => {
-                        const n = node as EnhancedNode;
-                        if (n.type === 'comment') {
-                            // Stronger repulsion for comments based on whether they're replies
-                            return n.metadata?.parentCommentId ? -150 : -200;
-                        }
-                        return -50; // Default for other nodes
-                    })
-                    .distanceMax(600) // Limit the distance to avoid nodes flying away
-                );
-                
-                // Configure minimal forces for navigation nodes
-                NavigationNodeLayout.configureNoForces(this.simulation);
-
-                // Add a tick handler that enforces parent-child positioning on EVERY tick
-                this.simulation.on('tick.parentChildPositioning', () => {
-                    const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-                    
-                    // Create node lookup map
-                    const nodeMap = new Map<string, EnhancedNode>();
-                    nodes.forEach(node => nodeMap.set(node.id, node));
-                    
-                    // Find central node and fix its position
-                    const centralNode = nodes.find(n => n.fixed || n.group === 'central');
-                    if (centralNode) {
-                        // Aggressively reset position to origin
-                        centralNode.x = 0;
-                        centralNode.y = 0;
-                        centralNode.fx = 0;
-                        centralNode.fy = 0;
-                        centralNode.vx = 0;
-                        centralNode.vy = 0;
-                    }
-                    
-                    // Fix navigation nodes
-                    nodes.forEach(node => {
-                        if (node.type === 'navigation' && node.fx !== undefined && node.fy !== undefined) {
-                            node.x = node.fx;
-                            node.y = node.fy;
-                            node.vx = 0;
-                            node.vy = 0;
-                        }
-                        
-                        // CRITICAL: For comment nodes, maintain relationship with parent
-                        if (node.type === 'comment' && node.metadata?.parentCommentId && !node.fixed) {
-                            const parentId = node.metadata.parentCommentId;
-                            const parentNode = nodeMap.get(parentId);
-                            
-                            if (parentNode) {
-                                // Calculate current distance from parent
-                                const dx = (node.x ?? 0) - (parentNode.x ?? 0);
-                                const dy = (node.y ?? 0) - (parentNode.y ?? 0);
-                                const distance = Math.sqrt(dx * dx + dy * dy);
-                                
-                                // Calculate ideal distance based on node radii plus spacing
-                                const idealDistance = parentNode.radius + node.radius + 60;
-                                
-                                // If too far or too close, adjust gradually
-                                if (Math.abs(distance - idealDistance) > 30) {
-                                    // Calculate unit vector
-                                    const ux = dx / distance;
-                                    const uy = dy / distance;
-                                    
-                                    // Apply adjustment (partial to avoid abrupt movements)
-                                    const adjustmentFactor = 0.3; // 30% adjustment per tick
-                                    node.x = (parentNode.x ?? 0) + ux * (idealDistance * adjustmentFactor + distance * (1 - adjustmentFactor));
-                                    node.y = (parentNode.y ?? 0) + uy * (idealDistance * adjustmentFactor + distance * (1 - adjustmentFactor));
-                                }
-                            }
-                        }
-                    });
-                });
-                
-                // Start with a VERY mild alpha - just avoid movement
-                this.simulation.alpha(0.1).restart();
-            }
-
-            /**
-             * Position root comments using golden angle distribution
-             */
-            private positionRootComments(comments: EnhancedNode[]): void {
-                // Sort comments by popularity (if available) or creation date
-                const sortedComments = comments.sort((a, b) => {
-                    // If popularity metrics exist, use them
-                    if (a.metadata?.votes !== undefined && b.metadata?.votes !== undefined) {
-                        return (b.metadata.votes as number) - (a.metadata.votes as number);
-                    }
-                    
-                    // Otherwise sort by creation date (newest first)
-                    const dateA = a.metadata?.createdAt ? new Date(a.metadata.createdAt).getTime() : 0;
-                    const dateB = b.metadata?.createdAt ? new Date(b.metadata.createdAt).getTime() : 0;
-                    return dateB - dateA;
-                });
-                
-                // Calculate base radius for root comments
-                const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
-                
-                // Calculate spacing angle based on number of comments
-                // More comments = smaller spacing to fit them all
-                const totalComments = sortedComments.length;
-                
-                // Increase the spacing factor to further separate nodes
-                // Higher spacing factor = more space between nodes
-                const spacingFactor = Math.max(1.5, Math.min(3.0, 10 / totalComments));
-                
-                // Position each comment around the circle
-                sortedComments.forEach((comment, index) => {
-                    // Store ring index (1 for root comments)
-                    this.commentRingIndices.set(comment.id, 1);
-                    
-                    // Calculate angle with better distribution based on comment count
-                    // Using index * spacingFactor * GOLDEN_ANGLE gives better spacing
-                    const angle = this.FIRST_COMMENT_ANGLE + (this.GOLDEN_ANGLE * index * spacingFactor);
-                    
-                    // Store angle for consistency
-                    this.commentAngles.set(comment.id, angle);
-                    
-                    // Calculate additional spacing adjustment based on node radius
-                    // Larger spacing multiplier to ensure nodes don't overlap
-                    const nodeRadiusAdjustment = comment.radius * 1.2;
-                    
-                    // Apply position using angle and adjusted radius
-                    // Larger base radius to provide more room for comments
-                    const adjustedRadius = baseRadius + nodeRadiusAdjustment + (totalComments * 5); // Scale with comment count
-                    comment.x = Math.cos(angle) * adjustedRadius;
-                    comment.y = Math.sin(angle) * adjustedRadius;
-                    
-                    console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned root comment:', {
-                        id: comment.id,
-                        index,
-                        angle: angle * (180 / Math.PI), // Convert to degrees for readability
-                        position: { x: comment.x, y: comment.y },
-                        adjustedRadius
-                    });
-                    
-                    // Position any reply form associated with this comment
-                    const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
-                        n.type === 'comment-form' && 
-                        n.metadata?.parentCommentId === comment.id
-                    );
-                    
-                    if (replyForm) {
-                        // Position slightly offset from parent comment
-                        const replyAngle = angle + (Math.PI / 8); // Offset angle
-                        const replyRadius = adjustedRadius * 1.2; // Slightly larger radius
-                        
-                        replyForm.x = Math.cos(replyAngle) * replyRadius;
-                        replyForm.y = Math.sin(replyAngle) * replyRadius;
-                        
-                        console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned reply form:', {
-                            id: replyForm.id,
-                            parentId: comment.id,
-                            position: { x: replyForm.x, y: replyForm.y }
-                        });
-                    }
-                });
-            }
-            
-            /**
-             * Position reply comments around their parent comments - IMPROVED VERSION
-             */
-            private positionReplyComments(comments: EnhancedNode[]): void {
-                // Skip entirely if no comments to process
-                if (comments.length === 0) {
-                    return;
-                }
-                
-                // Filter for ONLY comments that actually have a parentCommentId
-                const actualReplyComments = comments.filter(node => 
-                    node.type === 'comment' && 
-                    (node.metadata?.parentCommentId || 
-                    (node.data && (node.data as any)?.parentCommentId))
-                );
-                
-                if (actualReplyComments.length === 0) {
-                    console.debug('[COMMENT_HIERARCHY_LAYOUT] No reply comments found with parentCommentId');
-                    return; // Early return if no actual replies
-                }
-                
-                // Get comments grouped by parent with validation
-                const commentsByParent = new Map<string, EnhancedNode[]>();
-                
-                // First validate each comment's parent reference
-                actualReplyComments.forEach(comment => {
-                    // Look in both metadata and data for parentCommentId
-                    const parentId = comment.metadata?.parentCommentId || 
-                                    (comment.data && (comment.data as any)?.parentCommentId);
-                    
-                    if (!parentId) {
-                        console.warn(`[COMMENT_HIERARCHY_LAYOUT] Reply comment ${comment.id} is missing parentCommentId`);
-                        return;
-                    }
-                    
-                    // Ensure parent exists in the simulation
-                    const parentExists = (this.simulation.nodes() as unknown as EnhancedNode[])
-                        .some(n => n.id === parentId);
-                        
-                    if (!parentExists) {
-                        console.warn(`[COMMENT_HIERARCHY_LAYOUT] Parent comment ${parentId} not found for reply ${comment.id}`);
-                        return;
-                    }
-                    
-                    // Group by parent
-                    if (!commentsByParent.has(parentId)) {
-                        commentsByParent.set(parentId, []);
-                    }
-                    
-                    commentsByParent.get(parentId)!.push(comment);
-                });
-                
-                // Log the grouped comments
-                console.debug('[COMMENT_HIERARCHY_LAYOUT] Comments grouped by parent:', 
-                    Array.from(commentsByParent.entries()).map(([parentId, children]) => ({
-                        parentId, 
-                        childCount: children.length,
-                        childIds: children.map(c => c.id)
-                    }))
-                );
-                
-                // Process each parent's replies
-                commentsByParent.forEach((replies, parentId) => {
-                    const parent = (this.simulation.nodes() as unknown as EnhancedNode[])
-                        .find(n => n.id === parentId);
-                        
-                    if (!parent) {
-                        console.warn(`[COMMENT_HIERARCHY_LAYOUT] Parent comment ${parentId} not found for replies`);
-                        return;
-                    }
-                    
-                    // Sort replies by popularity or creation date
-                    const sortedReplies = replies.sort((a, b) => {
-                        // If popularity metrics exist, use them
-                        if (a.metadata?.votes !== undefined && b.metadata?.votes !== undefined) {
-                            return (b.metadata.votes as number) - (a.metadata.votes as number);
-                        }
-                        
-                        // Otherwise sort by creation date (newest first)
-                        const dateA = a.metadata?.createdAt ? new Date(a.metadata.createdAt).getTime() : 0;
-                        const dateB = b.metadata?.createdAt ? new Date(b.metadata.createdAt).getTime() : 0;
-                        return dateB - dateA;
-                    });
-                    
-                    // Get parent angle and ring index
-                    const parentAngle = this.commentAngles.get(parentId) || 0;
-                    const parentRingIndex = this.getRingIndex(parentId);
-                    
-                    // Calculate how to distribute replies around the parent
-                    // More replies = wider arc
-                    const replyCount = sortedReplies.length;
-                    
-                    // Ensure non-zero count for calculation
-                    if (replyCount === 0) return;
-                    
-                    // Increase arc size to provide more space between reply nodes
-                    const arcSize = Math.min(Math.PI * 1.5, Math.max(Math.PI / 2, replyCount * 0.3 * Math.PI));
-                    
-                    // Position replies around parent with better distribution
-                    sortedReplies.forEach((reply, index) => {
-                        // Double check we have a valid reply
-                        if (!reply || !reply.id) {
-                            console.warn('[COMMENT_HIERARCHY_LAYOUT] Invalid reply node encountered');
-                            return;
-                        }
-                        
-                        // Set ring index (parent's index + 1)
-                        const ringIndex = parentRingIndex + 1;
-                        this.commentRingIndices.set(reply.id, ringIndex);
-                        
-                        // Calculate angle based on position in the replies arc
-                        // This creates a "fan" of replies around the parent
-                        const fraction = replyCount > 1 ? index / (replyCount - 1) : 0.5;
-                        const replyAngle = parentAngle + (arcSize * (fraction - 0.5));
-                        
-                        // Store angle for consistency and future use
-                        this.commentAngles.set(reply.id, replyAngle);
-                        
-                        // Calculate position from parent's position instead of center
-                        // This creates better clustering of related comments
-                        if (parent.x !== undefined && parent.y !== undefined) {
-                            // Add extra spacing for larger nodes
-                            const nodeRadiusAdjustment = reply.radius * 1.5;
-                            
-                            // Calculate distance based on parent and reply radius plus padding
-                            // This ensures replies stay close to their parents but don't overlap
-                            const replyDistance = parent.radius + reply.radius + 50;
-                            
-                            // Calculate position relative to parent - THIS IS CRITICAL
-                            const posX = (parent.x ?? 0) + Math.cos(replyAngle) * replyDistance;
-                            const posY = (parent.y ?? 0) + Math.sin(replyAngle) * replyDistance;
-                            
-                            // Apply position
-                            reply.x = posX;
-                            reply.y = posY;
-                            
-                            console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned reply comment (relative):', {
-                                id: reply.id,
-                                parentId,
-                                ringIndex,
-                                angle: replyAngle * (180 / Math.PI),
-                                position: { x: reply.x, y: reply.y },
-                                distance: replyDistance,
-                                parentPosition: { x: parent.x, y: parent.y }
-                            });
-                        } else {
-                            // Fallback to absolute positioning if parent position is not available
-                            const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
-                            const radiusIncrement = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.REPLY_RADIUS_INCREMENT || 200;
-                            
-                            // Increase the radius increment based on the depth of nesting
-                            const adjustedRadiusIncrement = radiusIncrement * (1 + (ringIndex * 0.1));
-                            
-                            const nestingRadius = baseRadius + ((ringIndex - 1) * adjustedRadiusIncrement);
-                            
-                            // Add extra spacing for larger nodes
-                            const nodeRadiusAdjustment = reply.radius * 1.5;
-                            const adjustedRadius = nestingRadius + nodeRadiusAdjustment;
-                            
-                            // Apply position
-                            reply.x = Math.cos(replyAngle) * adjustedRadius;
-                            reply.y = Math.sin(replyAngle) * adjustedRadius;
-                            
-                            console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned reply comment (absolute fallback):', {
-                                id: reply.id,
-                                parentId,
-                                ringIndex,
-                                angle: replyAngle * (180 / Math.PI),
-                                position: { x: reply.x, y: reply.y },
-                                adjustedRadius
-                            });
-                        }
-                        
-                        // Position any reply form associated with this comment
-                        const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
-                            n.type === 'comment-form' && 
-                            n.metadata?.parentCommentId === reply.id
-                        );
-                        
-                        if (replyForm && reply.x !== undefined && reply.y !== undefined && 
-                            reply.x !== null && reply.y !== null) {
-                            // Position slightly offset from reply
-                            const formAngle = replyAngle + (Math.PI / 8);
-                            const formDistance = reply.radius + 30;
-                            
-                            replyForm.x = reply.x + Math.cos(formAngle) * formDistance;
-                            replyForm.y = reply.y + Math.sin(formAngle) * formDistance;
-                            
-                            console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned nested reply form (relative):', {
-                                id: replyForm.id,
-                                parentId: reply.id,
-                                position: { x: replyForm.x, y: replyForm.y }
-                            });
-                        }
-                        
-                        // Recursively position nested replies
-                        // Check if this reply has its own replies
-                        const nestedReplies = (this.simulation.nodes() as unknown as EnhancedNode[])
-                            .filter(n => n.metadata?.parentCommentId === reply.id);
-                            
-                        if (nestedReplies.length > 0) {
-                            console.debug(`[COMMENT_HIERARCHY_LAYOUT] Found ${nestedReplies.length} nested replies for comment ${reply.id}`);
-                            // Position nested replies around this reply
-                            this.positionNestedReplies(nestedReplies, reply, replyAngle, ringIndex);
-                        }
-                    });
-                });
-            }
-
-            /**
-             * Position nested replies (replies to replies)
-             */
-            private positionNestedReplies(
-                replies: EnhancedNode[], 
-                parent: EnhancedNode, 
-                parentAngle: number, 
-                parentRingIndex: number
-            ): void {
-                // Sort replies by popularity or creation date
-                const sortedReplies = replies.sort((a, b) => {
-                    // If popularity metrics exist, use them
-                    if (a.metadata?.votes !== undefined && b.metadata?.votes !== undefined) {
-                        return (b.metadata.votes as number) - (a.metadata.votes as number);
-                    }
-                    
-                    // Otherwise sort by creation date (newest first)
-                    const dateA = a.metadata?.createdAt ? new Date(a.metadata.createdAt).getTime() : 0;
-                    const dateB = b.metadata?.createdAt ? new Date(b.metadata.createdAt).getTime() : 0;
-                    return dateB - dateA;
-                });
-                
-                const replyCount = sortedReplies.length;
-                
-                // Use a narrower arc for nested replies to keep them closer to parent
-                const arcSize = Math.min(Math.PI * 1.0, Math.max(Math.PI / 3, replyCount * 0.2 * Math.PI));
-                
-                sortedReplies.forEach((reply, index) => {
-                    // Set ring index (parent's index + 1)
-                    const ringIndex = parentRingIndex + 1;
-                    this.commentRingIndices.set(reply.id, ringIndex);
-                    
-                    // Calculate angle based on position in the replies arc
-                    const fraction = replyCount > 1 ? index / (replyCount - 1) : 0.5;
-                    const replyAngle = parentAngle + (arcSize * (fraction - 0.5));
-                    
-                    // Store angle for consistency
-                    this.commentAngles.set(reply.id, replyAngle);
-                    
-                    // Calculate position from parent's position
-                    if (parent.x !== undefined && parent.y !== undefined) {
-                        // Use shorter distance for nested replies to keep them closer
-                        const replyDistance = parent.radius + reply.radius + 30;
-                        
-                        // Calculate position relative to parent
-                        const posX = (parent.x ?? 0) + Math.cos(replyAngle) * replyDistance;
-                        const posY = (parent.y ?? 0) + Math.sin(replyAngle) * replyDistance;
-                        
-                        // Apply position
-                        reply.x = posX;
-                        reply.y = posY;
-                        
-                        console.debug('[COMMENT_HIERARCHY_LAYOUT] Positioned nested reply:', {
-                            id: reply.id,
-                            parentId: parent.id,
-                            ringIndex,
-                            angle: replyAngle * (180 / Math.PI),
-                            position: { x: reply.x, y: reply.y },
-                            distance: replyDistance
-                        });
-                    }
-                    
-                    // Position any reply form for this nested reply
-                    const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
-                        n.type === 'comment-form' && 
-                        n.metadata?.parentCommentId === reply.id
-                    );
-                    
-                    if (replyForm && reply.x !== undefined && reply.y !== undefined && 
-                        reply.x !== null && reply.y !== null) {
-                        // Position slightly offset from reply
-                        const formAngle = replyAngle + (Math.PI / 8);
-                        const formDistance = reply.radius + 30;
-                        
-                        replyForm.x = reply.x + Math.cos(formAngle) * formDistance;
-                        replyForm.y = reply.y + Math.sin(formAngle) * formDistance;
-                    }
-                    
-                    // Recursively position deeper nested replies (if any)
-                    const deeperReplies = (this.simulation.nodes() as unknown as EnhancedNode[])
-                        .filter(n => n.metadata?.parentCommentId === reply.id);
-                        
-                    if (deeperReplies.length > 0) {
-                        this.positionNestedReplies(deeperReplies, reply, replyAngle, ringIndex);
-                    }
-                });
-            }
-            
-            // Changes needed in ProjectZer0Frontend/src/lib/services/graph/layouts/DiscussionLayout.ts
-// Update the calculateLinkPath method to ensure all links are straight
-
-/**
- * Calculate the path for a link between two nodes
- * Always use straight lines for all links in discussion view
- */
-private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
-    // Get positions with null safety
-    const sourceX = source.x ?? 0;
-    const sourceY = source.y ?? 0;
-    const targetX = target.x ?? 0;
-    const targetY = target.y ?? 0;
-    
-    // Skip calculation if nodes are at the same position
-    if (sourceX === targetX && sourceY === targetY) {
-        return '';
-    }
-    
-    // Calculate vector
-    const dx = targetX - sourceX;
-    const dy = targetY - sourceY;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Calculate unit vector
-    const unitX = dx / distance;
-    const unitY = dy / distance;
-    
-    // Use a straight line path for ALL links in discussion view
-    // Calculate points on perimeter based on node radii
-    const sourceRadius = source.radius * 0.95; // 95% of radius
-    const targetRadius = target.radius * 0.95; // 95% of radius
-    
-    // Calculate points on perimeter
-    const startX = sourceX + (unitX * sourceRadius);
-    const startY = sourceY + (unitY * sourceRadius);
-    const endX = targetX - (unitX * targetRadius);
-    const endY = targetY - (unitY * targetRadius);
-    
-    // Create a straight line path
-    return `M${startX},${startY}L${endX},${endY}`;
-}
-            
-            /**
-             * Calculate position for a comment with all adjustments
-             */
-            private calculateCommentPosition(node: EnhancedNode, angle: number, ringIndex: number): { x: number, y: number, radius: number } {
-                // Get constants from COORDINATE_SPACE
-                const baseRadius = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
-                const radiusIncrement = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.REPLY_RADIUS_INCREMENT || 200;
-                
-                // Calculate radius based on ring index - with more spacing for higher ring indices
-                const ringRadius = baseRadius + ((ringIndex - 1) * radiusIncrement * 1.5);
-
-                // Retrieve the central node to check its state
-                const centralNode = (this.simulation.nodes() as unknown as EnhancedNode[])
-                    .find(n => n.fixed || n.group === 'central');
-                
-                // Calculate central node adjustment (inward when central node is in preview mode)
-                const centralAdjustment = centralNode?.mode === 'preview' ?
-                    (this.getCentralNodeDetailSize() - this.getCentralNodePreviewSize()) / 2 :
-                    0;
-                    
-                // Additional inward adjustment if central node is hidden
-                const centralHiddenAdjustment = centralNode?.isHidden ?
-                    (this.getCentralNodePreviewSize() - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
-                    0;
-                    
-                // Calculate expansion adjustment - move outward if expanded
-                const expansionAdjustment = node.mode === 'detail' ?
-                    (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 :
-                    0;
-                    
-                // Calculate hidden adjustment - move inward if hidden
-                const hiddenAdjustment = node.isHidden ?
-                    -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
-                    0;
-                
-                // Calculate adjustment from inner expanded nodes
-                let innerExpandedAdjustment = 0;
-                this.expandedComments.forEach((data, id) => {
-                    // If this is an inner ring that's expanded, add its adjustment
-                    if (data.ringIndex < ringIndex) {
-                        innerExpandedAdjustment += data.adjustment;
-                    }
-                });
-                
-                // Calculate adjustment from inner hidden nodes
-                let innerHiddenAdjustment = 0;
-                this.hiddenNodes.forEach((data, id) => {
-                    // If this is an inner ring that's hidden, add its adjustment (negative)
-                    if (data.ringIndex < ringIndex) {
-                        innerHiddenAdjustment += data.adjustment;
-                    }
-                });
-                
-                // Add spacing adjustment based on node radius to prevent overlap
-                const nodeRadiusAdjustment = node.radius * 2;
-                
-                // Calculate final radius with all adjustments
-                const radius = ringRadius + 
-                            expansionAdjustment + 
-                            hiddenAdjustment - 
-                            centralAdjustment - 
-                            centralHiddenAdjustment + 
-                            innerExpandedAdjustment + 
-                            innerHiddenAdjustment +
-                            nodeRadiusAdjustment;
-
-                // Calculate position using angle and radius
-                const x = Math.cos(angle) * radius;
-                const y = Math.sin(angle) * radius;
-                
-                return { x, y, radius };
-            }
-            
-            /**
-             * Get detail size for central node based on its type
-             */
-            private getCentralNodeDetailSize(): number {
-                const centralNode = (this.simulation.nodes() as unknown as EnhancedNode[])
-                    .find(n => n.fixed || n.group === 'central');
-                    
-                if (!centralNode) return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL;
-                
-                switch(centralNode.type) {
-                    case 'word':
-                        return COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL;
-                    case 'definition':
-                        return COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL;
-                    case 'statement':
-                        return COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL;
-                    case 'quantity':
-                        return COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL;
-                    default:
-                        return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL;
-                }
-            }
-            
-            /**
-             * Get preview size for central node based on its type
-             */
-            private getCentralNodePreviewSize(): number {
-                const centralNode = (this.simulation.nodes() as unknown as EnhancedNode[])
-                    .find(n => n.fixed || n.group === 'central');
-                    
-                if (!centralNode) return COORDINATE_SPACE.NODES.SIZES.STANDARD.PREVIEW;
-                
-                switch(centralNode.type) {
-                    case 'word':
-                        return COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW;
-                    case 'definition':
-                        return COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW;
-                    case 'statement':
-                        return COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW;
-                    case 'quantity':
-                        return COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW;
-                    default:
-                        return COORDINATE_SPACE.NODES.SIZES.STANDARD.PREVIEW;
-                }
-            }
-
-            /**
-             * Handle node mode changes
-             */
-            public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
-                console.debug('[COMMENT_HIERARCHY_LAYOUT] Node state change', {
-                    nodeId,
-                    mode
-                });
-
-                const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-                const node = nodes.find(n => n.id === nodeId);
-                
-                if (!node) {
-                    console.warn('[COMMENT_HIERARCHY_LAYOUT] Node not found for state change:', nodeId);
-                    return;
-                }
-
-                // Update node mode
-                const oldMode = node.mode;
-                node.mode = mode;
-                node.expanded = mode === 'detail';
-                
-                // Update radius based on new mode
-                const oldRadius = node.radius;
-                node.radius = this.getNodeRadius(node);
-
-                console.debug('[COMMENT_HIERARCHY_LAYOUT] Node mode updated', {
-                    nodeId,
-                    oldMode,
-                    newMode: mode,
-                    oldRadius,
-                    newRadius: node.radius
-                });
-
-                // Update expansion state tracking
-                this.expansionState.set(nodeId, mode === 'detail');
-
-                // If this is a comment node, update expanded tracking
-                if (node.type === 'comment') {
-                    // Get ring index
-                    const ringIndex = this.getRingIndex(nodeId);
-                    
-                    // Calculate adjustment for this node (radius difference between detail and preview)
-                    const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
-                                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
-                                    COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
-                        
-                    // Update tracking
-                    if (mode === 'detail') {
-                        this.expandedComments.set(nodeId, { ringIndex, adjustment });
-                        console.debug('[COMMENT_HIERARCHY_LAYOUT] Added expanded comment:', {
-                            nodeId,
-                            ringIndex,
-                            adjustment
-                        });
-                    } else {
-                        this.expandedComments.delete(nodeId);
-                        console.debug('[COMMENT_HIERARCHY_LAYOUT] Removed expanded comment:', {
-                            nodeId
-                        });
-                    }
-                }
-
-        // For central node, we need to update all nodes
-        if (node.group === 'central') {
-            console.debug('[COMMENT_HIERARCHY_LAYOUT] Central node visibility changed, repositioning all nodes');
-            
-            // First update navigation nodes to ensure they adapt to the central node's new size
-            NavigationNodeLayout.positionNavigationNodes(
-                nodes, 
-                this.getNodeRadius.bind(this)
-            );
-            
-            // Then reposition comments
-            this.repositionAllComments(nodes);
-        }
+        // Add fixed position enforcer on tick
+        this.simulation.on('tick.fixPosition', () => {
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            this.fixPositions(nodes);
+        });
         
-        // If a comment changes visibility, we need to adjust all comments
-        else if (node.type === 'comment') {
-            console.debug('[COMMENT_HIERARCHY_LAYOUT] Comment node visibility changed, repositioning all comments');
-            this.repositionAllComments(nodes);
-        }
-        
-        // CRITICAL: Stop simulation and enforce fixed positions
-        this.simulation.stop();
-        this.enforceFixedPositions();
-        
-        // Restart with VERY minimal alpha to avoid movement
+        // Start with a very mild alpha - no real simulation needed
         this.simulation.alpha(0.01).restart();
     }
-
+    
     /**
-     * Update expansion state changes
+     * Fix all node positions - no simulation needed
+     */
+    private fixPositions(nodes: EnhancedNode[]): void {
+        // Fix all nodes at their current positions
+        nodes.forEach(node => {
+            // For central node, ensure it stays at origin
+            if (node.group === 'central' || node.fixed) {
+                node.x = 0;
+                node.y = 0;
+                node.fx = 0;
+                node.fy = 0;
+                node.vx = 0;
+                node.vy = 0;
+            } 
+            // For navigation nodes, ensure they keep their positions
+            else if (node.type === 'navigation') {
+                if (node.fx !== undefined) node.x = node.fx;
+                if (node.fy !== undefined) node.y = node.fy;
+                node.vx = 0;
+                node.vy = 0;
+            }
+            // For all other nodes, fix them at their assigned positions
+            else {
+                if (node.fx === undefined) node.fx = node.x;
+                if (node.fy === undefined) node.fy = node.y;
+                node.vx = 0;
+                node.vy = 0;
+            }
+        });
+    }
+
+/**
+ * Position all comments in a static manner with vote-based distance
+ */
+private positionAllComments(centralNode: EnhancedNode): void {
+    // Get all nodes
+    const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+    
+    // First, get root comments directly connected to central node
+    const rootCommentIds = this.getChildrenIds(centralNode.id);
+    const rootComments = nodes.filter(n => rootCommentIds.includes(n.id));
+    
+    console.debug('[DiscussionLayout] Positioning', rootComments.length, 'root comments');
+    
+    // Sort root comments by net votes (highest to lowest)
+    const sortedRootComments = rootComments.sort((a, b) => {
+        // Get net votes from metadata or direct properties
+        const aVotes = a.metadata?.votes !== undefined ? a.metadata.votes as number : 
+                     (a.data && 'netVotes' in a.data ? (a.data as any).netVotes : 0);
+        const bVotes = b.metadata?.votes !== undefined ? b.metadata.votes as number : 
+                     (b.data && 'netVotes' in b.data ? (b.data as any).netVotes : 0);
+        
+        // Sort by net votes (highest first)
+        return bVotes - aVotes;
+    });
+    
+    // Pre-calculate the number of replies for each comment and its descendants
+    const replyCountMap = new Map<string, number>();
+    this.calculateTotalDescendants(nodes, replyCountMap);
+    
+    // Create an array to track the angular sectors occupied by each comment and its replies
+    // This helps prevent overlaps by reserving enough space in each direction
+    type ReservedSector = { 
+        startAngle: number;
+        endAngle: number;
+        distance: number;
+        commentId: string;
+    };
+    const reservedSectors: ReservedSector[] = [];
+    
+    // Split the top comment from the rest
+    const topComment = sortedRootComments.length > 0 ? sortedRootComments[0] : null;
+    const otherRootComments = sortedRootComments.slice(1);
+    
+    // Position top comment to the right of central node (like live definition)
+    if (topComment) {
+        // Fixed position at 0 degrees (to the right)
+        const topAngle = 0; // Right side
+        
+        // Store angle for future reference
+        this.commentAngles.set(topComment.id, topAngle);
+        
+        // Position at a fixed distance similar to live definition
+        const baseDistance = this.BASE_RADIUS * 0.75; // 25% closer than standard
+        
+        // Add extra spacing based on number of replies
+        const replySpacingFactor = 40; // Increased from 20
+        const replyCount = replyCountMap.get(topComment.id) || 0;
+        const replySpacing = replyCount * replySpacingFactor;
+        
+        // Calculate final distance
+        const distance = baseDistance + replySpacing;
+        
+        // Store distance for future reference
+        this.commentDistances.set(topComment.id, distance);
+        
+        // Calculate position using angle and distance
+        topComment.x = Math.cos(topAngle) * distance;
+        topComment.y = Math.sin(topAngle) * distance;
+        topComment.fx = topComment.x;
+        topComment.fy = topComment.y;
+        
+        console.debug(`[DiscussionLayout] Positioned top comment ${topComment.id} at fixed angle 0°, distance ${distance}, with ${replyCount} total replies`);
+        
+        // Reserve this sector
+        const sectorWidth = Math.PI / 3; // 60 degrees for top comment
+        reservedSectors.push({
+            startAngle: topAngle - sectorWidth/2,
+            endAngle: topAngle + sectorWidth/2,
+            distance: distance + (replyCount > 0 ? this.RADIUS_INCREMENT * 2 : 0), 
+            commentId: topComment.id
+        });
+        
+        // Position any reply form attached to this comment
+        this.positionReplyForm(topComment);
+        
+        // Now recursively position this comment's children
+        const childIds = this.getChildrenIds(topComment.id);
+        if (childIds.length > 0) {
+            this.positionChildComments(nodes.filter(n => childIds.includes(n.id)), topComment, topAngle, replyCountMap, reservedSectors);
+        }
+    }
+    
+    // Position remaining root comments in a way that avoids overlaps
+    // Start at a position away from the top comment
+    let currentAngle = Math.PI / 2; // Start at the top
+    
+    otherRootComments.forEach((comment, index) => {
+        // Calculate next angle using golden ratio
+        let candidateAngle = currentAngle + this.GOLDEN_ANGLE;
+        
+        // Normalize angle to 0-2π range
+        while (candidateAngle < 0) candidateAngle += 2 * Math.PI;
+        while (candidateAngle >= 2 * Math.PI) candidateAngle -= 2 * Math.PI;
+        
+        // Check if this angle overlaps with any reserved sector
+        // If it does, find a better angle
+        let isSafe = false;
+        let attempts = 0;
+        const maxAttempts = 12; // Try up to 12 different angles
+        
+        while (!isSafe && attempts < maxAttempts) {
+            isSafe = true;
+            
+            // Check against all reserved sectors
+            for (const sector of reservedSectors) {
+                // Check if angle falls within the sector
+                let isInSector = false;
+                
+                if (sector.startAngle <= sector.endAngle) {
+                    // Normal sector
+                    isInSector = candidateAngle >= sector.startAngle && candidateAngle <= sector.endAngle;
+                } else {
+                    // Sector crosses the 0/2π boundary
+                    isInSector = candidateAngle >= sector.startAngle || candidateAngle <= sector.endAngle;
+                }
+                
+                if (isInSector) {
+                    isSafe = false;
+                    // Move by a larger angle to try to find a gap
+                    candidateAngle += Math.PI / 6; // 30 degrees
+                    // Normalize angle again
+                    while (candidateAngle >= 2 * Math.PI) candidateAngle -= 2 * Math.PI;
+                    attempts++;
+                    break;
+                }
+            }
+        }
+        
+        // Use the safe angle (or best attempt)
+        const angle = candidateAngle;
+        currentAngle = angle; // Update for next iteration
+        
+        // Store angle for future reference
+        this.commentAngles.set(comment.id, angle);
+        
+        // Calculate base distance with more space
+        // Higher index (lower votes) = further out
+        const rankFactor = Math.sqrt(index + 1) / Math.sqrt(otherRootComments.length + 1);
+        let baseDistance = this.BASE_RADIUS * (1 + (rankFactor * 0.4)); // Increased factor
+        
+        // Add extra spacing based on number of replies - much more aggressive
+        const replyCount = replyCountMap.get(comment.id) || 0;
+        const replySpacingFactor = 50; // Doubled from 25
+        const replySpacing = replyCount * replySpacingFactor;
+        
+        // Check for sector proximity and add spacing if needed
+        for (const sector of reservedSectors) {
+            // Calculate angular distance (minimum distance in either direction)
+            let angularDistance = Math.min(
+                Math.abs(angle - sector.startAngle),
+                Math.abs(angle - sector.endAngle)
+            );
+            
+            // Handle wrap-around case (near 0/2π boundary)
+            angularDistance = Math.min(angularDistance, 2 * Math.PI - angularDistance);
+            
+            // If angle is close to a sector, ensure distance is greater than the sector's distance
+            if (angularDistance < Math.PI / 4) { // Within 45 degrees
+                const minDistance = sector.distance + 100; // Add extra buffer
+                baseDistance = Math.max(baseDistance, minDistance);
+            }
+        }
+        
+        // Calculate final distance with reply adjustment
+        const distance = baseDistance + replySpacing;
+        
+        // Store distance for future reference
+        this.commentDistances.set(comment.id, distance);
+        
+        // Calculate position using angle and distance
+        comment.x = Math.cos(angle) * distance;
+        comment.y = Math.sin(angle) * distance;
+        comment.fx = comment.x;
+        comment.fy = comment.y;
+        
+        console.debug(`[DiscussionLayout] Positioned root comment ${comment.id} at angle ${(angle * 180 / Math.PI).toFixed(1)}°, distance ${distance}, with ${replyCount} total replies`);
+        
+        // Reserve this sector
+        const sectorWidth = Math.PI / 4 + (replyCount * Math.PI / 36); // 45 degrees + extra for replies
+        reservedSectors.push({
+            startAngle: angle - sectorWidth/2,
+            endAngle: angle + sectorWidth/2,
+            distance: distance + (replyCount > 0 ? this.RADIUS_INCREMENT * 2 : 0),
+            commentId: comment.id
+        });
+        
+        // Position any reply form attached to this comment
+        this.positionReplyForm(comment);
+        
+        // Now recursively position this comment's children
+        const childIds = this.getChildrenIds(comment.id);
+        if (childIds.length > 0) {
+            this.positionChildComments(
+                nodes.filter(n => childIds.includes(n.id)), 
+                comment, 
+                angle, 
+                replyCountMap,
+                reservedSectors
+            );
+        }
+    });
+}
+
+/**
+ * Position child comments (replies) with overlap prevention
+ */
+private positionChildComments(
+    children: EnhancedNode[], 
+    parentNode: EnhancedNode, 
+    parentAngle: number,
+    replyCountMap: Map<string, number>,
+    reservedSectors: Array<{ startAngle: number; endAngle: number; distance: number; commentId: string; }>
+): void {
+    if (children.length === 0) return;
+    
+    console.debug(`[DiscussionLayout] Positioning ${children.length} child comments for parent ${parentNode.id}`);
+    
+    // Sort children by votes (highest first)
+    const sortedChildren = children.sort((a, b) => {
+        // Get net votes from metadata or direct properties
+        const aVotes = a.metadata?.votes !== undefined ? a.metadata.votes as number : 
+                     (a.data && 'netVotes' in a.data ? (a.data as any).netVotes : 0);
+        const bVotes = b.metadata?.votes !== undefined ? b.metadata.votes as number : 
+                     (b.data && 'netVotes' in b.data ? (b.data as any).netVotes : 0);
+        
+        // Sort by net votes (highest first)
+        return bVotes - aVotes;
+    });
+    
+    // Get depth of parent and its distance
+    const parentDepth = this.getDepth(parentNode.id);
+    const childDepth = parentDepth + 1;
+    const parentDistance = this.commentDistances.get(parentNode.id) || this.BASE_RADIUS;
+    
+    // Determine arc size based on number of children and depth
+    // Deeper nesting = smaller arcs to avoid spreading too far
+    const maxArcSize = Math.max(0.8, 1.2 - (childDepth * 0.2)) * Math.PI; // Scale down with depth
+    
+    const arcAngle = Math.min(
+        maxArcSize, // Max size scales with depth
+        Math.max(
+            Math.PI / 5, // Min 36 degrees
+            (children.length * 0.08) * Math.PI // Scale with number of children
+        )
+    );
+    
+    // Create a min distance from parent based on depth
+    const baseIncrement = this.RADIUS_INCREMENT * (1.3 + (childDepth * 0.2)); // Increase with depth
+    
+    // Single child case - position along parent's angle
+    if (sortedChildren.length === 1) {
+        const child = sortedChildren[0];
+        const childAngle = parentAngle; // Same as parent
+        
+        this.commentAngles.set(child.id, childAngle);
+        
+        // Calculate distance with extra space for replies
+        const replyCount = replyCountMap.get(child.id) || 0;
+        const replySpacingFactor = 60; // Increased for better separation
+        const replySpacing = replyCount * replySpacingFactor;
+        
+        const childDistance = parentDistance + baseIncrement + replySpacing;
+        this.commentDistances.set(child.id, childDistance);
+        
+        // Set position
+        child.x = Math.cos(childAngle) * childDistance;
+        child.y = Math.sin(childAngle) * childDistance;
+        child.fx = child.x; 
+        child.fy = child.y;
+        
+        console.debug(`[DiscussionLayout] Positioned single child ${child.id} at angle ${(childAngle * 180 / Math.PI).toFixed(1)}°, distance ${childDistance}, with ${replyCount} replies`);
+        
+        // Reserve this sector
+        const sectorWidth = Math.PI / 5 + (replyCount * Math.PI / 45); // Base + extra for replies
+        reservedSectors.push({
+            startAngle: childAngle - sectorWidth/2,
+            endAngle: childAngle + sectorWidth/2,
+            distance: childDistance + (replyCount > 0 ? this.RADIUS_INCREMENT : 0),
+            commentId: child.id
+        });
+        
+        // Position reply form
+        this.positionReplyForm(child);
+        
+        // Recursively position any grandchildren
+        const grandchildIds = this.getChildrenIds(child.id);
+        if (grandchildIds.length > 0) {
+            const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+            this.positionChildComments(
+                nodes.filter(n => grandchildIds.includes(n.id)),
+                child,
+                childAngle,
+                replyCountMap,
+                reservedSectors
+            );
+        }
+    }
+    // Multiple children case - distribute in an arc
+    else {
+        // Calculate start and end of arc
+        const startAngle = parentAngle - (arcAngle / 2);
+        const angleStep = arcAngle / (sortedChildren.length - 1);
+        
+        // Position each child with spacing based on reply count
+        sortedChildren.forEach((child, index) => {
+            // Distribute evenly
+            const rawAngle = startAngle + (index * angleStep);
+            
+            // Add small jitter to prevent perfect alignment
+            const jitter = (Math.random() - 0.5) * (Math.PI / 90); // ±1 degree
+            const childAngle = rawAngle + jitter;
+            
+            this.commentAngles.set(child.id, childAngle);
+            
+            // Calculate distance with multi-factor spacing:
+            // 1. Base increment that increases with depth
+            // 2. Rank-based adjustment (less popular = further out)
+            // 3. Reply spacing based on number of replies
+            
+            // 1. Base increment (increases with depth)
+            const depthFactor = 1 + (childDepth * 0.15);
+            let childBaseIncrement = baseIncrement * depthFactor;
+            
+            // 2. Rank-based adjustment
+            if (index > 0) { // Skip top-ranked comment
+                const rankFactor = Math.sqrt(index) / Math.sqrt(sortedChildren.length);
+                childBaseIncrement += rankFactor * 40; // Add up to 40 units based on rank
+            }
+            
+            // 3. Reply-based spacing
+            const replyCount = replyCountMap.get(child.id) || 0;
+            const replySpacingFactor = 60 + (childDepth * 10); // Increase with depth
+            const replySpacing = replyCount * replySpacingFactor;
+            
+            // Calculate total distance
+            const childDistance = parentDistance + childBaseIncrement + replySpacing;
+            this.commentDistances.set(child.id, childDistance);
+            
+            // Set position
+            child.x = Math.cos(childAngle) * childDistance;
+            child.y = Math.sin(childAngle) * childDistance;
+            child.fx = child.x;
+            child.fy = child.y;
+            
+            console.debug(`[DiscussionLayout] Positioned child ${child.id} at angle ${(childAngle * 180 / Math.PI).toFixed(1)}°, distance ${childDistance}, index ${index}, with ${replyCount} replies`);
+            
+            // Reserve sector for this child and its replies
+            // Scale sector width based on depth and replies
+            const baseSectorWidth = Math.PI / 6; // 30 degrees base
+            const depthShrink = Math.max(0.5, 1 - (childDepth * 0.15)); // Shrink sectors at deeper levels
+            const replySectorExpansion = replyCount * (Math.PI / 60); // Add 3 degrees per reply
+            
+            const sectorWidth = (baseSectorWidth * depthShrink) + replySectorExpansion;
+            
+            reservedSectors.push({
+                startAngle: childAngle - sectorWidth/2,
+                endAngle: childAngle + sectorWidth/2,
+                distance: childDistance + (replyCount > 0 ? this.RADIUS_INCREMENT : 0),
+                commentId: child.id
+            });
+            
+            // Position reply form
+            this.positionReplyForm(child);
+            
+            // Recursively position grandchildren
+            const grandchildIds = this.getChildrenIds(child.id);
+            if (grandchildIds.length > 0) {
+                const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+                this.positionChildComments(
+                    nodes.filter(n => grandchildIds.includes(n.id)),
+                    child,
+                    childAngle,
+                    replyCountMap,
+                    reservedSectors
+                );
+            }
+        });
+    }
+}
+
+/**
+ * Pre-calculate the total number of descendants (replies and nested replies) for each comment
+ * This is used to adjust spacing to prevent overlaps
+ */
+private calculateTotalDescendants(nodes: EnhancedNode[], resultMap: Map<string, number>): void {
+    // Create a recursive function to count descendants
+    const countDescendants = (nodeId: string): number => {
+        // Get direct children
+        const childIds = this.getChildrenIds(nodeId);
+        if (childIds.length === 0) {
+            resultMap.set(nodeId, 0);
+            return 0;
+        }
+        
+        // Count direct children + all their descendants
+        let totalDescendants = childIds.length;
+        
+        // Add descendants of each child
+        childIds.forEach(childId => {
+            totalDescendants += countDescendants(childId);
+        });
+        
+        // Store the result
+        resultMap.set(nodeId, totalDescendants);
+        return totalDescendants;
+    };
+    
+    // Calculate for all comment nodes
+    const commentNodes = nodes.filter(n => n.type === 'comment');
+    commentNodes.forEach(node => {
+        // Only calculate for nodes that haven't been processed yet
+        if (!resultMap.has(node.id)) {
+            countDescendants(node.id);
+        }
+    });
+}
+    
+  /**
+     * Position a reply form associated with a comment
+     */
+    private positionReplyForm(parentComment: EnhancedNode): void {
+        // Find any reply form associated with this comment
+        const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
+            n.type === 'comment-form' && 
+            this.extractParentId(n) === parentComment.id
+        );
+        
+        if (replyForm && parentComment.x !== undefined && parentComment.y !== undefined) {
+            // Get parent angle and distance
+            const parentAngle = this.commentAngles.get(parentComment.id) || 0;
+            const parentDistance = this.commentDistances.get(parentComment.id) || this.BASE_RADIUS;
+            
+            // Position slightly offset from parent
+            const replyAngle = parentAngle + (Math.PI / 12); // 15 degree offset
+            const replyDistance = parentDistance + 70; // Further than before
+            
+            // Calculate position
+            replyForm.x = Math.cos(replyAngle) * replyDistance;
+            replyForm.y = Math.sin(replyAngle) * replyDistance;
+            replyForm.fx = replyForm.x;
+            replyForm.fy = replyForm.y;
+            
+            console.debug(`[DiscussionLayout] Positioned reply form for comment ${parentComment.id}`);
+        }
+    }
+    
+    /**
+     * Sort comments by importance (votes or recency)
+     */
+    private sortCommentsByImportance(comments: EnhancedNode[]): EnhancedNode[] {
+        return [...comments].sort((a, b) => {
+            // First try to sort by votes if available
+            if (a.metadata?.votes !== undefined && b.metadata?.votes !== undefined) {
+                return (b.metadata.votes as number) - (a.metadata.votes as number);
+            }
+            
+            // Fall back to creation date
+            const dateA = a.metadata?.createdAt ? new Date(a.metadata.createdAt).getTime() : 0;
+            const dateB = b.metadata?.createdAt ? new Date(b.metadata.createdAt).getTime() : 0;
+            return dateB - dateA; // Newest first
+        });
+    }
+    
+    /**
+     * Update expansion state tracking
      */
     private updateExpansionState(nodes: EnhancedNode[]): void {
         // Update our expansion state map
@@ -1129,304 +1001,214 @@ private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
                 const wasExpanded = this.expansionState.get(node.id) || false;
                 const isExpanded = node.mode === 'detail';
                 
-                if (wasExpanded !== isExpanded) {
-                    console.debug('[COMMENT_HIERARCHY_LAYOUT] Node expansion state changed:', {
-                        nodeId: node.id,
-                        from: wasExpanded,
-                        to: isExpanded
-                    });
-                }
-                
                 this.expansionState.set(node.id, isExpanded);
                 
-                // Also update expanded comments tracking for comment nodes
-                if (node.type === 'comment') {
-                    if (isExpanded) {
-                        // Get ring index
-                        const ringIndex = this.getRingIndex(node.id);
-                        
-                        // Calculate adjustment
-                        const adjustment = (COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL - 
-                                        COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW) / 2 +
-                                        COORDINATE_SPACE.LAYOUT.RING_SPACING.DEFINITION_EXPANSION_BUFFER;
-                                        
-                        this.expandedComments.set(node.id, { ringIndex, adjustment });
-                    } else {
-                        this.expandedComments.delete(node.id);
-                    }
+                // For detail mode nodes, fix position
+                if (isExpanded && !node.fixed) {
+                    node.fx = node.x;
+                    node.fy = node.y;
                 }
             }
         });
     }
 
     /**
-     * Track hidden node state changes
+     * Handle node mode changes - simplified version that doesn't change layout
      */
-    private updateHiddenState(nodes: EnhancedNode[]): void {
-        // Update our hidden nodes map
-        nodes.forEach(node => {
-            if (node.type === 'comment' || node.group === 'central') {
-                const wasHidden = this.hiddenNodes.has(node.id);
-                const isHidden = node.isHidden || false;
-                
-                if (wasHidden !== isHidden) {
-                    console.debug('[COMMENT_HIERARCHY_LAYOUT] Node hidden state changed:', {
-                        nodeId: node.id,
-                        from: wasHidden,
-                        to: isHidden
-                    });
-                }
-                
-                // Update hidden nodes tracking for comment nodes
-                if (node.type === 'comment') {
-                    if (isHidden) {
-                        // Get ring index
-                        const ringIndex = this.getRingIndex(node.id);
-                        
-                        // Calculate adjustment (negative value to pull inward)
-                        const adjustment = -(COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW - 
-                                        COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2;
-                                        
-                        this.hiddenNodes.set(node.id, { ringIndex, adjustment });
-                        
-                        console.debug('[COMMENT_HIERARCHY_LAYOUT] Added hidden node tracking:', {
-                            nodeId: node.id,
-                            ringIndex,
-                            adjustment
-                        });
-                    } else {
-                        if (this.hiddenNodes.has(node.id)) {
-                            this.hiddenNodes.delete(node.id);
-                            console.debug('[COMMENT_HIERARCHY_LAYOUT] Removed hidden node tracking:', {
-                                nodeId: node.id
-                            });
-                        }
-                    }
-                }
-            }
-        });
-    }
+    public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
+        console.debug(`[DiscussionLayout] Node state change: ${nodeId} -> ${mode}`);
 
-    /**
-     * Reposition all comments
-     */
-    private repositionAllComments(nodes: EnhancedNode[]): void {
-        // Find root comments
-        const rootComments = nodes.filter(n => 
-            n.type === 'comment' && 
-            !this.getParentId(n.id)
-        );
-        
-        // Reposition root comments
-        this.positionRootComments(rootComments);
-        
-        // Find reply comments
-        const replyComments = nodes.filter(n => 
-            n.type === 'comment' && 
-            this.getParentId(n.id) !== null
-        );
-        
-        // Reposition reply comments
-        this.positionReplyComments(replyComments);
-        
-        // Position comment forms
-        const commentForms = nodes.filter(n => n.type === 'comment-form');
-        
-        commentForms.forEach(form => {
-            const parentId = form.metadata?.parentCommentId;
-            
-            if (!parentId) {
-                // Root comment form - position at bottom
-                form.x = 0;
-                form.y = 300;
-            } else {
-                // Reply form - position near parent
-                const parent = nodes.find(n => n.id === parentId);
-                
-                if (parent) {
-                    const parentAngle = this.commentAngles.get(parentId) || 0;
-                    const formAngle = parentAngle + (Math.PI / 8);
-                    
-                    // Safe access to parent.x and parent.y with proper null/undefined checks
-                    if (parent.x !== null && parent.x !== undefined && 
-                        parent.y !== null && parent.y !== undefined) {
-                        const formRadius = Math.sqrt(parent.x * parent.x + parent.y * parent.y) * 1.15;
-                        form.x = Math.cos(formAngle) * formRadius;
-                        form.y = Math.sin(formAngle) * formRadius;
-                    } else {
-                        // Fallback positioning if parent position is invalid
-                        const defaultRadius = 200; // Default distance from center
-                        form.x = Math.cos(formAngle) * defaultRadius;
-                        form.y = Math.sin(formAngle) * defaultRadius;
-                    }
-                }
-            }
-        });
-    }
-
-    /**
-     * Additional function to call after layout is applied to ensure positions are fixed
-     */
-    public enforceFixedPositions(): void {
-        if (!this.simulation) return;
-        
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = nodes.find(n => n.id === nodeId);
         
-        // Find and fix central node
-        const centralNode = nodes.find(n => n.fixed || n.group === 'central');
-        if (centralNode) {
-            centralNode.x = 0;
-            centralNode.y = 0;
-            centralNode.fx = 0;
-            centralNode.fy = 0;
-            centralNode.vx = 0;
-            centralNode.vy = 0;
-            centralNode.fixed = true;
-            
-            // Ensure index 0 for central node (might help with stability)
-            if (typeof centralNode.index === 'number') {
-                centralNode.index = 0;
-            }
-            
-            console.debug('[COMMENT_HIERARCHY_LAYOUT] Enforced central node position at (0,0)');
+        if (!node) {
+            console.warn(`[DiscussionLayout] Node not found for state change: ${nodeId}`);
+            return;
+        }
+
+        // Update node mode
+        node.mode = mode;
+        node.expanded = mode === 'detail';
+        
+        // Update radius based on new mode
+        node.radius = this.getNodeRadius(node);
+
+        // Fix position for detail mode, release for preview mode
+        if (mode === 'detail' && !node.fixed) {
+            node.fx = node.x;
+            node.fy = node.y;
+        } else if (mode === 'preview' && !node.fixed && node.group !== 'central') {
+            // Don't release fixed position - keep static layout
         }
         
-        // Also enforce navigation node positions
-        NavigationNodeLayout.enforceFixedPositions(nodes);
+        // Update expansion state tracking
+        this.expansionState.set(nodeId, mode === 'detail');
         
-        // Force simulation to honor these positions
-        this.simulation.alpha(0).alphaTarget(0);
+        // No position recalculation needed - fixed layout
+        
+        // Force fixed positions
+        this.fixPositions(nodes);
     }
-
+    
     /**
-     * Update data and handle mode changes
-     * ALWAYS skip animation like SingleNodeLayout
+     * Handle node visibility changes - simplified version that doesn't change layout
      */
-    public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = false): void {
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Updating layout data', {
-            nodeCount: nodes.length,
-            linkCount: links.length
-        });
+    public handleNodeVisibilityChange(nodeId: string, isHidden: boolean): void {
+        console.debug(`[DiscussionLayout] Node visibility change: ${nodeId} -> ${isHidden ? 'hidden' : 'visible'}`);
+        
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = nodes.find(n => n.id === nodeId);
+        
+        if (!node) {
+            console.warn(`[DiscussionLayout] Node not found for visibility change: ${nodeId}`);
+            return;
+        }
+        
+        // Update node visibility
+        node.isHidden = isHidden;
+        
+        // Update radius based on new visibility
+        node.radius = this.getNodeRadius(node);
+        
+        // No position recalculation needed - fixed layout
+        
+        // Force fixed positions
+        this.fixPositions(nodes);
+    }
+    
+    /**
+    * Apply visibility preferences to nodes
+    */
+   public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
+    if (Object.keys(preferences).length === 0) return;
+    
+    // Get current nodes
+    const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+    if (!nodes || nodes.length === 0) return;
+    
+    console.debug(`[DiscussionLayout] Applying visibility preferences (${Object.keys(preferences).length} preferences)`);
+    
+    // Apply preferences
+    Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+        const node = nodes.find(n => n.id === nodeId);
+        if (node) {
+            const newHiddenState = !isVisible;
+            if (node.isHidden !== newHiddenState) {
+                node.isHidden = newHiddenState;
+                node.hiddenReason = 'user';
+                node.radius = this.getNodeRadius(node);
+            }
+        }
+    });
+    
+    // No position recalculation needed - fixed layout
+    
+    // Force fixed positions
+    this.fixPositions(nodes);
+}
 
-        // Always stop simulation during update
-        this.simulation.stop();
-        
-        // Track expansion state changes
-        this.updateExpansionState(nodes);
-        
-        // Track hidden state changes
-        this.updateHiddenState(nodes);
-        
-        // Rebuild node maps
-        this.buildNodeMaps(nodes);
+/**
+ * Additional function to call after layout is applied to ensure positions are fixed
+ */
+public enforceFixedPositions(): void {
+    if (!this.simulation) return;
+    
+    const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+    this.fixPositions(nodes);
+    
+    // Force simulation to honor these positions
+    this.simulation.alpha(0).alphaTarget(0);
+}
 
-        // Clear all forces
-        this.clearAllForces();
+/**
+ * Updates data and handle mode changes
+ */
+public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: boolean = true): void {
+    console.debug(`[DiscussionLayout] Updating layout data (${nodes.length} nodes, ${links.length} links)`);
+
+    // Always stop simulation during update
+    this.simulation.stop();
+    
+    // Reset data structures
+    this.resetDataStructures();
+    
+    // Track expansion state
+    this.updateExpansionState(nodes);
+    
+    // Rebuild node maps
+    this.buildNodeMaps(nodes);
+    
+    // Clear all forces
+    this.clearAllForces();
+    
+    // Build comment hierarchy
+    // Find central node for this
+    const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+    if (centralNode) {
+        this.buildCommentHierarchy(centralNode.id);
         
         // Initialize positions
         this.initializeNodePositions(nodes);
-        
-        // Update simulation with nodes
-        this.simulation.nodes(asD3Nodes(nodes));
-        
-        // Add link forces if we have links
-        if (links.length > 0) {
-            this.simulation.force('link', d3.forceLink()
-                .id((d: any) => (d as EnhancedNode).id)
-                .links(asD3Links(links))
-                .strength((l: any) => {
-                    const link = l as EnhancedLink;
-                    if (link.type === 'comment') {
-                        return 0.5; // Root comments to central node (moderate)
-                    } else if (link.type === 'reply') {
-                        return 0.7; // Replies to parent comments (stronger)
-                    }
-                    return link.strength || 0.3; // Default
-                })
-            );
-        }
-        
-        // Configure all other forces
-        this.configureForces();
+    }
+    
+    // Update simulation with nodes
+    this.simulation.nodes(asD3Nodes(nodes));
+    
+    // Update link force if it exists and we have links
+    if (links.length > 0) {
+        // Use a simple link force just to maintain connections visually
+        this.simulation.force('link', d3.forceLink()
+            .id((d: any) => (d as EnhancedNode).id)
+            .links(asD3Links(links))
+            .strength(0.1) // Very weak strength - not affecting layout
+            .distance(100) // Default distance
+        );
+    }
+    
+    // Configure forces (which adds minimal forces)
+    this.configureForces();
 
-        // ALWAYS skip animation by setting alpha to 0
-        this.simulation.alpha(0).alphaTarget(0);
-            
-        // Ensure fixed positions after update
+    // Always skip animation
+    this.simulation.alpha(0).alphaTarget(0);
+    
+    // Enforce fixed positions
+    this.enforceFixedPositions();
+    
+    // Force tick to ensure positions are applied
+    this.forceTick(2);
+}
+
+/**
+ * Force simulation to tick a specified number of times
+ */
+public forceTick(ticks: number = 1): void {
+    // Stop any current animation
+    this.simulation.alpha(0).alphaTarget(0);
+    
+    for (let i = 0; i < ticks; i++) {
+        // Enforce fixed positions before tick
+        this.enforceFixedPositions();
+        
+        // Tick the simulation
+        this.simulation.tick();
+        
+        // Enforce fixed positions after tick
         this.enforceFixedPositions();
     }
+}
 
-    /**
-     * Apply visibility preferences to nodes
-     */
-    public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
-        if (Object.keys(preferences).length === 0) {
-            return;
-        }
-        
-        // Get current nodes
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        if (!nodes || nodes.length === 0) {
-            return;
-        }
-        
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Applying visibility preferences', {
-            preferencesCount: Object.keys(preferences).length,
-            nodesCount: nodes.length
-        });
-        
-        // Track changes
-        let changedNodes = 0;
-        
-        // Apply preferences
-        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
-            const node = nodes.find(n => n.id === nodeId);
-            if (node) {
-                const newHiddenState = !isVisible;
-                if (node.isHidden !== newHiddenState) {
-                    node.isHidden = newHiddenState;
-                    node.hiddenReason = 'user';
-                    node.radius = this.getNodeRadius(node);
-                    changedNodes++;
-                    
-                    console.debug('[COMMENT_HIERARCHY_LAYOUT] Applied visibility preference', {
-                        nodeId,
-                        isVisible,
-                        isHidden: node.isHidden
-                    });
-                }
-            }
-        });
-        
-        if (changedNodes > 0) {
-            console.debug(`[COMMENT_HIERARCHY_LAYOUT] Changed visibility for ${changedNodes} nodes`);
-            
-            // Update hidden state tracking
-            this.updateHiddenState(nodes);
-            
-            // Reposition all comments
-            this.repositionAllComments(nodes);
-            
-            // Enforce fixed positions
-            this.enforceFixedPositions();
-            
-            // Minimal simulation restart
-            this.simulation.alpha(0.1).restart();
-        }
+/**
+ * Stops the layout strategy and clears all forces
+ */
+public stop(): void {
+    console.debug('[DiscussionLayout] Stopping layout');
+    
+    // Call parent stop
+    super.stop();
+    
+    // Clear all forces
+    if (this.simulation) {
+        this.clearAllForces();
     }
-
-    /**
-     * Stops the layout strategy and clears all forces
-     */
-    public stop(): void {
-        console.debug('[COMMENT_HIERARCHY_LAYOUT] Stopping layout');
-        
-        // Call parent stop
-        super.stop();
-        
-        // Also clear all forces
-        if (this.simulation) {
-            this.clearAllForces();
-        }
-    }
+}
 }
