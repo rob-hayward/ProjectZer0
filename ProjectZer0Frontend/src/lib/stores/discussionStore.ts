@@ -485,14 +485,32 @@ function createDiscussionStore() {
             return !voteData.shouldBeHidden;
         },
         
-        // Start adding a reply to a comment
-        startReply(commentId: string): void {
-            update(state => ({
-                ...state,
-                isAddingReply: true,
-                replyToCommentId: commentId
+     // startReply method
+    startReply(commentId: string): void {
+        console.log(`[DiscussionStore] Starting reply to comment: ${commentId}`);
+        
+        // Find the comment to ensure it exists
+        const state = get({ subscribe });
+        const comment = state.comments.find(c => c.id === commentId);
+        
+        if (!comment) {
+            console.warn(`[DiscussionStore] Cannot start reply - comment ${commentId} not found`);
+            return;
+        }
+        
+        update(state => ({
+            ...state,
+            isAddingReply: true,
+            replyToCommentId: commentId
+        }));
+        
+        // Dispatch an event to notify the GraphManager
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('discussion-reply-started', { 
+                detail: { commentId }
             }));
-        },
+        }
+    },
         
         // Cancel adding a comment or reply
         cancelAddingComment(): void {

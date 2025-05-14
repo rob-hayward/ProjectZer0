@@ -39,6 +39,13 @@ export class DiscussionLayout extends BaseLayoutStrategy {
     
     // Tracking for expanded/hidden states
     private expansionState: Map<string, boolean> = new Map();
+
+    private _pendingReplyForm: {
+        parentId: string;
+        position: { x: number; y: number };
+        angle: number;
+        distance: number;
+    } | null = null;
     
     // Base configuration parameters 
     private readonly BASE_RADIUS = COORDINATE_SPACE.LAYOUT.DISCUSSION?.COMMENT_RINGS?.ROOT_RADIUS || 400;
@@ -945,35 +952,6 @@ private calculateTotalDescendants(nodes: EnhancedNode[], resultMap: Map<string, 
     });
 }
     
-  /**
-     * Position a reply form associated with a comment
-     */
-    private positionReplyForm(parentComment: EnhancedNode): void {
-        // Find any reply form associated with this comment
-        const replyForm = (this.simulation.nodes() as unknown as EnhancedNode[]).find(n => 
-            n.type === 'comment-form' && 
-            this.extractParentId(n) === parentComment.id
-        );
-        
-        if (replyForm && parentComment.x !== undefined && parentComment.y !== undefined) {
-            // Get parent angle and distance
-            const parentAngle = this.commentAngles.get(parentComment.id) || 0;
-            const parentDistance = this.commentDistances.get(parentComment.id) || this.BASE_RADIUS;
-            
-            // Position slightly offset from parent
-            const replyAngle = parentAngle + (Math.PI / 12); // 15 degree offset
-            const replyDistance = parentDistance + 70; // Further than before
-            
-            // Calculate position
-            replyForm.x = Math.cos(replyAngle) * replyDistance;
-            replyForm.y = Math.sin(replyAngle) * replyDistance;
-            replyForm.fx = replyForm.x;
-            replyForm.fy = replyForm.y;
-            
-            console.debug(`[DiscussionLayout] Positioned reply form for comment ${parentComment.id}`);
-        }
-    }
-    
     /**
      * Sort comments by importance (votes or recency)
      */
@@ -990,6 +968,149 @@ private calculateTotalDescendants(nodes: EnhancedNode[], resultMap: Map<string, 
             return dateB - dateA; // Newest first
         });
     }
+
+
+    /**
+     * Handle the start of a reply to a specific comment
+     * This is called when the reply button is clicked
+     */
+    public handleReplyStart(commentId: string): void {
+        console.log(`[DiscussionLayout] Handling reply start for comment: ${commentId}`);
+        
+        // Get current nodes
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find the target comment
+        const targetComment = nodes.find(n => n.id === commentId);
+        if (!targetComment) {
+            console.warn(`[DiscussionLayout] Target comment ${commentId} not found`);
+            return;
+        }
+        
+        // Create a reply form node if it doesn't exist yet
+        // (The actual node creation happens in the GraphManager or page component)
+        
+        // Find any existing reply form for this comment
+        const existingForm = nodes.find(n => 
+            n.type === 'comment-form' && 
+            this.extractParentId(n) === commentId
+        );
+        
+        if (existingForm) {
+            console.log(`[DiscussionLayout] Reply form already exists for comment ${commentId}`);
+            
+            // Make sure it's positioned properly
+            this.positionReplyForm(targetComment);
+            return;
+        }
+        
+        // Otherwise, prepare for the new form by:
+        // - Updating internal data structures
+        // - Reserving space for the form
+        // - Shifting other nodes if needed
+        
+        // Update parent-child map to anticipate the form
+        // The actual form node will be created elsewhere and added later
+        
+        // Get the parent angle and location for positioning
+        const parentAngle = this.commentAngles.get(commentId);
+        const parentDistance = this.commentDistances.get(commentId);
+        
+        if (parentAngle === undefined || parentDistance === undefined) {
+            console.warn(`[DiscussionLayout] Cannot determine position for reply form - missing angle/distance for comment ${commentId}`);
+            return;
+        }
+        
+        // Get parent's location
+        const parentX = targetComment.x || 0;
+        const parentY = targetComment.y || 0;
+        
+        // Calculate position for reply form - at 45° angle from parent
+        // This aligns with where the reply button would be
+        const buttonAngle = Math.PI / 4; // 45 degrees = 1:30 position
+        const offsetAngle = parentAngle + buttonAngle;
+        
+        // Get parent radius and calculate appropriate distance
+        const parentRadius = targetComment.radius || 90;
+        const formRadius = 90; // Default comment form radius
+        const offsetDistance = parentRadius + formRadius + 20; // 20px gap
+        
+        // Calculate position
+        const formX = parentX + Math.cos(offsetAngle) * offsetDistance;
+        const formY = parentY + Math.sin(offsetAngle) * offsetDistance;
+        
+        // Store this information for use when the form is actually created
+        this._pendingReplyForm = {
+            parentId: commentId,
+            position: { x: formX, y: formY },
+            angle: offsetAngle,
+            distance: parentDistance + offsetDistance
+        };
+        
+        console.log(`[DiscussionLayout] Prepared for reply form for comment ${commentId} at position (${formX}, ${formY})`);
+    }
+    
+    /**
+     * Position a reply form relative to its parent comment
+     * This is specifically for the form that appears when the reply button is clicked
+     */
+    private positionReplyForm(parentComment: EnhancedNode): void {
+        // Get all nodes
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find the reply form for this comment
+        const replyForm = nodes.find(n => 
+            n.type === 'comment-form' && 
+            this.extractParentId(n) === parentComment.id
+        );
+        
+        if (!replyForm) return;
+        
+        // Get parent's angle and distance if available
+        const parentAngle = this.commentAngles.get(parentComment.id);
+        const parentDistance = this.commentDistances.get(parentComment.id);
+        
+        if (parentAngle === undefined || parentDistance === undefined) {
+            // Fallback: Position based on parent coordinates directly
+            const parentX = parentComment.x || 0;
+            const parentY = parentComment.y || 0;
+            
+            // Calculate angle from origin to parent
+            const baseAngle = Math.atan2(parentY, parentX);
+            
+            // Position at 45 degrees (1:30 position) relative to parent - where reply button is
+            const offsetAngle = Math.PI / 4; // 45 degrees
+            
+            // Calculate radius values
+            const parentRadius = parentComment.radius || 90;
+            const formRadius = replyForm.radius || 90;
+            
+            // Calculate offset distance
+            const offsetDistance = parentRadius + formRadius + 20; // 20px spacing
+            
+            // Calculate final position
+            replyForm.x = parentX + Math.cos(baseAngle + offsetAngle) * offsetDistance;
+            replyForm.y = parentY + Math.sin(baseAngle + offsetAngle) * offsetDistance;
+        } else {
+            // Better method: Use the tracked angles and distances
+            // Position at 45° from parent angle
+            const formAngle = parentAngle + (Math.PI / 4); // 45 degrees = 1:30 position
+            const formDistance = parentDistance + 100; // Further out than parent
+            
+            // Calculate position directly
+            replyForm.x = Math.cos(formAngle) * formDistance;
+            replyForm.y = Math.sin(formAngle) * formDistance;
+        }
+        
+        // Fix form position
+        replyForm.fx = replyForm.x;
+        replyForm.fy = replyForm.y;
+        replyForm.vx = 0;
+        replyForm.vy = 0;
+        
+        console.log(`[DiscussionLayout] Positioned reply form at (${replyForm.x}, ${replyForm.y}) for comment ${parentComment.id}`);
+    }
+
     
     /**
      * Update expansion state tracking

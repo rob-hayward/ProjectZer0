@@ -247,10 +247,55 @@
     }
     
     function handleReply(event: CustomEvent<{ commentId: string }>) {
-        console.log('[DiscussionView] Reply event:', event.detail);
-        discussionStore.startReply(event.detail.commentId);
+        const commentId = event.detail.commentId;
+        console.log('[DiscussionView] Reply event:', { commentId });
+        
+        // Store current transform (if we can access it)
+        const currentTransform = graphStore ? 
+            (graphStore as any).getCurrentTransform?.() : null;
+        
+        // Update the discussion store
+        discussionStore.startReply(commentId);
+        
+        // Force re-creation of the graph data
+        graphData = createGraphData();
+        
+        // Force re-render with new key
+        routeKey = `${viewType}-${nodeType}-${nodeId}-reply-${commentId}-${Date.now()}`;
+        
+        // After re-render, either restore the transform or center on the new form
+        setTimeout(() => {
+            if (!graphStore) return;
+            
+            // Find the new form node
+            const state = graphStore.getState() as any;
+            if (!state || !state.nodes) return;
+            
+            const formNode = state.nodes.find((n: any) => 
+                n.type === 'comment-form' && 
+                n.metadata?.parentCommentId === commentId
+            );
+            
+            if (formNode && formNode.position) {
+                // Center on the form node if we found it
+                console.log(`[DiscussionView] Centering on form node at: ${formNode.position.x}, ${formNode.position.y}`);
+                window.dispatchEvent(new CustomEvent('center-on-node', { 
+                    detail: { 
+                        x: formNode.position.x, 
+                        y: formNode.position.y,
+                        nodeId: formNode.id
+                    } 
+                }));
+            } else if (currentTransform) {
+                // Restore previous transform as fallback
+                console.log('[DiscussionView] Restoring previous transform:', currentTransform);
+                window.dispatchEvent(new CustomEvent('set-transform', { 
+                    detail: { transform: currentTransform } 
+                }));
+            }
+        }, 100); // Delay to allow render to complete
     }
-    
+        
     function handleEditComment(event: CustomEvent<{ commentId: string; text: string }>) {
         console.log('[DiscussionView] Edit comment event:', event.detail);
         // TODO: Implement comment editing
@@ -261,235 +306,242 @@
         // TODO: Implement comment deletion
     }
     
-    // UPDATED: Create graph data with improved comment hierarchy handling
     function createGraphData(): GraphData {
-        console.log('[COMMENT_HIERARCHY] Creating graph data, central node:', centralNode?.id);
-        if (!centralNode) {
-            return { nodes: [], links: [] };
-        }
+    console.log('[COMMENT_HIERARCHY] Creating graph data, central node:', centralNode?.id);
+    if (!centralNode) {
+        return { nodes: [], links: [] };
+    }
+    
+    // Create a helper function to generate a form node
+    function createCommentFormNode(parentId: string | null): GraphNode {
+        // Generate a unique ID
+        const timestamp = Date.now();
+        const formId = parentId 
+            ? `comment-form-reply-${parentId}-${timestamp}`
+            : `comment-form-root-${timestamp}`;
         
-        // Get navigation options for discussion context
-        const navigationNodes: GraphNode[] = getNavigationOptions('discussion')
-            .map(option => ({
-                id: option.id,
-                type: 'navigation' as NodeType,
-                data: option,
-                group: 'navigation' as NodeGroup
-            }));
-        
-        // Create central node based on node type
-        const centralGraphNode: GraphNode = {
-            id: centralNode.id,
-            type: nodeType as NodeType,
-            data: centralNode,
-            group: 'central' as NodeGroup,
-            mode: 'preview' as NodeMode
+        // Create form data with consistent structure
+        const formData: CommentFormData = {
+            id: formId,
+            parentCommentId: parentId,  // CommentFormData accepts null
+            sub: `form-${timestamp}`,
+            label: parentId ? 'Reply' : 'Comment',
+            word: ''
         };
         
-        // Prepare base nodes
-        const baseNodes = [
-            centralGraphNode,
-            ...navigationNodes
-        ] as GraphNode[];
+        // Create comment form node with consistent structure
+        return {
+            id: formId,
+            type: 'comment-form' as NodeType,
+            data: formData as any, // Type assertion
+            group: 'comment-form' as NodeGroup,
+            mode: 'detail' as NodeMode,
+            metadata: { 
+                group: 'comment-form' as NodeMetadata['group'],
+                // Convert null to undefined for NodeMetadata
+                parentCommentId: parentId || undefined
+            }
+        };
+    }
+    
+    // Get navigation options for discussion context
+    const navigationNodes: GraphNode[] = getNavigationOptions('discussion')
+        .map(option => ({
+            id: option.id,
+            type: 'navigation' as NodeType,
+            data: option,
+            group: 'navigation' as NodeGroup
+        }));
+    
+    // Create central node based on node type
+    const centralGraphNode: GraphNode = {
+        id: centralNode.id,
+        type: nodeType as NodeType,
+        data: centralNode,
+        group: 'central' as NodeGroup,
+        mode: 'preview' as NodeMode
+    };
+    
+    // Prepare base nodes
+    const baseNodes = [
+        centralGraphNode,
+        ...navigationNodes
+    ] as GraphNode[];
+    
+    // Add comment nodes
+    const commentNodes: GraphNode[] = [];
+    const commentLinks: GraphLink[] = [];
+    
+    // Get all comments from the discussion store
+    const comments = $discussionStore.comments || [];
+    console.log('[COMMENT_HIERARCHY] Comments from store, total count:', comments.length);
+    
+    // DEBUG: Log comment parent relationships for diagnosis
+    console.log('[COMMENT_HIERARCHY] Comment parent relationships:',
+        comments.map(c => ({
+            id: c.id,
+            parentId: c.parentCommentId || 'ROOT',
+            text: c.commentText?.substring(0, 15) + '...'
+        }))
+    );
+    
+    // Build a map of comment IDs for fast lookup and validation
+    const commentIdMap = new Map<string, boolean>();
+    comments.forEach(comment => {
+        commentIdMap.set(comment.id, true);
+    });
+    
+    // First, create all comment nodes with complete metadata
+    comments.forEach(comment => {
+        // Create complete metadata for the comment node
+        const commentMetadata: NodeMetadata = {
+            group: 'comment' as NodeMetadata['group'],
+            parentCommentId: comment.parentCommentId,
+            votes: comment.positiveVotes - comment.negativeVotes,
+            createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
+            depth: comment.depth || 0,
+            isExpanded: comment.isExpanded || false
+        };
         
-        // Add comment nodes
-        const commentNodes: GraphNode[] = [];
-        const commentLinks: GraphLink[] = [];
+        // Create comment node with explicit copying of parentCommentId
+        const commentNode: GraphNode = {
+            id: comment.id,
+            type: 'comment' as NodeType,
+            data: {
+                ...comment,
+                // Ensure parentCommentId is explicitly copied to the data
+                parentCommentId: comment.parentCommentId
+            } as unknown as CommentNodeType,
+            group: 'comment' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: commentMetadata
+        };
         
-        // Get all comments from the discussion store
-        const comments = $discussionStore.comments || [];
-        console.log('[COMMENT_HIERARCHY] Comments from store, total count:', comments.length);
-        
-        // DEBUG: Log comment parent relationships for diagnosis
-        console.log('[COMMENT_HIERARCHY] Comment parent relationships:',
-            comments.map(c => ({
-                id: c.id,
-                parentId: c.parentCommentId || 'ROOT',
-                text: c.commentText?.substring(0, 15) + '...'
-            }))
-        );
-        
-        // Build a map of comment IDs for fast lookup and validation
-        const commentIdMap = new Map<string, boolean>();
-        comments.forEach(comment => {
-            commentIdMap.set(comment.id, true);
-        });
-        
-        // First, create all comment nodes with complete metadata
-        comments.forEach(comment => {
-            // Create complete metadata for the comment node
-            const commentMetadata: NodeMetadata = {
-                group: 'comment' as NodeMetadata['group'],
-                parentCommentId: comment.parentCommentId,
-                votes: comment.positiveVotes - comment.negativeVotes,
-                createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
-                depth: comment.depth || 0,
-                isExpanded: comment.isExpanded || false
-            };
+        commentNodes.push(commentNode);
+    });
+    
+    // CRITICAL: Create links in a separate pass to ensure all nodes exist first
+    comments.forEach(comment => {
+        if (comment.parentCommentId) {
+            // Check if the parent comment actually exists in our current set
+            const parentExists = commentIdMap.has(comment.parentCommentId);
+            console.log(`[COMMENT_HIERARCHY] Reply ${comment.id} -> parent ${comment.parentCommentId} exists: ${parentExists}`);
             
-            // Create comment node with explicit copying of parentCommentId
-            const commentNode: GraphNode = {
-                id: comment.id,
-                type: 'comment' as NodeType,
-                data: {
-                    ...comment,
-                    // Ensure parentCommentId is explicitly copied to the data
-                    parentCommentId: comment.parentCommentId
-                } as unknown as CommentNodeType,
-                group: 'comment' as NodeGroup,
-                mode: 'preview' as NodeMode,
-                metadata: commentMetadata
-            };
-            
-            commentNodes.push(commentNode);
-        });
-        
-        // CRITICAL: Create links in a separate pass to ensure all nodes exist first
-        comments.forEach(comment => {
-            if (comment.parentCommentId) {
-                // Check if the parent comment actually exists in our current set
-                const parentExists = commentIdMap.has(comment.parentCommentId);
-                console.log(`[COMMENT_HIERARCHY] Reply ${comment.id} -> parent ${comment.parentCommentId} exists: ${parentExists}`);
-                
-                if (parentExists) {
-                    // This is a reply - link to the parent comment
-                    commentLinks.push({
-                        id: `reply-${comment.parentCommentId}-${comment.id}`,
-                        source: comment.parentCommentId,
-                        target: comment.id,
-                        type: 'reply' as LinkType,
-                        // Add metadata to help debugging and ensure type integrity
-                        metadata: {
-                            linkType: 'reply',
-                            parentId: comment.parentCommentId,
-                            childId: comment.id
-                        }
-                    });
-                } else {
-                    // Fallback: Parent doesn't exist in the current set, link to central node
-                    console.warn(`[COMMENT_HIERARCHY] Parent ${comment.parentCommentId} not found for comment ${comment.id}, linking to central node instead`);
-                    commentLinks.push({
-                        id: `comment-fallback-${centralNode.id}-${comment.id}`,
-                        source: centralNode.id,
-                        target: comment.id,
-                        type: 'comment' as LinkType,
-                        metadata: {
-                            linkType: 'comment-fallback',
-                            originalParentId: comment.parentCommentId
-                        }
-                    });
-                }
-            } else {
-                // This is a root comment - link to the central node
+            if (parentExists) {
+                // This is a reply - link to the parent comment
                 commentLinks.push({
-                    id: `comment-${centralNode.id}-${comment.id}`,
+                    id: `reply-${comment.parentCommentId}-${comment.id}`,
+                    source: comment.parentCommentId,
+                    target: comment.id,
+                    type: 'reply' as LinkType,
+                    // Add metadata to help debugging and ensure type integrity
+                    metadata: {
+                        linkType: 'reply',
+                        parentId: comment.parentCommentId,
+                        childId: comment.id
+                    }
+                });
+            } else {
+                // Fallback: Parent doesn't exist in the current set, link to central node
+                console.warn(`[COMMENT_HIERARCHY] Parent ${comment.parentCommentId} not found for comment ${comment.id}, linking to central node instead`);
+                commentLinks.push({
+                    id: `comment-fallback-${centralNode.id}-${comment.id}`,
                     source: centralNode.id,
                     target: comment.id,
                     type: 'comment' as LinkType,
                     metadata: {
-                        linkType: 'root-comment'
+                        linkType: 'comment-fallback',
+                        originalParentId: comment.parentCommentId
                     }
                 });
             }
-        });
-        
-        // DEBUG: Log all created links with detailed info
-        console.log('[COMMENT_HIERARCHY] Created links:', 
-            commentLinks.map(link => ({
-                id: link.id,
-                source: typeof link.source === 'string' ? link.source : link.source.id,
-                target: typeof link.target === 'string' ? link.target : link.target.id,
-                type: link.type,
-                metadata: link.metadata
-            }))
-        );
-        
-        // Add comment form node if adding a comment
-        if (isAddingRootComment) {
-            const formData: CommentFormData = {
-                id: `comment-form-${Date.now()}`,
-                parentCommentId: null,
-                // Add minimum required properties to satisfy union type
-                sub: `comment-form-${Date.now()}`,
-                label: 'Comment Form',
-                word: ''
-            };
-            
-            // Create comment form node
-            const commentFormNode: GraphNode = {
-                id: formData.id,
-                type: 'comment-form' as NodeType,
-                data: formData as any, // Type assertion
-                group: 'comment-form' as NodeGroup,
-                mode: 'detail' as NodeMode,
-                metadata: { group: 'comment-form' as NodeMetadata['group'] }
-            };
-            
-            commentNodes.push(commentFormNode);
-            
-            // Link form to central node
+        } else {
+            // This is a root comment - link to the central node
             commentLinks.push({
-                id: `${centralNode.id}-${commentFormNode.id}`,
+                id: `comment-${centralNode.id}-${comment.id}`,
                 source: centralNode.id,
-                target: commentFormNode.id,
-                type: 'comment-form' as LinkType
-            });
-        }
-        
-        // Add reply forms if replying to comments
-        if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
-            const parentId = $discussionStore.replyToCommentId;
-            
-            const formData: CommentFormData = {
-                id: `reply-form-${parentId}-${Date.now()}`,
-                parentCommentId: parentId,
-                sub: `reply-form-${Date.now()}`,
-                label: 'Reply Form',
-                word: ''
-            };
-            
-            // Create reply form node
-            const replyFormNode: GraphNode = {
-                id: formData.id,
-                type: 'comment-form' as NodeType,
-                data: formData as any, // Type assertion
-                group: 'comment-form' as NodeGroup,
-                mode: 'detail' as NodeMode,
-                metadata: { 
-                    group: 'comment-form' as NodeMetadata['group'],
-                    parentCommentId: parentId
+                target: comment.id,
+                type: 'comment' as LinkType,
+                metadata: {
+                    linkType: 'root-comment'
                 }
-            };
-            
-            commentNodes.push(replyFormNode);
-            
-            // Link form to parent comment
-            commentLinks.push({
-                id: `${parentId}-${replyFormNode.id}`,
-                source: parentId,
-                target: replyFormNode.id,
-                type: 'reply-form' as LinkType
             });
         }
+    });
+    
+    // Add form for root comment
+    if (isAddingRootComment) {
+        const formNode = createCommentFormNode(null);
+        commentNodes.push(formNode);
         
-        const finalData = {
-            nodes: [...baseNodes, ...commentNodes],
-            links: commentLinks
-        };
-        
-        console.log('[COMMENT_HIERARCHY] Final graph data created:', {
-            nodeCount: finalData.nodes.length,
-            linkCount: finalData.links.length,
-            commentNodeCount: commentNodes.length,
-            rootCommentCount: commentLinks.filter(l => l.type === 'comment').length,
-            replyLinkCount: commentLinks.filter(l => l.type === 'reply').length
+        // Link to central node
+        commentLinks.push({
+            id: `form-link-${centralNode.id}-${formNode.id}`,
+            source: centralNode.id,
+            target: formNode.id,
+            type: 'comment-form' as LinkType
         });
         
-        // Validate the structure
-        validateCommentHierarchy(finalData);
-        
-        return finalData;
+        console.log('[COMMENT_HIERARCHY] Added root comment form:', formNode.id);
     }
+    
+    // Add form for reply to comment
+    if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
+        const parentId = $discussionStore.replyToCommentId;
+        
+        // Verify parent exists
+        if (commentIdMap.has(parentId)) {
+            const formNode = createCommentFormNode(parentId);
+            commentNodes.push(formNode);
+            
+            // Link to parent comment
+            commentLinks.push({
+                id: `form-link-${parentId}-${formNode.id}`,
+                source: parentId,
+                target: formNode.id,
+                // Use reply-form type to indicate this is a reply, not a root comment
+                type: 'reply-form' as LinkType,
+                metadata: {
+                    parentId
+                }
+            });
+            
+            console.log('[COMMENT_HIERARCHY] Added reply form for comment:', parentId, 'form ID:', formNode.id);
+        } else {
+            console.error('[COMMENT_HIERARCHY] Cannot add reply form - parent not found:', parentId);
+        }
+    }
+    
+    // Debug: Log all created links with detailed info
+    console.log('[COMMENT_HIERARCHY] Created links:', 
+        commentLinks.map(link => ({
+            id: link.id,
+            source: typeof link.source === 'string' ? link.source : link.source.id,
+            target: typeof link.target === 'string' ? link.target : link.target.id,
+            type: link.type,
+            metadata: link.metadata
+        }))
+    );
+    
+    const finalData = {
+        nodes: [...baseNodes, ...commentNodes],
+        links: commentLinks
+    };
+    
+    console.log('[COMMENT_HIERARCHY] Final graph data created:', {
+        nodeCount: finalData.nodes.length,
+        linkCount: finalData.links.length,
+        commentNodeCount: commentNodes.length,
+        rootCommentCount: commentLinks.filter(l => l.type === 'comment').length,
+        replyLinkCount: commentLinks.filter(l => l.type === 'reply').length,
+        formNodeCount: commentNodes.filter(n => n.type === 'comment-form').length
+    });
+    
+    // Validate the structure
+    validateCommentHierarchy(finalData);
+    
+    return finalData;
+}
     
     // ADDED: Validation function for comment hierarchy
     function validateCommentHierarchy(data: GraphData): void {

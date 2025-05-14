@@ -20,7 +20,14 @@
         damping: 0.6
     });
 
+    // Create a unique filter ID for this instance
     const filterId = `discuss-button-glow-${Math.random().toString(36).slice(2)}`;
+
+    // Set button color to white for better contrast (matching ReplyButton)
+    const buttonColor = "#FFFFFF";
+
+    // Increased button size to match ReplyButton (from 8 to 10)
+    const buttonRadius = 10;
 
     $: {
         scale.set(isHovered ? 1.5 : 1);
@@ -53,12 +60,12 @@
         <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
             <!-- Strong outer glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blur1"/>
-            <feFlood flood-color="#3498db" flood-opacity="0.6" result="color1"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.6" result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="glow1"/>
 
             <!-- Medium glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur2"/>
-            <feFlood flood-color="#3498db" flood-opacity="0.8" result="color2"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.8" result="color2"/>
             <feComposite in="color2" in2="blur2" operator="in" result="glow2"/>
 
             <feMerge>
@@ -70,26 +77,34 @@
     </defs>
 
     <circle 
-        r="8"
+        r={buttonRadius}
         class="button-circle"
         style:transform="scale({$scale})"
         style:filter={isHovered && !disabled ? `url(#${filterId})` : 'none'}
+        style:stroke={buttonColor}
     />
     
-    <!-- Chat bubble icon -->
-    <path 
-        d="M -3.5 -2 A 4 4 0 1 1 3.5 -2 L 3.5 1 A 1 1 0 0 1 2.5 2 L 0 2 L -2 4 L -2 2 L -3.5 2 A 1 1 0 0 1 -4.5 1 L -4.5 -1 A 1 1 0 0 1 -3.5 -2 Z" 
-        class="chat-icon"
-        transform="scale(0.9)"
-    />
+    <!-- Material Symbol icon for Forum -->
+    <text 
+        class="material-symbols-outlined"
+        x="0" 
+        y="3.5"
+        style:font-size="12px"
+        style:text-anchor="middle"
+        style:dominant-baseline="middle"
+        style:fill={buttonColor}
+    >
+        forum
+    </text>
     
     {#if isHovered}
         <text
-            y="20"
+            y="24"
             class="button-text"
             style:font-family={NODE_CONSTANTS.FONTS.hover.family}
             style:font-size={NODE_CONSTANTS.FONTS.hover.size}
             style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
+            style:fill={buttonColor}
         >
             discuss
         </text>
@@ -108,7 +123,6 @@
 
     .button-circle {
         fill: transparent;
-        stroke: rgba(52, 152, 219, 0.8);
         stroke-width: 2;
         transition: all 0.3s ease-out;
         transform-origin: center;
@@ -116,26 +130,19 @@
     }
 
     .discuss-button:hover:not(.disabled) .button-circle {
-        stroke: rgba(52, 152, 219, 1);
         stroke-width: 2.5;
     }
     
-    .chat-icon {
-        fill: none;
-        stroke: rgba(52, 152, 219, 0.8);
-        stroke-width: 1.5;
+    .button-text {
+        text-anchor: middle;
+        dominant-baseline: middle;
+        user-select: none;
         pointer-events: none;
     }
     
-    .discuss-button:hover:not(.disabled) .chat-icon {
-        stroke: rgba(52, 152, 219, 1);
-    }
-
-    .button-text {
-        text-anchor: middle;
-        fill: rgba(52, 152, 219, 0.9);
-        dominant-baseline: middle;
-        user-select: none;
+    :global(.material-symbols-outlined) {
+        font-family: 'Material Symbols Outlined';
+        font-variation-settings: 'FILL' 1;
         pointer-events: none;
     }
 </style>

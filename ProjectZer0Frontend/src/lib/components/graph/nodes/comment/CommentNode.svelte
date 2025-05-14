@@ -10,6 +10,7 @@
     import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
+    import ReplyButton from '../common/ReplyButton.svelte';
     
     export let node: RenderableNode;
     export let isReply: boolean = false;
@@ -51,6 +52,15 @@
     // Track voting state
     let isVoting = false;
     
+    // Calculate position for the reply button to place it where the circles just meet
+    // Assuming ReplyButton has a radius of 10 (as we've set it in the updated component)
+    $: buttonRadius = 10; // Match the radius we set in ReplyButton
+    $: nodeRadius = node.radius || 90;
+    
+    // Use trigonometry to position the button at exactly 1:30 (45 degrees)
+    $: replyButtonX = (nodeRadius + buttonRadius) * Math.cos(Math.PI/4); // cos(45°) = 0.7071
+    $: replyButtonY = -(nodeRadius + buttonRadius) * Math.sin(Math.PI/4); // -sin(45°) = -0.7071
+    
     const dispatch = createEventDispatcher<{
         reply: { commentId: string };
         edit: { commentId: string, text: string };
@@ -62,8 +72,15 @@
     }>();
     
     function handleReply() {
+        console.log(`[CommentNode] handleReply called for comment: ${node.id}`);
         dispatch('reply', { commentId: node.id });
         discussionStore.startReply(node.id);
+    }
+    
+    function handleReplyButtonClick(event: CustomEvent<{ nodeId: string | undefined }>) {
+        console.log(`[CommentNode] Reply button clicked for comment: ${node.id}`);
+        // Forward the event to our existing handler
+        handleReply();
     }
     
     // Add keyboard event handler for accessibility
@@ -75,8 +92,6 @@
                     (userVoteStatus === 'agree' ? 'none' : 'agree') : 
                     (userVoteStatus === 'disagree' ? 'none' : 'disagree');
                 handleVote(voteType);
-            } else if (target.classList.contains('reply-button')) {
-                handleReply();
             }
         }
     }
@@ -146,9 +161,6 @@
     $: voteColor = getVoteBasedColor(netVotes);
     $: textColor = getContrastingTextColor(voteColor);
     
-    // Calculate vote-based styling enhancements based on net votes
-    $: voteBasedStyles = calculateVoteBasedStyles(netVotes);
-    
     // Extract color values from NODE_CONSTANTS for comment styling
     // Get base color and add different alpha values
     $: commentNodeColors = NODE_CONSTANTS.COLORS.COMMENT;
@@ -159,44 +171,6 @@
     $: buttonStrokeColor = `${baseColor}66`; // 40% opacity
     $: buttonBgHoverColor = `${baseColor}4D`; // 30% opacity
     $: buttonStrokeHoverColor = `${baseColor}99`; // 60% opacity
-    
-    // Function to calculate styling based on vote count
-    function calculateVoteBasedStyles(votes: number) {
-        // Ensure votes is a non-negative value for styling calculations
-        const positiveVotes = Math.max(0, votes);
-        
-        // Get constants
-        const VOTE_STYLING = NODE_CONSTANTS.VOTE_BASED_STYLING;
-        const votesPerIncrement = VOTE_STYLING.VOTES_PER_INCREMENT;
-        const maxVoteThreshold = VOTE_STYLING.MAX_VOTE_THRESHOLD;
-        
-        // Calculate scaling factor (capped at max threshold)
-        const scaleFactor = Math.min(positiveVotes / votesPerIncrement, maxVoteThreshold / votesPerIncrement);
-        
-        // Calculate glow properties
-        const glowIntensity = VOTE_STYLING.GLOW.BASE.INTENSITY + 
-            (scaleFactor * VOTE_STYLING.GLOW.INCREMENT.INTENSITY);
-        const glowOpacity = VOTE_STYLING.GLOW.BASE.OPACITY + 
-            (scaleFactor * VOTE_STYLING.GLOW.INCREMENT.OPACITY);
-            
-        // Calculate ring properties
-        const ringWidth = VOTE_STYLING.RING.BASE.WIDTH + 
-            (scaleFactor * VOTE_STYLING.RING.INCREMENT.WIDTH);
-        const ringOpacity = VOTE_STYLING.RING.BASE.OPACITY + 
-            (scaleFactor * VOTE_STYLING.RING.INCREMENT.OPACITY);
-            
-        // Apply caps to ensure values don't exceed maximums
-        return {
-            glow: {
-                intensity: Math.min(glowIntensity, VOTE_STYLING.GLOW.MAX.INTENSITY),
-                opacity: Math.min(glowOpacity, VOTE_STYLING.GLOW.MAX.OPACITY)
-            },
-            ring: {
-                width: Math.min(ringWidth, VOTE_STYLING.RING.MAX.WIDTH),
-                opacity: Math.min(ringOpacity, VOTE_STYLING.RING.MAX.OPACITY)
-            }
-        };
-    }
     
     // Define comment node color using the NODE_CONSTANTS
     $: customStyle = {
@@ -230,8 +204,8 @@
     });
 </script>
 
-<!-- Use BaseNode with proper styling parameters -->
-<BaseNode {node} style={customStyle} {voteBasedStyles}>
+<!-- Use BaseNode with proper styling parameters, but without vote-based styling -->
+<BaseNode {node} style={customStyle}>
     <svelte:fragment slot="default" let:radius>
         <!-- Title -->
         <text
@@ -311,19 +285,13 @@
             </g>
         </g>
         
-        <!-- Reply button -->
-        <g 
-            class="reply-button"
-            transform="translate(0, {radius - 12})"
-            on:click={handleReply}
-            on:keydown={handleKeydown}
-            tabindex="0"
-            role="button"
-            aria-label="Reply to comment"
-        >
-            <rect width="50" height="16" rx="3" ry="3" class="button-bg" />
-            <text x="25" y="11" class="button-text">Reply</text>
-        </g>
+        <!-- Add the Reply button at a position where the circles just meet -->
+        <ReplyButton 
+            x={replyButtonX}
+            y={replyButtonY}
+            nodeId={node.id}
+            on:reply={handleReplyButtonClick}
+        />
     </svelte:fragment>
 </BaseNode>
 
@@ -392,27 +360,6 @@
 
     .vote-count {
         fill: rgba(255, 255, 255, 0.9);
-    }
-    
-    /* Reply button - Use CSS variables to reference the Svelte props */
-    .reply-button {
-        cursor: pointer;
-    }
-    
-    .button-bg {
-        fill: var(--button-bg-color);
-        stroke: var(--button-stroke-color);
-        stroke-width: 1;
-    }
-    
-    .button-text {
-        font-size: 8px;
-        fill: rgba(255, 255, 255, 0.9);
-    }
-    
-    .reply-button:hover .button-bg {
-        fill: var(--button-bg-hover-color);
-        stroke: var(--button-stroke-hover-color);
     }
 </style>
 

@@ -24,7 +24,14 @@
         damping: 0.6
     });
 
+    // Create a unique filter ID for this instance
     const filterId = `create-node-button-glow-${Math.random().toString(36).slice(2)}`;
+
+    // Set button color to white for better contrast (matching other buttons)
+    const buttonColor = "#FFFFFF";
+
+    // Increased button size to match other buttons (from 8 to 10)
+    const buttonRadius = 10;
 
     $: {
         scale.set(isHovered ? 1.5 : 1);
@@ -60,12 +67,12 @@
         <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
             <!-- Strong outer glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blur1"/>
-            <feFlood flood-color="#27ae60" flood-opacity="0.6" result="color1"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.6" result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="glow1"/>
 
             <!-- Medium glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur2"/>
-            <feFlood flood-color="#27ae60" flood-opacity="0.8" result="color2"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.8" result="color2"/>
             <feComposite in="color2" in2="blur2" operator="in" result="glow2"/>
 
             <feMerge>
@@ -77,26 +84,34 @@
     </defs>
 
     <circle 
-        r="8"
+        r={buttonRadius}
         class="button-circle"
         style:transform="scale({$scale})"
         style:filter={isHovered && !disabled ? `url(#${filterId})` : 'none'}
+        style:stroke={buttonColor}
     />
     
-    <!-- Plus sign icon -->
-    <path 
-        d="M 0 -4 L 0 4 M -4 0 L 4 0" 
-        class="plus-icon"
-        transform="scale(0.8)"
-    />
+    <!-- Material Symbol for Add Circle -->
+    <text 
+        class="material-symbols-outlined"
+        x="0" 
+        y="3.5"
+        style:font-size="12px"
+        style:text-anchor="middle"
+        style:dominant-baseline="middle"
+        style:fill={buttonColor}
+    >
+        add_circle
+    </text>
     
     {#if isHovered}
         <text
-            y="20"
+            y="24"
             class="button-text"
             style:font-family={NODE_CONSTANTS.FONTS.hover.family}
             style:font-size={NODE_CONSTANTS.FONTS.hover.size}
             style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
+            style:fill={buttonColor}
         >
             link node
         </text>
@@ -115,7 +130,6 @@
 
     .button-circle {
         fill: transparent;
-        stroke: rgba(39, 174, 96, 0.8);
         stroke-width: 2;
         transition: all 0.3s ease-out;
         transform-origin: center;
@@ -123,26 +137,19 @@
     }
 
     .create-node-button:hover:not(.disabled) .button-circle {
-        stroke: rgba(39, 174, 96, 1);
         stroke-width: 2.5;
     }
     
-    .plus-icon {
-        fill: none;
-        stroke: rgba(39, 174, 96, 0.8);
-        stroke-width: 2;
+    .button-text {
+        text-anchor: middle;
+        dominant-baseline: middle;
+        user-select: none;
         pointer-events: none;
     }
     
-    .create-node-button:hover:not(.disabled) .plus-icon {
-        stroke: rgba(39, 174, 96, 1);
-    }
-
-    .button-text {
-        text-anchor: middle;
-        fill: rgba(39, 174, 96, 0.9);
-        dominant-baseline: middle;
-        user-select: none;
+    :global(.material-symbols-outlined) {
+        font-family: 'Material Symbols Outlined';
+        font-variation-settings: 'FILL' 1;
         pointer-events: none;
     }
 </style>

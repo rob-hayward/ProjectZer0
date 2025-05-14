@@ -8,7 +8,7 @@
     export let isHidden: boolean = false;
     export let y: number = 0;
     export let x: number = 20; // Default offset to the right by 20 units
-    export const nodeId: string = ""; // Changed to export const since it's only for external reference
+    export const nodeId: string | undefined = undefined; // Changed to export const since it's only for external reference
     
     const dispatch = createEventDispatcher<{
         click: void;
@@ -21,8 +21,15 @@
         damping: 0.6
     });
 
+    // Create a unique filter ID for this instance
     const filterId = `visibility-button-glow-${Math.random().toString(36).slice(2)}`;
     const uniqueId = Math.random().toString(36).substring(2, 9);
+
+    // Set button color to white for better contrast (matching other buttons)
+    const buttonColor = "#FFFFFF";
+
+    // Increased button size to match other buttons (from 8 to 10)
+    const buttonRadius = 10;
 
     $: {
         scale.set(isHovered ? 1.5 : 1);
@@ -58,12 +65,12 @@
         <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
             <!-- Strong outer glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="2" result="blur1"/>
-            <feFlood flood-color="#AAAAAA" flood-opacity="0.6" result="color1"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.6" result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="glow1"/>
 
             <!-- Medium glow -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur2"/>
-            <feFlood flood-color="#AAAAAA" flood-opacity="0.8" result="color2"/>
+            <feFlood flood-color={buttonColor} flood-opacity="0.8" result="color2"/>
             <feComposite in="color2" in2="blur2" operator="in" result="glow2"/>
 
             <feMerge>
@@ -75,47 +82,34 @@
     </defs>
 
     <circle 
-        r="8"
+        r={buttonRadius}
         class="button-circle"
         style:transform="scale({$scale})"
         style:filter={isHovered ? `url(#${filterId})` : 'none'}
+        style:stroke={buttonColor}
     />
     
-    <!-- Eye icon with slash when hidden (when button shows "show"), without slash when visible (when button shows "hide") -->
-    <path 
-        d="M 0 -1 C 2 -1, 4 -3, 6 -1 C 4 1, 2 1, 0 -1 Z" 
-        class="eye-icon"
-        transform="scale(0.7)"
-    />
-    
-    <!-- Pupil dot -->
-    <circle 
-        cx="0"
-        cy="-1"
-        r="1.2"
-        class="pupil"
-        transform="scale(0.7)"
-    />
-    
-    <!-- Slash when node is hidden (when button shows "show") -->
-    {#if isHidden}
-        <line 
-            x1="-6" 
-            y1="3" 
-            x2="6" 
-            y2="-5" 
-            class="slash-line"
-            transform="scale(0.7)"
-        />
-    {/if}
+    <!-- Material Symbol for Visibility (when button shows "hide") or Visibility_off (when button shows "show") -->
+    <text 
+        class="material-symbols-outlined"
+        x="0" 
+        y="3.5"
+        style:font-size="12px"
+        style:text-anchor="middle"
+        style:dominant-baseline="middle"
+        style:fill={buttonColor}
+    >
+        {isHidden ? 'visibility' : 'visibility_off'}
+    </text>
     
     {#if isHovered}
         <text
-            y="20"
+            y="24"
             class="button-text"
             style:font-family={NODE_CONSTANTS.FONTS.hover.family}
             style:font-size={NODE_CONSTANTS.FONTS.hover.size}
             style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
+            style:fill={buttonColor}
         >
             {isHidden ? 'show' : 'hide'}
         </text>
@@ -131,7 +125,6 @@
 
     .button-circle {
         fill: transparent;
-        stroke: rgba(170, 170, 170, 0.8);
         stroke-width: 2;
         transition: all 0.3s ease-out;
         transform-origin: center;
@@ -139,33 +132,19 @@
     }
 
     .visibility-button:hover .button-circle {
-        stroke: rgba(200, 200, 200, 1);
         stroke-width: 2.5;
-    }
-    
-    .eye-icon {
-        fill: none;
-        stroke: rgba(170, 170, 170, 0.8);
-        stroke-width: 1.5;
-        pointer-events: none;
-    }
-    
-    .pupil {
-        fill: rgba(170, 170, 170, 0.8);
-        pointer-events: none;
-    }
-    
-    .slash-line {
-        stroke: rgba(170, 170, 170, 0.8);
-        stroke-width: 1.5;
-        pointer-events: none;
     }
 
     .button-text {
         text-anchor: middle;
-        fill: rgba(170, 170, 170, 0.9);
         dominant-baseline: middle;
         user-select: none;
+        pointer-events: none;
+    }
+    
+    :global(.material-symbols-outlined) {
+        font-family: 'Material Symbols Outlined';
+        font-variation-settings: 'FILL' 1;
         pointer-events: none;
     }
 </style>

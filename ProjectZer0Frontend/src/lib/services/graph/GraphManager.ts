@@ -44,7 +44,7 @@ export class GraphManager {
         this.managerId = Math.random().toString(36).substring(2, 9);
         this._viewType = viewType;
         this.simulation = this.initializeSimulation();
-
+    
         // Create derived stores for renderable data
         this.renderableNodes = derived(this.nodesStore, (nodes) => 
             this.createRenderableNodes(nodes)
@@ -54,10 +54,50 @@ export class GraphManager {
             [this.nodesStore, this.linksStore], 
             ([nodes, links]) => this.createRenderableLinks(nodes, links)
         );
+        
+        // Set up reply listeners for discussion view
+        if (viewType === 'discussion') {
+            this.setupReplyListener();
+        }
     }
 
     get viewType(): ViewType {
         return this._viewType;
+    }
+
+    private setupReplyListener(): void {
+        if (typeof window !== 'undefined') {
+            window.addEventListener('discussion-reply-started', ((event: CustomEvent) => {
+                if (!event.detail || !event.detail.commentId) return;
+                
+                const commentId = event.detail.commentId;
+                console.log(`[GraphManager] Detected reply started to comment: ${commentId}`);
+                
+                // Update graph to reflect the new reply form
+                this.handleReplyFormStarted(commentId);
+            }) as EventListener);
+        }
+    }
+
+    private handleReplyFormStarted(commentId: string): void {
+        // Only process for discussion view
+        if (this._viewType !== 'discussion') return;
+        
+        // Get current nodes
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find the target comment
+        const targetComment = currentNodes.find(n => n.id === commentId);
+        if (!targetComment) {
+            console.warn(`[GraphManager] Cannot find comment ${commentId} for reply form`);
+            return;
+        }
+        
+        // If we have a DiscussionLayout, let it handle the positioning
+        if (this.currentLayoutStrategy instanceof DiscussionLayout) {
+            // Notify the layout strategy about the reply start
+            (this.currentLayoutStrategy as any).handleReplyStart(commentId);
+        }
     }
 
     public setData(data: GraphData, config?: LayoutUpdateConfig): void {
