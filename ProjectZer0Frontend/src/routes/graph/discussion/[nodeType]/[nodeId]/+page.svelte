@@ -232,6 +232,87 @@
     function handleReply(event: CustomEvent<{ commentId: string }>) {
         const commentId = event.detail.commentId;
         console.log('[STATE_DEBUG] Reply event triggered for comment:', commentId);
+        console.log('[STATE_DEBUG] Central node ID:', centralNode?.id);
+        
+        // Check if this is the central node
+        if (commentId === centralNode?.id) {
+            console.log('[STATE_DEBUG] This is a reply to the central node!');
+            console.log('[STATE_DEBUG] Setting isAddingRootComment to true');
+            
+            // Set flag to create a root comment form
+            isAddingRootComment = true;
+            
+            // Force graph data update
+            console.log('[STATE_DEBUG] Updating graph data for root comment form');
+            graphData = createGraphData();
+            
+            // Log the value to check if it's properly set
+            console.log('[STATE_DEBUG] isAddingRootComment is now:', isAddingRootComment);
+            
+            // Check if form is created in the data
+            const rootFormNodes = graphData.nodes.filter(n => 
+                n.type === 'comment-form' && 
+                !n.metadata?.parentCommentId
+            );
+            console.log('[STATE_DEBUG] Root form nodes in data:', rootFormNodes);
+            
+            // Find the form node and center on it
+            setTimeout(() => {
+                console.log('[STATE_DEBUG] Timeout fired for centering on root form');
+                console.log('[STATE_DEBUG] isAddingRootComment is still:', isAddingRootComment);
+                
+                // Check if the root form is in the graph data
+                const formNodesInData = graphData.nodes.filter(n => 
+                    n.type === 'comment-form' && 
+                    !n.metadata?.parentCommentId
+                );
+                console.log('[STATE_DEBUG] Root form nodes in data (after timeout):', formNodesInData);
+                
+                if (!graphComponent) {
+                    console.log('[STATE_DEBUG] No graphComponent available');
+                    return;
+                }
+                
+                // Log graph component state
+                if (typeof graphComponent.logNodeState === 'function') {
+                    console.log('[STATE_DEBUG] All nodes in graph component:');
+                    graphComponent.logNodeState();
+                    console.log('[STATE_DEBUG] Form nodes in graph component:');
+                    graphComponent.logNodeState('comment-form');
+                }
+                
+                // Find form nodes in graph data
+                const formNodes = graphData.nodes.filter(n => 
+                    n.type === 'comment-form' && 
+                    !n.metadata?.parentCommentId // Root comment forms have no parent
+                );
+                
+                if (formNodes.length > 0) {
+                    console.log('[STATE_DEBUG] Found root form node in graphData:', formNodes[0].id);
+                    
+                    // Try to center on it using the form node ID
+                    if (typeof graphComponent.centerOnNodeById === 'function') {
+                        graphComponent.centerOnNodeById(formNodes[0].id);
+                    } else if (graphComponent.centerViewportOnCoordinates && (formNodes[0] as any).position) {
+                        // Fallback to coordinates if available
+                        const position = (formNodes[0] as any).position;
+                        graphComponent.centerViewportOnCoordinates(position.x, position.y);
+                    }
+                } else {
+                    console.log('[STATE_DEBUG] No root form nodes found in graphData!');
+                }
+            }, 300);
+            
+            return; // Important: Return early to not process the rest of the function
+        }
+        
+        // Regular comment reply handling below
+        // Log the initial graphStore state
+        const initialState = graphStore?.getState() as any;
+        console.log('[STATE_DEBUG] Initial graphStore state:', 
+                    initialState ? 
+                        `${initialState.nodes?.length || 0} nodes, storeId: ${(graphStore as any).getStoreId?.()}` : 
+                        'unavailable');
         
         // Update the discussion store
         discussionStore.startReply(commentId);
@@ -374,7 +455,7 @@
             
             console.log('[STATE_DEBUG] Creating comment form node:', {
                 formId,
-                parentId,
+                parentId: parentId || 'null', // Explicit logging for null
                 timestamp
             });
             
@@ -528,7 +609,11 @@
         });
         
         // Add form for root comment
+        console.log('[STATE_DEBUG] Creating graph data, isAddingRootComment:', isAddingRootComment);
+
         if (isAddingRootComment) {
+            console.log('[STATE_DEBUG] Creating root comment form node');
+            
             const formNode = createCommentFormNode(null);
             commentNodes.push(formNode);
             
@@ -540,12 +625,8 @@
                 type: 'comment-form' as LinkType
             });
             
-            console.log('[STATE_DEBUG] Added root comment form:', formNode.id);
+            console.log('[STATE_DEBUG] Added root comment form:', formNode.id, 'connected to central node:', centralNode.id);
         }
-        
-        // Add form for reply to comment
-        console.log('[STATE_DEBUG] Preparing to add reply form, isAddingReply:', $discussionStore.isAddingReply, 
-                    'replyToCommentId:', $discussionStore.replyToCommentId);
                     
         if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
             const parentId = $discussionStore.replyToCommentId;
@@ -756,12 +837,13 @@
     </div>
 
     <Graph 
-        bind:this={graphComponent}
-        data={graphData}
-        viewType={viewType}
-        on:modechange={handleNodeModeChange}
-        on:visibilitychange={handleVisibilityChange}
-        >
+    bind:this={graphComponent}
+    data={graphData}
+    viewType={viewType}
+    on:modechange={handleNodeModeChange}
+    on:visibilitychange={handleVisibilityChange}
+    on:reply={handleReply} 
+    >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isWordNode(node)}
                 <WordNode 

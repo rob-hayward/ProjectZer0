@@ -1,11 +1,12 @@
 <!-- src/lib/components/graph/nodes/NodeRenderer.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
     import ExpandCollapseButton from './common/ExpandCollapseButton.svelte';
     import DiscussButton from './common/DiscussButton.svelte';
+    import ReplyButton from './common/ReplyButton.svelte';
     import CreateLinkedNodeButton from './common/CreateLinkedNodeButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
@@ -15,6 +16,9 @@
     
     // The node to render
     export let node: RenderableNode;
+    
+    // Add viewType as a prop to know when we're in discussion view
+    export let viewType: ViewType;
     
     // Event dispatcher for mode changes, visibility changes, discussions, and linked nodes
     const dispatch = createEventDispatcher<{
@@ -28,6 +32,7 @@
             nodeId: string;
             nodeType: string;
         };
+        reply: { commentId: string };  // For reply events
         createLinkedNode: {
             nodeId: string;
             nodeType: string;
@@ -140,6 +145,15 @@
         });
     }
     
+    // Handle reply button click
+    function handleReply(event: CustomEvent<{ nodeId: string | undefined }>) {
+        const nodeId = event.detail.nodeId || node.id;
+        console.log(`[NodeRenderer] Reply event received for node ${nodeId}`);
+        
+        // Dispatch reply event to parent
+        dispatch('reply', { commentId: nodeId });
+    }
+    
     // Position information from node
     $: posX = node.position.x;
     $: posY = node.position.y;
@@ -226,13 +240,24 @@
                 on:visibilityChange={handleVisibilityChange}
             />
             
-            <!-- Add discuss button to qualifying nodes - positioned at 2:30 -->
-            <DiscussButton 
-                y={-node.radius * 0.7071}  
-                x={node.radius * 0.7071}
-                nodeId={node.id}
-                on:discuss={handleDiscussClick}
-            />
+            <!-- Central node special handling in discussion view -->
+            {#if viewType === 'discussion' && node.group === 'central'}
+                <!-- Replace Discuss button with Reply button for central node in discussion view -->
+                <ReplyButton 
+                    y={-node.radius * 0.7071}  
+                    x={node.radius * 0.7071}
+                    nodeId={node.id}
+                    on:reply={handleReply}
+                />
+            {:else}
+                <!-- Add discuss button to qualifying nodes - positioned at 2:30 -->
+                <DiscussButton 
+                    y={-node.radius * 0.7071}  
+                    x={node.radius * 0.7071}
+                    nodeId={node.id}
+                    on:discuss={handleDiscussClick}
+                />
+            {/if}
             
             <!-- Add create linked node button only to statement and quantity nodes - positioned at 10:30 -->
             {#if node.type === 'statement' || node.type === 'quantity'}

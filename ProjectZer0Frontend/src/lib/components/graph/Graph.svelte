@@ -40,6 +40,7 @@
     const dispatch = createEventDispatcher<{
         modechange: { nodeId: string; mode: NodeMode };
         visibilitychange: { nodeId: string; isHidden: boolean };
+        reply: { commentId: string };
     }>();
 
     // DOM references
@@ -912,8 +913,14 @@
                         {#each $graphStore.nodes as node (node.id)}
                             <NodeRenderer 
                                 {node}
+                                viewType={viewType}
                                 on:modeChange={handleModeChange}
                                 on:visibilityChange={handleVisibilityChange}
+                                on:reply={event => {
+                                    console.log('[Graph] Reply event from NodeRenderer:', event.detail);
+                                    // Ensure we're dispatching the exact event structure expected
+                                    dispatch('reply', { commentId: event.detail.commentId });
+                                }}
                             >
                                 <svelte:fragment 
                                     slot="default" 
