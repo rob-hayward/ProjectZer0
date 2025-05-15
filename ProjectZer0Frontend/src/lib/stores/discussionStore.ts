@@ -487,25 +487,42 @@ function createDiscussionStore() {
         
      // startReply method
     startReply(commentId: string): void {
-        console.log(`[DiscussionStore] Starting reply to comment: ${commentId}`);
+        console.log(`[FORM_DEBUG] Discussion store - Starting reply to comment: ${commentId}`);
         
         // Find the comment to ensure it exists
         const state = get({ subscribe });
         const comment = state.comments.find(c => c.id === commentId);
         
         if (!comment) {
-            console.warn(`[DiscussionStore] Cannot start reply - comment ${commentId} not found`);
+            console.warn(`[FORM_DEBUG] Discussion store - Cannot start reply - comment ${commentId} not found`);
             return;
         }
         
-        update(state => ({
-            ...state,
-            isAddingReply: true,
-            replyToCommentId: commentId
-        }));
+        console.log(`[FORM_DEBUG] Discussion store - Found comment for reply:`, {
+            id: comment.id,
+            text: comment.commentText?.substring(0, 20) + '...'
+        });
+        
+        update(state => {
+            console.log(`[FORM_DEBUG] Discussion store - Updating state, previous isAddingReply:`, 
+                        state.isAddingReply, 'previous replyToCommentId:', state.replyToCommentId);
+            
+            const newState = {
+                ...state,
+                isAddingReply: true,
+                replyToCommentId: commentId
+            };
+            
+            console.log(`[FORM_DEBUG] Discussion store - New state:`, 
+                        'isAddingReply:', newState.isAddingReply, 
+                        'replyToCommentId:', newState.replyToCommentId);
+            
+            return newState;
+        });
         
         // Dispatch an event to notify the GraphManager
         if (typeof window !== 'undefined') {
+            console.log(`[FORM_DEBUG] Discussion store - Dispatching discussion-reply-started event`);
             window.dispatchEvent(new CustomEvent('discussion-reply-started', { 
                 detail: { commentId }
             }));

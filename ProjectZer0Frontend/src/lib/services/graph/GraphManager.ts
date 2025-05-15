@@ -67,11 +67,15 @@ export class GraphManager {
 
     private setupReplyListener(): void {
         if (typeof window !== 'undefined') {
+            console.log('[FORM_DEBUG] GraphManager - Setting up reply listener');
             window.addEventListener('discussion-reply-started', ((event: CustomEvent) => {
-                if (!event.detail || !event.detail.commentId) return;
+                if (!event.detail || !event.detail.commentId) {
+                    console.warn('[FORM_DEBUG] GraphManager - Reply event missing commentId');
+                    return;
+                }
                 
                 const commentId = event.detail.commentId;
-                console.log(`[GraphManager] Detected reply started to comment: ${commentId}`);
+                console.log(`[FORM_DEBUG] GraphManager - Detected reply started to comment: ${commentId}`);
                 
                 // Update graph to reflect the new reply form
                 this.handleReplyFormStarted(commentId);
@@ -81,7 +85,10 @@ export class GraphManager {
 
     private handleReplyFormStarted(commentId: string): void {
         // Only process for discussion view
-        if (this._viewType !== 'discussion') return;
+        if (this._viewType !== 'discussion') {
+            console.log(`[FORM_DEBUG] GraphManager - Not processing reply form - view type is not discussion: ${this._viewType}`);
+            return;
+        }
         
         // Get current nodes
         const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -89,14 +96,23 @@ export class GraphManager {
         // Find the target comment
         const targetComment = currentNodes.find(n => n.id === commentId);
         if (!targetComment) {
-            console.warn(`[GraphManager] Cannot find comment ${commentId} for reply form`);
+            console.warn(`[FORM_DEBUG] GraphManager - Cannot find comment ${commentId} for reply form`);
             return;
         }
         
+        console.log(`[FORM_DEBUG] GraphManager - Found target comment:`, {
+            id: targetComment.id,
+            type: targetComment.type,
+            position: { x: targetComment.x, y: targetComment.y }
+        });
+        
         // If we have a DiscussionLayout, let it handle the positioning
         if (this.currentLayoutStrategy instanceof DiscussionLayout) {
+            console.log(`[FORM_DEBUG] GraphManager - Notifying DiscussionLayout to handle reply start`);
             // Notify the layout strategy about the reply start
             (this.currentLayoutStrategy as any).handleReplyStart(commentId);
+        } else {
+            console.warn(`[FORM_DEBUG] GraphManager - No DiscussionLayout available for reply form positioning`);
         }
     }
 
@@ -587,15 +603,29 @@ export class GraphManager {
         return simulation;
     }
 
-    // In GraphManager.ts - the applyLayoutStrategy method
+    //  applyLayoutStrategy method
     private applyLayoutStrategy(): void {
+        // Add this at the start of the method
+        console.log('[LAYOUT_DEBUG] Applying layout strategy for view type:', this._viewType);
+        console.log('[LAYOUT_DEBUG] Current layoutStrategy type:', 
+                    this.currentLayoutStrategy ? this.currentLayoutStrategy.constructor.name : 'none');
+        
         // Stop current layout strategy if exists
         if (this.currentLayoutStrategy) {
             this.currentLayoutStrategy.stop();
+            console.log('[LAYOUT_DEBUG] Stopped previous layout strategy');
+        }
+        
+        // Add debug for view type comparison
+        if (this._viewType === 'discussion') {
+            console.log('[LAYOUT_DEBUG] View type is "discussion", should create DiscussionLayout instance');
+        } else {
+            console.log('[LAYOUT_DEBUG] View type is not "discussion", current type:', this._viewType);
         }
         
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
+            console.log('[LAYOUT_DEBUG] Creating StatementNetworkLayout');
             this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -614,21 +644,41 @@ export class GraphManager {
             });
         }
         else if (this._viewType === 'discussion') {
-            // Use the discussion layout for discussion views
-            this.currentLayoutStrategy = new DiscussionLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
+            // Add debug to verify this is executed
+            console.log('[LAYOUT_DEBUG] Initializing DiscussionLayout');
             
-            // Configure discussion-specific forces
-            this.configureDiscussionForces();
+            try {
+                // Check if DiscussionLayout is available
+                if (typeof DiscussionLayout === 'undefined') {
+                    console.error('[LAYOUT_DEBUG] Error: DiscussionLayout class is not defined');
+                } else {
+                    console.log('[LAYOUT_DEBUG] DiscussionLayout class is available');
+                }
+                
+                // Create the discussion layout
+                this.currentLayoutStrategy = new DiscussionLayout(
+                    COORDINATE_SPACE.WORLD.WIDTH,
+                    COORDINATE_SPACE.WORLD.HEIGHT,
+                    this._viewType
+                );
+                
+                // Configure discussion-specific forces
+                this.configureDiscussionForces();
+                
+                // Verify layout was created
+                console.log('[LAYOUT_DEBUG] DiscussionLayout created:', 
+                        !!this.currentLayoutStrategy,
+                        'Type:', this.currentLayoutStrategy?.constructor.name);
+            } catch (error) {
+                console.error('[LAYOUT_DEBUG] Error creating DiscussionLayout:', error);
+            }
         }
         else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
             this._viewType === 'create-node' ||
             this._viewType === 'statement') {
             // Single central node views - including statement view
+            console.log('[LAYOUT_DEBUG] Creating SingleNodeLayout');
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -637,6 +687,7 @@ export class GraphManager {
         } 
         else if (this._viewType === 'word') {
             // Word definition view
+            console.log('[LAYOUT_DEBUG] Creating WordDefinitionLayout');
             this.currentLayoutStrategy = new WordDefinitionLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -645,6 +696,7 @@ export class GraphManager {
         }
         else {
             // Default to SingleNodeLayout for any other view
+            console.log('[LAYOUT_DEBUG] Creating default SingleNodeLayout for unknown view type:', this._viewType);
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -654,6 +706,8 @@ export class GraphManager {
         
         // Apply the selected strategy
         if (this.currentLayoutStrategy) {
+            console.log('[LAYOUT_DEBUG] Applying layout strategy:', this.currentLayoutStrategy.constructor.name);
+            
             // Get current nodes
             const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
             
@@ -673,7 +727,15 @@ export class GraphManager {
             
             // Call enforceFixedPositionsStrict to ensure fixed positions
             this.enforceFixedPositionsStrict();
+            
+            console.log('[LAYOUT_DEBUG] Layout strategy application complete');
+        } else {
+            console.error('[LAYOUT_DEBUG] Failed to create layout strategy for view type:', this._viewType);
         }
+        
+        // Add at the end to verify final layout type
+        console.log('[LAYOUT_DEBUG] Final layout strategy:', 
+                    this.currentLayoutStrategy ? this.currentLayoutStrategy.constructor.name : 'none');
     }
 
     /**
