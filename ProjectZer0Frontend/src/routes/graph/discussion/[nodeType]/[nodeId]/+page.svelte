@@ -303,12 +303,15 @@
             }
         }, 300);
     }
-    
+
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
         const { text, parentId } = event.detail;
         console.log('[STATE_DEBUG] Comment submit event:', { text, parentId });
         
         try {
+            // Show loading indicator
+            isLoading = true;
+            
             // Pass nodeText for word nodes and convert null to undefined if needed
             const newComment = await discussionStore.addComment(
                 nodeType, 
@@ -322,11 +325,23 @@
                 console.log('[STATE_DEBUG] Comment added successfully:', newComment.id);
                 // Reset state
                 isAddingRootComment = false;
-                // Force re-render
-                routeKey = `${viewType}-${nodeType}-${nodeId}-${Date.now()}`;
+                
+                // Force graph data update to show the new comment
+                graphData = createGraphData();
+                
+                // Center the view on the new comment after a short delay
+                setTimeout(() => {
+                    if (graphComponent && typeof graphComponent.centerOnNodeById === 'function') {
+                        graphComponent.centerOnNodeById(newComment.id);
+                    }
+                }, 300);
             }
         } catch (err) {
             console.error('[STATE_DEBUG] Error adding comment:', err);
+            // Show error message to user
+            // You could add an error toast/notification here
+        } finally {
+            isLoading = false;
         }
     }
     

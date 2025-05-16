@@ -22,7 +22,7 @@
     const dispatch = createEventDispatcher<{
         submit: { 
             text: string; 
-            parentId: string | null; // Changed from string | undefined to string | null
+            parentId: string | null; 
         };
         cancel: void;
     }>();
@@ -53,21 +53,6 @@
         highlightColor: baseColor
     };
     
-    // Extract base colors for button styling
-    $: successColor = NODE_CONSTANTS.COLORS.STATEMENT.border.substring(0, 7); // Green color for submit
-    $: errorColor = '#e74c3c'; // Red color for cancel
-    
-    // Derived button styling
-    $: submitBgColor = `${successColor}33`; // 20% opacity
-    $: submitBorderColor = `${successColor}66`; // 40% opacity 
-    $: submitBgHoverColor = `${successColor}4D`; // 30% opacity
-    $: submitBorderHoverColor = `${successColor}99`; // 60% opacity
-    
-    $: cancelBgColor = `${errorColor}33`; // 20% opacity
-    $: cancelBorderColor = `${errorColor}66`; // 40% opacity
-    $: cancelBgHoverColor = `${errorColor}4D`; // 30% opacity
-    $: cancelBorderHoverColor = `${errorColor}99`; // 60% opacity
-    
     function handleSubmit() {
         if (!isValid || isSubmitting) return;
         
@@ -88,6 +73,13 @@
         discussionStore.cancelAddingComment();
     }
     
+    function handleInput(event: Event) {
+        const textarea = event.target as HTMLTextAreaElement;
+        if (textarea.value.length > MAX_CHARS) {
+            commentText = textarea.value.slice(0, MAX_CHARS);
+        }
+    }
+    
     onMount(() => {
         console.log('[CommentFormNode] Mounting with parent:', parentCommentId);
     });
@@ -95,157 +87,137 @@
 
 <BaseNode {node} style={customStyle}>
     <svelte:fragment slot="default" let:radius>
-        <!-- Title -->
-        <text
-            y={-radius + 20}
-            class="title"
-            style:font-family={NODE_CONSTANTS.FONTS.title.family}
-            style:font-size="12px"
-            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+        <!-- Text input area - positioned higher and made wider -->
+        <foreignObject
+            x={-radius + 20}
+            y={-radius/2 - 10}
+            width={radius*2 - 40}
+            height={110}
         >
-            {isReply ? 'Add Reply' : 'Add Comment'}
-        </text>
-
-        <!-- Comment form -->
-        <foreignObject 
-            x={-radius + 40} 
-            y={-radius/2} 
-            width={radius*2 - 80} 
-            height={radius - 100}
-        >
-            <div class="form-container">
-                <textarea 
-                    class="comment-textarea" 
-                    bind:value={commentText}
-                    placeholder={isReply ? "Write your reply..." : "Write your comment..."}
-                    maxlength={MAX_CHARS}
-                ></textarea>
-                
-                <div class="char-counter" class:near-limit={charCount > MAX_CHARS * 0.9}>
-                    {charCount}/{MAX_CHARS}
-                </div>
-                
-                <div class="form-controls">
-                    <button 
-                        class="form-button submit" 
-                        on:click={handleSubmit}
-                        disabled={!isValid || isSubmitting}
-                        style="background-color: {submitBgColor}; border-color: {submitBorderColor};"
-                    >
-                        {isSubmitting ? 'Submitting...' : isReply ? 'Reply' : 'Comment'}
-                    </button>
-                    
-                    <button 
-                        class="form-button cancel" 
-                        on:click={handleCancel}
-                        style="background-color: {cancelBgColor}; border-color: {cancelBorderColor};"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            </div>
+            <textarea
+                class="form-textarea"
+                bind:value={commentText}
+                on:input={handleInput}
+                placeholder={isReply ? "Write your reply..." : "Write your comment..."}
+                disabled={isSubmitting}
+            ></textarea>
         </foreignObject>
         
-        <!-- User info -->
-        <g transform="translate(0, {radius - 40})">
-            <text class="user-info">
-                Posting as: {$userStore?.preferred_username || $userStore?.name || 'Anonymous'}
-            </text>
+        <!-- Character counter - repositioned -->
+        <text
+            x={radius - 20}
+            y={-radius/2 + 95}
+            class="character-count"
+            class:near-limit={commentText.length > MAX_CHARS * 0.9}
+            class:over-limit={commentText.length > MAX_CHARS}
+            text-anchor="end"
+        >
+            {MAX_CHARS - commentText.length} characters remaining
+        </text>
+        
+        <!-- Button container - move buttons closer together -->
+        <g transform="translate(34, 75)">
+            <!-- Submit button - smaller width -->
+            <g 
+                class="button submit-button" 
+                class:disabled={!isValid || isSubmitting}
+                transform="translate({-35}, 0)"
+                role="button"
+                tabindex="0"
+                on:click={() => isValid && !isSubmitting && handleSubmit()}
+                on:keydown={(e) => e.key === 'Enter' && isValid && !isSubmitting && handleSubmit()}
+            >
+                <rect
+                    x={-35}
+                    y={-15}
+                    width={70}
+                    height={20}
+                    rx="4"
+                    ry="4"
+                    class="button-bg submit-bg"
+                />
+                <text
+                    y="0"
+                    class="button-text"
+                    text-anchor="middle"
+                >
+                    {isSubmitting ? 'Submitting...' : isReply ? 'Reply' : 'Comment'}
+                </text>
+            </g>
         </g>
     </svelte:fragment>
 </BaseNode>
 
 <style>
-    .title {
-        fill: rgba(255, 255, 255, 0.7);
-        text-anchor: middle;
-    }
-    
-    .user-info {
-        font-size: 10px;
+    .character-count {
+        font-size: 8px;
+        font-family: 'Orbitron', sans-serif;
         fill: rgba(255, 255, 255, 0.6);
-        text-anchor: middle;
     }
     
-    :global(.form-container) {
+    .character-count.near-limit {
+        fill: #ffd700;
+    }
+    
+    .character-count.over-limit {
+        fill: #ff4444;
+    }
+    
+    .button {
+        cursor: pointer;
+    }
+    
+    .button.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+    
+    .button-bg {
+        fill: rgba(0, 0, 0, 0.5);
+        stroke-width: 1;
+    }
+    
+    .submit-bg {
+        stroke: rgba(46, 204, 113, 0.6);
+        fill: rgba(46, 204, 113, 0.2);
+    }
+    
+    .button-text {
+        font-size: 12px;
+        fill: rgba(255, 255, 255, 0.9);
+        font-family: 'Orbitron', sans-serif;
+    }
+    
+    .submit-button:hover:not(.disabled) .submit-bg {
+        fill: rgba(46, 204, 113, 0.3);
+        stroke: rgba(46, 204, 113, 0.8);
+    }
+    
+    /* Textarea styling */
+    :global(.form-textarea) {
         width: 100%;
         height: 100%;
-        display: flex;
-        flex-direction: column;
-        background-color: rgba(0, 0, 0, 0.6);
-        border-radius: 8px;
-        padding: 8px;
-    }
-    
-    :global(.comment-textarea) {
-        width: 100%;
-        height: 120px;
-        background-color: rgba(0, 0, 0, 0.6);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        background: rgba(0, 0, 0, 0.6);
+        border: 2px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
+        color: white;
         padding: 8px;
         font-family: 'Orbitron', sans-serif;
         font-size: 12px;
+        transition: all 0.2s ease;
+        box-sizing: border-box;
         resize: none;
     }
     
-    :global(.char-counter) {
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.6);
-        text-align: right;
-        margin-top: 4px;
-        font-family: 'Orbitron', sans-serif;
+    :global(.form-textarea:focus) {
+        outline: none;
+        border: 2px solid rgba(255, 255, 255, 0.8);
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
     }
     
-    :global(.char-counter.near-limit) {
-        color: rgba(231, 76, 60, 0.9);
-    }
-    
-    :global(.form-controls) {
-        display: flex;
-        justify-content: space-between;
-        margin-top: 8px;
-    }
-    
-    :global(.form-button) {
-        background-color: rgba(0, 0, 0, 0.5);
-        color: white;
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 4px;
-        padding: 6px 12px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 12px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }
-    
-    :global(.form-button:hover:not(:disabled)) {
-        transform: translateY(-1px);
-    }
-    
-    /* Dynamic hover styles for buttons - handled inline with style attributes */
-    
-    :global(.form-button.submit:hover:not(:disabled)) {
-        background-color: var(--submit-bg-hover-color);
-        border-color: var(--submit-border-hover-color);
-    }
-    
-    :global(.form-button.cancel:hover) {
-        background-color: var(--cancel-bg-hover-color);
-        border-color: var(--cancel-border-hover-color);
-    }
-    
-    :global(.form-button:disabled) {
+    :global(.form-textarea:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
     }
 </style>
-
-<!-- CSS variables for hover effects -->
-<div style="display:none;
-            --submit-bg-hover-color:{submitBgHoverColor};
-            --submit-border-hover-color:{submitBorderHoverColor};
-            --cancel-bg-hover-color:{cancelBgHoverColor};
-            --cancel-border-hover-color:{cancelBorderHoverColor};">
-</div>

@@ -298,7 +298,9 @@ function createDiscussionStore() {
             return state.userVotes[commentId] || 'none';
         },
         
-        // Add a new comment to the discussion
+        /**
+         * Enhanced addComment method
+         */
         async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
             const currentUser = get(userStore);
             if (!currentUser) return null;
@@ -324,12 +326,14 @@ function createDiscussionStore() {
                     throw new Error('Failed to create comment');
                 }
                 
+                console.log('[DiscussionStore] Comment created successfully:', response.id);
+                
                 // Create new comment object
                 const newComment: Comment = {
                     ...response,
                     childComments: [],
                     isVisible: true,
-                    isExpanded: true,
+                    isExpanded: false, // Start collapsed for better layout
                     depth: parentCommentId ? 1 : 0 // Temporary depth, will be corrected in buildCommentTree
                 };
                 
@@ -363,10 +367,27 @@ function createDiscussionStore() {
                     };
                 });
                 
-                return newComment;
+                // Dispatch an event for new comment created to help with positioning
+                if (typeof window !== 'undefined') {
+                    console.log('[DiscussionStore] Dispatching comment-created event:', {
+                        commentId: newComment.id,
+                        parentId: parentCommentId,
+                        isReply: !!parentCommentId
+                    });
+                    
+                    window.dispatchEvent(new CustomEvent('comment-created', { 
+                        detail: { 
+                            commentId: newComment.id,
+                            parentId: parentCommentId,
+                            isReply: !!parentCommentId
+                        }
+                    }));
+                }
                 
+                return newComment;
             } catch (error) {
-                console.error('Error adding comment:', error);
+                console.error('[DiscussionStore] Error adding comment:', error);
+                
                 update(state => ({ 
                     ...state, 
                     isAddingComment: false,
@@ -374,6 +395,7 @@ function createDiscussionStore() {
                     replyToCommentId: null,
                     error: error instanceof Error ? error.message : 'Failed to add comment'
                 }));
+                
                 return null;
             }
         },
