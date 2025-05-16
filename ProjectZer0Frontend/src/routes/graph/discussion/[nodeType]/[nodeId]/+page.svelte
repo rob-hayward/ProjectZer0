@@ -232,169 +232,76 @@
     function handleReply(event: CustomEvent<{ commentId: string }>) {
         const commentId = event.detail.commentId;
         console.log('[STATE_DEBUG] Reply event triggered for comment:', commentId);
-        console.log('[STATE_DEBUG] Central node ID:', centralNode?.id);
+        
+        // Clear any existing forms first - this is critical for consistency
+        isAddingRootComment = false; // Always reset this flag first
+        discussionStore.cancelAddingComment(); // Cancel any existing reply forms
         
         // Check if this is the central node
         if (commentId === centralNode?.id) {
-            console.log('[STATE_DEBUG] This is a reply to the central node!');
-            console.log('[STATE_DEBUG] Setting isAddingRootComment to true');
+            console.log('[STATE_DEBUG] This is a reply to the central node');
             
             // Set flag to create a root comment form
             isAddingRootComment = true;
-            
-            // Force graph data update
-            console.log('[STATE_DEBUG] Updating graph data for root comment form');
-            graphData = createGraphData();
-            
-            // Log the value to check if it's properly set
-            console.log('[STATE_DEBUG] isAddingRootComment is now:', isAddingRootComment);
-            
-            // Check if form is created in the data
-            const rootFormNodes = graphData.nodes.filter(n => 
-                n.type === 'comment-form' && 
-                !n.metadata?.parentCommentId
-            );
-            console.log('[STATE_DEBUG] Root form nodes in data:', rootFormNodes);
-            
-            // Find the form node and center on it
-            setTimeout(() => {
-                console.log('[STATE_DEBUG] Timeout fired for centering on root form');
-                console.log('[STATE_DEBUG] isAddingRootComment is still:', isAddingRootComment);
-                
-                // Check if the root form is in the graph data
-                const formNodesInData = graphData.nodes.filter(n => 
-                    n.type === 'comment-form' && 
-                    !n.metadata?.parentCommentId
-                );
-                console.log('[STATE_DEBUG] Root form nodes in data (after timeout):', formNodesInData);
-                
-                if (!graphComponent) {
-                    console.log('[STATE_DEBUG] No graphComponent available');
-                    return;
-                }
-                
-                // Log graph component state
-                if (typeof graphComponent.logNodeState === 'function') {
-                    console.log('[STATE_DEBUG] All nodes in graph component:');
-                    graphComponent.logNodeState();
-                    console.log('[STATE_DEBUG] Form nodes in graph component:');
-                    graphComponent.logNodeState('comment-form');
-                }
-                
-                // Find form nodes in graph data
-                const formNodes = graphData.nodes.filter(n => 
-                    n.type === 'comment-form' && 
-                    !n.metadata?.parentCommentId // Root comment forms have no parent
-                );
-                
-                if (formNodes.length > 0) {
-                    console.log('[STATE_DEBUG] Found root form node in graphData:', formNodes[0].id);
-                    
-                    // Try to center on it using the form node ID
-                    if (typeof graphComponent.centerOnNodeById === 'function') {
-                        graphComponent.centerOnNodeById(formNodes[0].id);
-                    } else if (graphComponent.centerViewportOnCoordinates && (formNodes[0] as any).position) {
-                        // Fallback to coordinates if available
-                        const position = (formNodes[0] as any).position;
-                        graphComponent.centerViewportOnCoordinates(position.x, position.y);
-                    }
-                } else {
-                    console.log('[STATE_DEBUG] No root form nodes found in graphData!');
-                }
-            }, 300);
-            
-            return; // Important: Return early to not process the rest of the function
+        } else {
+            // For regular comments, start a reply
+            discussionStore.startReply(commentId);
         }
         
-        // Regular comment reply handling below
-        // Log the initial graphStore state
-        const initialState = graphStore?.getState() as any;
-        console.log('[STATE_DEBUG] Initial graphStore state:', 
-                    initialState ? 
-                        `${initialState.nodes?.length || 0} nodes, storeId: ${(graphStore as any).getStoreId?.()}` : 
-                        'unavailable');
-        
-        // Update the discussion store
-        discussionStore.startReply(commentId);
-        
-        // Create new graph data
-        console.log('[STATE_DEBUG] Updating graph data for reply form');
+        // Force graph data update with new form
+        console.log('[STATE_DEBUG] Updating graph data for comment form');
         graphData = createGraphData();
         
-        // Wait for the data to be applied to the graph component
+        // Center on the new form after a short delay
         setTimeout(() => {
             if (!graphComponent) {
                 console.log('[STATE_DEBUG] No graphComponent available');
                 return;
             }
             
-            // Log the current node state
-            if (typeof graphComponent.logNodeState === 'function') {
-                console.log('[STATE_DEBUG] Current graph nodes:');
-                graphComponent.logNodeState();
-                console.log('[STATE_DEBUG] Form nodes:');
-                graphComponent.logNodeState('comment-form');
-            }
-            
-            // Try to find the form node
-            if (typeof graphComponent.findFormNodeByParentId === 'function') {
-                const formNode = graphComponent.findFormNodeByParentId(commentId);
+            // For central node (root comment)
+            if (commentId === centralNode?.id) {
+                const rootFormNodes = graphData.nodes.filter(n => 
+                    n.type === 'comment-form' && 
+                    !n.metadata?.parentCommentId
+                );
                 
-                if (formNode && formNode.position) {
-                    console.log('[STATE_DEBUG] Found form node via Graph component:', {
-                        id: formNode.id,
-                        position: formNode.position
-                    });
+                if (rootFormNodes.length > 0) {
+                    const formNode = rootFormNodes[0];
+                    console.log('[STATE_DEBUG] Found root form node in graphData:', formNode.id);
                     
-                    // Center on the form node
-                    if (typeof graphComponent.centerViewportOnCoordinates === 'function') {
-                        graphComponent.centerViewportOnCoordinates(
-                            formNode.position.x,
-                            formNode.position.y
-                        );
+                    // Center on it if possible
+                    if (typeof graphComponent.centerOnNodeById === 'function') {
+                        graphComponent.centerOnNodeById(formNode.id);
+                    } else if (graphComponent.centerViewportOnCoordinates && (formNode as any).position) {
+                        const position = (formNode as any).position;
+                        graphComponent.centerViewportOnCoordinates(position.x, position.y);
                     }
-                } else {
-                    console.log('[STATE_DEBUG] Form node not found via Graph component');
+                }
+            } 
+            // For regular comments
+            else {
+                // Try to find the form node
+                if (typeof graphComponent.findFormNodeByParentId === 'function') {
+                    const formNode = graphComponent.findFormNodeByParentId(commentId);
                     
-                    // Try directly using the form node from our data
-                    const formNodes = graphData.nodes.filter(n => 
-                        n.type === 'comment-form' && 
-                        n.metadata?.parentCommentId === commentId
-                    );
-                    
-                    if (formNodes.length > 0) {
-                        console.log('[STATE_DEBUG] Found form node in graphData:', formNodes[0].id);
+                    if (formNode && formNode.position) {
+                        console.log('[STATE_DEBUG] Found form node via Graph component:', {
+                            id: formNode.id,
+                            position: formNode.position
+                        });
                         
-                        // Assuming formNodes[0].metadata has the parent info
-                        const parentId = formNodes[0].metadata?.parentCommentId;
-                        
-                        // Find the parent comment node for fallback positioning
-                        const parentNode = graphData.nodes.find(n => n.id === parentId);
-                        
-                        if (parentNode) {
-                            // Type check for position property
-                            const parentPosition = (parentNode as any).position;
-                            if (parentPosition) {
-                                console.log('[STATE_DEBUG] Using parent position as fallback');
-                                
-                                // Offset position from parent (similar to where the form would appear)
-                                const offsetDistance = 120;
-                                const offsetX = offsetDistance * Math.cos(Math.PI / 4);
-                                const offsetY = offsetDistance * Math.sin(Math.PI / 4);
-                                
-                                // Center on this approximate position
-                                graphComponent.centerViewportOnCoordinates(
-                                    parentPosition.x + offsetX,
-                                    parentPosition.y - offsetY
-                                );
-                            }
+                        // Center on the form node
+                        if (typeof graphComponent.centerViewportOnCoordinates === 'function') {
+                            graphComponent.centerViewportOnCoordinates(
+                                formNode.position.x,
+                                formNode.position.y
+                            );
                         }
                     }
                 }
-            } else {
-                console.log('[STATE_DEBUG] findFormNodeByParentId method not available');
             }
-        }, 500); // Increased timeout to ensure data is applied
+        }, 300);
     }
     
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
@@ -453,12 +360,6 @@
                 ? `comment-form-reply-${parentId}-${timestamp}`
                 : `comment-form-root-${timestamp}`;
             
-            console.log('[STATE_DEBUG] Creating comment form node:', {
-                formId,
-                parentId: parentId || 'null', // Explicit logging for null
-                timestamp
-            });
-            
             // Create form data with consistent structure
             const formData: CommentFormData = {
                 id: formId,
@@ -483,12 +384,6 @@
                 mode: 'detail' as NodeMode,
                 metadata: metadata
             };
-            
-            console.log('[STATE_DEBUG] Created form node:', {
-                id: formNode.id,
-                metadata: formNode.metadata,
-                data: { parentCommentId: (formNode.data as any).parentCommentId }
-            });
             
             return formNode;
         }
@@ -608,12 +503,10 @@
             }
         });
         
-        // Add form for root comment
-        console.log('[STATE_DEBUG] Creating graph data, isAddingRootComment:', isAddingRootComment);
-
+        // We can only have one comment form at a time
+        // Either a root comment form or a reply form, not both
         if (isAddingRootComment) {
-            console.log('[STATE_DEBUG] Creating root comment form node');
-            
+            console.log('[STATE_DEBUG] Creating root comment form');
             const formNode = createCommentFormNode(null);
             commentNodes.push(formNode);
             
@@ -625,10 +518,10 @@
                 type: 'comment-form' as LinkType
             });
             
-            console.log('[STATE_DEBUG] Added root comment form:', formNode.id, 'connected to central node:', centralNode.id);
-        }
-                    
-        if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
+            console.log('[STATE_DEBUG] Added root comment form:', formNode.id);
+        } 
+        // Only add a reply form if we're not adding a root comment
+        else if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
             const parentId = $discussionStore.replyToCommentId;
             
             // Verify parent exists
@@ -641,18 +534,15 @@
                     id: `form-link-${parentId}-${formNode.id}`,
                     source: parentId,
                     target: formNode.id,
-                    // Use reply-form type to indicate this is a reply, not a root comment
                     type: 'reply-form' as LinkType,
                     metadata: {
                         parentId
                     }
                 });
                 
-                console.log('[STATE_DEBUG] Added reply form for comment:', parentId, 'form ID:', formNode.id, 
-                            'metadata:', formNode.metadata);
+                console.log('[STATE_DEBUG] Added reply form for comment:', parentId, 'form ID:', formNode.id);
             } else {
                 console.error('[STATE_DEBUG] Cannot add reply form - parent not found:', parentId);
-                console.log('[STATE_DEBUG] Available comment IDs:', Array.from(commentIdMap.keys()));
             }
         }
         
@@ -669,17 +559,6 @@
             replyLinkCount: commentLinks.filter(l => l.type === 'reply').length,
             formNodeCount: finalData.nodes.filter(n => n.type === 'comment-form').length
         });
-        
-        // Log all form nodes in the final data
-        console.log('[STATE_DEBUG] Final graph data - form nodes:', 
-                    finalData.nodes.filter(n => n.type === 'comment-form').map(n => ({
-                      id: n.id,
-                      parent: n.metadata?.parentCommentId || 'none',
-                      type: n.type
-                    })));
-        
-        // Validate the structure
-        validateCommentHierarchy(finalData);
         
         return finalData;
     }
