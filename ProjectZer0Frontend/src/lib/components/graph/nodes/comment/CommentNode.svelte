@@ -11,6 +11,7 @@
     import { discussionStore } from '$lib/stores/discussionStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
     import ReplyButton from '../common/ReplyButton.svelte';
+    import { COLORS } from '$lib/constants/colors';
     
     export let node: RenderableNode;
     export let isReply: boolean = false;
@@ -61,6 +62,14 @@
     $: replyButtonX = (nodeRadius + buttonRadius) * Math.cos(Math.PI/4); // cos(45°) = 0.7071
     $: replyButtonY = -(nodeRadius + buttonRadius) * Math.sin(Math.PI/4); // -sin(45°) = -0.7071
     
+    // Define colors for the vote buttons from color constants
+    const upvoteColor = COLORS.PRIMARY.GREEN;
+    const downvoteColor = COLORS.PRIMARY.RED;
+    
+    // Create unique filter IDs for the glow effects
+    const upvoteFilterId = `upvote-glow-${Math.random().toString(36).slice(2)}`;
+    const downvoteFilterId = `downvote-glow-${Math.random().toString(36).slice(2)}`;
+    
     const dispatch = createEventDispatcher<{
         reply: { commentId: string };
         edit: { commentId: string, text: string };
@@ -83,15 +92,26 @@
         handleReply();
     }
     
+    // Track hover state for each vote button
+    let upvoteHovered = false;
+    let downvoteHovered = false;
+    
+    function handleUpvoteHover(isEnter: boolean) {
+        upvoteHovered = isEnter;
+    }
+    
+    function handleDownvoteHover(isEnter: boolean) {
+        downvoteHovered = isEnter;
+    }
+    
     // Add keyboard event handler for accessibility
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' || event.key === 'Space') {
             const target = event.currentTarget as HTMLElement;
-            if (target.classList.contains('vote-button')) {
-                const voteType = target.classList.contains('upvote') ? 
-                    (userVoteStatus === 'agree' ? 'none' : 'agree') : 
-                    (userVoteStatus === 'disagree' ? 'none' : 'disagree');
-                handleVote(voteType);
+            if (target.classList.contains('upvote-button')) {
+                handleVote(userVoteStatus === 'agree' ? 'none' : 'agree');
+            } else if (target.classList.contains('downvote-button')) {
+                handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree');
             }
         }
     }
@@ -166,12 +186,6 @@
     $: commentNodeColors = NODE_CONSTANTS.COLORS.COMMENT;
     $: baseColor = commentNodeColors.border.substring(0, 7); // First 7 chars (hex without alpha)
     
-    // CSS variables for button styling
-    $: buttonBgColor = `${baseColor}33`; // 20% opacity
-    $: buttonStrokeColor = `${baseColor}66`; // 40% opacity
-    $: buttonBgHoverColor = `${baseColor}4D`; // 30% opacity
-    $: buttonStrokeHoverColor = `${baseColor}99`; // 60% opacity
-    
     // Define comment node color using the NODE_CONSTANTS
     $: customStyle = {
         ...node.style,
@@ -207,6 +221,53 @@
 <!-- Use BaseNode with proper styling parameters, but without vote-based styling -->
 <BaseNode {node} style={customStyle}>
     <svelte:fragment slot="default" let:radius>
+        <!-- Filter defs for glow effects -->
+        <defs>
+            <!-- Upvote glow filter -->
+            <filter id={upvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                <feFlood flood-color={upvoteColor} flood-opacity="0.6" result="color1"/>
+                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                <feFlood flood-color={upvoteColor} flood-opacity="0.8" result="color2"/>
+                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                <feFlood flood-color={upvoteColor} flood-opacity="1" result="color3"/>
+                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                
+                <feMerge>
+                    <feMergeNode in="shadow1"/>
+                    <feMergeNode in="shadow2"/>
+                    <feMergeNode in="shadow3"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+            
+            <!-- Downvote glow filter -->
+            <filter id={downvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                <feFlood flood-color={downvoteColor} flood-opacity="0.6" result="color1"/>
+                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                <feFlood flood-color={downvoteColor} flood-opacity="0.8" result="color2"/>
+                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                <feFlood flood-color={downvoteColor} flood-opacity="1" result="color3"/>
+                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                
+                <feMerge>
+                    <feMergeNode in="shadow1"/>
+                    <feMergeNode in="shadow2"/>
+                    <feMergeNode in="shadow3"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+        </defs>
+
         <!-- Title -->
         <text
             y={-radius + 15}
@@ -241,47 +302,115 @@
             {creatorName} · {formattedDate}
         </text>
         
-        <!-- Vote controls -->
+        <!-- Vote controls with proper positioning -->
         <g class="vote-controls" transform="translate(0, {radius - 45})">
-            <!-- Upvote button -->
+            <!-- Upvote button positioned to the left -->
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
             <g 
-                class="vote-button upvote"
+                class="upvote-button"
                 class:active={userVoteStatus === 'agree'}
-                transform="translate(-20, 0)"
-                on:click={() => handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
+                class:disabled={isVoting}
+                transform="translate(-30, 0)"
+                on:click={() => !isVoting && handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
                 on:keydown={handleKeydown}
+                on:mouseenter={() => handleUpvoteHover(true)}
+                on:mouseleave={() => handleUpvoteHover(false)}
                 tabindex="0"
                 role="button"
                 aria-label="Upvote comment"
                 aria-pressed={userVoteStatus === 'agree'}
+                style:filter={upvoteHovered ? `url(#${upvoteFilterId})` : 'none'}
             >
-                <circle r="8" class="vote-bg" />
-                <path d="M0 -3 L3 0 L0 0 L0 3 L-3 0 L0 0 Z" class="vote-arrow" />
+                <foreignObject 
+                    x="-42" 
+                    y="-12" 
+                    width="24" 
+                    height="24" 
+                    class="icon-container"
+                >
+                    <div 
+                        class="icon-wrapper"
+                        {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                    >
+                        {#if isVoting}
+                            <span 
+                                class="material-symbols-outlined spinning"
+                                style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
+                            >
+                                sync
+                            </span>
+                        {:else}
+                            <span 
+                                class="material-symbols-outlined"
+                                style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
+                            >
+                                thumb_up
+                            </span>
+                        {/if}
+                    </div>
+                </foreignObject>
             </g>
             
-            <!-- Vote count -->
+            <!-- Vote count with explicit position -->
             <text
                 class="vote-count"
+                x="0"
+                y="4"
                 style:font-family={NODE_CONSTANTS.FONTS.value.family}
                 style:font-size="10px"
             >
                 {scoreDisplay}
             </text>
             
-            <!-- Downvote button -->
+            <!-- Downvote button positioned to the right -->
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
             <g 
-                class="vote-button downvote"
+                class="downvote-button"
                 class:active={userVoteStatus === 'disagree'}
-                transform="translate(20, 0)"
-                on:click={() => handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
+                class:disabled={isVoting}
+                transform="translate(30, 0)"
+                on:click={() => !isVoting && handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
                 on:keydown={handleKeydown}
+                on:mouseenter={() => handleDownvoteHover(true)}
+                on:mouseleave={() => handleDownvoteHover(false)}
                 tabindex="0"
                 role="button"
                 aria-label="Downvote comment"
                 aria-pressed={userVoteStatus === 'disagree'}
+                style:filter={downvoteHovered ? `url(#${downvoteFilterId})` : 'none'}
             >
-                <circle r="8" class="vote-bg" />
-                <path d="M0 3 L3 0 L0 0 L0 -3 L-3 0 L0 0 Z" class="vote-arrow" />
+                <foreignObject 
+                    x="22" 
+                    y="-12" 
+                    width="24" 
+                    height="24" 
+                    class="icon-container"
+                >
+                    <div 
+                        class="icon-wrapper"
+                        {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                    >
+                        {#if isVoting}
+                            <span 
+                                class="material-symbols-outlined spinning"
+                                style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
+                            >
+                                sync
+                            </span>
+                        {:else}
+                            <span 
+                                class="material-symbols-outlined"
+                                style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
+                            >
+                                thumb_down
+                            </span>
+                        {/if}
+                    </div>
+                </foreignObject>
             </g>
         </g>
         
@@ -319,49 +448,49 @@
         fill: rgba(255, 255, 255, 0.6);
     }
 
-    /* Vote Controls */
-    .vote-button {
+    /* Vote Controls using the NavigationNode pattern */
+    .upvote-button, .downvote-button {
         cursor: pointer;
+        /* Prevent any movement */
+        transform: none !important;
+        will-change: auto;
     }
 
-    .vote-bg {
-        fill: rgba(0, 0, 0, 0.3);
-        stroke: rgba(255, 255, 255, 0.3);
-        stroke-width: 1;
-        transition: all 0.2s ease;
+    .upvote-button.disabled, .downvote-button.disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
     }
 
-    .vote-arrow {
-        fill: rgba(255, 255, 255, 0.7);
-        transition: all 0.2s ease;
+    .icon-container {
+        overflow: visible;
     }
 
-    .vote-button:hover .vote-bg {
-        fill: rgba(0, 0, 0, 0.5);
-        stroke: rgba(255, 255, 255, 0.5);
+    .icon-wrapper {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
-    .vote-button:hover .vote-arrow {
-        fill: rgba(255, 255, 255, 0.9);
+    :global(.vote-controls .material-symbols-outlined) {
+        font-size: 20px;
+        /* Only transition color, not size */
+        transition: color 0.3s ease;
     }
 
-    .vote-button.active .vote-bg {
-        fill: rgba(0, 0, 0, 0.6);
-        stroke: rgba(255, 255, 255, 0.7);
-    }
-
-    .upvote.active .vote-arrow {
-        fill: rgba(46, 204, 113, 0.9);
-    }
-
-    .downvote.active .vote-arrow {
-        fill: rgba(231, 76, 60, 0.9);
-    }
-
+    /* Vote count styling */
     .vote-count {
         fill: rgba(255, 255, 255, 0.9);
     }
-</style>
 
-<!-- CSS variables for button styling -->
-<div style="display:none;--button-bg-color:{buttonBgColor};--button-stroke-color:{buttonStrokeColor};--button-bg-hover-color:{buttonBgHoverColor};--button-stroke-hover-color:{buttonStrokeHoverColor}"></div>
+    /* Spinning animation for loading state */
+    :global(.material-symbols-outlined.spinning) {
+        animation: spin 1.5s infinite linear;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+</style>
