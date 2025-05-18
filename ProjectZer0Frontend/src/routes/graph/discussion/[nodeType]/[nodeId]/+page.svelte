@@ -304,6 +304,7 @@
         }, 300);
     }
 
+
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
         const { text, parentId } = event.detail;
         console.log('[STATE_DEBUG] Comment submit event:', { text, parentId });

@@ -146,39 +146,47 @@
         lastVoteType = voteType;
         
         // Store original values for potential revert
-        const originalPositive = data.positiveVotes;
-        const originalNegative = data.negativeVotes;
+        const originalPositive = getNeo4jNumber(data.positiveVotes);
+        const originalNegative = getNeo4jNumber(data.negativeVotes);
         const originalVoteStatus = userVoteStatus;
         
         try {
-            // Optimistic update - Update the counts directly in the comment data
-            // This is similar to how WordNode does it
-            if (originalVoteStatus === 'agree' && voteType !== 'agree') {
-                // Removing upvote
-                data.positiveVotes = Math.max(0, getNeo4jNumber(data.positiveVotes) - 1);
-            }
-            if (originalVoteStatus === 'disagree' && voteType !== 'disagree') {
-                // Removing downvote
-                data.negativeVotes = Math.max(0, getNeo4jNumber(data.negativeVotes) - 1);
-            }
-            if (voteType === 'agree' && originalVoteStatus !== 'agree') {
-                // Adding upvote
-                data.positiveVotes = getNeo4jNumber(data.positiveVotes) + 1;
-            }
-            if (voteType === 'disagree' && originalVoteStatus !== 'disagree') {
-                // Adding downvote
-                data.negativeVotes = getNeo4jNumber(data.negativeVotes) + 1;
+            console.log('[CommentNode] Processing vote:', { 
+                commentId: node.id, 
+                voteType,
+                currentStatus: userVoteStatus
+            });
+
+            // Optimistic update - update user vote status immediately
+            userVoteStatus = voteType;
+            
+            // Calculate what the new vote counts should be based on the vote change
+            let newPositive = originalPositive;
+            let newNegative = originalNegative;
+            
+            // Remove previous vote effect
+            if (originalVoteStatus === 'agree') {
+                newPositive = Math.max(0, newPositive - 1);
+            } else if (originalVoteStatus === 'disagree') {
+                newNegative = Math.max(0, newNegative - 1);
             }
             
-            // Check if this is removing current vote
-            const shouldRemove = 
-                (voteType === 'agree' && originalVoteStatus === 'agree') || 
-                (voteType === 'disagree' && originalVoteStatus === 'disagree');
+            // Add new vote effect
+            if (voteType === 'agree') {
+                newPositive = newPositive + 1;
+            } else if (voteType === 'disagree') {
+                newNegative = newNegative + 1;
+            }
             
-            // Call the store method which will also update the backend
-            const success = await discussionStore.voteOnComment(node.id, shouldRemove ? 'none' : voteType);
+            // Update the data optimistically
+            data.positiveVotes = newPositive;
+            data.negativeVotes = newNegative;
+            
+            // Call the store method which handles the API call and updates the backend
+            const success = await discussionStore.voteOnComment(node.id, voteType);
             
             if (success) {
+                console.log('[CommentNode] Vote successful');
                 // Show success animation
                 voteSuccess = true;
                 
@@ -187,15 +195,18 @@
                     voteSuccess = false;
                 }, 1000);
             } else {
+                console.warn('[CommentNode] Vote failed, reverting changes');
                 // Revert optimistic changes on failure
                 data.positiveVotes = originalPositive;
                 data.negativeVotes = originalNegative;
+                userVoteStatus = originalVoteStatus;
             }
         } catch (error) {
             console.error('[CommentNode] Error voting:', error);
             // Revert optimistic changes on error
             data.positiveVotes = originalPositive;
             data.negativeVotes = originalNegative;
+            userVoteStatus = originalVoteStatus;
         } finally {
             isVoting = false;
         }
@@ -363,16 +374,16 @@
                 class:active={userVoteStatus === 'agree'}
                 class:disabled={isVoting}
                 class:pulse={voteSuccess && lastVoteType === 'agree'}
-                transform="translate(-30, 0)"
+                transform="translate(-25, 0)"
                 on:click={() => !isVoting && handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
                 on:keydown={handleKeydown}
                 on:mouseenter={() => handleUpvoteHover(true)}
                 on:mouseleave={() => handleUpvoteHover(false)}
-                tabindex="0"
+                tabindex="-1"
                 role="button"
                 aria-label="Upvote comment"
                 aria-pressed={userVoteStatus === 'agree'}
-                style:filter={upvoteHovered || (voteSuccess && lastVoteType === 'agree') ? `url(#${upvoteFilterId})` : 'none'}
+                style:filter={upvoteHovered || (voteSuccess && lastVoteType === 'agree') || userVoteStatus === 'agree' ? `url(#${upvoteFilterId})` : 'none'}
             >
                 <foreignObject 
                     x="-42" 
@@ -385,22 +396,13 @@
                         class="icon-wrapper"
                         {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
                     >
-                        {#if isVoting && lastVoteType === 'agree'}
-                            <span 
-                                class="material-symbols-outlined spinning"
-                                style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
-                            >
-                                sync
-                            </span>
-                        {:else}
-                            <span 
-                                class="material-symbols-outlined"
-                                class:bounce={voteSuccess && lastVoteType === 'agree'}
-                                style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
-                            >
-                                thumb_up
-                            </span>
-                        {/if}
+                        <span 
+                            class="material-symbols-outlined"
+                            class:bounce={voteSuccess && lastVoteType === 'agree'}
+                            style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
+                        >
+                            thumb_up
+                        </span>
                     </div>
                 </foreignObject>
             </g>
@@ -409,10 +411,13 @@
             <text
                 class="vote-count"
                 class:pulse={voteSuccess}
+                class:positive={netVotes > 0}
+                class:negative={netVotes < 0}
+                class:neutral={netVotes === 0}
                 x="0"
                 y="4"
                 style:font-family={NODE_CONSTANTS.FONTS.value.family}
-                style:font-size="10px"
+                style:font-size="12px"
             >
                 {scoreDisplay}
             </text>
@@ -426,16 +431,16 @@
                 class:active={userVoteStatus === 'disagree'}
                 class:disabled={isVoting}
                 class:pulse={voteSuccess && lastVoteType === 'disagree'}
-                transform="translate(30, 0)"
+                transform="translate(25, 0)"
                 on:click={() => !isVoting && handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
                 on:keydown={handleKeydown}
                 on:mouseenter={() => handleDownvoteHover(true)}
                 on:mouseleave={() => handleDownvoteHover(false)}
-                tabindex="0"
+                tabindex="-1"
                 role="button"
                 aria-label="Downvote comment"
                 aria-pressed={userVoteStatus === 'disagree'}
-                style:filter={downvoteHovered || (voteSuccess && lastVoteType === 'disagree') ? `url(#${downvoteFilterId})` : 'none'}
+                style:filter={downvoteHovered || (voteSuccess && lastVoteType === 'disagree') || userVoteStatus === 'disagree' ? `url(#${downvoteFilterId})` : 'none'}
             >
                 <foreignObject 
                     x="22" 
@@ -448,22 +453,13 @@
                         class="icon-wrapper"
                         {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
                     >
-                        {#if isVoting && lastVoteType === 'disagree'}
-                            <span 
-                                class="material-symbols-outlined spinning"
-                                style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
-                            >
-                                sync
-                            </span>
-                        {:else}
-                            <span 
-                                class="material-symbols-outlined"
-                                class:bounce={voteSuccess && lastVoteType === 'disagree'}
-                                style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
-                            >
-                                thumb_down
-                            </span>
-                        {/if}
+                        <span 
+                            class="material-symbols-outlined"
+                            class:bounce={voteSuccess && lastVoteType === 'disagree'}
+                            style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
+                        >
+                            thumb_down
+                        </span>
                     </div>
                 </foreignObject>
             </g>
@@ -507,8 +503,14 @@
     .upvote-button, .downvote-button {
         cursor: pointer;
         /* Prevent any movement */
-        transform: none !important;
-        will-change: auto;
+        transform-box: fill-box;
+        transform-origin: center;
+        /* Remove the transition to prevent any movement animations */
+        /* Remove default focus outline */
+        outline: none;
+        /* Remove any default browser styling */
+        border: none;
+        background: none;
     }
 
     .upvote-button.disabled, .downvote-button.disabled {
@@ -516,8 +518,23 @@
         opacity: 0.6;
     }
 
+    /* Active state has no visual changes - glow effect is handled via filters */
+
+    /* Ensure no focus outline on the group elements */
+    .upvote-button:focus, .downvote-button:focus {
+        outline: none;
+    }
+
     .icon-container {
         overflow: visible;
+        /* Ensure no focus outline on the foreignObject */
+        outline: none;
+    }
+
+    /* Remove focus outline from all elements in the vote controls */
+    .vote-controls *, .vote-controls *:focus {
+        outline: none !important;
+        border: none !important;
     }
 
     .icon-wrapper {
@@ -537,11 +554,19 @@
     /* Vote count styling */
     .vote-count {
         fill: rgba(255, 255, 255, 0.9);
+        transition: fill 0.3s ease, font-size 0.2s ease;
     }
-
-    /* Spinning animation for loading state */
-    :global(.material-symbols-outlined.spinning) {
-        animation: spin 1.5s infinite linear;
+    
+    .vote-count.positive {
+        fill: rgba(46, 204, 113, 0.9);
+    }
+    
+    .vote-count.negative {
+        fill: rgba(231, 76, 60, 0.9);
+    }
+    
+    .vote-count.neutral {
+        fill: rgba(255, 255, 255, 0.9);
     }
 
     /* Bounce animation for successful vote */
@@ -554,14 +579,9 @@
         animation: pulse 0.5s ease-in-out;
     }
 
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-
     @keyframes bounce {
         0%, 100% { transform: scale(1); }
-        50% { transform: scale(1.3); }
+        50% { transform: scale(1.5); }
     }
 
     @keyframes pulse {
