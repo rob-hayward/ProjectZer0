@@ -1,4 +1,4 @@
-// src/lib/stores/discussionStore.ts
+// src/lib/stores/discussionStore.ts 
 import { writable, derived, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { userStore } from '$lib/stores/userStore';
@@ -270,7 +270,7 @@ function createDiscussionStore() {
         getVoteData(commentId: string): VoteData {
             const state = get({ subscribe });
             
-            // Check cache first for instant updates
+            // Check cache first
             if (state.voteCache.has(commentId)) {
                 return state.voteCache.get(commentId)!;
             }
@@ -286,12 +286,9 @@ function createDiscussionStore() {
                 };
             }
             
-            // Calculate vote data
+            // Calculate vote data and cache it
             const voteData = calculateVoteData(comment);
-            
-            // Cache for future use
             cacheVoteData(commentId, voteData);
-            
             return voteData;
         },
         
@@ -301,10 +298,21 @@ function createDiscussionStore() {
             return state.userVotes[commentId] || 'none';
         },
         
-        // Add a new comment to the discussion
+        /**
+         * CRITICAL FIX: Enhanced addComment method with proper parent ID handling
+         */
         async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
             const currentUser = get(userStore);
             if (!currentUser) return null;
+            
+            // CRITICAL: Proper handling of parentCommentId
+            console.log('[DiscussionStore] addComment called with:', {
+                nodeType,
+                nodeId,
+                parentCommentId,
+                parentCommentType: typeof parentCommentId,
+                nodeText
+            });
             
             update(state => ({ 
                 ...state, 
@@ -314,12 +322,12 @@ function createDiscussionStore() {
             }));
             
             try {
-                // Use discussionService to handle different API patterns
+                // CRITICAL FIX: Ensure parentCommentId is passed correctly to the service
                 const response = await discussionService.addComment(
                     nodeType, 
                     nodeId, 
                     commentText, 
-                    parentCommentId, 
+                    parentCommentId, // Pass exactly as received - let service handle null/undefined
                     nodeText
                 );
                 
@@ -327,9 +335,17 @@ function createDiscussionStore() {
                     throw new Error('Failed to create comment');
                 }
                 
-                // Create new comment object
+                console.log('[DiscussionStore] Comment created successfully:', {
+                    commentId: response.id,
+                    parentCommentId: response.parentCommentId,
+                    expectedParent: parentCommentId
+                });
+                
+                // Create new comment object with proper parent relationship
                 const newComment: Comment = {
                     ...response,
+                    // CRITICAL: Ensure parentCommentId is preserved
+                    parentCommentId: response.parentCommentId || parentCommentId,
                     childComments: [],
                     isVisible: true,
                     isExpanded: false,
@@ -345,7 +361,7 @@ function createDiscussionStore() {
                     // Add comment to the array
                     const updatedComments = [...state.comments, newComment];
                     
-                    // Rebuild comment tree
+                    // Rebuild comment tree - this will correctly establish parent-child relationships
                     const { roots, all } = buildCommentTree(updatedComments);
                     const sortedRoots = sortComments(roots, state.sortMode);
                     
@@ -368,6 +384,12 @@ function createDiscussionStore() {
                 
                 // Dispatch an event for new comment created to help with positioning
                 if (typeof window !== 'undefined') {
+                    console.log('[DiscussionStore] Dispatching comment-created event:', {
+                        commentId: newComment.id,
+                        parentId: parentCommentId,
+                        isReply: !!parentCommentId
+                    });
+                    
                     window.dispatchEvent(new CustomEvent('comment-created', { 
                         detail: { 
                             commentId: newComment.id,
@@ -378,9 +400,9 @@ function createDiscussionStore() {
                 }
                 
                 return newComment;
-                
             } catch (error) {
-                console.error('Error adding comment:', error);
+                console.error('[DiscussionStore] Error adding comment:', error);
+                
                 update(state => ({ 
                     ...state, 
                     isAddingComment: false,
@@ -388,10 +410,12 @@ function createDiscussionStore() {
                     replyToCommentId: null,
                     error: error instanceof Error ? error.message : 'Failed to add comment'
                 }));
+                
                 return null;
             }
         },
         
+        // Vote on a comment
         async voteOnComment(commentId: string, voteType: 'agree' | 'disagree' | 'none'): Promise<boolean> {
             const currentUser = get(userStore);
             if (!currentUser) return false;
@@ -402,17 +426,8 @@ function createDiscussionStore() {
             if (!comment) return false;
             
             try {
-                // Update user vote status immediately
-                update(state => ({
-                    ...state,
-                    userVotes: {
-                        ...state.userVotes,
-                        [commentId]: voteType
-                    }
-                }));
-                
-                // Make API call
                 let result;
+                
                 if (voteType === 'none') {
                     // Remove vote
                     result = await discussionService.removeVote(commentId);
@@ -425,50 +440,53 @@ function createDiscussionStore() {
                     throw new Error('Failed to update vote');
                 }
                 
-                // Update comment in store with server response
+                // Update comment with new vote counts
                 update(state => {
+                    // Find the comment in the array
                     const commentIndex = state.comments.findIndex(c => c.id === commentId);
                     if (commentIndex === -1) return state;
                     
-                    // Create updated comment
+                    // Create updated comment with new vote counts
                     const updatedComment = {
                         ...state.comments[commentIndex],
-                        positiveVotes: result.positiveVotes,
-                        negativeVotes: result.negativeVotes
+                        positiveVotes: getNeo4jNumber(result.positiveVotes),
+                        negativeVotes: getNeo4jNumber(result.negativeVotes)
                     };
                     
-                    // Update comments array
+                    // Calculate and cache new vote data
+                    const voteData = calculateVoteData(updatedComment);
+                    state.voteCache.set(commentId, voteData);
+                    
+                    // Update user vote status with proper type assertion
+                    const updatedUserVotes = {
+                        ...state.userVotes,
+                        [commentId]: voteType
+                    };
+                    
+                    // Create new comments array with updated comment
                     const updatedComments = [...state.comments];
                     updatedComments[commentIndex] = updatedComment;
                     
-                    // Update vote cache
-                    const voteData = {
-                        positiveVotes: result.positiveVotes,
-                        negativeVotes: result.negativeVotes,
-                        netVotes: result.positiveVotes - result.negativeVotes,
-                        shouldBeHidden: (result.positiveVotes - result.negativeVotes) < 0
-                    };
-                    state.voteCache.set(commentId, voteData);
+                    // Rebuild comment tree to maintain proper structure
+                    const { roots, all } = buildCommentTree(updatedComments);
+                    const sortedRoots = sortComments(roots, state.sortMode);
                     
                     return {
                         ...state,
-                        comments: updatedComments
+                        comments: all,
+                        rootComments: sortedRoots,
+                        userVotes: updatedUserVotes
                     };
                 });
                 
                 return true;
+                
             } catch (error) {
                 console.error('Error voting on comment:', error);
-                
-                // Revert user vote status on error
-                update(state => ({
-                    ...state,
-                    userVotes: {
-                        ...state.userVotes,
-                        [commentId]: state.userVotes[commentId] || 'none'
-                    }
+                update(state => ({ 
+                    ...state, 
+                    error: error instanceof Error ? error.message : 'Failed to update vote'
                 }));
-                
                 return false;
             }
         },

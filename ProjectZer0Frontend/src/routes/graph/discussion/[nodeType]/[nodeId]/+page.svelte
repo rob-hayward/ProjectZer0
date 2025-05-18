@@ -304,71 +304,80 @@
         }, 300);
     }
 
-
+    // CRITICAL FIX: Enhanced comment submit handler with proper parent ID handling
     async function handleCommentSubmit(event: CustomEvent<{ text: string; parentId: string | null }>) {
         const { text, parentId } = event.detail;
-        console.log('[STATE_DEBUG] Comment submit event:', { text, parentId });
+        console.log('[STATE_DEBUG] Comment submit event:', { 
+            text: text.substring(0, 50) + '...', 
+            parentId, 
+            parentIdType: typeof parentId 
+        });
         
         try {
             // Show loading indicator
             isLoading = true;
             
-            // Pass nodeText for word nodes and convert null to undefined if needed
+            // CRITICAL FIX: Convert null to undefined for the API call, but preserve the actual value
+            // The discussionService expects undefined, not null
+            const parentIdForApi = parentId === null ? undefined : parentId;
+            
+            console.log('[STATE_DEBUG] Calling discussionStore.addComment with:', {
+                nodeType,
+                nodeId,
+                parentIdForApi,
+                nodeText
+            });
+            
+            // Pass nodeText for word nodes and convert null to undefined for API compatibility
             const newComment = await discussionStore.addComment(
                 nodeType, 
                 nodeId, 
                 text, 
-                parentId !== null ? parentId : undefined,
+                parentIdForApi, // Convert null -> undefined for API
                 nodeText
             );
             
             if (newComment) {
-                console.log('[STATE_DEBUG] Comment added successfully:', newComment.id);
+                console.log('[STATE_DEBUG] Comment added successfully:', {
+                    commentId: newComment.id,
+                    parentCommentId: newComment.parentCommentId,
+                    expectedParent: parentId
+                });
+                
                 // Reset state
                 isAddingRootComment = false;
                 
                 // Force graph data update to show the new comment
+                console.log('[STATE_DEBUG] Forcing graph data update after comment creation');
                 graphData = createGraphData();
                 
                 // Center the view on the new comment after a short delay
                 setTimeout(() => {
                     if (graphComponent && typeof graphComponent.centerOnNodeById === 'function') {
+                        console.log('[STATE_DEBUG] Centering on new comment:', newComment.id);
                         graphComponent.centerOnNodeById(newComment.id);
                     }
                 }, 300);
+            } else {
+                console.error('[STATE_DEBUG] Comment creation returned null');
             }
         } catch (err) {
             console.error('[STATE_DEBUG] Error adding comment:', err);
-            // Show error message to user
             // You could add an error toast/notification here
+            error = err instanceof Error ? err.message : 'Failed to add comment';
         } finally {
             isLoading = false;
         }
     }
     
-    function handleCommentCancel() {
-        console.log('[STATE_DEBUG] Comment cancelled');
-        isAddingRootComment = false;
-        discussionStore.cancelAddingComment();
-    }
-    
-    function handleEditComment(event: CustomEvent<{ commentId: string; text: string }>) {
-        console.log('[STATE_DEBUG] Edit comment event:', event.detail);
-        // TODO: Implement comment editing
-    }
-    
-    function handleDeleteComment(event: CustomEvent<{ commentId: string }>) {
-        console.log('[STATE_DEBUG] Delete comment event:', event.detail);
-        // TODO: Implement comment deletion
-    }
-        
+    // CRITICAL FIX: Enhanced graph data creation with improved form node handling
     function createGraphData(): GraphData {
         console.log('[STATE_DEBUG] Creating graph data, central node:', centralNode?.id);
         if (!centralNode) {
             return { nodes: [], links: [] };
         }
         
-        // Create a helper function to generate a form node
+        // CRITICAL FIX: Enhanced form node creation with better parent ID extraction
         function createCommentFormNode(parentId: string | null): GraphNode {
             // Generate a unique ID
             const timestamp = Date.now();
@@ -376,30 +385,42 @@
                 ? `comment-form-reply-${parentId}-${timestamp}`
                 : `comment-form-root-${timestamp}`;
             
-            // Create form data with consistent structure
+            console.log('[STATE_DEBUG] Creating comment form node:', {
+                formId,
+                parentId,
+                isReply: !!parentId
+            });
+            
+            // CRITICAL: Create form data with explicit parentCommentId handling
             const formData: CommentFormData = {
                 id: formId,
-                parentCommentId: parentId,  // CommentFormData accepts null
+                parentCommentId: parentId, // Keep as null for type compatibility
                 sub: `form-${timestamp}`,
                 label: parentId ? 'Reply' : 'Comment',
                 word: ''
             };
             
-            // Create metadata with explicit parentCommentId
+            // CRITICAL: Create metadata with explicit parentCommentId
             const metadata: NodeMetadata = { 
                 group: 'comment-form' as NodeMetadata['group'],
-                parentCommentId: parentId || undefined
+                parentCommentId: parentId || undefined // Convert null to undefined for metadata
             };
             
-            // Create comment form node with consistent structure
-            const formNode = {
+            // Create comment form node with all parent ID sources
+            const formNode: GraphNode = {
                 id: formId,
                 type: 'comment-form' as NodeType,
-                data: formData as any, // Type assertion
+                data: formData,
                 group: 'comment-form' as NodeGroup,
                 mode: 'detail' as NodeMode,
                 metadata: metadata
             };
+            
+            console.log('[STATE_DEBUG] Created form node:', {
+                id: formNode.id,
+                dataParentId: formData.parentCommentId,
+                metadataParentId: metadata.parentCommentId
+            });
             
             return formNode;
         }
@@ -444,23 +465,23 @@
         
         // First, create all comment nodes with complete metadata
         comments.forEach(comment => {
-            // Create complete metadata for the comment node
+            // CRITICAL: Properly handle parent-child metadata
             const commentMetadata: NodeMetadata = {
                 group: 'comment' as NodeMetadata['group'],
-                parentCommentId: comment.parentCommentId,
+                parentCommentId: comment.parentCommentId, // Keep original value
                 votes: comment.positiveVotes - comment.negativeVotes,
                 createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
                 depth: comment.depth || 0,
                 isExpanded: comment.isExpanded || false
             };
             
-            // Create comment node with explicit copying of parentCommentId
+            // CRITICAL: Create comment node with explicit parent ID preservation
             const commentNode: GraphNode = {
                 id: comment.id,
                 type: 'comment' as NodeType,
                 data: {
                     ...comment,
-                    // Ensure parentCommentId is explicitly copied to the data
+                    // CRITICAL: Ensure parentCommentId is explicitly copied to the data
                     parentCommentId: comment.parentCommentId
                 } as unknown as CommentNodeType,
                 group: 'comment' as NodeGroup,
@@ -471,7 +492,7 @@
             commentNodes.push(commentNode);
         });
         
-        // CRITICAL: Create links in a separate pass to ensure all nodes exist first
+        // CRITICAL: Create links with proper parent-child relationship handling
         comments.forEach(comment => {
             if (comment.parentCommentId) {
                 // Check if the parent comment actually exists in our current set
@@ -484,16 +505,21 @@
                         source: comment.parentCommentId,
                         target: comment.id,
                         type: 'reply' as LinkType,
-                        // Add metadata to help debugging and ensure type integrity
                         metadata: {
                             linkType: 'reply',
                             parentId: comment.parentCommentId,
                             childId: comment.id
                         }
                     });
+                    
+                    console.log('[STATE_DEBUG] Created reply link:', {
+                        from: comment.parentCommentId,
+                        to: comment.id,
+                        type: 'reply'
+                    });
                 } else {
-                    // Fallback: Parent doesn't exist in the current set, link to central node
-                    console.warn(`[STATE_DEBUG] Parent ${comment.parentCommentId} not found for comment ${comment.id}, linking to central node instead`);
+                    // Fallback: Parent doesn't exist, link to central node
+                    console.warn(`[STATE_DEBUG] Parent ${comment.parentCommentId} not found for comment ${comment.id}, linking to central node`);
                     commentLinks.push({
                         id: `comment-fallback-${centralNode.id}-${comment.id}`,
                         source: centralNode.id,
@@ -516,11 +542,17 @@
                         linkType: 'root-comment'
                     }
                 });
+                
+                console.log('[STATE_DEBUG] Created root comment link:', {
+                    from: centralNode.id,
+                    to: comment.id,
+                    type: 'comment'
+                });
             }
         });
         
+        // CRITICAL FIX: Handle comment forms with proper parent ID tracking
         // We can only have one comment form at a time
-        // Either a root comment form or a reply form, not both
         if (isAddingRootComment) {
             console.log('[STATE_DEBUG] Creating root comment form');
             const formNode = createCommentFormNode(null);
@@ -531,7 +563,10 @@
                 id: `form-link-${centralNode.id}-${formNode.id}`,
                 source: centralNode.id,
                 target: formNode.id,
-                type: 'comment-form' as LinkType
+                type: 'comment-form' as LinkType,
+                metadata: {
+                    linkType: 'root-comment-form'
+                }
             });
             
             console.log('[STATE_DEBUG] Added root comment form:', formNode.id);
@@ -539,6 +574,8 @@
         // Only add a reply form if we're not adding a root comment
         else if ($discussionStore.isAddingReply && $discussionStore.replyToCommentId) {
             const parentId = $discussionStore.replyToCommentId;
+            
+            console.log('[STATE_DEBUG] Creating reply form for parent:', parentId);
             
             // Verify parent exists
             if (commentIdMap.has(parentId)) {
@@ -552,11 +589,16 @@
                     target: formNode.id,
                     type: 'reply-form' as LinkType,
                     metadata: {
+                        linkType: 'reply-form',
                         parentId
                     }
                 });
                 
-                console.log('[STATE_DEBUG] Added reply form for comment:', parentId, 'form ID:', formNode.id);
+                console.log('[STATE_DEBUG] Added reply form:', {
+                    formId: formNode.id,
+                    parentId: parentId,
+                    linkCreated: true
+                });
             } else {
                 console.error('[STATE_DEBUG] Cannot add reply form - parent not found:', parentId);
             }
@@ -577,6 +619,22 @@
         });
         
         return finalData;
+    }
+    
+    function handleCommentCancel() {
+        console.log('[STATE_DEBUG] Comment cancelled');
+        isAddingRootComment = false;
+        discussionStore.cancelAddingComment();
+    }
+    
+    function handleEditComment(event: CustomEvent<{ commentId: string; text: string }>) {
+        console.log('[STATE_DEBUG] Edit comment event:', event.detail);
+        // TODO: Implement comment editing
+    }
+    
+    function handleDeleteComment(event: CustomEvent<{ commentId: string }>) {
+        console.log('[STATE_DEBUG] Delete comment event:', event.detail);
+        // TODO: Implement comment deletion
     }
     
     // ADDED: Validation function for comment hierarchy

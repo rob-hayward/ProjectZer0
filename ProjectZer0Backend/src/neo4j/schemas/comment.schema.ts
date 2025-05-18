@@ -1,4 +1,4 @@
-// src/neo4j/schemas/comment.schema.ts
+// src/neo4j/schemas/comment.schema.ts - FIXED VERSION
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { TEXT_LIMITS } from '../../constants/validation';
@@ -32,6 +32,8 @@ export class CommentSchema {
       `Creating comment with data:`,
       JSON.stringify(commentData, null, 2),
     );
+
+    // 🔧 CRITICAL FIX: Store parentCommentId as a property AND create the relationship
     const query = `
       MATCH (d:DiscussionNode {id: $discussionId})
       CREATE (c:CommentNode {
@@ -43,7 +45,8 @@ export class CommentSchema {
         positiveVotes: 0,
         negativeVotes: 0,
         netVotes: 0,
-        visibilityStatus: true
+        visibilityStatus: true,
+        parentCommentId: $parentCommentId
       })
       CREATE (d)-[:HAS_COMMENT]->(c)
       WITH c, d
@@ -53,12 +56,29 @@ export class CommentSchema {
       )
       RETURN c
     `;
-    const result = await this.neo4jService.write(query, {
+
+    // 🔧 CRITICAL FIX: Ensure parentCommentId is properly passed (null becomes null, not undefined)
+    const queryParams = {
       ...commentData,
       parentCommentId: commentData.parentCommentId || null,
-    });
+    };
+
+    console.log('Query parameters:', JSON.stringify(queryParams, null, 2));
+
+    const result = await this.neo4jService.write(query, queryParams);
     const createdComment = result.records[0].get('c').properties;
+
     console.log(`Created comment:`, JSON.stringify(createdComment, null, 2));
+
+    // 🔧 VERIFICATION: Log the parentCommentId to ensure it was stored
+    if (commentData.parentCommentId) {
+      console.log(
+        `✅ Reply comment created with parentCommentId: ${createdComment.parentCommentId}`,
+      );
+    } else {
+      console.log(`✅ Root comment created (no parent)`);
+    }
+
     return createdComment;
   }
 
@@ -123,6 +143,7 @@ export class CommentSchema {
     return result.records.map((record) => record.get('c').properties);
   }
 
+  // 🔧 CRITICAL FIX: Improved query that correctly handles parentCommentId
   async getCommentsByDiscussionIdWithSorting(
     discussionId: string,
     sortBy: 'popularity' | 'newest' | 'oldest' = 'popularity',
@@ -143,29 +164,41 @@ export class CommentSchema {
         orderByClause = 'ORDER BY c.netVotes DESC, c.createdAt DESC';
     }
 
+    // 🔧 CRITICAL FIX: Simplified query that relies on the stored parentCommentId property
     const result = await this.neo4jService.read(
       `
       MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
-      WITH c
-      OPTIONAL MATCH (c)<-[:HAS_REPLY*]-(parent:CommentNode)
-      WITH c, collect(parent) as parents
       RETURN c {
         .*,
-        isRootComment: size(parents) = 0,
-        parentCommentId: CASE WHEN size(parents) > 0 THEN parents[0].id ELSE null END
+        isRootComment: c.parentCommentId IS NULL,
+        parentCommentId: c.parentCommentId
       } as comment
       ${orderByClause}
       `,
       { discussionId },
     );
 
-    return result.records.map((record) => record.get('comment'));
+    const comments = result.records.map((record) => record.get('comment'));
+
+    // 🔧 DEBUG: Log comment structure for verification
+    console.log(
+      `Retrieved ${comments.length} comments for discussion ${discussionId}`,
+    );
+    comments.forEach((comment) => {
+      console.log(
+        `Comment ${comment.id}: parentCommentId=${comment.parentCommentId}, isRoot=${comment.isRootComment}`,
+      );
+    });
+
+    return comments;
   }
 
   async getRepliesForComment(commentId: string) {
+    // 🔧 ALTERNATIVE: Can also query by relationship OR by parentCommentId property
     const result = await this.neo4jService.read(
       `
-      MATCH (c:CommentNode {id: $commentId})-[:HAS_REPLY]->(reply:CommentNode)
+      MATCH (reply:CommentNode)
+      WHERE reply.parentCommentId = $commentId
       RETURN reply
       ORDER BY reply.createdAt ASC
       `,
@@ -175,10 +208,13 @@ export class CommentSchema {
   }
 
   async getCommentHierarchy(discussionId: string) {
+    // 🔧 IMPROVED: Query using the stored parentCommentId property
     const result = await this.neo4jService.read(
       `
       MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
-      OPTIONAL MATCH (c)-[:HAS_REPLY*]->(reply:CommentNode)
+      WHERE c.parentCommentId IS NULL
+      OPTIONAL MATCH (reply:CommentNode)
+      WHERE reply.parentCommentId = c.id
       RETURN c, collect(reply) as replies
       ORDER BY c.createdAt ASC
       `,

@@ -27,6 +27,14 @@
         cancel: void;
     }>();
     
+    // CRITICAL FIX: Extract parentCommentId from multiple sources
+    $: actualParentId = parentCommentId 
+        || node.metadata?.parentCommentId 
+        || (node.data && 'parentCommentId' in node.data ? (node.data as any).parentCommentId : null);
+    
+    // Update isReply based on actual parent ID
+    $: isReply = !!actualParentId;
+    
     // Calculate character count and validity
     $: {
         charCount = commentText.length;
@@ -58,9 +66,12 @@
         
         isSubmitting = true;
         
+        console.log('[CommentForm] Submitting with parentId:', actualParentId);
+        
+        // CRITICAL FIX: Use actualParentId instead of parentCommentId
         dispatch('submit', {
             text: commentText,
-            parentId: parentCommentId
+            parentId: actualParentId
         });
         
         // Reset form
@@ -81,12 +92,30 @@
     }
     
     onMount(() => {
-        console.log('[CommentFormNode] Mounting with parent:', parentCommentId);
+        console.log('[CommentFormNode] Mounting with:', {
+            nodeId: node.id,
+            parentCommentId: parentCommentId,
+            nodeMetadataParent: node.metadata?.parentCommentId,
+            nodeDataParent: node.data && 'parentCommentId' in node.data ? (node.data as any).parentCommentId : 'none',
+            actualParentId: actualParentId,
+            isReply: isReply
+        });
     });
 </script>
 
 <BaseNode {node} style={customStyle}>
     <svelte:fragment slot="default" let:radius>
+        <!-- Title showing whether this is a reply or root comment -->
+        <text
+            y={-radius + 15}
+            class="form-title"
+            style:font-family={NODE_CONSTANTS.FONTS.title.family}
+            style:font-size="10px"
+            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+        >
+            {isReply ? `Reply to Comment` : 'New Comment'}
+        </text>
+        
         <!-- Text input area - positioned higher and made wider -->
         <foreignObject
             x={-radius + 20}
@@ -115,22 +144,49 @@
             {MAX_CHARS - commentText.length} characters remaining
         </text>
         
-        <!-- Button container - move buttons closer together -->
-        <g transform="translate(34, 75)">
-            <!-- Submit button - smaller width -->
+        <!-- Button container - side by side -->
+        <g transform="translate(0, 75)">
+            <!-- Cancel button -->
+            <g 
+                class="button cancel-button"
+                transform="translate(-35, 0)"
+                role="button"
+                tabindex="0"
+                on:click={handleCancel}
+                on:keydown={(e) => e.key === 'Enter' && handleCancel()}
+            >
+                <rect
+                    x={-25}
+                    y={-15}
+                    width={50}
+                    height={20}
+                    rx="4"
+                    ry="4"
+                    class="button-bg cancel-bg"
+                />
+                <text
+                    y="0"
+                    class="button-text"
+                    text-anchor="middle"
+                >
+                    Cancel
+                </text>
+            </g>
+            
+            <!-- Submit button -->
             <g 
                 class="button submit-button" 
                 class:disabled={!isValid || isSubmitting}
-                transform="translate({-35}, 0)"
+                transform="translate(35, 0)"
                 role="button"
                 tabindex="0"
                 on:click={() => isValid && !isSubmitting && handleSubmit()}
                 on:keydown={(e) => e.key === 'Enter' && isValid && !isSubmitting && handleSubmit()}
             >
                 <rect
-                    x={-35}
+                    x={-25}
                     y={-15}
-                    width={70}
+                    width={50}
                     height={20}
                     rx="4"
                     ry="4"
@@ -141,7 +197,7 @@
                     class="button-text"
                     text-anchor="middle"
                 >
-                    {isSubmitting ? 'Submitting...' : isReply ? 'Reply' : 'Comment'}
+                    {isSubmitting ? 'Sending...' : isReply ? 'Reply' : 'Comment'}
                 </text>
             </g>
         </g>
@@ -149,6 +205,11 @@
 </BaseNode>
 
 <style>
+    .form-title {
+        fill: rgba(255, 255, 255, 0.8);
+        text-anchor: middle;
+    }
+    
     .character-count {
         font-size: 8px;
         font-family: 'Orbitron', sans-serif;
@@ -183,6 +244,11 @@
         fill: rgba(46, 204, 113, 0.2);
     }
     
+    .cancel-bg {
+        stroke: rgba(231, 76, 60, 0.6);
+        fill: rgba(231, 76, 60, 0.2);
+    }
+    
     .button-text {
         font-size: 12px;
         fill: rgba(255, 255, 255, 0.9);
@@ -192,6 +258,11 @@
     .submit-button:hover:not(.disabled) .submit-bg {
         fill: rgba(46, 204, 113, 0.3);
         stroke: rgba(46, 204, 113, 0.8);
+    }
+    
+    .cancel-button:hover .cancel-bg {
+        fill: rgba(231, 76, 60, 0.3);
+        stroke: rgba(231, 76, 60, 0.8);
     }
     
     /* Textarea styling */
