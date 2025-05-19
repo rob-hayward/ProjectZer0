@@ -234,6 +234,7 @@ export class GraphManager {
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
+            console.warn(`[GraphManager] Node ${nodeId} not found for visibility update`);
             return;
         }
         
@@ -242,18 +243,36 @@ export class GraphManager {
         
         // Skip if already in correct state
         if (oldNode.isHidden === isHidden) {
+            console.log(`[GraphManager] Node ${nodeId} already in correct visibility state: ${isHidden ? 'hidden' : 'visible'}`);
             return;
         }
         
-        // Create a completely new node object with updated properties
+        console.log(`[GraphManager] Updating visibility for ${oldNode.type} node ${nodeId}: ${isHidden ? 'hiding' : 'showing'} (${hiddenReason})`);
+        
+        // CRITICAL FIX: For comment nodes, explicitly calculate correct radius
+        let newRadius;
+        if (oldNode.type === 'comment') {
+            // For comment nodes, use constants directly without any mode considerations
+            newRadius = isHidden ? 
+                COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
+                COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+            console.log(`[GraphManager] Comment node ${nodeId} radius: ${oldNode.radius} -> ${newRadius} (hidden: ${isHidden})`);
+        } else {
+            // For other nodes, use the existing radius calculation
+            newRadius = this.getNodeRadius({
+                ...oldNode,
+                isHidden: isHidden
+            });
+        }
+        
+        // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...oldNode,
             isHidden: isHidden,
             hiddenReason: hiddenReason,
-            radius: this.getNodeRadius({
-                ...oldNode,
-                isHidden: isHidden
-            })
+            radius: newRadius,
+            // CRITICAL: Don't change mode for comment nodes - they don't have modes
+            mode: oldNode.type === 'comment' ? oldNode.mode : oldNode.mode
         };
         
         // Create a new nodes array with the updated node
@@ -263,6 +282,8 @@ export class GraphManager {
         // Update the simulation with the new nodes array
         this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
+        
+        console.log(`[GraphManager] Updated ${oldNode.type} node ${nodeId} visibility state successfully. New radius: ${updatedNode.radius}`);
         
         // If layout strategy exists, let it handle the visibility change
         if (this.currentLayoutStrategy) {
@@ -887,9 +908,16 @@ export class GraphManager {
                 existing.data = node.data;
                 existing.mode = node.mode;
                 
-                // Reset cached values
-                this.nodeVotesCache.delete(node.id);
-                this.nodeRadiusCache.delete(node.id);
+                // CRITICAL: For comment nodes, ensure radius is always correct
+                if (node.type === 'comment') {
+                    existing.radius = existing.isHidden ? 
+                        COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
+                        COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+                } else {
+                    // Reset cached values for other node types
+                    this.nodeVotesCache.delete(node.id);
+                    this.nodeRadiusCache.delete(node.id);
+                }
                 
                 return existing;
             }
@@ -898,7 +926,7 @@ export class GraphManager {
             const netVotes = this.getNodeVotes(node);
             
             // Determine if node should be hidden based on community standard
-            const isHidden = (node.type === 'word' || node.type === 'definition' || node.type === 'statement') && 
+            const isHidden = (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'comment') && 
                 netVotes < 0;
                     
             const enhancedNode: EnhancedNode = {
@@ -907,7 +935,10 @@ export class GraphManager {
                 data: node.data,
                 group: node.group,
                 mode: node.mode,
-                radius: this.getNodeRadius(node),
+                // CRITICAL: Use proper radius calculation for comment nodes
+                radius: node.type === 'comment' 
+                    ? (isHidden ? COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2)
+                    : this.getNodeRadius(node),
                 fixed: node.group === 'central',
                 expanded: node.mode === 'detail',
                 subtype: node.type === 'definition' ? 
@@ -928,7 +959,7 @@ export class GraphManager {
                     group: this.getLayoutGroup(node),
                     fixed: node.group === 'central',
                     isDetail: node.mode === 'detail',
-                    votes: node.type === 'definition' || node.type === 'statement' ? 
+                    votes: node.type === 'definition' || node.type === 'statement' || node.type === 'comment' ? 
                         netVotes : undefined,
                     createdAt: 'createdAt' in node.data ? 
                         (node.data.createdAt instanceof Date ? 
@@ -1187,7 +1218,7 @@ export class GraphManager {
             return this.nodeRadiusCache.get(cacheKey) || 0;
         }
         
-        // First check if node is hidden - hidden nodes have the smallest radius
+        // CRITICAL: First check if node is hidden - hidden nodes have the smallest radius
         if ('isHidden' in node && node.isHidden) {
             const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
             this.nodeRadiusCache.set(cacheKey, radius);
@@ -1222,12 +1253,13 @@ export class GraphManager {
                 break;      
             
             case 'comment':
-                // Use fixed size for comment nodes regardless of mode
+                // CRITICAL FIX: Comment nodes ALWAYS use STANDARD size from constants
+                // They don't have preview/detail modes, so ignore mode completely
                 radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
                 break;
                 
             case 'comment-form':
-                // Use fixed size for comment form nodes
+                // Comment forms also use the comment standard size
                 radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
                 break;
                     
@@ -1277,16 +1309,21 @@ export class GraphManager {
         // For statement nodes, use the statementNetworkStore as single source of truth
         if (node.type === 'statement') {
             try {
-                // Attempt to get from statement network store (the authoritative source)
                 const voteData = statementNetworkStore.getVoteData(node.id);
                 netVotes = voteData.netVotes;
             } catch (error) {
-                // Fallback to direct calculation only if the store fails
                 const statement = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
                 const posVotes = getNeo4jNumber(statement.positiveVotes);
                 const negVotes = getNeo4jNumber(statement.negativeVotes);
                 netVotes = posVotes - negVotes;
             }
+        }
+        // For comment nodes, calculate votes from comment data
+        else if (node.type === 'comment' && 'data' in node) {
+            const comment = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };
+            const posVotes = getNeo4jNumber(comment.positiveVotes);
+            const negVotes = getNeo4jNumber(comment.negativeVotes);
+            netVotes = posVotes - negVotes;
         }
         else if (node.type === 'definition' && 'data' in node) {
             const def = node.data as { positiveVotes?: number | any; negativeVotes?: number | any };

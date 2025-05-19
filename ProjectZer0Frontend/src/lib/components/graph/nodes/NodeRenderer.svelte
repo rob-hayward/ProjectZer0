@@ -91,9 +91,9 @@
         // Log complete information
         console.log('[NodeRenderer] Visibility change requested:', {
             nodeId: node.id,
+            nodeType: node.type,
             currentVisibility: node.isHidden ? 'hidden' : 'visible',
-            newVisibility: event.detail.isHidden ? 'hidden' : 'visible',
-            nodeType: node.type
+            newVisibility: event.detail.isHidden ? 'hidden' : 'visible'
         });
 
         // The visibility store uses isVisible (true = visible, false = hidden)
@@ -106,6 +106,13 @@
             nodeId: node.id,
             isVisible: isVisible
         });
+        
+        // For comments, also update the discussion store to maintain consistency
+        if (node.type === 'comment') {
+            // The discussionStore should handle comment visibility internally
+            // We just need to ensure the visibility store is updated (done above)
+            console.log('[NodeRenderer] Comment visibility change - visibility store updated');
+        }
         
         // Then update the graph store directly - this is the key to immediate UI updates
         if (graphStore) {
@@ -184,7 +191,7 @@
             }
         });
         
-        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity') {
+        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
                 const shouldBeHidden = !preference;
@@ -230,7 +237,8 @@
             handleModeChange={handleModeChange}
         />
     
-        <!-- Add show/hide button to qualifying nodes - positioned at 4:30 -->
+        <!-- ONLY add buttons to visible nodes (not hidden ones) -->
+        <!-- Add show/hide button to qualifying non-comment nodes - positioned at 4:30 -->
         {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity'}
             <ShowHideButton 
                 isHidden={false}
@@ -279,6 +287,15 @@
                     }}
                 />
             {/if}
+        {:else if node.type === 'comment'}
+            <!-- Special handling for comment nodes - only show/hide button, no discuss button -->
+            <ShowHideButton 
+                isHidden={false}
+                y={node.radius * 0.7071}  
+                x={node.radius * 0.7071}  
+                nodeId={node.id}
+                on:visibilityChange={handleVisibilityChange}
+            />
         {/if}
     {/if}
 </g>

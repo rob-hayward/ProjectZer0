@@ -5,10 +5,12 @@
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import BaseNode from '../base/BaseNode.svelte';
+    import HiddenNode from '../common/HiddenNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
     import ReplyButton from '../common/ReplyButton.svelte';
     import { COLORS } from '$lib/constants/colors';
@@ -36,7 +38,6 @@
     }
     
     // Type assertion for comment data
-    // Cast to CommentData using type assertion
     const data = node.data as unknown as CommentData;
     
     // Helper function to handle Neo4j number format
@@ -59,6 +60,16 @@
     // Track replying state
     $: isReplying = $discussionStore.isAddingReply && $discussionStore.replyToCommentId === node.id;
     
+    // VISIBILITY FUNCTIONALITY - MINIMAL ADDITION
+    // Calculate visibility but don't modify the node directly here
+    $: communityHidden = netVotes < 0;
+    $: userPreference = visibilityStore.getPreference(node.id);
+    $: isHidden = userPreference !== undefined ? !userPreference : communityHidden;
+    
+    // Declare hiddenReason as a regular variable
+    let hiddenReason: 'user' | 'community';
+    $: hiddenReason = userPreference !== undefined ? 'user' : 'community';
+    
     // Track voting state
     let isVoting = false;
     let voteSuccess = false;
@@ -68,14 +79,13 @@
     let upvoteHovered = false;
     let downvoteHovered = false;
     
-    // Calculate position for the reply button to place it where the circles just meet
-    // Assuming ReplyButton has a radius of 10 (as we've set it in the updated component)
-    $: buttonRadius = 10; // Match the radius we set in ReplyButton
+    // Calculate position for the reply button
+    $: buttonRadius = 10;
     $: nodeRadius = node.radius || 90;
     
     // Use trigonometry to position the button at exactly 1:30 (45 degrees)
-    $: replyButtonX = (nodeRadius + buttonRadius) * Math.cos(Math.PI/4); // cos(45°) = 0.7071
-    $: replyButtonY = -(nodeRadius + buttonRadius) * Math.sin(Math.PI/4); // -sin(45°) = -0.7071
+    $: replyButtonX = (nodeRadius + buttonRadius) * Math.cos(Math.PI/4);
+    $: replyButtonY = -(nodeRadius + buttonRadius) * Math.sin(Math.PI/4);
     
     // Define colors for the vote buttons from color constants
     const upvoteColor = COLORS.PRIMARY.GREEN;
@@ -105,7 +115,6 @@
     
     function handleReplyButtonClick(event: CustomEvent<{ nodeId: string | undefined }>) {
         console.log(`[CommentNode] Reply button clicked for comment: ${node.id}`);
-        // Forward the event to our existing handler
         handleReply();
     }
     
@@ -120,19 +129,19 @@
     // Add keyboard event handler for accessibility
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' || event.key === 'Space') {
-            event.preventDefault(); // Prevent scrolling with space
+            event.preventDefault();
             const target = event.currentTarget as HTMLElement;
             if (target.classList.contains('upvote-button')) {
                 if (userVoteStatus === 'agree') {
-                    handleVote('none'); // Remove upvote
+                    handleVote('none');
                 } else {
-                    handleVote('agree'); // Add upvote
+                    handleVote('agree');
                 }
             } else if (target.classList.contains('downvote-button')) {
                 if (userVoteStatus === 'disagree') {
-                    handleVote('none'); // Remove downvote
+                    handleVote('none');
                 } else {
-                    handleVote('disagree'); // Add downvote
+                    handleVote('disagree');
                 }
             }
         }
@@ -149,7 +158,7 @@
         });
     }
     
-    // Enhanced vote handler with robust state management
+    // ORIGINAL voting logic - PRESERVED exactly as it was
     async function handleVote(voteType: VoteStatus) {
         if (!get(userStore) || isVoting) {
             console.log('[CommentNode] Vote blocked - user not authenticated or already voting');
@@ -215,11 +224,9 @@
                 }, 1000);
             } else {
                 console.warn('[CommentNode] Vote failed - backend rejected');
-                // Don't change anything since backend failed
             }
         } catch (error) {
             console.error('[CommentNode] Error voting:', error);
-            // Don't change anything since there was an error
         } finally {
             isVoting = false;
         }
@@ -259,39 +266,32 @@
         successType: VoteStatus | null,
         isVotingActive: boolean
     ): string {
-        // Success animation takes precedence
         if (showSuccess && successType === (buttonType === 'upvote' ? 'agree' : 'disagree')) {
             return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
         }
         
-        // Voted state - show persistent glow
         if (voteStatus === 'agree' && buttonType === 'upvote') {
-            // If hover over voted button and not currently voting, show white glow
             return isHovered && !isVotingActive 
                 ? `url(#${neutralFilterId})` 
                 : `url(#${upvoteFilterId})`;
         }
         if (voteStatus === 'disagree' && buttonType === 'downvote') {
-            // If hover over voted button and not currently voting, show white glow
             return isHovered && !isVotingActive 
                 ? `url(#${neutralFilterId})` 
                 : `url(#${downvoteFilterId})`;
         }
         
-        // Hover states (only when not currently voting)
         if (isHovered && !isVotingActive) {
-            // If hovering over unvoted button, show appropriate colored glow
             return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
         }
         
-        // Default - no filter
         return 'none';
     }
     
     // Size calculations for text wrapping
-    $: radius = node.radius || 90; // Default size if radius is not set
-    $: textWidth = radius * 1.5; // Adjust this multiplier as needed
-    $: maxCharsPerLine = Math.floor(textWidth / 5.5); // Approx characters per line
+    $: radius = node.radius || 90;
+    $: textWidth = radius * 1.5;
+    $: maxCharsPerLine = Math.floor(textWidth / 5.5);
 
     // Text wrapping for content
     $: lines = data.commentText.split(' ').reduce((acc, word) => {
@@ -311,9 +311,8 @@
     $: textColor = getContrastingTextColor(voteColor);
     
     // Extract color values from NODE_CONSTANTS for comment styling
-    // Get base color and add different alpha values
     $: commentNodeColors = NODE_CONSTANTS.COLORS.COMMENT;
-    $: baseColor = commentNodeColors.border.substring(0, 7); // First 7 chars (hex without alpha)
+    $: baseColor = commentNodeColors.border.substring(0, 7);
     
     // Define comment node color using the NODE_CONSTANTS
     $: customStyle = {
@@ -328,7 +327,7 @@
                 end: commentNodeColors.gradient.end
             }
         },
-        highlightColor: baseColor // Highlight in comment color
+        highlightColor: baseColor
     };
     
     // Reactive declarations
@@ -343,258 +342,267 @@
             positiveVotes,
             negativeVotes,
             netVotes,
-            userVoteStatus
+            userVoteStatus,
+            isHidden,
+            hiddenReason
         });
     });
 </script>
 
-<!-- Use BaseNode with proper styling parameters, but without vote-based styling -->
-<BaseNode {node} style={customStyle}>
-    <svelte:fragment slot="default" let:radius>
-        <!-- Filter defs for glow effects -->
-        <defs>
-            <!-- Upvote glow filter -->
-            <filter id={upvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
-                <feFlood flood-color={upvoteColor} flood-opacity="0.6" result="color1"/>
-                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+{#if isHidden}
+    <!-- Render as hidden node -->
+    <HiddenNode 
+        {node}
+        hiddenBy={hiddenReason}
+        {netVotes}
+    />
+{:else}
+    <!-- Render as normal comment node -->
+    <BaseNode {node} style={customStyle}>
+        <svelte:fragment slot="default" let:radius>
+            <!-- Filter defs for glow effects -->
+            <defs>
+                <!-- Upvote glow filter -->
+                <filter id={upvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                    <feFlood flood-color={upvoteColor} flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                    <feFlood flood-color={upvoteColor} flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                    <feFlood flood-color={upvoteColor} flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                    
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
                 
-                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
-                <feFlood flood-color={upvoteColor} flood-opacity="0.8" result="color2"/>
-                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                <!-- Downvote glow filter -->
+                <filter id={downvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                    <feFlood flood-color={downvoteColor} flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                    <feFlood flood-color={downvoteColor} flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                    <feFlood flood-color={downvoteColor} flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                    
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
                 
-                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
-                <feFlood flood-color={upvoteColor} flood-opacity="1" result="color3"/>
-                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
-                
-                <feMerge>
-                    <feMergeNode in="shadow1"/>
-                    <feMergeNode in="shadow2"/>
-                    <feMergeNode in="shadow3"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-            
-            <!-- Downvote glow filter -->
-            <filter id={downvoteFilterId} x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
-                <feFlood flood-color={downvoteColor} flood-opacity="0.6" result="color1"/>
-                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
-                
-                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
-                <feFlood flood-color={downvoteColor} flood-opacity="0.8" result="color2"/>
-                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
-                
-                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
-                <feFlood flood-color={downvoteColor} flood-opacity="1" result="color3"/>
-                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
-                
-                <feMerge>
-                    <feMergeNode in="shadow1"/>
-                    <feMergeNode in="shadow2"/>
-                    <feMergeNode in="shadow3"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-            
-            <!-- Neutral glow filter for hover over voted buttons -->
-            <filter id={neutralFilterId} x="-100%" y="-100%" width="300%" height="300%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
-                <feFlood flood-color={neutralColor} flood-opacity="0.6" result="color1"/>
-                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
-                
-                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
-                <feFlood flood-color={neutralColor} flood-opacity="0.8" result="color2"/>
-                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
-                
-                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
-                <feFlood flood-color={neutralColor} flood-opacity="1" result="color3"/>
-                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
-                
-                <feMerge>
-                    <feMergeNode in="shadow1"/>
-                    <feMergeNode in="shadow2"/>
-                    <feMergeNode in="shadow3"/>
-                    <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-            </filter>
-        </defs>
+                <!-- Neutral glow filter for hover over voted buttons -->
+                <filter id={neutralFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                    <feFlood flood-color={neutralColor} flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                    <feFlood flood-color={neutralColor} flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                    <feFlood flood-color={neutralColor} flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                    
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
 
-        <!-- Title -->
-        <text
-            y={-radius + 15}
-            class="title"
-            style:font-family={NODE_CONSTANTS.FONTS.title.family}
-            style:font-size="10px"
-            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-        >
-            {isReply ? 'Reply' : 'Comment'}
-        </text>
-
-        <!-- Comment text - wrapped to fit -->
-        <g class="comment-text">
-            {#each lines as line, i}
-                <text
-                    y={-15 + (i * 12)} 
-                    class="comment-content"
-                    style:font-family="'Orbitron', sans-serif"
-                    style:font-size="9px"
-                >
-                    {truncateText(line, maxCharsPerLine)}
-                </text>
-            {/each}
-        </g>
-        
-        <!-- Author and date -->
-        <text
-            y={radius - 25}
-            class="metadata"
-            style:font-size="7px"
-        >
-            {creatorName} · {formattedDate}
-        </text>
-        
-        <!-- Vote controls with proper positioning -->
-        <g class="vote-controls" transform="translate(0, {radius - 45})">
-            <!-- Upvote button positioned to the left -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
-            <g 
-                class="upvote-button"
-                class:voted={upvoteButtonState.isVoted}
-                class:disabled={isVoting}
-                class:pulse={voteSuccess && lastVoteType === 'agree'}
-                transform="translate(-25, 0)"
-                on:click={() => {
-                    if (!isVoting) {
-                        if (userVoteStatus === 'agree') {
-                            handleVote('none'); // Remove upvote
-                        } else {
-                            handleVote('agree'); // Add upvote (or change from downvote)
-                        }
-                    }
-                }}
-                on:keydown={handleKeydown}
-                on:mouseenter={() => handleUpvoteHover(true)}
-                on:mouseleave={() => handleUpvoteHover(false)}
-                tabindex="-1"
-                role="button"
-                aria-label={userVoteStatus === 'agree' ? 'Remove upvote' : 'Upvote comment'}
-                aria-pressed={userVoteStatus === 'agree'}
-                style:filter={upvoteButtonState.filter}
+            <!-- Title -->
+            <text
+                y={-radius + 15}
+                class="title"
+                style:font-family={NODE_CONSTANTS.FONTS.title.family}
+                style:font-size="10px"
+                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
             >
-                <foreignObject 
-                    x="-42" 
-                    y="-12" 
-                    width="24" 
-                    height="24" 
-                    class="icon-container"
-                >
-                    <div 
-                        class="icon-wrapper"
-                        {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                {isReply ? 'Reply' : 'Comment'}
+            </text>
+
+            <!-- Comment text - wrapped to fit -->
+            <g class="comment-text">
+                {#each lines as line, i}
+                    <text
+                        y={-55 + (i * 12)} 
+                        class="comment-content"
+                        style:font-family="'Orbitron', sans-serif"
+                        style:font-size="9px"
                     >
-                        {#if isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none'))}
-                            <!-- Show loading spinner when voting -->
-                            <div class="loading-spinner" style:color={upvoteButtonState.color}>
-                                ⟳
-                            </div>
-                        {:else}
-                            <span 
-                                class="material-symbols-outlined vote-icon"
-                                class:bounce={voteSuccess && lastVoteType === 'agree'}
-                                style:color={upvoteButtonState.color}
-                            >
-                                thumb_up
-                            </span>
-                        {/if}
-                    </div>
-                </foreignObject>
+                        {truncateText(line, maxCharsPerLine)}
+                    </text>
+                {/each}
             </g>
             
-            <!-- Vote count with explicit position -->
+            <!-- Author and date -->
             <text
-                class="vote-count"
-                class:pulse={voteSuccess}
-                class:positive={netVotes > 0}
-                class:negative={netVotes < 0}
-                class:neutral={netVotes === 0}
-                x="0"
-                y="4"
-                style:font-family={NODE_CONSTANTS.FONTS.value.family}
-                style:font-size="12px"
+                y={radius - 25}
+                class="metadata"
+                style:font-size="7px"
             >
-                {scoreDisplay}
+                {creatorName} · {formattedDate}
             </text>
             
-            <!-- Downvote button positioned to the right -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
-            <g 
-                class="downvote-button"
-                class:voted={downvoteButtonState.isVoted}
-                class:disabled={isVoting}
-                class:pulse={voteSuccess && lastVoteType === 'disagree'}
-                transform="translate(25, 0)"
-                on:click={() => {
-                    if (!isVoting) {
-                        if (userVoteStatus === 'disagree') {
-                            handleVote('none'); // Remove downvote
-                        } else {
-                            handleVote('disagree'); // Add downvote (or change from upvote)
+            <!-- Vote controls with proper positioning -->
+            <g class="vote-controls" transform="translate(0, {radius - 45})">
+                <!-- Upvote button positioned to the left -->
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+                <g 
+                    class="upvote-button"
+                    class:voted={upvoteButtonState.isVoted}
+                    class:disabled={isVoting}
+                    class:pulse={voteSuccess && lastVoteType === 'agree'}
+                    transform="translate(-25, 0)"
+                    on:click={() => {
+                        if (!isVoting) {
+                            if (userVoteStatus === 'agree') {
+                                handleVote('none');
+                            } else {
+                                handleVote('agree');
+                            }
                         }
-                    }
-                }}
-                on:keydown={handleKeydown}
-                on:mouseenter={() => handleDownvoteHover(true)}
-                on:mouseleave={() => handleDownvoteHover(false)}
-                tabindex="-1"
-                role="button"
-                aria-label={userVoteStatus === 'disagree' ? 'Remove downvote' : 'Downvote comment'}
-                aria-pressed={userVoteStatus === 'disagree'}
-                style:filter={downvoteButtonState.filter}
-            >
-                <foreignObject 
-                    x="22" 
-                    y="-12" 
-                    width="24" 
-                    height="24" 
-                    class="icon-container"
+                    }}
+                    on:keydown={handleKeydown}
+                    on:mouseenter={() => handleUpvoteHover(true)}
+                    on:mouseleave={() => handleUpvoteHover(false)}
+                    tabindex="-1"
+                    role="button"
+                    aria-label={userVoteStatus === 'agree' ? 'Remove upvote' : 'Upvote comment'}
+                    aria-pressed={userVoteStatus === 'agree'}
+                    style:filter={upvoteButtonState.filter}
                 >
-                    <div 
-                        class="icon-wrapper"
-                        {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                    <foreignObject 
+                        x="-42" 
+                        y="-12" 
+                        width="24" 
+                        height="24" 
+                        class="icon-container"
                     >
-                        {#if isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none'))}
-                            <!-- Show loading spinner when voting -->
-                            <div class="loading-spinner" style:color={downvoteButtonState.color}>
-                                ⟳
-                            </div>
-                        {:else}
-                            <span 
-                                class="material-symbols-outlined vote-icon"
-                                class:bounce={voteSuccess && lastVoteType === 'disagree'}
-                                style:color={downvoteButtonState.color}
-                            >
-                                thumb_down
-                            </span>
-                        {/if}
-                    </div>
-                </foreignObject>
+                        <div 
+                            class="icon-wrapper"
+                            {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                        >
+                            {#if isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none'))}
+                                <div class="loading-spinner" style:color={upvoteButtonState.color}>
+                                    ⟳
+                                </div>
+                            {:else}
+                                <span 
+                                    class="material-symbols-outlined vote-icon"
+                                    class:bounce={voteSuccess && lastVoteType === 'agree'}
+                                    style:color={upvoteButtonState.color}
+                                >
+                                    thumb_up
+                                </span>
+                            {/if}
+                        </div>
+                    </foreignObject>
+                </g>
+                
+                <!-- Vote count with explicit position -->
+                <text
+                    class="vote-count"
+                    class:pulse={voteSuccess}
+                    class:positive={netVotes > 0}
+                    class:negative={netVotes < 0}
+                    class:neutral={netVotes === 0}
+                    x="0"
+                    y="4"
+                    style:font-family={NODE_CONSTANTS.FONTS.value.family}
+                    style:font-size="12px"
+                >
+                    {scoreDisplay}
+                </text>
+                
+                <!-- Downvote button positioned to the right -->
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+                <g 
+                    class="downvote-button"
+                    class:voted={downvoteButtonState.isVoted}
+                    class:disabled={isVoting}
+                    class:pulse={voteSuccess && lastVoteType === 'disagree'}
+                    transform="translate(25, 0)"
+                    on:click={() => {
+                        if (!isVoting) {
+                            if (userVoteStatus === 'disagree') {
+                                handleVote('none');
+                            } else {
+                                handleVote('disagree');
+                            }
+                        }
+                    }}
+                    on:keydown={handleKeydown}
+                    on:mouseenter={() => handleDownvoteHover(true)}
+                    on:mouseleave={() => handleDownvoteHover(false)}
+                    tabindex="-1"
+                    role="button"
+                    aria-label={userVoteStatus === 'disagree' ? 'Remove downvote' : 'Downvote comment'}
+                    aria-pressed={userVoteStatus === 'disagree'}
+                    style:filter={downvoteButtonState.filter}
+                >
+                    <foreignObject 
+                        x="22" 
+                        y="-12" 
+                        width="24" 
+                        height="24" 
+                        class="icon-container"
+                    >
+                        <div 
+                            class="icon-wrapper"
+                            {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
+                        >
+                            {#if isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none'))}
+                                <div class="loading-spinner" style:color={downvoteButtonState.color}>
+                                    ⟳
+                                </div>
+                            {:else}
+                                <span 
+                                    class="material-symbols-outlined vote-icon"
+                                    class:bounce={voteSuccess && lastVoteType === 'disagree'}
+                                    style:color={downvoteButtonState.color}
+                                >
+                                    thumb_down
+                                </span>
+                            {/if}
+                        </div>
+                    </foreignObject>
+                </g>
             </g>
-        </g>
-        
-        <!-- Add the Reply button at a position where the circles just meet -->
-        <ReplyButton 
-            x={replyButtonX}
-            y={replyButtonY}
-            nodeId={node.id}
-            on:reply={handleReplyButtonClick}
-        />
-    </svelte:fragment>
-</BaseNode>
+        </svelte:fragment>
+    </BaseNode>
+
+    <!-- Add the Reply button at the calculated position -->
+    <ReplyButton 
+        x={replyButtonX}
+        y={replyButtonY}
+        nodeId={node.id}
+        on:reply={handleReplyButtonClick}
+    />
+{/if}
 
 <style>
     /* Base Text Styles */
@@ -620,16 +628,12 @@
         fill: rgba(255, 255, 255, 0.6);
     }
 
-    /* Vote Controls using the NavigationNode pattern */
+    /* Vote Controls */
     .upvote-button, .downvote-button {
         cursor: pointer;
-        /* Prevent any movement */
         transform-box: fill-box;
         transform-origin: center;
-        /* Remove the transition to prevent any movement animations */
-        /* Remove default focus outline */
         outline: none;
-        /* Remove any default browser styling */
         border: none;
         background: none;
     }
@@ -639,25 +643,20 @@
         opacity: 0.6;
     }
 
-    /* Voted state styling - visual changes handled by filter attribute */
     .upvote-button.voted, 
     .downvote-button.voted {
-        /* The persistent glow effect is applied via the filter attribute in the template */
-        transform: none; /* Ensure no transform interference */
+        transform: none;
     }
 
-    /* Ensure no focus outline on the group elements */
     .upvote-button:focus, .downvote-button:focus {
         outline: none;
     }
 
     .icon-container {
         overflow: visible;
-        /* Ensure no focus outline on the foreignObject */
         outline: none;
     }
 
-    /* Remove focus outline from all elements in the vote controls */
     .vote-controls *, .vote-controls *:focus {
         outline: none !important;
         border: none !important;
@@ -673,7 +672,6 @@
 
     :global(.vote-controls .material-symbols-outlined.vote-icon) {
         font-size: 20px;
-        /* Only transition color, not size */
         transition: color 0.3s ease;
     }
 
@@ -706,12 +704,11 @@
         fill: rgba(255, 255, 255, 0.9);
     }
 
-    /* Bounce animation for successful vote */
+    /* Animations */
     :global(.material-symbols-outlined.bounce) {
         animation: bounce 0.5s ease-in-out;
     }
 
-    /* Pulse animation for successful vote */
     .pulse {
         animation: pulse 0.5s ease-in-out;
     }

@@ -1,7 +1,8 @@
-// src/lib/stores/discussionStore.ts - FIXED VERSION
+// src/lib/stores/discussionStore.ts
 import { writable, derived, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { userStore } from '$lib/stores/userStore';
+import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { discussionService } from '$lib/services/discussionService';
 
@@ -56,7 +57,6 @@ interface DiscussionState {
     isAddingComment: boolean;
     isAddingReply: boolean;
     replyToCommentId: string | null;
-    visibilityPreferences: Record<string, boolean>;
 }
 
 // Create the discussion store
@@ -73,8 +73,7 @@ function createDiscussionStore() {
         userVotes: {},
         isAddingComment: false,
         isAddingReply: false,
-        replyToCommentId: null,
-        visibilityPreferences: {}
+        replyToCommentId: null
     };
 
     const { subscribe, set, update } = writable<DiscussionState>(initialState);
@@ -210,7 +209,7 @@ function createDiscussionStore() {
                 const { roots, all } = buildCommentTree(processedComments);
                 const sortedRoots = sortComments(roots, sortMode);
                 
-                // FIXED: Fetch user vote status for all comments using correct endpoint
+                // Fetch user vote status for all comments using correct endpoint
                 const currentUser = get(userStore);
                 if (currentUser) {
                     try {
@@ -311,9 +310,28 @@ function createDiscussionStore() {
             return voteStatus;
         },
         
-        /**
-         * ENHANCED: addComment method with proper parent ID handling
-         */
+        // Check if a comment should be visible based on community standards and user preferences
+        shouldBeVisible(commentId: string): boolean {
+            // Check user preference from visibility store first
+            const userPreference = visibilityStore.getPreference(commentId);
+            if (userPreference !== undefined) {
+                return userPreference;
+            }
+            
+            // Get vote data
+            const voteData = this.getVoteData(commentId);
+            
+            // Default to community standard (hide if negative votes)
+            return !voteData.shouldBeHidden;
+        },
+        
+        // Set visibility preference for a comment (delegates to visibilityStore)
+        setVisibilityPreference(commentId: string, isVisible: boolean): void {
+            // Delegate to the visibilityStore for consistency with other node types
+            visibilityStore.setPreference(commentId, isVisible);
+        },
+        
+        // ENHANCED: addComment method with proper parent ID handling
         async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
             const currentUser = get(userStore);
             if (!currentUser) return null;
@@ -469,7 +487,7 @@ function createDiscussionStore() {
                     const voteData = calculateVoteData(updatedComment);
                     state.voteCache.set(commentId, voteData);
                     
-                    // CRITICAL: Update user vote status immediately
+                    // Update user vote status immediately
                     const updatedUserVotes = {
                         ...state.userVotes,
                         [commentId]: voteType
@@ -493,6 +511,17 @@ function createDiscussionStore() {
                     };
                 });
                 
+                // CRITICAL: Update the visibility store if the vote change affects community visibility
+                const voteData = this.getVoteData(commentId);
+                if (voteData.shouldBeHidden !== (voteData.netVotes >= 0)) {
+                    // Community visibility changed, but only update if user hasn't set a preference
+                    const userPreference = visibilityStore.getPreference(commentId);
+                    if (userPreference === undefined) {
+                        // No user preference exists, so this is a community-driven visibility change
+                        console.log(`[DiscussionStore] Comment ${commentId} community visibility changed to: ${!voteData.shouldBeHidden}`);
+                    }
+                }
+                
                 return true;
                 
             } catch (error) {
@@ -503,37 +532,6 @@ function createDiscussionStore() {
                 }));
                 return false;
             }
-        },
-        
-        // Set visibility preference for a comment
-        setVisibilityPreference(commentId: string, isVisible: boolean): void {
-            update(state => {
-                const updatedPreferences = {
-                    ...state.visibilityPreferences,
-                    [commentId]: isVisible
-                };
-                
-                return {
-                    ...state,
-                    visibilityPreferences: updatedPreferences
-                };
-            });
-        },
-        
-        // Check if a comment should be visible based on community standards and user preferences
-        shouldBeVisible(commentId: string): boolean {
-            const state = get({ subscribe });
-            
-            // Check user preference first
-            if (commentId in state.visibilityPreferences) {
-                return state.visibilityPreferences[commentId];
-            }
-            
-            // Get vote data
-            const voteData = this.getVoteData(commentId);
-            
-            // Default to community standard
-            return !voteData.shouldBeHidden;
         },
         
         // Start reply to a comment
