@@ -1,4 +1,4 @@
-// src/neo4j/schemas/comment.schema.ts - FIXED VERSION
+// src/neo4j/schemas/comment.schema.ts - ENHANCED VERSION with User Vote Retrieval
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { TEXT_LIMITS } from '../../constants/validation';
@@ -293,6 +293,50 @@ export class CommentSchema {
         error.stack,
       );
       throw new Error(`Failed to get comment votes: ${error.message}`);
+    }
+  }
+
+  /**
+   * ENHANCED: Get all comment votes for a specific user
+   */
+  async getUserCommentVotes(
+    userId: string,
+  ): Promise<Record<string, 'agree' | 'disagree' | 'none'>> {
+    try {
+      this.logger.debug(`Getting all comment votes for user: ${userId}`);
+
+      const result = await this.neo4jService.read(
+        `
+        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(c:CommentNode)
+        RETURN c.id as commentId, v.status as voteStatus
+        `,
+        { userId },
+      );
+
+      const userVotes: Record<string, 'agree' | 'disagree' | 'none'> = {};
+
+      result.records.forEach((record) => {
+        const commentId = record.get('commentId');
+        const voteStatus = record.get('voteStatus');
+
+        // Map the vote status to our expected format
+        if (voteStatus === 'agree' || voteStatus === 'disagree') {
+          userVotes[commentId] = voteStatus;
+        } else {
+          userVotes[commentId] = 'none';
+        }
+      });
+
+      this.logger.debug(
+        `Retrieved votes for ${Object.keys(userVotes).length} comments for user ${userId}`,
+      );
+      return userVotes;
+    } catch (error) {
+      this.logger.error(
+        `Error getting user comment votes: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get user comment votes: ${error.message}`);
     }
   }
 

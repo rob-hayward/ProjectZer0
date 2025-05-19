@@ -64,6 +64,10 @@
     let voteSuccess = false;
     let lastVoteType: VoteStatus | null = null;
     
+    // Track hover state for each vote button
+    let upvoteHovered = false;
+    let downvoteHovered = false;
+    
     // Calculate position for the reply button to place it where the circles just meet
     // Assuming ReplyButton has a radius of 10 (as we've set it in the updated component)
     $: buttonRadius = 10; // Match the radius we set in ReplyButton
@@ -76,10 +80,12 @@
     // Define colors for the vote buttons from color constants
     const upvoteColor = COLORS.PRIMARY.GREEN;
     const downvoteColor = COLORS.PRIMARY.RED;
+    const neutralColor = 'white';
     
     // Create unique filter IDs for the glow effects
     const upvoteFilterId = `upvote-glow-${Math.random().toString(36).slice(2)}`;
     const downvoteFilterId = `downvote-glow-${Math.random().toString(36).slice(2)}`;
+    const neutralFilterId = `neutral-glow-${Math.random().toString(36).slice(2)}`;
     
     const dispatch = createEventDispatcher<{
         reply: { commentId: string };
@@ -103,10 +109,6 @@
         handleReply();
     }
     
-    // Track hover state for each vote button
-    let upvoteHovered = false;
-    let downvoteHovered = false;
-    
     function handleUpvoteHover(isEnter: boolean) {
         upvoteHovered = isEnter;
     }
@@ -118,11 +120,20 @@
     // Add keyboard event handler for accessibility
     function handleKeydown(event: KeyboardEvent) {
         if (event.key === 'Enter' || event.key === 'Space') {
+            event.preventDefault(); // Prevent scrolling with space
             const target = event.currentTarget as HTMLElement;
             if (target.classList.contains('upvote-button')) {
-                handleVote(userVoteStatus === 'agree' ? 'none' : 'agree');
+                if (userVoteStatus === 'agree') {
+                    handleVote('none'); // Remove upvote
+                } else {
+                    handleVote('agree'); // Add upvote
+                }
             } else if (target.classList.contains('downvote-button')) {
-                handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree');
+                if (userVoteStatus === 'disagree') {
+                    handleVote('none'); // Remove downvote
+                } else {
+                    handleVote('disagree'); // Add downvote
+                }
             }
         }
     }
@@ -138,8 +149,18 @@
         });
     }
     
+    // Enhanced vote handler with robust state management
     async function handleVote(voteType: VoteStatus) {
-        if (!get(userStore) || isVoting) return;
+        if (!get(userStore) || isVoting) {
+            console.log('[CommentNode] Vote blocked - user not authenticated or already voting');
+            return;
+        }
+        
+        // Prevent duplicate votes of the same type
+        if (voteType !== 'none' && userVoteStatus === voteType) {
+            console.log('[CommentNode] Vote blocked - already voted this way');
+            return;
+        }
         
         isVoting = true;
         voteSuccess = false;
@@ -154,59 +175,51 @@
             console.log('[CommentNode] Processing vote:', { 
                 commentId: node.id, 
                 voteType,
-                currentStatus: userVoteStatus
+                currentStatus: originalVoteStatus,
+                isToggle: voteType === 'none' || voteType === originalVoteStatus
             });
 
-            // Optimistic update - update user vote status immediately
-            userVoteStatus = voteType;
-            
-            // Calculate what the new vote counts should be based on the vote change
-            let newPositive = originalPositive;
-            let newNegative = originalNegative;
-            
-            // Remove previous vote effect
-            if (originalVoteStatus === 'agree') {
-                newPositive = Math.max(0, newPositive - 1);
-            } else if (originalVoteStatus === 'disagree') {
-                newNegative = Math.max(0, newNegative - 1);
-            }
-            
-            // Add new vote effect
-            if (voteType === 'agree') {
-                newPositive = newPositive + 1;
-            } else if (voteType === 'disagree') {
-                newNegative = newNegative + 1;
-            }
-            
-            // Update the data optimistically
-            data.positiveVotes = newPositive;
-            data.negativeVotes = newNegative;
-            
-            // Call the store method which handles the API call and updates the backend
+            // Call the store method FIRST to update backend
             const success = await discussionStore.voteOnComment(node.id, voteType);
             
             if (success) {
-                console.log('[CommentNode] Vote successful');
+                console.log('[CommentNode] Vote successful - backend updated');
+                
+                // Get the updated vote counts from the store
+                const voteData = discussionStore.getVoteData(node.id);
+                
+                // Update local data with confirmed backend values
+                data.positiveVotes = voteData.positiveVotes;
+                data.negativeVotes = voteData.negativeVotes;
+                
+                // Trigger reactivity by updating the node data
+                node.data = { ...node.data, positiveVotes: voteData.positiveVotes, negativeVotes: voteData.negativeVotes };
+                
+                // Update user vote status (this should already be done by the store, but ensure it)
+                userVoteStatus = discussionStore.getUserVoteStatus(node.id);
+                
                 // Show success animation
                 voteSuccess = true;
+                lastVoteType = voteType;
+                
+                console.log('[CommentNode] Vote update complete:', {
+                    newVoteStatus: userVoteStatus,
+                    newPositive: data.positiveVotes,
+                    newNegative: data.negativeVotes,
+                    netVotes: voteData.netVotes
+                });
                 
                 // Schedule to hide success animation after a delay
                 setTimeout(() => {
                     voteSuccess = false;
                 }, 1000);
             } else {
-                console.warn('[CommentNode] Vote failed, reverting changes');
-                // Revert optimistic changes on failure
-                data.positiveVotes = originalPositive;
-                data.negativeVotes = originalNegative;
-                userVoteStatus = originalVoteStatus;
+                console.warn('[CommentNode] Vote failed - backend rejected');
+                // Don't change anything since backend failed
             }
         } catch (error) {
             console.error('[CommentNode] Error voting:', error);
-            // Revert optimistic changes on error
-            data.positiveVotes = originalPositive;
-            data.negativeVotes = originalNegative;
-            userVoteStatus = originalVoteStatus;
+            // Don't change anything since there was an error
         } finally {
             isVoting = false;
         }
@@ -218,6 +231,61 @@
         return text.length > maxLength
             ? text.substring(0, maxLength) + '...'
             : text;
+    }
+    
+    // Calculate visual states for vote buttons
+    $: upvoteButtonState = {
+        isVoted: userVoteStatus === 'agree',
+        isHovered: upvoteHovered,
+        isLoading: isVoting,
+        color: userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : neutralColor),
+        filter: getVoteButtonFilter('upvote', userVoteStatus, upvoteHovered, voteSuccess, lastVoteType, isVoting)
+    };
+    
+    $: downvoteButtonState = {
+        isVoted: userVoteStatus === 'disagree',
+        isHovered: downvoteHovered,
+        isLoading: isVoting,
+        color: userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : neutralColor),
+        filter: getVoteButtonFilter('downvote', userVoteStatus, downvoteHovered, voteSuccess, lastVoteType, isVoting)
+    };
+    
+    // Helper function to determine which filter to apply
+    function getVoteButtonFilter(
+        buttonType: 'upvote' | 'downvote', 
+        voteStatus: VoteStatus,
+        isHovered: boolean,
+        showSuccess: boolean,
+        successType: VoteStatus | null,
+        isVotingActive: boolean
+    ): string {
+        // Success animation takes precedence
+        if (showSuccess && successType === (buttonType === 'upvote' ? 'agree' : 'disagree')) {
+            return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
+        }
+        
+        // Voted state - show persistent glow
+        if (voteStatus === 'agree' && buttonType === 'upvote') {
+            // If hover over voted button and not currently voting, show white glow
+            return isHovered && !isVotingActive 
+                ? `url(#${neutralFilterId})` 
+                : `url(#${upvoteFilterId})`;
+        }
+        if (voteStatus === 'disagree' && buttonType === 'downvote') {
+            // If hover over voted button and not currently voting, show white glow
+            return isHovered && !isVotingActive 
+                ? `url(#${neutralFilterId})` 
+                : `url(#${downvoteFilterId})`;
+        }
+        
+        // Hover states (only when not currently voting)
+        if (isHovered && !isVotingActive) {
+            // If hovering over unvoted button, show appropriate colored glow
+            return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
+        }
+        
+        // Default - no filter
+        return 'none';
     }
     
     // Size calculations for text wrapping
@@ -274,7 +342,8 @@
             text: data.commentText,
             positiveVotes,
             negativeVotes,
-            netVotes
+            netVotes,
+            userVoteStatus
         });
     });
 </script>
@@ -318,6 +387,28 @@
                 
                 <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
                 <feFlood flood-color={downvoteColor} flood-opacity="1" result="color3"/>
+                <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                
+                <feMerge>
+                    <feMergeNode in="shadow1"/>
+                    <feMergeNode in="shadow2"/>
+                    <feMergeNode in="shadow3"/>
+                    <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+            </filter>
+            
+            <!-- Neutral glow filter for hover over voted buttons -->
+            <filter id={neutralFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                <feFlood flood-color={neutralColor} flood-opacity="0.6" result="color1"/>
+                <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                <feFlood flood-color={neutralColor} flood-opacity="0.8" result="color2"/>
+                <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                
+                <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                <feFlood flood-color={neutralColor} flood-opacity="1" result="color3"/>
                 <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
                 
                 <feMerge>
@@ -371,19 +462,27 @@
             <!-- svelte-ignore a11y-mouse-events-have-key-events -->
             <g 
                 class="upvote-button"
-                class:active={userVoteStatus === 'agree'}
+                class:voted={upvoteButtonState.isVoted}
                 class:disabled={isVoting}
                 class:pulse={voteSuccess && lastVoteType === 'agree'}
                 transform="translate(-25, 0)"
-                on:click={() => !isVoting && handleVote(userVoteStatus === 'agree' ? 'none' : 'agree')}
+                on:click={() => {
+                    if (!isVoting) {
+                        if (userVoteStatus === 'agree') {
+                            handleVote('none'); // Remove upvote
+                        } else {
+                            handleVote('agree'); // Add upvote (or change from downvote)
+                        }
+                    }
+                }}
                 on:keydown={handleKeydown}
                 on:mouseenter={() => handleUpvoteHover(true)}
                 on:mouseleave={() => handleUpvoteHover(false)}
                 tabindex="-1"
                 role="button"
-                aria-label="Upvote comment"
+                aria-label={userVoteStatus === 'agree' ? 'Remove upvote' : 'Upvote comment'}
                 aria-pressed={userVoteStatus === 'agree'}
-                style:filter={upvoteHovered || (voteSuccess && lastVoteType === 'agree') || userVoteStatus === 'agree' ? `url(#${upvoteFilterId})` : 'none'}
+                style:filter={upvoteButtonState.filter}
             >
                 <foreignObject 
                     x="-42" 
@@ -396,13 +495,20 @@
                         class="icon-wrapper"
                         {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
                     >
-                        <span 
-                            class="material-symbols-outlined"
-                            class:bounce={voteSuccess && lastVoteType === 'agree'}
-                            style:color={userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : 'white')}
-                        >
-                            thumb_up
-                        </span>
+                        {#if isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none'))}
+                            <!-- Show loading spinner when voting -->
+                            <div class="loading-spinner" style:color={upvoteButtonState.color}>
+                                ⟳
+                            </div>
+                        {:else}
+                            <span 
+                                class="material-symbols-outlined vote-icon"
+                                class:bounce={voteSuccess && lastVoteType === 'agree'}
+                                style:color={upvoteButtonState.color}
+                            >
+                                thumb_up
+                            </span>
+                        {/if}
                     </div>
                 </foreignObject>
             </g>
@@ -428,19 +534,27 @@
             <!-- svelte-ignore a11y-mouse-events-have-key-events -->
             <g 
                 class="downvote-button"
-                class:active={userVoteStatus === 'disagree'}
+                class:voted={downvoteButtonState.isVoted}
                 class:disabled={isVoting}
                 class:pulse={voteSuccess && lastVoteType === 'disagree'}
                 transform="translate(25, 0)"
-                on:click={() => !isVoting && handleVote(userVoteStatus === 'disagree' ? 'none' : 'disagree')}
+                on:click={() => {
+                    if (!isVoting) {
+                        if (userVoteStatus === 'disagree') {
+                            handleVote('none'); // Remove downvote
+                        } else {
+                            handleVote('disagree'); // Add downvote (or change from upvote)
+                        }
+                    }
+                }}
                 on:keydown={handleKeydown}
                 on:mouseenter={() => handleDownvoteHover(true)}
                 on:mouseleave={() => handleDownvoteHover(false)}
                 tabindex="-1"
                 role="button"
-                aria-label="Downvote comment"
+                aria-label={userVoteStatus === 'disagree' ? 'Remove downvote' : 'Downvote comment'}
                 aria-pressed={userVoteStatus === 'disagree'}
-                style:filter={downvoteHovered || (voteSuccess && lastVoteType === 'disagree') || userVoteStatus === 'disagree' ? `url(#${downvoteFilterId})` : 'none'}
+                style:filter={downvoteButtonState.filter}
             >
                 <foreignObject 
                     x="22" 
@@ -453,13 +567,20 @@
                         class="icon-wrapper"
                         {...{"xmlns": "http://www.w3.org/1999/xhtml"}}
                     >
-                        <span 
-                            class="material-symbols-outlined"
-                            class:bounce={voteSuccess && lastVoteType === 'disagree'}
-                            style:color={userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : 'white')}
-                        >
-                            thumb_down
-                        </span>
+                        {#if isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none'))}
+                            <!-- Show loading spinner when voting -->
+                            <div class="loading-spinner" style:color={downvoteButtonState.color}>
+                                ⟳
+                            </div>
+                        {:else}
+                            <span 
+                                class="material-symbols-outlined vote-icon"
+                                class:bounce={voteSuccess && lastVoteType === 'disagree'}
+                                style:color={downvoteButtonState.color}
+                            >
+                                thumb_down
+                            </span>
+                        {/if}
                     </div>
                 </foreignObject>
             </g>
@@ -518,7 +639,12 @@
         opacity: 0.6;
     }
 
-    /* Active state has no visual changes - glow effect is handled via filters */
+    /* Voted state styling - visual changes handled by filter attribute */
+    .upvote-button.voted, 
+    .downvote-button.voted {
+        /* The persistent glow effect is applied via the filter attribute in the template */
+        transform: none; /* Ensure no transform interference */
+    }
 
     /* Ensure no focus outline on the group elements */
     .upvote-button:focus, .downvote-button:focus {
@@ -545,10 +671,21 @@
         justify-content: center;
     }
 
-    :global(.vote-controls .material-symbols-outlined) {
+    :global(.vote-controls .material-symbols-outlined.vote-icon) {
         font-size: 20px;
         /* Only transition color, not size */
         transition: color 0.3s ease;
+    }
+
+    /* Loading spinner styling */
+    .loading-spinner {
+        font-size: 20px;
+        animation: spin 1s linear infinite;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
     }
 
     /* Vote count styling */
@@ -587,5 +724,10 @@
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.6; }
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
     }
 </style>

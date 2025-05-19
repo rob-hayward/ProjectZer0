@@ -317,6 +317,34 @@ export class CommentService {
     }
   }
 
+  /**
+   * ENHANCED: Get all comment votes for a specific user
+   */
+  async getUserCommentVotes(
+    userId: string,
+  ): Promise<Record<string, 'agree' | 'disagree' | 'none'>> {
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    try {
+      this.logger.debug(`Getting all comment votes for user: ${userId}`);
+
+      const userVotes = await this.commentSchema.getUserCommentVotes(userId);
+
+      this.logger.debug(
+        `Retrieved votes for ${Object.keys(userVotes).length} comments`,
+      );
+      return userVotes;
+    } catch (error) {
+      this.logger.error(
+        `Error getting user comment votes: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get user comment votes: ${error.message}`);
+    }
+  }
+
   async setVisibilityStatus(id: string, isVisible: boolean) {
     this.logger.log(
       `Setting visibility status for comment ${id}: ${isVisible}`,

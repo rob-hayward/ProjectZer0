@@ -169,7 +169,7 @@ export class CommentController {
     return this.commentService.getCommentVotes(id);
   }
 
-  // ADDED: Missing users/comments/votes endpoint
+  // ENHANCED: Users comments votes endpoint for persistent vote states
   @Get('users/comments/votes')
   async getUserCommentVotes(@Request() req: any) {
     if (!req.user?.sub) {
@@ -177,10 +177,16 @@ export class CommentController {
     }
 
     try {
-      // This is a simple implementation - in a full solution you would
-      // query the database for all votes by this user on comments
-      const userVotes = {}; // Empty votes for now
+      this.logger.log(`Getting user comment votes for user: ${req.user.sub}`);
 
+      // Get all votes by this user on comments
+      const userVotes = await this.commentService.getUserCommentVotes(
+        req.user.sub,
+      );
+
+      this.logger.debug(
+        `Retrieved ${Object.keys(userVotes).length} comment votes for user ${req.user.sub}`,
+      );
       return { votes: userVotes };
     } catch (error) {
       this.logger.error(

@@ -1,4 +1,4 @@
-// src/lib/stores/discussionStore.ts 
+// src/lib/stores/discussionStore.ts - FIXED VERSION
 import { writable, derived, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { userStore } from '$lib/stores/userStore';
@@ -210,26 +210,32 @@ function createDiscussionStore() {
                 const { roots, all } = buildCommentTree(processedComments);
                 const sortedRoots = sortComments(roots, sortMode);
                 
-                // Fetch user vote status for all comments
+                // FIXED: Fetch user vote status for all comments using correct endpoint
                 const currentUser = get(userStore);
                 if (currentUser) {
                     try {
-                        const votesResponse = await fetchWithAuth(`/users/comments/votes`);
+                        console.log('[DiscussionStore] Fetching user comment votes...');
+                        const votesResponse = await fetchWithAuth(`/comments/users/comments/votes`);
+                        console.log('[DiscussionStore] Received votes response:', votesResponse);
+                        
                         if (votesResponse && votesResponse.votes) {
                             // Update user votes based on response
-                            // Use proper type casting to ensure we're setting valid vote types
                             Object.entries(votesResponse.votes).forEach(([commentId, status]) => {
                                 const voteStatus = status as string;
                                 if (voteStatus === 'agree' || voteStatus === 'disagree' || voteStatus === 'none') {
                                     userVotes[commentId] = voteStatus;
+                                    console.log(`[DiscussionStore] Set vote for comment ${commentId}: ${voteStatus}`);
                                 } else {
                                     // Default to 'none' for invalid values
                                     userVotes[commentId] = 'none';
                                 }
                             });
+                            
+                            console.log('[DiscussionStore] Final user votes:', userVotes);
                         }
                     } catch (error) {
-                        console.error('Error fetching user votes:', error);
+                        console.error('[DiscussionStore] Error fetching user votes:', error);
+                        // Continue without user votes - they'll just show as unvoted
                     }
                 }
                 
@@ -243,6 +249,11 @@ function createDiscussionStore() {
                     sortMode,
                     userVotes
                 }));
+                
+                console.log('[DiscussionStore] Discussion loaded successfully:', {
+                    commentCount: all.length,
+                    userVoteCount: Object.keys(userVotes).length
+                });
                 
             } catch (error) {
                 console.error('Error loading discussion:', error);
@@ -295,17 +306,18 @@ function createDiscussionStore() {
         // Get user's vote status for a comment
         getUserVoteStatus(commentId: string): 'agree' | 'disagree' | 'none' {
             const state = get({ subscribe });
-            return state.userVotes[commentId] || 'none';
+            const voteStatus = state.userVotes[commentId] || 'none';
+            console.log(`[DiscussionStore] getUserVoteStatus(${commentId}): ${voteStatus}`);
+            return voteStatus;
         },
         
         /**
-         * CRITICAL FIX: Enhanced addComment method with proper parent ID handling
+         * ENHANCED: addComment method with proper parent ID handling
          */
         async addComment(nodeType: string, nodeId: string, commentText: string, parentCommentId?: string, nodeText?: string): Promise<Comment | null> {
             const currentUser = get(userStore);
             if (!currentUser) return null;
             
-            // CRITICAL: Proper handling of parentCommentId
             console.log('[DiscussionStore] addComment called with:', {
                 nodeType,
                 nodeId,
@@ -322,12 +334,11 @@ function createDiscussionStore() {
             }));
             
             try {
-                // CRITICAL FIX: Ensure parentCommentId is passed correctly to the service
                 const response = await discussionService.addComment(
                     nodeType, 
                     nodeId, 
                     commentText, 
-                    parentCommentId, // Pass exactly as received - let service handle null/undefined
+                    parentCommentId,
                     nodeText
                 );
                 
@@ -344,12 +355,11 @@ function createDiscussionStore() {
                 // Create new comment object with proper parent relationship
                 const newComment: Comment = {
                     ...response,
-                    // CRITICAL: Ensure parentCommentId is preserved
                     parentCommentId: response.parentCommentId || parentCommentId,
                     childComments: [],
                     isVisible: true,
                     isExpanded: false,
-                    depth: parentCommentId ? 1 : 0 // Temporary depth, will be corrected in buildCommentTree
+                    depth: parentCommentId ? 1 : 0
                 };
                 
                 // Calculate and cache vote data for the new comment
@@ -361,7 +371,7 @@ function createDiscussionStore() {
                     // Add comment to the array
                     const updatedComments = [...state.comments, newComment];
                     
-                    // Rebuild comment tree - this will correctly establish parent-child relationships
+                    // Rebuild comment tree
                     const { roots, all } = buildCommentTree(updatedComments);
                     const sortedRoots = sortComments(roots, state.sortMode);
                     
@@ -382,7 +392,7 @@ function createDiscussionStore() {
                     };
                 });
                 
-                // Dispatch an event for new comment created to help with positioning
+                // Dispatch an event for new comment created
                 if (typeof window !== 'undefined') {
                     console.log('[DiscussionStore] Dispatching comment-created event:', {
                         commentId: newComment.id,
@@ -426,6 +436,8 @@ function createDiscussionStore() {
             if (!comment) return false;
             
             try {
+                console.log(`[DiscussionStore] Voting on comment ${commentId}: ${voteType}`);
+                
                 let result;
                 
                 if (voteType === 'none') {
@@ -440,7 +452,7 @@ function createDiscussionStore() {
                     throw new Error('Failed to update vote');
                 }
                 
-                // Update comment with new vote counts
+                // Update comment with new vote counts and user vote status
                 update(state => {
                     // Find the comment in the array
                     const commentIndex = state.comments.findIndex(c => c.id === commentId);
@@ -457,11 +469,13 @@ function createDiscussionStore() {
                     const voteData = calculateVoteData(updatedComment);
                     state.voteCache.set(commentId, voteData);
                     
-                    // Update user vote status with proper type assertion
+                    // CRITICAL: Update user vote status immediately
                     const updatedUserVotes = {
                         ...state.userVotes,
                         [commentId]: voteType
                     };
+                    
+                    console.log(`[DiscussionStore] Updated user vote for ${commentId}: ${voteType}`);
                     
                     // Create new comments array with updated comment
                     const updatedComments = [...state.comments];
@@ -524,24 +538,24 @@ function createDiscussionStore() {
         
         // Start reply to a comment
         startReply(commentId: string): void {
-            console.log(`[FORM_DEBUG] Discussion store - Starting reply to comment: ${commentId}`);
+            console.log(`[DiscussionStore] Starting reply to comment: ${commentId}`);
             
             // Find the comment to ensure it exists
             const state = get({ subscribe });
             const comment = state.comments.find(c => c.id === commentId);
             
             if (!comment) {
-                console.warn(`[FORM_DEBUG] Discussion store - Cannot start reply - comment ${commentId} not found`);
+                console.warn(`[DiscussionStore] Cannot start reply - comment ${commentId} not found`);
                 return;
             }
             
-            console.log(`[FORM_DEBUG] Discussion store - Found comment for reply:`, {
+            console.log(`[DiscussionStore] Found comment for reply:`, {
                 id: comment.id,
                 text: comment.commentText?.substring(0, 20) + '...'
             });
             
             update(state => {
-                console.log(`[FORM_DEBUG] Discussion store - Updating state, previous isAddingReply:`, 
+                console.log(`[DiscussionStore] Updating state, previous isAddingReply:`, 
                             state.isAddingReply, 'previous replyToCommentId:', state.replyToCommentId);
                 
                 const newState = {
@@ -550,7 +564,7 @@ function createDiscussionStore() {
                     replyToCommentId: commentId
                 };
                 
-                console.log(`[FORM_DEBUG] Discussion store - New state:`, 
+                console.log(`[DiscussionStore] New state:`, 
                             'isAddingReply:', newState.isAddingReply, 
                             'replyToCommentId:', newState.replyToCommentId);
                 
@@ -559,7 +573,7 @@ function createDiscussionStore() {
             
             // Dispatch an event to notify the GraphManager
             if (typeof window !== 'undefined') {
-                console.log(`[FORM_DEBUG] Discussion store - Dispatching discussion-reply-started event`);
+                console.log(`[DiscussionStore] Dispatching discussion-reply-started event`);
                 window.dispatchEvent(new CustomEvent('discussion-reply-started', { 
                     detail: { commentId }
                 }));
