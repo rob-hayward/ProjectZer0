@@ -324,6 +324,7 @@ export class DefinitionController {
     }
   }
 
+  // ADDED: Discussion and comment endpoints for definitions
   @Get(':id/discussion')
   async getDefinitionWithDiscussion(@Param('id') id: string) {
     try {
@@ -354,6 +355,8 @@ export class DefinitionController {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Definition ID is required');
       }
+
+      this.logger.log(`Getting comments for definition: ${id}`);
 
       const definition = await this.definitionService.getDefinition(id);
 
@@ -392,6 +395,8 @@ export class DefinitionController {
         throw new BadRequestException('Comment text is required');
       }
 
+      this.logger.log(`Adding comment to definition: ${id}`);
+
       const definition = await this.definitionService.getDefinition(id);
 
       if (!definition) {
@@ -410,11 +415,9 @@ export class DefinitionController {
 
         discussionId = discussion.id;
 
-        // Update definition with discussion ID
-        await this.definitionService.updateDefinition(id, {
-          definitionText: definition.definitionText,
-          discussionId,
-        });
+        // Note: We don't update the definition with discussionId here
+        // as the DefinitionService.updateDefinition may not support it
+        // The discussion is linked by associatedNodeId anyway
       }
 
       // Create the comment
@@ -425,6 +428,7 @@ export class DefinitionController {
         parentCommentId: commentData.parentCommentId,
       });
 
+      this.logger.log(`Successfully added comment to definition: ${id}`);
       return comment;
     } catch (error) {
       this.handleError(error, `Error adding comment to definition: ${id}`);

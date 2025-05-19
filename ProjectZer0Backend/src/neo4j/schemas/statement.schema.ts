@@ -300,7 +300,7 @@ export class StatementSchema {
         ON CREATE SET st.strength = keyword.frequency * t.frequency
         ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
         
-        // Create discussion node and initial comment
+        // Create discussion node automatically
         WITH DISTINCT s
         CREATE (d:DiscussionNode {
           id: apoc.create.uuid(),
@@ -310,11 +310,13 @@ export class StatementSchema {
         })
         CREATE (s)-[:HAS_DISCUSSION]->(d)
         
-        WITH s, d
+        // Create initial comment only if provided
+        WITH s, d, $initialComment as initialComment
+        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
         CREATE (c:CommentNode {
           id: apoc.create.uuid(),
           createdBy: $createdBy,
-          commentText: $initialComment,
+          commentText: initialComment,
           createdAt: datetime(),
           updatedAt: datetime(),
           positiveVotes: 0,
@@ -384,6 +386,9 @@ export class StatementSchema {
         // Get directly related statements
         OPTIONAL MATCH (s)-[:RELATED_TO]-(r:StatementNode)
         
+        // Get discussion
+        OPTIONAL MATCH (s)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        
         RETURN s,
                collect(DISTINCT {
                  word: w.word, 
@@ -400,7 +405,8 @@ export class StatementSchema {
                  nodeId: r.id,
                  statement: r.statement,
                  relationshipType: 'direct'
-               }) as directlyRelatedStatements
+               }) as directlyRelatedStatements,
+               d.id as discussionId
         `,
         { id },
       );
@@ -416,6 +422,7 @@ export class StatementSchema {
       statement.directlyRelatedStatements = result.records[0].get(
         'directlyRelatedStatements',
       );
+      statement.discussionId = result.records[0].get('discussionId');
 
       // Convert Neo4j integers to JavaScript numbers
       if (statement.positiveVotes !== undefined) {
@@ -450,6 +457,7 @@ export class StatementSchema {
       statement: string;
       publicCredit: boolean;
       keywords: KeywordWithFrequency[];
+      discussionId: string;
     }>,
   ) {
     try {
@@ -511,6 +519,7 @@ export class StatementSchema {
             updateProperties: {
               statement: updateData.statement,
               publicCredit: updateData.publicCredit,
+              discussionId: updateData.discussionId,
             },
             keywords: updateData.keywords,
           },
@@ -540,6 +549,7 @@ export class StatementSchema {
             updateProperties: {
               statement: updateData.statement,
               publicCredit: updateData.publicCredit,
+              discussionId: updateData.discussionId,
             },
           },
         );
@@ -598,12 +608,15 @@ export class StatementSchema {
         throw new NotFoundException(`Statement with ID ${id} not found`);
       }
 
-      // Perform the delete operation
+      // Delete statement and all related nodes (discussion, comments)
       await this.neo4jService.write(
         `
         MATCH (s:StatementNode {id: $id})
-        OPTIONAL MATCH (s)-[r]-()
-        DELETE r, s
+        // Get associated discussion and comments to delete as well
+        OPTIONAL MATCH (s)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
+        // Delete everything
+        DETACH DELETE s, d, c
         `,
         { id },
       );

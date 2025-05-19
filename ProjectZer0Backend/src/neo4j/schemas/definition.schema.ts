@@ -26,6 +26,7 @@ export class DefinitionSchema {
     word: string;
     createdBy: string;
     definitionText: string;
+    discussion?: string;
   }) {
     try {
       // Validate definition text length
@@ -79,6 +80,32 @@ export class DefinitionSchema {
             type: 'definition'
         }]->(d)
 
+        // Create discussion node automatically
+        WITH DISTINCT d
+        CREATE (disc:DiscussionNode {
+          id: apoc.create.uuid(),
+          createdAt: datetime(),
+          createdBy: $createdBy,
+          visibilityStatus: true
+        })
+        CREATE (d)-[:HAS_DISCUSSION]->(disc)
+        
+        // Create initial comment only if provided
+        WITH d, disc, $discussion as initialComment
+        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
+        CREATE (c:CommentNode {
+          id: apoc.create.uuid(),
+          createdBy: $createdBy,
+          commentText: initialComment,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          positiveVotes: 0,
+          negativeVotes: 0,
+          visibilityStatus: true,
+          parentCommentId: null
+        })
+        CREATE (disc)-[:HAS_COMMENT]->(c)
+
         RETURN d
         `,
         {
@@ -131,7 +158,9 @@ export class DefinitionSchema {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DefinitionNode {id: $id})
-        RETURN d
+        // Get discussion
+        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        RETURN d, disc.id as discussionId
         `,
         { id },
       );
@@ -142,6 +171,7 @@ export class DefinitionSchema {
       }
 
       const definition = result.records[0].get('d').properties;
+      definition.discussionId = result.records[0].get('discussionId');
       this.logger.debug(`Retrieved definition: ${JSON.stringify(definition)}`);
       return definition;
     } catch (error) {
@@ -150,6 +180,48 @@ export class DefinitionSchema {
         error.stack,
       );
       throw new Error(`Failed to retrieve definition: ${error.message}`);
+    }
+  }
+
+  async getDefinitionWithDiscussion(id: string) {
+    try {
+      this.logger.debug(`Retrieving definition with discussion: ${id}`);
+
+      const result = await this.neo4jService.read(
+        `
+        MATCH (d:DefinitionNode {id: $id})
+        // Get discussion
+        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        RETURN d, disc
+        `,
+        { id },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        this.logger.debug(`Definition not found: ${id}`);
+        return null;
+      }
+
+      const definition = result.records[0].get('d').properties;
+      const discussion = result.records[0].get('disc');
+
+      if (discussion) {
+        definition.discussion = discussion.properties;
+        definition.discussionId = discussion.properties.id;
+      }
+
+      this.logger.debug(
+        `Retrieved definition with discussion: ${JSON.stringify(definition)}`,
+      );
+      return definition;
+    } catch (error) {
+      this.logger.error(
+        `Error retrieving definition with discussion ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(
+        `Failed to retrieve definition with discussion: ${error.message}`,
+      );
     }
   }
 
@@ -267,10 +339,15 @@ export class DefinitionSchema {
         throw new NotFoundException(`Definition with ID ${id} not found`);
       }
 
+      // Delete definition and all related nodes (discussion, comments)
       await this.neo4jService.write(
         `
         MATCH (d:DefinitionNode {id: $id})
-        DETACH DELETE d
+        // Get associated discussion and comments to delete as well
+        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        OPTIONAL MATCH (disc)-[:HAS_COMMENT]->(c:CommentNode)
+        // Delete everything
+        DETACH DELETE d, disc, c
         `,
         { id },
       );

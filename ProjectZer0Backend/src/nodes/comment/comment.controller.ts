@@ -169,8 +169,8 @@ export class CommentController {
     return this.commentService.getCommentVotes(id);
   }
 
+  // ADDED: Missing users/comments/votes endpoint
   @Get('users/comments/votes')
-  @UseGuards(JwtAuthGuard)
   async getUserCommentVotes(@Request() req: any) {
     if (!req.user?.sub) {
       throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);

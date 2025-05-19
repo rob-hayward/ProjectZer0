@@ -221,7 +221,7 @@ export class StatementController {
     return await this.statementService.getStatementVotes(id);
   }
 
-  // New endpoints for discussions and comments
+  // ADDED: Discussion and comment endpoints for statements
   @Get(':id/discussion')
   async getStatementWithDiscussion(@Param('id') id: string) {
     this.logger.debug(
@@ -287,20 +287,13 @@ export class StatementController {
       throw new NotFoundException(`Statement with ID ${id} not found`);
     }
 
-    // If no discussion exists, create one
-    let discussionId = statement.discussionId;
+    // Discussion should already exist from statement creation
+    const discussionId = statement.discussionId;
 
     if (!discussionId) {
-      const discussion = await this.discussionService.createDiscussion({
-        createdBy: req.user.sub,
-        associatedNodeId: id,
-        associatedNodeType: 'StatementNode',
-      });
-
-      discussionId = discussion.id;
-
-      // Update statement with discussion ID
-      await this.statementService.updateStatement(id, { discussionId });
+      throw new Error(
+        `Statement ${id} is missing its discussion - this should not happen`,
+      );
     }
 
     // Create the comment
