@@ -4,6 +4,7 @@
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import type { VoteStatus } from '$lib/types/domain/nodes';
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
+    import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BaseNode from '../base/BaseNode.svelte';
     import HiddenNode from '../common/HiddenNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
@@ -46,6 +47,21 @@
             return Number(value.low);
         }
         return Number(value || 0);
+    }
+    
+    // CRITICAL FIX: Ensure consistent radius when transitioning from hidden to visible
+    $: {
+        // Fix for incorrect radius during visibility transitions
+        if (!node.isHidden && node.radius > COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2) {
+            console.log(`[CommentNode] Fixing oversized radius: ${node.radius} -> ${COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2}`);
+            node.radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
+            
+            // Also update style properties to match
+            if (node.style) {
+                node.style.previewSize = node.radius;
+                node.style.detailSize = node.radius;
+            }
+        }
     }
     
     // Explicitly set mode even though it doesn't affect appearance
@@ -330,7 +346,10 @@
                 end: commentNodeColors.gradient.end
             }
         },
-        highlightColor: baseColor
+        highlightColor: baseColor,
+        // CRITICAL FIX: Ensure style sizes always match radius directly
+        previewSize: node.radius,
+        detailSize: node.radius
     };
     
     // Reactive declarations
@@ -347,7 +366,8 @@
             netVotes,
             userVoteStatus,
             isHidden,
-            hiddenReason
+            hiddenReason,
+            radius: node.radius
         });
     });
 </script>
