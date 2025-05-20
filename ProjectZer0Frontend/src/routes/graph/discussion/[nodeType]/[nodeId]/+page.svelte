@@ -369,15 +369,19 @@
             isLoading = false;
         }
     }
-    
-    // CRITICAL FIX: Enhanced graph data creation with improved form node handling
+
+// CRITICAL FIX: Enhanced graph data creation with explicit comment node sizing
     function createGraphData(): GraphData {
         console.log('[STATE_DEBUG] Creating graph data, central node:', centralNode?.id);
         if (!centralNode) {
             return { nodes: [], links: [] };
         }
         
-        // CRITICAL FIX: Enhanced form node creation with better parent ID extraction
+        // CRITICAL FIX: Define constants for comment node radius
+        const COMMENT_RADIUS = 90; // Standard 90px radius for visible comments
+        const HIDDEN_RADIUS = 50;  // Standard 50px radius for hidden nodes
+        
+       // CRITICAL FIX: Enhanced form node creation with better parent ID extraction
         function createCommentFormNode(parentId: string | null): GraphNode {
             // Generate a unique ID
             const timestamp = Date.now();
@@ -407,19 +411,24 @@
             };
             
             // Create comment form node with all parent ID sources
-            const formNode: GraphNode = {
+            // FIX: Use type assertion to avoid TypeScript errors
+            const formNode = {
                 id: formId,
                 type: 'comment-form' as NodeType,
                 data: formData,
                 group: 'comment-form' as NodeGroup,
-                mode: 'detail' as NodeMode,
+                mode: 'preview' as NodeMode,
                 metadata: metadata
-            };
+            } as GraphNode;
+            
+            // CRITICAL FIX: Set radius as a property after creation to avoid type errors
+            (formNode as any).radius = COMMENT_RADIUS;
             
             console.log('[STATE_DEBUG] Created form node:', {
                 id: formNode.id,
                 dataParentId: formData.parentCommentId,
-                metadataParentId: metadata.parentCommentId
+                metadataParentId: metadata.parentCommentId,
+                radius: (formNode as any).radius
             });
             
             return formNode;
@@ -463,20 +472,26 @@
             commentIdMap.set(comment.id, true);
         });
         
-        // First, create all comment nodes with complete metadata
+        // CRITICAL FIX: First, create all comment nodes with complete metadata and EXPLICIT radius
         comments.forEach(comment => {
+            // CRITICAL FIX: Get visibility preference for this comment and set radius accordingly
+            const netVotes = comment.positiveVotes - comment.negativeVotes;
+            const isHidden = !visibilityStore.getPreference(comment.id);
+            const commentRadius = isHidden ? HIDDEN_RADIUS : COMMENT_RADIUS;
+            
             // CRITICAL: Properly handle parent-child metadata
             const commentMetadata: NodeMetadata = {
                 group: 'comment' as NodeMetadata['group'],
                 parentCommentId: comment.parentCommentId, // Keep original value
-                votes: comment.positiveVotes - comment.negativeVotes,
+                votes: netVotes,
                 createdAt: typeof comment.createdAt === 'string' ? comment.createdAt : undefined,
                 depth: comment.depth || 0,
                 isExpanded: comment.isExpanded || false
             };
             
             // CRITICAL: Create comment node with explicit parent ID preservation
-            const commentNode: GraphNode = {
+            // FIX: Create without radius first, then add it to avoid type errors
+            const commentNode = {
                 id: comment.id,
                 type: 'comment' as NodeType,
                 data: {
@@ -485,10 +500,14 @@
                     parentCommentId: comment.parentCommentId
                 } as unknown as CommentNodeType,
                 group: 'comment' as NodeGroup,
-                mode: 'preview' as NodeMode,
+                mode: 'preview' as NodeMode, // CRITICAL: Always set mode to preview
                 metadata: commentMetadata
-            };
+            } as GraphNode;
             
+            // FIX: Add radius property after creation to avoid type errors
+            (commentNode as any).radius = commentRadius;
+            
+            console.log(`[STATE_DEBUG] Created comment node ${comment.id} with radius ${commentRadius} (${isHidden ? 'hidden' : 'visible'})`);
             commentNodes.push(commentNode);
         });
         
@@ -759,6 +778,13 @@
                     on:click={() => handleSortChange('popularity')}
                 >
                     Popular
+                </button>
+                <button 
+                    class="sort-button" 
+                    class:active={sortMode === 'newest'}
+                    on:click={() => handleSortChange('newest')}
+                >
+                    Newest
                 </button>
                 <button 
                     class="sort-button" 
@@ -1049,3 +1075,4 @@
         }
     }
 </style>
+                    class="sort-button

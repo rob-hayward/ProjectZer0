@@ -36,11 +36,9 @@
     
     // Handle visibility change request
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-        // For a hidden node, the ShowHideButton will always dispatch the opposite visibility
-        // When clicked, we want to make the node visible, so dispatch with isHidden: false
-        dispatch('visibilityChange', {
-            isHidden: false // Always false when showing a previously hidden node
-        });
+        // When showing a hidden node, always forward the event without modification
+        // This prevents duplicating visibility change logic
+        dispatch('visibilityChange', event.detail);
     }
     
     // Handle mode change (expand)

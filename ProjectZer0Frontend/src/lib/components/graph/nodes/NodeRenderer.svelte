@@ -16,6 +16,8 @@
     
     // The node to render
     export let node: RenderableNode;
+
+    let isProcessingVisibilityChange = false;
     
     // Add viewType as a prop to know when we're in discussion view
     export let viewType: ViewType;
@@ -88,6 +90,15 @@
     
     // Handle visibility change events
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        // Prevent duplicate processing of the same event
+        if (isProcessingVisibilityChange) {
+            console.log('[NodeRenderer] Ignoring duplicate visibility change event during processing');
+            return;
+        }
+        
+        // Set flag to prevent multiple simultaneous updates
+        isProcessingVisibilityChange = true;
+        
         // Log complete information
         console.log('[NodeRenderer] Visibility change requested:', {
             nodeId: node.id,
@@ -114,7 +125,7 @@
             console.log('[NodeRenderer] Comment visibility change - visibility store updated');
         }
         
-        // Then update the graph store directly - this is the key to immediate UI updates
+        // Then update the graph store
         if (graphStore) {
             // Call the correct method on graphStore to update visibility
             graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
@@ -127,16 +138,18 @@
             graphStore.forceTick(5);
         }
         
-        // Directly update the node's visibility state (redundant with above, but just to be sure)
-        node.isHidden = event.detail.isHidden;
-        
         // Dispatch event to update local state and parent components
         dispatch('visibilityChange', { 
             nodeId: node.id, 
             isHidden: event.detail.isHidden 
         });
+        
+        // Release the processing flag after a short delay to ensure event processing has completed
+        setTimeout(() => {
+            isProcessingVisibilityChange = false;
+        }, 100);
     }
-    
+        
     // Handle discuss button click - use the navigation service to navigate to discussion view
     function handleDiscussClick(event: CustomEvent<{ nodeId: string | undefined }>) {
         const nodeId = event.detail.nodeId || node.id;

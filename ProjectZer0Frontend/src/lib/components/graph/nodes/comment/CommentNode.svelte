@@ -48,6 +48,9 @@
         return Number(value || 0);
     }
     
+    // Explicitly set mode even though it doesn't affect appearance
+    $: mode = node.mode || 'preview';
+
     // Get user vote status from discussion store
     $: userVoteStatus = discussionStore.getUserVoteStatus(node.id);
     

@@ -249,30 +249,39 @@ export class GraphManager {
         
         console.log(`[GraphManager] Updating visibility for ${oldNode.type} node ${nodeId}: ${isHidden ? 'hiding' : 'showing'} (${hiddenReason})`);
         
-        // CRITICAL FIX: For comment nodes, explicitly calculate correct radius
-        let newRadius;
-        if (oldNode.type === 'comment') {
-            // For comment nodes, use constants directly without any mode considerations
-            newRadius = isHidden ? 
-                COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
-                COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
-            console.log(`[GraphManager] Comment node ${nodeId} radius: ${oldNode.radius} -> ${newRadius} (hidden: ${isHidden})`);
-        } else {
-            // For other nodes, use the existing radius calculation
-            newRadius = this.getNodeRadius({
-                ...oldNode,
-                isHidden: isHidden
-            });
+        // Clear all cache entries for this node
+        for (const key of Array.from(this.nodeRadiusCache.keys())) {
+            if (key.startsWith(`${nodeId}-`)) {
+                this.nodeRadiusCache.delete(key);
+            }
         }
+        
+        // CRITICAL: When transitioning from hidden to visible, ensure node returns to preview mode
+        // This is the key part that matches the behavior of other node types
+        let updatedMode = oldNode.mode;
+        if (oldNode.isHidden && !isHidden) {
+            // If we're transitioning from hidden to visible, set to preview mode
+            updatedMode = 'preview';
+            console.log(`[GraphManager] Node ${nodeId} transitioning from hidden to visible, setting mode to 'preview'`);
+        }
+        
+        // Calculate new radius using the updated mode and visibility
+        const newRadius = this.getNodeRadius({
+            ...oldNode,
+            mode: updatedMode,
+            isHidden: isHidden
+        });
+        
+        console.log(`[GraphManager] Node ${nodeId} radius: ${oldNode.radius} -> ${newRadius} (hidden: ${isHidden}, mode: ${updatedMode})`);
         
         // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...oldNode,
             isHidden: isHidden,
             hiddenReason: hiddenReason,
+            mode: updatedMode,
             radius: newRadius,
-            // CRITICAL: Don't change mode for comment nodes - they don't have modes
-            mode: oldNode.type === 'comment' ? oldNode.mode : oldNode.mode
+            expanded: updatedMode === 'detail'
         };
         
         // Create a new nodes array with the updated node
@@ -283,7 +292,7 @@ export class GraphManager {
         this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
         
-        console.log(`[GraphManager] Updated ${oldNode.type} node ${nodeId} visibility state successfully. New radius: ${updatedNode.radius}`);
+        console.log(`[GraphManager] Updated ${oldNode.type} node ${nodeId} visibility state successfully. New radius: ${updatedNode.radius}, mode: ${updatedNode.mode}`);
         
         // If layout strategy exists, let it handle the visibility change
         if (this.currentLayoutStrategy) {
@@ -302,8 +311,42 @@ export class GraphManager {
         this.simulation.alpha(0.3).restart();
         this.simulationActive = true;
     }
+    
+    // Add this method to GraphManager.ts
+    public logNodeRadius(nodeId: string): void {
+        // First check the internal model
+        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
+        
+        if (!node) {
+            console.log(`[GraphManager] Node ${nodeId} not found in simulation`);
+            return;
+        }
+        
+        // Log the internal node radius
+        console.log(`[GraphManager] Internal node ${nodeId} (type: ${node.type}) radius: ${node.radius}`);
+        
+        // Then check the DOM if we're in browser environment
+        if (typeof document !== 'undefined') {
+            // Try to find the SVG node element
+            const nodeElem = document.querySelector(`[data-node-id="${nodeId}"]`);
+            if (nodeElem) {
+                // Get radius attributes
+                const dataRadius = nodeElem.getAttribute('data-node-radius');
+                
+                // Try to find circle elements within the node
+                const circles = nodeElem.querySelectorAll('circle');
+                const radii = Array.from(circles).map(circle => circle.getAttribute('r'));
+                
+                console.log(`[GraphManager] DOM node ${nodeId} data-radius: ${dataRadius}`);
+                console.log(`[GraphManager] DOM node ${nodeId} circle radii:`, radii);
+            } else {
+                console.log(`[GraphManager] Node ${nodeId} not found in DOM`);
+            }
+        }
+    }
 
-    // Update the recalculateNodeVisibility method
+   // Update the recalculateNodeVisibility method to include comment nodes
     public recalculateNodeVisibility(
         nodeId: string, 
         positiveVotes: number, 
@@ -318,8 +361,8 @@ export class GraphManager {
             return;
         }
         
-        // Only perform calculation for word, definition, and statement nodes
-        if (node.type !== 'word' && node.type !== 'definition' && node.type !== 'statement') {
+        // FIXED: Include comment nodes in visibility calculations
+        if (node.type !== 'word' && node.type !== 'definition' && node.type !== 'statement' && node.type !== 'comment') {
             return;
         }
         
@@ -332,7 +375,7 @@ export class GraphManager {
             netVotes = voteData.netVotes;
             shouldBeHiddenByCommunity = voteData.shouldBeHidden;
         } else {
-            // Calculate net votes for non-statement nodes
+            // Calculate net votes for non-statement nodes (including comments)
             netVotes = positiveVotes - negativeVotes;
             // Determine if node should be hidden based on community standards
             shouldBeHiddenByCommunity = netVotes < 0;
@@ -345,6 +388,11 @@ export class GraphManager {
             
             // Only update if visibility state would change
             if (node.isHidden !== shouldBeHidden) {
+                // CRITICAL: Add debug log for comment nodes
+                if (node.type === 'comment') {
+                    console.log(`[GraphManager] Updating comment node ${nodeId} visibility from ${node.isHidden} to ${shouldBeHidden} by user preference`);
+                }
+                
                 // Update node visibility with 'user' as the reason
                 this.updateNodeVisibility(nodeId, shouldBeHidden, 'user');
             }
@@ -356,12 +404,16 @@ export class GraphManager {
             
             // Only update if visibility state would change
             if (node.isHidden !== shouldBeHiddenByCommunity) {
+                // CRITICAL: Add debug log for comment nodes
+                if (node.type === 'comment') {
+                    console.log(`[GraphManager] Updating comment node ${nodeId} visibility from ${node.isHidden} to ${shouldBeHiddenByCommunity} by community standard`);
+                }
+                
                 // Update node visibility with 'community' as the reason
                 this.updateNodeVisibility(nodeId, shouldBeHiddenByCommunity, 'community');
             }
         }
     }
-  
     // Method to apply all visibility preferences
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
         if (Object.keys(preferences).length === 0) {
@@ -906,15 +958,61 @@ export class GraphManager {
             if (existing && existing.type === node.type) {
                 // Update only necessary properties
                 existing.data = node.data;
-                existing.mode = node.mode;
                 
-                // CRITICAL: For comment nodes, ensure radius is always correct
-                if (node.type === 'comment') {
-                    existing.radius = existing.isHidden ? 
+                // CRITICAL FIX: For comment nodes, ensure visibility and radius are properly handled
+                if (existing.type === 'comment' || existing.type === 'comment-form') {
+                    // Get visibility state either from node input or calculate it
+                    let isHidden = false;
+                    
+                    // If node has explicit isHidden property, use it
+                    if ('isHidden' in node) {
+                        isHidden = typeof node.isHidden === 'boolean' ? node.isHidden : false;
+                    } 
+                    // Otherwise, determine from votes for comments
+                    else if (existing.type === 'comment') {
+                        const netVotes = this.getNodeVotes(node);
+                        // If user has set a preference, respect it
+                        if (existing.hiddenReason === 'user') {
+                            isHidden = existing.isHidden || false;
+                        } 
+                        // Otherwise use community standard
+                        else {
+                            isHidden = netVotes < 0;
+                        }
+                    }
+                    
+                    // Ensure mode is set (always 'preview' for comments)
+                    existing.mode = 'preview';
+                    
+                    // Update node visibility property
+                    existing.isHidden = isHidden;
+                    
+                    // Clear cache to ensure fresh calculation
+                    this.nodeVotesCache.delete(node.id);
+                    for (const key of Array.from(this.nodeRadiusCache.keys())) {
+                        if (key.startsWith(`${node.id}-`)) {
+                            this.nodeRadiusCache.delete(key);
+                        }
+                    }
+                    
+                    // CRITICAL: Set radius based on new visibility state
+                    const newRadius = isHidden ? 
                         COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
-                        COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
-                } else {
-                    // Reset cached values for other node types
+                        COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
+                        
+                    // Force update the radius
+                    existing.radius = newRadius;
+                    
+                    console.log(`[GraphManager:transformNodes] Updated existing ${existing.type} node ${node.id} radius: ${existing.radius} (hidden: ${isHidden})`);
+                } 
+                // For other node types, handle normally
+                else {
+                    // Ensure mode is updated if provided, otherwise preserve existing mode
+                    if (node.mode) {
+                        existing.mode = node.mode;
+                    }
+                    
+                    // Clear cached values to ensure fresh calculation
                     this.nodeVotesCache.delete(node.id);
                     this.nodeRadiusCache.delete(node.id);
                 }
@@ -928,19 +1026,42 @@ export class GraphManager {
             // Determine if node should be hidden based on community standard
             const isHidden = (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'comment') && 
                 netVotes < 0;
+            
+            // CRITICAL FIX: Different handling for comment nodes vs. other nodes
+            let nodeRadius: number;
+            let nodeMode: NodeMode | undefined;
+            
+            if (node.type === 'comment' || node.type === 'comment-form') {
+                // Comments always use preview mode
+                nodeMode = 'preview';
+                
+                // Set radius directly based on visibility
+                nodeRadius = isHidden ? 
+                    COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
                     
+                console.log(`[GraphManager:transformNodes] Created new ${node.type} node ${node.id} with radius: ${nodeRadius} (hidden: ${isHidden})`);
+            } else {
+                // For other node types, use normal mode handling
+                nodeMode = node.mode || undefined;
+                
+                // Calculate radius through the standard method
+                nodeRadius = this.getNodeRadius({
+                    ...node,
+                    mode: nodeMode,
+                    isHidden: isHidden
+                });
+            }
+            
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
                 data: node.data,
                 group: node.group,
-                mode: node.mode,
-                // CRITICAL: Use proper radius calculation for comment nodes
-                radius: node.type === 'comment' 
-                    ? (isHidden ? COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2)
-                    : this.getNodeRadius(node),
+                mode: nodeMode,
+                radius: nodeRadius, // Use pre-calculated radius
                 fixed: node.group === 'central',
-                expanded: node.mode === 'detail',
+                expanded: nodeMode === 'detail',
                 subtype: node.type === 'definition' ? 
                     (node.group === 'live-definition' ? 'live' : 'alternative') : 
                     undefined,
@@ -958,7 +1079,7 @@ export class GraphManager {
                 metadata: {
                     group: this.getLayoutGroup(node),
                     fixed: node.group === 'central',
-                    isDetail: node.mode === 'detail',
+                    isDetail: nodeMode === 'detail',
                     votes: node.type === 'definition' || node.type === 'statement' || node.type === 'comment' ? 
                         netVotes : undefined,
                     createdAt: 'createdAt' in node.data ? 
@@ -968,7 +1089,6 @@ export class GraphManager {
                                 node.data.createdAt : 
                                 undefined) : 
                             undefined,
-                    // CRITICAL: Preserve parentCommentId for reply comments
                     parentCommentId: node.type === 'comment' && 'parentCommentId' in node.data ? 
                         (node.data as any).parentCommentId : 
                         node.metadata?.parentCommentId
@@ -1057,14 +1177,25 @@ export class GraphManager {
         return nodes.map(node => {
             // Use the current node.radius directly
             const radius = node.radius;
-            const baseSize = radius * 2;
             
+            // Calculate baseSize - the diameter
+            const baseSize = radius;
+            
+            // CRITICAL FIX: For comment nodes, use the same size for preview and detail modes
+            // This prevents the 2x scaling that causes the issue with comment nodes
+            const detailSize = node.type === 'comment' || node.type === 'comment-form' 
+                ? baseSize  // Same size for both modes (prevents 2x scaling)
+                : baseSize;  // Default behavior for other node types
+                
             // Simple position calculation with null checking
             const x = node.x ?? 0;
             const y = node.y ?? 0;
             
             // Create SVG transform string using coordinateSystem helper
             const svgTransform = coordinateSystem.createSVGTransform(x, y);
+            
+            // Get node color for highlighting
+            const nodeColor = this.getNodeColor(node);
             
             return {
                 id: node.id,
@@ -1083,7 +1214,7 @@ export class GraphManager {
                 metadata: node.metadata,
                 style: {
                     previewSize: baseSize,
-                    detailSize: baseSize * 2,
+                    detailSize: detailSize, // Use the fixed detailSize for comments
                     colors: {
                         background: this.getNodeBackground(node),
                         border: this.getNodeBorder(node),
@@ -1112,7 +1243,7 @@ export class GraphManager {
                             hover: NODE_CONSTANTS.STROKE.detail.hover
                         }
                     },
-                    highlightColor: this.getNodeColor(node)
+                    highlightColor: nodeColor
                 }
             };
         });
@@ -1218,7 +1349,7 @@ export class GraphManager {
             return this.nodeRadiusCache.get(cacheKey) || 0;
         }
         
-        // CRITICAL: First check if node is hidden - hidden nodes have the smallest radius
+        // First check if node is hidden - hidden nodes have the smallest radius
         if ('isHidden' in node && node.isHidden) {
             const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
             this.nodeRadiusCache.set(cacheKey, radius);
@@ -1250,23 +1381,25 @@ export class GraphManager {
                 radius = node.mode === 'detail' ?
                     COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
                     COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
-                break;      
-            
+                break;
+                
             case 'comment':
-                // CRITICAL FIX: Comment nodes ALWAYS use STANDARD size from constants
-                // They don't have preview/detail modes, so ignore mode completely
-                radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
                 break;
                 
             case 'comment-form':
-                // Comment forms also use the comment standard size
-                radius = COORDINATE_SPACE.NODES.SIZES.COMMENT.STANDARD / 2;
+                // Comment forms also follow the pattern
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
                 break;
                     
             case 'navigation':
                 radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
                 break;
-                
+                    
             case 'dashboard':
                 // Special case for the control node/dashboard view
                 if (node.data && 'sub' in node.data && node.data.sub === 'controls') {
@@ -1277,12 +1410,12 @@ export class GraphManager {
                     radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
                 }
                 break;
-                
+                    
             case 'edit-profile':
             case 'create-node':
                 radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
                 break;
-                
+                    
             default:
                 radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }

@@ -38,9 +38,9 @@ export const COORDINATE_SPACE = {
                 DETAIL: 450,     // Smaller detail view for control node
                 PREVIEW: 250     // Smaller preview for control node
             },
-            // Add fixed size for comment nodes - smaller than other node types
             COMMENT: {
-                STANDARD: 180    // Fixed size for comment nodes (no preview/detail distinction)
+                DETAIL: 180,    // Same size as STANDARD = 90px radius
+                PREVIEW: 180    // Same size as STANDARD = 90px radius
             },
             NAVIGATION: 80,
             HIDDEN: 100
