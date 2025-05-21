@@ -1,10 +1,9 @@
 <!-- src/lib/components/graph/nodes/NodeRenderer.svelte -->
 <script lang="ts">
-    import { createEventDispatcher, onMount } from 'svelte';
+    import { createEventDispatcher, onMount, tick } from 'svelte';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
     import HiddenNode from './common/HiddenNode.svelte';  
     import ShowHideButton from './common/ShowHideButton.svelte';
-    import ExpandCollapseButton from './common/ExpandCollapseButton.svelte';
     import DiscussButton from './common/DiscussButton.svelte';
     import ReplyButton from './common/ReplyButton.svelte';
     import CreateLinkedNodeButton from './common/CreateLinkedNodeButton.svelte';
@@ -12,12 +11,14 @@
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';
     import { graphStore } from '$lib/stores/graphStore';
-    import { navigateToNodeDiscussion } from '$lib/services/navigation'; // Import the new navigation function
+    import { navigateToNodeDiscussion } from '$lib/services/navigation';
+    import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     
     // The node to render
     export let node: RenderableNode;
 
     let isProcessingVisibilityChange = false;
+    let forceRefresh = 0; // Counter to force re-renders
     
     // Add viewType as a prop to know when we're in discussion view
     export let viewType: ViewType;
@@ -40,6 +41,10 @@
             nodeType: string;
         };
     }>();
+
+    // Store the expected radius for comment nodes
+    const COMMENT_VISIBLE_RADIUS = COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
+    const HIDDEN_NODE_RADIUS = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
     
     // Handle mode change events from child components
     function handleModeChange(event: CustomEvent<{ 
@@ -47,10 +52,11 @@
         position?: { x: number; y: number };
         nodeId?: string;
     }>) {
-        console.log('[NODE_CENTRE_DEBUG] NodeRenderer handleModeChange called with:', {
+        console.log('[NodeRenderer] Mode change requested:', {
             nodeId: node.id,
-            mode: event.detail.mode,
-            position: event.detail.position
+            nodeType: node.type,
+            currentMode: node.mode,
+            newMode: event.detail.mode
         });
         
         // Include the nodeId in the dispatched event
@@ -65,10 +71,6 @@
         
         // ALWAYS use current node position data to ensure accuracy
         if (node.position) {
-            console.log('[NODE_CENTRE_DEBUG] NodeRenderer using current node position:', {
-                x: node.position.x,
-                y: node.position.y
-            });
             eventData.position = {
                 x: node.position.x,
                 y: node.position.y
@@ -76,35 +78,30 @@
         }
         // Fall back to position from event if available
         else if (event.detail.position) {
-            console.log('[NODE_CENTRE_DEBUG] NodeRenderer using position from event:', {
-                x: event.detail.position.x,
-                y: event.detail.position.y
-            });
             eventData.position = event.detail.position;
         }
         
         // Dispatch the enhanced event
-        console.log('[NODE_CENTRE_DEBUG] NodeRenderer dispatching modeChange:', eventData);
         dispatch('modeChange', eventData);
     }
     
     // Handle visibility change events
-    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+    async function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         // Prevent duplicate processing of the same event
         if (isProcessingVisibilityChange) {
-            console.log('[NodeRenderer] Ignoring duplicate visibility change event during processing');
             return;
         }
         
         // Set flag to prevent multiple simultaneous updates
         isProcessingVisibilityChange = true;
         
-        // Log complete information
+        // Log visibility change request
         console.log('[NodeRenderer] Visibility change requested:', {
             nodeId: node.id,
             nodeType: node.type,
-            currentVisibility: node.isHidden ? 'hidden' : 'visible',
-            newVisibility: event.detail.isHidden ? 'hidden' : 'visible'
+            currentRadius: node.radius,
+            beforeIsHidden: node.isHidden,
+            afterIsHidden: event.detail.isHidden
         });
 
         // The visibility store uses isVisible (true = visible, false = hidden)
@@ -113,26 +110,11 @@
         
         // First update the visibility store directly
         visibilityStore.setPreference(node.id, isVisible);
-        console.log('[NodeRenderer] Updated visibility store for:', {
-            nodeId: node.id,
-            isVisible: isVisible
-        });
-        
-        // For comments, also update the discussion store to maintain consistency
-        if (node.type === 'comment') {
-            // The discussionStore should handle comment visibility internally
-            // We just need to ensure the visibility store is updated (done above)
-            console.log('[NodeRenderer] Comment visibility change - visibility store updated');
-        }
         
         // Then update the graph store
         if (graphStore) {
             // Call the correct method on graphStore to update visibility
             graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
-            console.log('[NodeRenderer] Updated graphStore visibility for:', {
-                nodeId: node.id,
-                isHidden: event.detail.isHidden
-            });
             
             // Force ticks to refresh layout
             graphStore.forceTick(5);
@@ -144,21 +126,73 @@
             isHidden: event.detail.isHidden 
         });
         
-        // Release the processing flag after a short delay to ensure event processing has completed
-        setTimeout(() => {
+        // CRITICAL FIX: For comment nodes specifically, ensure radius is updated after visibility change
+        if (node.type === 'comment') {
+            // Wait for next tick to ensure reactivity
+            await tick();
+            
+            // For transition from hidden to visible, verify radius is updated
+            if (node.isHidden && !event.detail.isHidden) {
+                console.log('[NodeRenderer] Comment node transitioning from hidden to visible, verifying radius');
+                
+                // Force a refresh after a short delay to ensure all updates have happened
+                setTimeout(() => {
+                    // Force component refresh by incrementing counter
+                    forceRefresh++;
+                    console.log('[NodeRenderer] Forcing refresh of comment node, current radius:', node.radius);
+                    
+                    // Dispatch a custom event to notify parent components that node size has changed
+                    const customEvent = new CustomEvent('node-size-changed', {
+                        bubbles: true,
+                        detail: { 
+                            nodeId: node.id,
+                            nodeType: node.type,
+                            radius: node.radius
+                        }
+                    });
+                    
+                    // Dispatch on the DOM element
+                    const element = document.querySelector(`[data-node-id="${node.id}"]`);
+                    if (element) {
+                        element.dispatchEvent(customEvent);
+                    }
+                    
+                    // Also dispatch via window for components that might not be in DOM hierarchy
+                    window.dispatchEvent(new CustomEvent('node-size-changed', {
+                        detail: { 
+                            nodeId: node.id, 
+                            nodeType: node.type,
+                            radius: node.radius
+                        }
+                    }));
+                    
+                    console.log('[NodeRenderer] Dispatched node-size-changed event:', {
+                        nodeId: node.id,
+                        nodeType: node.type,
+                        radius: node.radius
+                    });
+                    
+                    isProcessingVisibilityChange = false;
+                }, 100);
+            } else {
+                // For other transitions, release the flag normally
+                isProcessingVisibilityChange = false;
+            }
+        } else {
+            // For non-comment nodes, release the flag normally
             isProcessingVisibilityChange = false;
-        }, 100);
+        }
     }
         
-    // Handle discuss button click - use the navigation service to navigate to discussion view
+    // Handle discuss button click
     function handleDiscussClick(event: CustomEvent<{ nodeId: string | undefined }>) {
         const nodeId = event.detail.nodeId || node.id;
         console.log(`[NodeRenderer] Discuss event received for node ${nodeId}`);
         
-        // Navigate to the discussion view for this node using the new navigation function
+        // Navigate to the discussion view for this node
         navigateToNodeDiscussion(node.type, node.id);
         
-        // Forward the event to parent components (optional, may not be needed with direct navigation)
+        // Forward the event to parent components
         dispatch('discuss', {
             nodeId: nodeId,
             nodeType: node.type
@@ -179,6 +213,31 @@
     $: posY = node.position.y;
     $: transform = node.position.svgTransform;
     
+    // Special case for comment nodes to correct radius value
+    $: if (node.type === 'comment' && !node.isHidden && node.radius !== COMMENT_VISIBLE_RADIUS) {
+        console.log(`[NodeRenderer] Correcting comment node radius from ${node.radius} to ${COMMENT_VISIBLE_RADIUS}`);
+        node.radius = COMMENT_VISIBLE_RADIUS;
+        forceRefresh++; // Force re-render
+        
+        // Notify about the radius change
+        setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('node-size-changed', {
+                detail: { 
+                    nodeId: node.id, 
+                    nodeType: node.type,
+                    radius: node.radius
+                }
+            }));
+        }, 50);
+    }
+    
+    // Special case for hidden nodes to ensure consistent radius
+    $: if (node.isHidden && node.radius !== HIDDEN_NODE_RADIUS) {
+        console.log(`[NodeRenderer] Correcting hidden node radius from ${node.radius} to ${HIDDEN_NODE_RADIUS}`);
+        node.radius = HIDDEN_NODE_RADIUS;
+        forceRefresh++; // Force re-render
+    }
+    
     // Special handling for central node - override position to ensure it's exactly at (0,0)
     $: if (node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')) {
         posX = 0;
@@ -193,17 +252,12 @@
             ? wordViewStore.getVoteData(node.id).netVotes
             : 0;
     
+    // Calculate button positions based on node radius
+    $: showHideButtonX = node.radius * 0.7071;
+    $: showHideButtonY = node.radius * 0.7071;
+    
     onMount(() => {
-        console.log('[NODE_CENTRE_DEBUG] NodeRenderer mounted:', {
-            id: node.id,
-            type: node.type,
-            position: {
-                x: posX,
-                y: posY,
-                transform
-            }
-        });
-        
+        // Check for initial visibility preferences
         if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
@@ -230,6 +284,8 @@
     data-node-mode={node.mode || 'preview'}
     data-node-group={node.group}
     data-node-hidden={node.isHidden ? 'true' : 'false'}
+    data-node-radius={node.radius}
+    data-force-refresh={forceRefresh}
     transform={transform}
 >
     {#if node.isHidden}
@@ -251,15 +307,18 @@
         />
     
         <!-- ONLY add buttons to visible nodes (not hidden ones) -->
-        <!-- Add show/hide button to qualifying non-comment nodes - positioned at 4:30 -->
-        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity'}
-            <ShowHideButton 
-                isHidden={false}
-                y={node.radius * 0.7071}  
-                x={node.radius * 0.7071}  
-                nodeId={node.id}
-                on:visibilityChange={handleVisibilityChange}
-            />
+        <!-- Add show/hide button to qualifying nodes (including comment nodes) - positioned at 4:30 -->
+        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment'}
+            <!-- Use key to force re-render when radius changes -->
+            {#key `${node.radius}-${forceRefresh}`}
+                <ShowHideButton 
+                    isHidden={false}
+                    y={showHideButtonY}  
+                    x={showHideButtonX}  
+                    nodeId={node.id}
+                    on:visibilityChange={handleVisibilityChange}
+                />
+            {/key}
             
             <!-- Central node special handling in discussion view -->
             {#if viewType === 'discussion' && node.group === 'central'}
@@ -270,8 +329,8 @@
                     nodeId={node.id}
                     on:reply={handleReply}
                 />
-            {:else}
-                <!-- Add discuss button to qualifying nodes - positioned at 2:30 -->
+            {:else if node.type !== 'comment'}
+                <!-- Add discuss button to qualifying non-comment nodes - positioned at 2:30 -->
                 <DiscussButton 
                     y={-node.radius * 0.7071}  
                     x={node.radius * 0.7071}
@@ -300,15 +359,6 @@
                     }}
                 />
             {/if}
-        {:else if node.type === 'comment'}
-            <!-- Special handling for comment nodes - only show/hide button, no discuss button -->
-            <ShowHideButton 
-                isHidden={false}
-                y={node.radius * 0.7071}  
-                x={node.radius * 0.7071}  
-                nodeId={node.id}
-                on:visibilityChange={handleVisibilityChange}
-            />
         {/if}
     {/if}
 </g>
