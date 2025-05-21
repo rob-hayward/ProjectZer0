@@ -14,6 +14,7 @@
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
     import ReplyButton from '../common/ReplyButton.svelte';
+    import ShowHideButton from '../common/ShowHideButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     
     export let node: RenderableNode;
@@ -105,7 +106,7 @@
     // Use trigonometry to position the button at exactly 1:30 (45 degrees)
     $: replyButtonX = (nodeRadius + buttonRadius) * Math.cos(Math.PI/4);
     $: replyButtonY = -(nodeRadius + buttonRadius) * Math.sin(Math.PI/4);
-    
+
     // Define colors for the vote buttons from color constants
     const upvoteColor = COLORS.PRIMARY.GREEN;
     const downvoteColor = COLORS.PRIMARY.RED;
@@ -124,6 +125,7 @@
             mode: 'preview' | 'detail'; 
             position?: { x: number; y: number } 
         };
+        visibilityChange: { isHidden: boolean };
     }>();
     
     function handleReply() {
@@ -135,6 +137,12 @@
     function handleReplyButtonClick(event: CustomEvent<{ nodeId: string | undefined }>) {
         console.log(`[CommentNode] Reply button clicked for comment: ${node.id}`);
         handleReply();
+    }
+    
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        // Forward the visibility change event
+        console.log(`[CommentNode] Forwarding visibility change: ${event.detail.isHidden ? 'hide' : 'show'}`);
+        dispatch('visibilityChange', event.detail);
     }
     
     function handleUpvoteHover(isEnter: boolean) {
@@ -625,6 +633,15 @@
         nodeId={node.id}
         on:reply={handleReplyButtonClick}
     />
+    
+    <!-- Add a properly positioned Show/Hide button -->
+    <!-- <ShowHideButton 
+        isHidden={false}
+        y={hideButtonY}
+        x={hideButtonX}
+        nodeId={node.id}
+        on:visibilityChange={handleVisibilityChange}
+    /> -->
 {/if}
 
 <style>
