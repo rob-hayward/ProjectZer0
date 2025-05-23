@@ -11,7 +11,7 @@
     import { userStore } from '$lib/stores/userStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { fetchWithAuth } from '$lib/services/api';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
     
     export let node: RenderableNode;
     export let wordText: string = '';

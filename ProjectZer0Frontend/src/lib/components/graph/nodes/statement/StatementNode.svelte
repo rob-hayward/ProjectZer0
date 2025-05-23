@@ -12,7 +12,7 @@
     import { graphStore } from '$lib/stores/graphStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { fetchWithAuth } from '$lib/services/api';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
     import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     
     export let node: RenderableNode;

@@ -6,15 +6,15 @@
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BaseNode from '../base/BaseNode.svelte';
-    import HiddenNode from '../common/HiddenNode.svelte';
+    import HiddenNode from '../hidden/HiddenNode.svelte';
     import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
     import { get } from 'svelte/store';
     import { discussionStore } from '$lib/stores/discussionStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { getVoteBasedColor, getContrastingTextColor } from '../utils/voteColorUtils';
-    import ReplyButton from '../common/ReplyButton.svelte';
-    import ShowHideButton from '../common/ShowHideButton.svelte';
+    import ReplyButton from '../ui/ReplyButton.svelte';
+    import ShowHideButton from '../ui/ShowHideButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     
     export let node: RenderableNode;

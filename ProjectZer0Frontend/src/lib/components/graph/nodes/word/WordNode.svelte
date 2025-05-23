@@ -11,7 +11,7 @@
     import { graphStore } from '$lib/stores/graphStore';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
     
     export let node: RenderableNode;
     export let wordText: string = '';

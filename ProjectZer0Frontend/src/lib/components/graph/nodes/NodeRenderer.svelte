@@ -2,11 +2,11 @@
 <script lang="ts">
     import { createEventDispatcher, onMount, tick } from 'svelte';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
-    import HiddenNode from './common/HiddenNode.svelte';  
-    import ShowHideButton from './common/ShowHideButton.svelte';
-    import DiscussButton from './common/DiscussButton.svelte';
-    import ReplyButton from './common/ReplyButton.svelte';
-    import CreateLinkedNodeButton from './common/CreateLinkedNodeButton.svelte';
+    import HiddenNode from './hidden/HiddenNode.svelte';  
+    import ShowHideButton from './ui/ShowHideButton.svelte';
+    import DiscussButton from './ui/DiscussButton.svelte';
+    import ReplyButton from './ui/ReplyButton.svelte';
+    import CreateLinkedNodeButton from './ui/CreateLinkedNodeButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';

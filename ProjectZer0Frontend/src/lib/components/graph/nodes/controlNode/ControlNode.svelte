@@ -6,7 +6,7 @@
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
     import type { NetworkSortType, NetworkSortDirection } from '$lib/stores/statementNetworkStore';
     import { wordListStore } from '$lib/stores/wordListStore';
     

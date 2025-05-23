@@ -4,7 +4,7 @@
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import { COORDINATE_SPACE } from '../../../../constants/graph/coordinate-space';
-    import ShowHideButton from './ShowHideButton.svelte';
+    import ShowHideButton from '../ui/ShowHideButton.svelte';
     
     // Props
     export let node: RenderableNode;

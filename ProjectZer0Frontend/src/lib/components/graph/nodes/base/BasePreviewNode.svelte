@@ -3,7 +3,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import BaseNode from './BaseNode.svelte';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
 
     export let node: RenderableNode;

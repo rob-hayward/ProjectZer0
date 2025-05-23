@@ -12,8 +12,8 @@
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { fetchWithAuth } from '$lib/services/api';
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
-    import ExpandCollapseButton from '../common/ExpandCollapseButton.svelte';
-    import ShowHideButton from '../common/ShowHideButton.svelte';
+    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
+    import ShowHideButton from '../ui/ShowHideButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
     import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
