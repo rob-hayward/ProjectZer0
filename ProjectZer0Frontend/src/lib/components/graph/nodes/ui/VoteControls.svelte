@@ -17,6 +17,8 @@
     export let compact: boolean = false;
     export let lastVoteType: VoteStatus | null = null;
     export let voteSuccess: boolean = false;
+    // NEW: ContentBox mode for constrained layouts
+    export let contentBoxMode: boolean = false;
   
     // Events
     const dispatch = createEventDispatcher<{
@@ -34,6 +36,10 @@
       equalsX: 0,
       valueX: 30
     };
+
+    // Button positioning - increased spread and larger icons
+    const VOTE_BUTTON_SPREAD = compact ? 60 : 65; // Increased from 25
+    const ICON_SIZE = compact ? '22px' : '24px'; // Increased icon sizes
   
     // Define colors for the vote buttons from color constants
     const upvoteColor = COLORS.PRIMARY.GREEN;
@@ -51,7 +57,21 @@
   
     function handleVote(voteType: VoteStatus) {
       if (isVoting) return;
-      dispatch('vote', { voteType });
+      
+      // Toggle logic: if user clicks the same vote type they already have, remove it
+      let actualVoteType = voteType;
+      if (userVoteStatus === voteType && voteType !== 'none') {
+        actualVoteType = 'none'; // Remove the vote
+      }
+      
+      console.log('[VoteControls] Vote clicked:', {
+        clickedVote: voteType,
+        currentStatus: userVoteStatus,
+        actualVoteType,
+        isToggling: actualVoteType === 'none'
+      });
+      
+      dispatch('vote', { voteType: actualVoteType });
     }
   
     function handleUpvoteHover(isEnter: boolean) {
@@ -68,39 +88,39 @@
         event.preventDefault();
         const target = event.currentTarget as HTMLElement;
         if (target.classList.contains('upvote-button')) {
-          if (userVoteStatus === 'agree') {
-            handleVote('none');
-          } else {
-            handleVote('agree');
-          }
+          handleVote('agree');
         } else if (target.classList.contains('downvote-button')) {
-          if (userVoteStatus === 'disagree') {
-            handleVote('none');
-          } else {
-            handleVote('disagree');
-          }
+          handleVote('disagree');
         }
       }
     }
   
-    // Calculate visual states for vote buttons
+    // Calculate visual states for vote buttons - ENHANCED HOVER LOGIC
     $: upvoteButtonState = {
       isVoted: userVoteStatus === 'agree',
       isHovered: upvoteHovered,
-      isLoading: isVoting,
-      color: userVoteStatus === 'agree' ? upvoteColor : (upvoteHovered ? upvoteColor : neutralColor),
-      filter: getVoteButtonFilter('upvote', userVoteStatus, upvoteHovered, voteSuccess, lastVoteType, isVoting)
+      isLoading: isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none')),
+      // NEW: When voted and hovered, show white (indicates click will remove vote)
+      color: userVoteStatus === 'agree' 
+        ? (upvoteHovered ? neutralColor : upvoteColor)  // White on hover, green when voted
+        : (upvoteHovered ? upvoteColor : neutralColor), // Green on hover, white when not voted
+      filter: getVoteButtonFilter('upvote', userVoteStatus, upvoteHovered, voteSuccess, lastVoteType, isVoting),
+      hoverText: userVoteStatus === 'agree' ? 'Remove vote' : 'Agree'
     };
-  
+
     $: downvoteButtonState = {
       isVoted: userVoteStatus === 'disagree',
       isHovered: downvoteHovered,
-      isLoading: isVoting,
-      color: userVoteStatus === 'disagree' ? downvoteColor : (downvoteHovered ? downvoteColor : neutralColor),
-      filter: getVoteButtonFilter('downvote', userVoteStatus, downvoteHovered, voteSuccess, lastVoteType, isVoting)
+      isLoading: isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none')),
+      // NEW: When voted and hovered, show white (indicates click will remove vote)
+      color: userVoteStatus === 'disagree' 
+        ? (downvoteHovered ? neutralColor : downvoteColor)  // White on hover, red when voted
+        : (downvoteHovered ? downvoteColor : neutralColor), // Red on hover, white when not voted
+      filter: getVoteButtonFilter('downvote', userVoteStatus, downvoteHovered, voteSuccess, lastVoteType, isVoting),
+      hoverText: userVoteStatus === 'disagree' ? 'Remove vote' : 'Disagree'
     };
   
-    // Helper function to determine which filter to apply
+    // Helper function to determine which filter to apply - ENHANCED LOGIC
     function getVoteButtonFilter(
       buttonType: 'upvote' | 'downvote', 
       voteStatus: VoteStatus,
@@ -109,31 +129,50 @@
       successType: VoteStatus | null,
       isVotingActive: boolean
     ): string {
+      // Show success animation
       if (showSuccess && successType === (buttonType === 'upvote' ? 'agree' : 'disagree')) {
         return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
       }
-  
+      
+      // NEW LOGIC: Enhanced hover states for voted buttons
       if (voteStatus === 'agree' && buttonType === 'upvote') {
+        // When upvoted and hovered, show white glow (for removal indication)
         return isHovered && !isVotingActive 
           ? `url(#${neutralFilterId})` 
           : `url(#${upvoteFilterId})`;
       }
       if (voteStatus === 'disagree' && buttonType === 'downvote') {
+        // When downvoted and hovered, show white glow (for removal indication)  
         return isHovered && !isVotingActive 
           ? `url(#${neutralFilterId})` 
           : `url(#${downvoteFilterId})`;
       }
-  
-      if (isHovered && !isVotingActive) {
+      
+      // Show colored glow for non-voted buttons on hover
+      if (isHovered && !isVotingActive && voteStatus !== (buttonType === 'upvote' ? 'agree' : 'disagree')) {
         return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
       }
-  
+      
       return 'none';
     }
   
-    // Get hover text for buttons
-    $: upvoteHoverText = userVoteStatus === 'agree' ? 'Remove vote' : 'Agree';
-    $: downvoteHoverText = userVoteStatus === 'disagree' ? 'Remove vote' : 'Disagree';
+    // Debug logging
+    $: console.log('[VoteControls] State debug:', {
+      userVoteStatus,
+      isVoting,
+      lastVoteType,
+      voteSuccess,
+      upvoteButtonState: {
+        isVoted: upvoteButtonState.isVoted,
+        color: upvoteButtonState.color,
+        filter: upvoteButtonState.filter
+      },
+      downvoteButtonState: {
+        isVoted: downvoteButtonState.isVoted,
+        color: downvoteButtonState.color,
+        filter: downvoteButtonState.filter
+      }
+    });
   </script>
   
   <!-- Filter defs for glow effects -->
@@ -207,7 +246,7 @@
   
   <!-- Vote Controls with proper positioning -->
   <g class="vote-controls" class:compact transform="translate(0, 0)">
-    <!-- Upvote button positioned to the left -->
+    <!-- Upvote button positioned to the left - INCREASED SPREAD -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -216,23 +255,15 @@
       class:voted={upvoteButtonState.isVoted}
       class:disabled={isVoting}
       class:pulse={voteSuccess && lastVoteType === 'agree'}
-      transform="translate(-25, 0)"
-      on:click={() => {
-        if (!isVoting) {
-          if (userVoteStatus === 'agree') {
-            handleVote('none');
-          } else {
-            handleVote('agree');
-          }
-        }
-      }}
+      transform="translate(-{VOTE_BUTTON_SPREAD}, 0)"
+      on:click={() => handleVote('agree')}
       on:keydown={handleKeydown}
       on:mouseenter={() => handleUpvoteHover(true)}
       on:mouseleave={() => handleUpvoteHover(false)}
       tabindex="0"
       role="button"
-      aria-label={upvoteHoverText}
-      aria-pressed={userVoteStatus === 'agree'}
+      aria-label={upvoteButtonState.hoverText}
+      aria-pressed={upvoteButtonState.isVoted}
       style:filter={upvoteButtonState.filter}
     >
       <foreignObject 
@@ -245,7 +276,7 @@
         <div 
           class="icon-wrapper"
         >
-          {#if isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none'))}
+          {#if upvoteButtonState.isLoading}
             <div class="loading-spinner" style:color={upvoteButtonState.color}>
               ⟳
             </div>
@@ -254,6 +285,7 @@
               class="material-symbols-outlined vote-icon"
               class:bounce={voteSuccess && lastVoteType === 'agree'}
               style:color={upvoteButtonState.color}
+              style:font-size={ICON_SIZE}
             >
               thumb_up
             </span>
@@ -271,7 +303,7 @@
           style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
           style:fill={upvoteButtonState.color}
         >
-          {upvoteHoverText}
+          {upvoteButtonState.hoverText}
         </text>
       {/if}
     </g>
@@ -292,7 +324,7 @@
       {scoreDisplay}
     </text>
     
-    <!-- Downvote button positioned to the right -->
+    <!-- Downvote button positioned to the right - INCREASED SPREAD -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -301,23 +333,15 @@
       class:voted={downvoteButtonState.isVoted}
       class:disabled={isVoting}
       class:pulse={voteSuccess && lastVoteType === 'disagree'}
-      transform="translate(25, 0)"
-      on:click={() => {
-        if (!isVoting) {
-          if (userVoteStatus === 'disagree') {
-            handleVote('none');
-          } else {
-            handleVote('disagree');
-          }
-        }
-      }}
+      transform="translate({VOTE_BUTTON_SPREAD}, 0)"
+      on:click={() => handleVote('disagree')}
       on:keydown={handleKeydown}
       on:mouseenter={() => handleDownvoteHover(true)}
       on:mouseleave={() => handleDownvoteHover(false)}
       tabindex="0"
       role="button"
-      aria-label={downvoteHoverText}
-      aria-pressed={userVoteStatus === 'disagree'}
+      aria-label={downvoteButtonState.hoverText}
+      aria-pressed={downvoteButtonState.isVoted}
       style:filter={downvoteButtonState.filter}
     >
       <foreignObject 
@@ -330,7 +354,7 @@
         <div 
           class="icon-wrapper"
         >
-          {#if isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none'))}
+          {#if downvoteButtonState.isLoading}
             <div class="loading-spinner" style:color={downvoteButtonState.color}>
               ⟳
             </div>
@@ -339,6 +363,7 @@
               class="material-symbols-outlined vote-icon"
               class:bounce={voteSuccess && lastVoteType === 'disagree'}
               style:color={downvoteButtonState.color}
+              style:font-size={ICON_SIZE}
             >
               thumb_down
             </span>
@@ -356,85 +381,125 @@
           style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
           style:fill={downvoteButtonState.color}
         >
-          {downvoteHoverText}
+          {downvoteButtonState.hoverText}
         </text>
       {/if}
     </g>
   </g>
   
-  <!-- Vote Statistics (if enabled) -->
+  <!-- Vote Statistics (if enabled) - CONTENTBOX AWARE -->
   {#if showStats}
-    <g class="vote-stats" transform="translate(0, 70)">
-      <text x={METRICS_SPACING.labelX} class="stats-label left-align">
-        Vote Data:
-      </text>
+    <g class="vote-stats" 
+       class:content-box-mode={contentBoxMode}
+       transform="translate(0, {contentBoxMode ? 40 : 70})">
       
-      <!-- User's current vote (if enabled) -->
-      {#if showUserStatus}
-        <g transform="translate(0, 30)">
+      {#if contentBoxMode}
+        <!-- COMPACT LAYOUT for ContentBox -->
+        <text class="stats-label left-align compact-header">
+          Vote Data:
+        </text>
+        
+        <!-- User status (if enabled) -->
+        {#if showUserStatus}
+          <g transform="translate(0, 16)">
+            <text class="compact-stats-text left-align">
+              {userName}: 
+            </text>
+            <text x="80" class="compact-stats-value left-align">
+              {userVoteStatus}
+            </text>
+          </g>
+        {/if}
+        
+        <!-- Vote counts - horizontal layout -->
+        <g transform="translate(0, {showUserStatus ? 32 : 16})">
+          <text class="compact-stats-text left-align">
+            Agree: 
+          </text>
+          <text x="45" class="compact-stats-value left-align positive-stat">
+            {positiveVotes}
+          </text>
+          
+          <text x="80" class="compact-stats-text left-align">
+            Disagree: 
+          </text>
+          <text x="135" class="compact-stats-value left-align negative-stat">
+            {negativeVotes}
+          </text>
+          
+          <text x="170" class="compact-stats-text left-align">
+            Net: 
+          </text>
+          <text x="195" class="compact-stats-value left-align" 
+                class:positive-stat={netVotes > 0}
+                class:negative-stat={netVotes < 0}
+                class:neutral-stat={netVotes === 0}>
+            {netVotes > 0 ? '+' : ''}{netVotes}
+          </text>
+        </g>
+        
+      {:else}
+        <!-- FULL LAYOUT for regular nodes -->
+        <text x={METRICS_SPACING.labelX} class="stats-label left-align">
+          Vote Data:
+        </text>
+        
+        <!-- User's current vote (if enabled) -->
+        {#if showUserStatus}
+          <g transform="translate(0, 25)">
+            <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+              {userName}
+            </text>
+            <text x={METRICS_SPACING.equalsX} class="stats-text">
+              =
+            </text>
+            <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+              {userVoteStatus}
+            </text>
+          </g>
+        {/if}
+    
+        <!-- Vote counts row - side by side -->
+        <g transform="translate(0, {showUserStatus ? 45 : 25})">
+          <!-- Agree votes on left -->
           <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-            {userName}
+            Agree: 
           </text>
-          <text x={METRICS_SPACING.equalsX} class="stats-text">
-            =
+          <text x={METRICS_SPACING.labelX + 50} class="stats-value left-align positive-stat">
+            {positiveVotes}
           </text>
-          <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-            {userVoteStatus}
+          
+          <!-- Disagree votes on right -->
+          <text x={METRICS_SPACING.labelX + 120} class="stats-text left-align">
+            Disagree: 
+          </text>
+          <text x={METRICS_SPACING.labelX + 190} class="stats-value left-align negative-stat">
+            {negativeVotes}
+          </text>
+        </g>
+    
+        <!-- Net and status row -->
+        <g transform="translate(0, {showUserStatus ? 65 : 45})">
+          <!-- Net votes on left -->
+          <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+            Net: 
+          </text>
+          <text x={METRICS_SPACING.labelX + 35} class="stats-value left-align" 
+                class:positive-stat={netVotes > 0}
+                class:negative-stat={netVotes < 0}
+                class:neutral-stat={netVotes === 0}>
+            {netVotes > 0 ? '+' : ''}{netVotes}
+          </text>
+          
+          <!-- Status on right -->
+          <text x={METRICS_SPACING.labelX + 120} class="stats-text left-align">
+            Status: 
+          </text>
+          <text x={METRICS_SPACING.labelX + 170} class="stats-value left-align status-text">
+            {voteStatus}
           </text>
         </g>
       {/if}
-  
-      <!-- Total agree votes -->
-      <g transform="translate(0, {showUserStatus ? 55 : 30})">
-        <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-          Total Agree
-        </text>
-        <text x={METRICS_SPACING.equalsX} class="stats-text">
-          =
-        </text>
-        <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-          {positiveVotes}
-        </text>
-      </g>
-  
-      <!-- Total disagree votes -->
-      <g transform="translate(0, {showUserStatus ? 80 : 55})">
-        <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-          Total Disagree
-        </text>
-        <text x={METRICS_SPACING.equalsX} class="stats-text">
-          =
-        </text>
-        <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-          {negativeVotes}
-        </text>
-      </g>
-  
-      <!-- Net votes -->
-      <g transform="translate(0, {showUserStatus ? 105 : 80})">
-        <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-          Net 
-        </text>
-        <text x={METRICS_SPACING.equalsX} class="stats-text">
-          =
-        </text>
-        <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-          {netVotes}
-        </text>
-      </g>
-  
-      <!-- Vote status -->
-      <g transform="translate(0, {showUserStatus ? 130 : 105})">
-        <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-          Status
-        </text>
-        <text x={METRICS_SPACING.equalsX} class="stats-text">
-          =
-        </text>
-        <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-          {voteStatus}
-        </text>
-      </g>
     </g>
   {/if}
   
@@ -464,11 +529,6 @@
       opacity: 0.6;
     }
   
-    .upvote-button.voted, 
-    .downvote-button.voted {
-      transform: none;
-    }
-  
     .upvote-button:focus, .downvote-button:focus {
       outline: 2px solid rgba(255, 255, 255, 0.3);
       outline-offset: 4px;
@@ -496,7 +556,6 @@
   
     /* Material Icons styling */
     :global(.vote-controls .material-symbols-outlined.vote-icon) {
-      font-size: 20px;
       transition: color 0.3s ease;
       font-variation-settings: 'FILL' 1;
     }

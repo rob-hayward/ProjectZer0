@@ -1,18 +1,37 @@
 <!-- src/lib/components/graph/nodes/word/WordNode.svelte -->
 <script lang="ts">
-    import { onMount, createEventDispatcher } from 'svelte';
+    // === SECTION 1: IMPORTS ===
+    import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+    import { writable } from 'svelte/store';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isWordNodeData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
-    import { fetchWithAuth } from '$lib/services/api';
-    import { userStore } from '$lib/stores/userStore';
-    import { getUserDetails } from '$lib/services/userLookup';
-    import { getDisplayName } from '../utils/nodeUtils';
-    import { graphStore } from '$lib/stores/graphStore';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
+    import { userStore } from '$lib/stores/userStore';
+    import { graphStore } from '$lib/stores/graphStore';
+    import { wordViewStore } from '$lib/stores/wordViewStore';
+    import { getUserDetails } from '$lib/services/userLookup';
     
+    // Behaviour modules
+    import { 
+        createVoteBehaviour, 
+        createVisibilityBehaviour, 
+        createModeBehaviour, 
+        createDataBehaviour 
+    } from '../behaviours';
+    
+    // UI components
+    import VoteControls from '../ui/VoteControls.svelte';
+    import NodeHeader from '../ui/NodeHeader.svelte';
+    import CreatorCredits from '../ui/CreatorCredits.svelte';
+    import TextContent from '../ui/TextContent.svelte';
+    import ContentBox from '../ui/ContentBox.svelte';
+    
+    // Enhanced text utilities
+    import { wrapTextForDetail, wrapTextForPreview } from '../utils/textUtils';
+
+    // === SECTION 2: PROPS AND TYPE CHECKING ===
     export let node: RenderableNode;
     export let wordText: string = '';
     
@@ -23,10 +42,7 @@
 
     const wordData = node.data;
     
-    // Reactive declaration for mode to ensure reactivity
-    $: isDetail = node.mode === 'detail';
-    
-    // Use wordText as fallback if needed
+    // === SECTION 3: DATA EXTRACTION ===
     $: displayWord = wordData.word || wordText;
     
     // Debug when mode changes
@@ -34,170 +50,231 @@
         mode: node.mode, 
         isDetail 
     });
-    
-    const METRICS_SPACING = {
-        labelX: -200,
-        equalsX: 0,
-        valueX: 30
-    };
 
-    // Voting state
-    // Removed totalVotes, positivePercent, negativePercent variables as they're now reactive
-    let createdDate = '';
-    let showDiscussionButton = false;
-    let userVoteStatus: 'agree' | 'disagree' | 'none' = 'none';
-    let isVoting = false;
-    let wordCreatorDetails: any = null;
+    // === SECTION 4: BEHAVIOURS ===
+    // Create behaviours once after displayWord is computed, but don't recreate them
+    let voteBehaviour: any;
+    let visibilityBehaviour: any;
+    let modeBehaviour: any;
+    let dataBehaviour: any;
+    let behavioursInitialized = false;
     
-    const dispatch = createEventDispatcher<{
-        modeChange: { mode: NodeMode };
-    }>();
-
-    // Function to handle expanding or collapsing the node
-    function handleModeChange() {
-        const newMode = isDetail ? 'preview' : 'detail';
-        console.debug(`[WordNode:${node.id}] Mode change requested:`, { 
-            currentMode: node.mode, 
-            newMode 
+    // Function to trigger reactivity when vote data changes
+    function triggerDataUpdate() {
+        // Force reactivity by reassigning the wrapper
+        wordDataWrapper = { ...wordData };
+        console.log('[WordNode] Data wrapper updated via callback');
+    }
+    
+    // Initialize behaviours only once when displayWord is available
+    $: if (displayWord && !behavioursInitialized) {
+        console.log('[WordNode] Initializing behaviours for word:', displayWord);
+        
+        voteBehaviour = createVoteBehaviour(node.id, 'word', {
+            voteStore: wordViewStore,
+            graphStore: graphStore,
+            // Use display word for API calls instead of node ID
+            apiIdentifier: displayWord,
+            // Pass data object for direct updates (maintains reactivity)
+            dataObject: wordData,
+            getVoteEndpoint: (word: string) => `/nodes/word/${word}/vote`,
+            getRemoveVoteEndpoint: (word: string) => `/nodes/word/${word}/vote/remove`,
+            // Callback to trigger reactivity
+            onDataUpdate: triggerDataUpdate
         });
-        dispatch('modeChange', { mode: newMode });
+        
+        visibilityBehaviour = createVisibilityBehaviour(node.id, {
+            graphStore: graphStore
+        });
+
+        modeBehaviour = createModeBehaviour(node.mode);
+
+        dataBehaviour = createDataBehaviour('word', wordData, {
+            transformData: (rawData) => ({
+                ...rawData,
+                displayWord: rawData.word || wordText,
+                formattedDate: rawData.createdAt ? new Date(rawData.createdAt).toLocaleDateString() : ''
+            })
+        });
+        
+        behavioursInitialized = true;
+        console.log('[WordNode] Behaviours initialized');
     }
 
-    function formatDate(dateString: string | Date | undefined): string {
-        if (!dateString) return '';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { 
-            year: 'numeric', 
-            month: 'short', 
-            day: 'numeric' 
-        });
-    }
-
+    // === SECTION 5: REACTIVE DECLARATIONS ===
+    // Mode management
+    $: isDetail = node.mode === 'detail';
+    
+    // User info from store
+    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    
+    // SIMPLER APPROACH: Read directly from wordData and force updates via data reassignment
     function getNeo4jNumber(value: any): number {
         if (value && typeof value === 'object' && 'low' in value) {
             return Number(value.low);
         }
         return Number(value || 0);
     }
+    
+    // Create a reactive data wrapper that will trigger updates
+    let wordDataWrapper = wordData;
+    
+    // Vote data - read from the wrapper and store
+    $: dataPositiveVotes = getNeo4jNumber(wordDataWrapper.positiveVotes) || 0;
+    $: dataNegativeVotes = getNeo4jNumber(wordDataWrapper.negativeVotes) || 0;
+    $: storeVoteData = wordViewStore.getVoteData(node.id);
+    
+    // Use data object as primary source, store as fallback
+    $: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
+    $: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
+    $: netVotes = positiveVotes - negativeVotes;
+    $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
+    $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
+    
+    // Get other vote state from behaviour (without cyclical dependency)
+    $: behaviorState = voteBehaviour ? voteBehaviour.getCurrentState() : null;
+    $: userVoteStatus = behaviorState?.userVoteStatus || 'none';
+    $: isVoting = behaviorState?.isVoting || false;
+    $: voteSuccess = behaviorState?.voteSuccess || false;
+    $: lastVoteType = behaviorState?.lastVoteType || null;
+    $: voteError = behaviorState?.error || null;
+    
+    // Text wrapping using new utilities
+    $: contextLines = wrapTextForDetail(
+        "Please vote on whether to include this keyword in ProjectZer0 or not. You can always change your vote using the buttons below.", 
+        'word', 
+        'content',
+        3
+    );
 
-    // Removed fetchStatsData function and replaced with reactive declarations below
+    // Visibility data
+    $: visibilityState = visibilityBehaviour ? visibilityBehaviour.getCurrentState() : {
+        isHidden: false,
+        hiddenReason: 'community' as any,
+        userPreference: undefined,
+        communityHidden: false
+    };
+    $: isHidden = visibilityState.isHidden;
+    $: hiddenReason = visibilityState.hiddenReason;
 
-    async function initializeVoteStatus(retryCount = 0) {
-        if (!$userStore) return;
+    // === SECTION 6: EVENT HANDLING ===
+    const dispatch = createEventDispatcher<{
+        modeChange: { mode: NodeMode };
+        visibilityChange: { isHidden: boolean };
+    }>();
+
+    // Function to sync state from voteBehaviour to local variables
+    function syncVoteState() {
+        if (voteBehaviour) {
+            const state = voteBehaviour.getCurrentState();
+            userVoteStatus = state.userVoteStatus;
+            isVoting = state.isVoting;
+            voteSuccess = state.voteSuccess;
+            lastVoteType = state.lastVoteType;
+            console.log('[WordNode] Synced vote state from behaviour:', {
+                userVoteStatus,
+                isVoting,
+                voteSuccess,
+                lastVoteType
+            });
+        }
+    }
+    
+    // Function to update voteBehaviour state and sync back
+    async function updateVoteState(voteType: 'agree' | 'disagree' | 'none') {
+        if (!voteBehaviour) return false;
+        
+        // Optimistic update (like original)
+        userVoteStatus = voteType;
+        isVoting = true;
         
         try {
-            console.log('[WordNode] Fetching vote status for word:', displayWord);
-            const response = await fetchWithAuth(`/nodes/word/${displayWord}/vote`);
-            if (!response) {
-                throw new Error('No response from vote status endpoint');
-            }
-            
-            console.log('[WordNode] Vote status response:', response);
-            
-            userVoteStatus = response.status || 'none';
-            wordData.positiveVotes = getNeo4jNumber(response.positiveVotes);
-            wordData.negativeVotes = getNeo4jNumber(response.negativeVotes);
-            
-            // Update net votes directly - now handled by reactive declaration
-            
-            console.log('[WordNode] Updated vote status:', {
-                userVoteStatus,
-                positiveVotes: wordData.positiveVotes,
-                negativeVotes: wordData.negativeVotes,
-                netVotes
-            });
-            
-            // Recalculate visibility based on vote data
-            if (graphStore) {
-                console.log('[WordNode] Recalculating node visibility based on votes');
-                graphStore.recalculateNodeVisibility(
-                    node.id, 
-                    wordData.positiveVotes, 
-                    wordData.negativeVotes
-                );
-            }
-        } catch (error) {
-            console.error('[WordNode] Error fetching vote status:', error);
-            
-            const MAX_RETRIES = 3;
-            const RETRY_DELAY = 1000;
-            if (retryCount < MAX_RETRIES) {
-                console.log(`[WordNode] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-                await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
-                await initializeVoteStatus(retryCount + 1);
-            }
-        }
-    }
-
-    async function handleVote(voteType: 'agree' | 'disagree' | 'none') {
-        if (!$userStore || isVoting) return;
-        isVoting = true;
-        const oldVoteStatus = userVoteStatus;
-
-        try {
-            console.log('[WordNode] Processing vote:', { 
-                word: displayWord, 
-                voteType,
-                currentStatus: userVoteStatus
-            });
-
-            // Optimistic update
-            userVoteStatus = voteType;
-            
-            if (voteType === 'none') {
-                const result = await fetchWithAuth(
-                    `/nodes/word/${displayWord}/vote/remove`,
-                    { method: 'POST' }
-                );
-                
-                wordData.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                wordData.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[WordNode] Vote removed:', result);
+            const success = await voteBehaviour.handleVote(voteType);
+            if (success) {
+                // Sync final state from behaviour
+                syncVoteState();
+                // Trigger data wrapper update for vote counts
+                triggerDataUpdate();
             } else {
-                const result = await fetchWithAuth(
-                    `/nodes/word/${displayWord}/vote`,
-                    {
-                        method: 'POST',
-                        body: JSON.stringify({ 
-                            isPositive: voteType === 'agree'
-                        })
-                    }
-                );
-
-                wordData.positiveVotes = getNeo4jNumber(result.positiveVotes);
-                wordData.negativeVotes = getNeo4jNumber(result.negativeVotes);
-                console.log('[WordNode] Vote recorded:', result);
+                // Revert optimistic update on failure
+                syncVoteState();
             }
-            
-            // Recalculate visibility after vote changes
-            if (graphStore) {
-                console.log('[WordNode] Recalculating node visibility after vote update');
-                graphStore.recalculateNodeVisibility(
-                    node.id, 
-                    wordData.positiveVotes, 
-                    wordData.negativeVotes
-                );
-            }
-            
+            return success;
         } catch (error) {
-            console.error('[WordNode] Error processing vote:', error);
-            // Revert on error
-            userVoteStatus = oldVoteStatus;
-            // Retry vote status fetch to ensure consistency
-            await initializeVoteStatus();
-        } finally {
-            isVoting = false;
+            // Revert optimistic update on error
+            syncVoteState();
+            return false;
         }
     }
 
+    function handleModeChange() {
+        if (!modeBehaviour) return;
+        const newMode = modeBehaviour.handleModeChange();
+        dispatch('modeChange', { mode: newMode });
+    }
+
+    function handleVote(event: CustomEvent<{ voteType: any }>) {
+        if (!voteBehaviour) return;
+        
+        // Use our hybrid approach instead of calling voteBehaviour directly
+        updateVoteState(event.detail.voteType);
+    }
+
+    function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        if (!visibilityBehaviour) return;
+        visibilityBehaviour.handleVisibilityChange(event.detail.isHidden);
+        dispatch('visibilityChange', event.detail);
+    }
+
+    // === SECTION 7: COMPUTED VALUES ===
+    $: textWidth = node.radius * 2 - 45;
+
+    // Additional word-specific state
+    let wordCreatorDetails: any = null;
+    let showDiscussionButton = false;
+
+    // === SECTION 8: LIFECYCLE ===
     onMount(async () => {
         console.log('[WordNode] Mounting with word:', {
-            id: wordData.id,
+            id: node.id,
             word: displayWord,
-            mode: node.mode
+            mode: node.mode,
+            initialPositiveVotes: wordData.positiveVotes,
+            initialNegativeVotes: wordData.negativeVotes
         });
         
-        // Fetch creator details
+        // Set word data in the store first
+        wordViewStore.setWordData(wordData);
+        
+        // Wait for behaviours to be created
+        await new Promise(resolve => setTimeout(resolve, 0));
+        
+        // Initialize all behaviours (only if they exist)
+        const initPromises = [];
+        
+        if (dataBehaviour) {
+            initPromises.push(dataBehaviour.initialize());
+        }
+        
+        if (voteBehaviour) {
+            initPromises.push(voteBehaviour.initialize({
+                positiveVotes: wordData.positiveVotes,
+                negativeVotes: wordData.negativeVotes
+            }));
+        }
+        
+        if (visibilityBehaviour) {
+            initPromises.push(visibilityBehaviour.initialize(netVotes));
+        }
+        
+        if (initPromises.length > 0) {
+            await Promise.all(initPromises);
+            
+            // CRITICAL: Sync vote state after initialization (like original)
+            syncVoteState();
+        }
+        
+        // Fetch creator details if needed
         if (wordData.createdBy && wordData.createdBy !== 'FreeDictionaryAPI') {
             try {
                 wordCreatorDetails = await getUserDetails(wordData.createdBy);
@@ -206,235 +283,119 @@
             }
         }
         
-        createdDate = formatDate(wordData.createdAt);
         showDiscussionButton = !!wordData.discussion;
-        
-        // Initialize vote counts
-        const initialPos = getNeo4jNumber(wordData.positiveVotes);
-        const initialNeg = getNeo4jNumber(wordData.negativeVotes);
-        
-        console.log('[WordNode] Initial vote counts:', {
-            initialPos,
-            initialNeg,
-            netVotes
-        });
-        
-        await initializeVoteStatus();
-        
-        // Removed the call to fetchStatsData since we're calculating stats locally now
     });
 
-    // Reactive declarations
-    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    
-    // Calculate vote stats locally with reactive declarations
-    $: positiveVotes = getNeo4jNumber(wordData.positiveVotes) || 0;
-    $: negativeVotes = getNeo4jNumber(wordData.negativeVotes) || 0;
-    $: netVotes = positiveVotes - negativeVotes;
-    $: totalVotes = positiveVotes + negativeVotes;
-    $: positivePercent = totalVotes > 0 ? Math.round((positiveVotes / totalVotes) * 100) : 0;
-    $: negativePercent = totalVotes > 0 ? Math.round((negativeVotes / totalVotes) * 100) : 0;
-    
-    $: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
-    $: wordStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
-    
-    // Size calculations for preview mode
-    $: textWidth = node.radius * 2 - 45;
+    onDestroy(() => {
+        // Clean up behaviours
+        if (dataBehaviour && dataBehaviour.destroy) {
+            dataBehaviour.destroy();
+        }
+    });
 </script>
 
 {#if isDetail}
-    <!-- DETAIL MODE -->
+    <!-- DETAIL MODE with ContentBox Layout -->
     <BaseDetailNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="default" let:radius>
-            <!-- Title -->
-            <text
-                y={-radius + 40}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                Word
-            </text>
-     
-            <!-- Main Word Display -->
-            <g class="word-display" transform="translate(0, {-radius/2})">
-                <text
-                    class="word main-word"
-                    style:font-family={NODE_CONSTANTS.FONTS.word.family}
-                    style:font-weight={NODE_CONSTANTS.FONTS.word.weight}
-                >
-                    {displayWord}
-                </text>
-            </g>
-     
-            <!-- User Context -->
-            <g transform="translate(0, -100)">
-                <text 
-                    x={METRICS_SPACING.labelX} 
-                    class="context-text left-align"
-                >
-                    Please vote on whether to include this keyword in 
-                </text>
-                <text 
-                    x={METRICS_SPACING.labelX} 
-                    y="25" 
-                    class="context-text left-align"
-                >
-                    ProjectZer0 or not.
-                </text>
-                <text 
-                    x={METRICS_SPACING.labelX} 
-                    y="60" 
-                    class="context-text left-align"
-                >
-                    You can always change your vote using the buttons below.
-                </text>
-            </g>
-     
-            <!-- Vote Buttons -->
-            <g transform="translate(0, -10)">
-                <foreignObject x={-160} width="100" height="45">
-                    <div class="button-wrapper">
-                        <button 
-                            class="vote-button agree"
-                            class:active={userVoteStatus === 'agree'}
-                            on:click={() => handleVote('agree')}
-                            disabled={isVoting}
-                        >
-                            Agree
-                        </button>
-                    </div>
-                </foreignObject>
-     
-                <foreignObject x={-50} width="100" height="45">
-                    <div class="button-wrapper">
-                        <button 
-                            class="vote-button no-vote"
-                            class:active={userVoteStatus === 'none'}
-                            on:click={() => handleVote('none')}
-                            disabled={isVoting}
-                        >
-                            No Vote
-                        </button>
-                    </div>
-                </foreignObject>
-     
-                <foreignObject x={60} width="100" height="45">
-                    <div class="button-wrapper">
-                        <button 
-                            class="vote-button disagree"
-                            class:active={userVoteStatus === 'disagree'}
-                            on:click={() => handleVote('disagree')}
-                            disabled={isVoting}
-                        >
-                            Disagree
-                        </button>
-                    </div>
-                </foreignObject>
-            </g>
-     
-            <!-- Vote Stats -->
-            <g transform="translate(0, 60)">
-                <text x={METRICS_SPACING.labelX} class="stats-label left-align">
-                    Vote Data:
-                </text>
-                
-                <!-- User's current vote -->
-                <g transform="translate(0, 30)">
-                    <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-                        {userName}
-                    </text>
-                    <text x={METRICS_SPACING.equalsX} class="stats-text">
-                        =
-                    </text>
-                    <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {userVoteStatus}
-                    </text>
-                </g>
-     
-                <!-- Total agree votes -->
-                <g transform="translate(0, 55)">
-                    <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-                        Total Agree
-                    </text>
-                    <text x={METRICS_SPACING.equalsX} class="stats-text">
-                        =
-                    </text>
-                    <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {positiveVotes}
-                    </text>
-                </g>
-     
-                <!-- Total disagree votes -->
-                <g transform="translate(0, 80)">
-                    <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-                        Total Disagree
-                    </text>
-                    <text x={METRICS_SPACING.equalsX} class="stats-text">
-                        =
-                    </text>
-                    <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {negativeVotes}
-                    </text>
-                </g>
-     
-                <!-- Net votes -->
-                <g transform="translate(0, 105)">
-                    <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-                        Net 
-                    </text>
-                    <text x={METRICS_SPACING.equalsX} class="stats-text">
-                        =
-                    </text>
-                    <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {netVotes}
-                    </text>
-                </g>
-     
-                <!-- Word status -->
-                <g transform="translate(0, 130)">
-                    <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-                        Word Status
-                    </text>
-                    <text x={METRICS_SPACING.equalsX} class="stats-text">
-                        =
-                    </text>
-                    <text x={METRICS_SPACING.valueX} class="stats-value left-align">
-                        {wordStatus}
-                    </text>
-                </g>
-            </g>
+            <!-- Title (outside content box) -->
+            <NodeHeader title="Word" {radius} />
             
-            <!-- Creator credits -->
-            {#if wordData.createdBy}
-                <g transform="translate(0, {radius - 55})">
-                    <text class="creator-label">
-                        created by: {getDisplayName(wordData.createdBy, wordCreatorDetails, !wordData.publicCredit)}
+            <!-- Structured Content Box -->
+            <ContentBox nodeType="word" mode="detail" showBorder={true}>
+                <!-- Main Content Section (60% of box) -->
+                <svelte:fragment slot="content" let:x let:y let:width let:height>
+                    <!-- Main Word Display -->
+                    <text
+                        x="0"
+                        y={y + 40}
+                        class="main-word"
+                        style:font-family="Inter"
+                        style:font-size="28px"
+                        style:font-weight="600"
+                        style:fill="white"
+                        style:text-anchor="middle"
+                        style:filter="drop-shadow(0 0 8px rgba(255, 255, 255, 0.3))"
+                    >
+                        {displayWord}
                     </text>
-                </g>
+                    
+                    <!-- Context Text -->
+                    <g transform="translate({x + 20}, {y + 80})">
+                        {#each contextLines as line, i}
+                            <text
+                                y={i * 18}
+                                class="context-text"
+                                style:font-family="Inter"
+                                style:font-size="13px"
+                                style:fill="rgba(255, 255, 255, 0.9)"
+                                style:text-anchor="start"
+                            >
+                                {line}
+                            </text>
+                        {/each}
+                    </g>
+                </svelte:fragment>
+                
+                <!-- Voting Section (25% of box) -->
+                <svelte:fragment slot="voting" let:x let:y let:width let:height>
+                    <g transform="translate(0, {y + 20})">
+                        <VoteControls 
+                            {userVoteStatus}
+                            {positiveVotes}
+                            {negativeVotes}
+                            {netVotes}
+                            {isVoting}
+                            {userName}
+                            showStats={true}
+                            showUserStatus={true}
+                            {voteSuccess}
+                            {lastVoteType}
+                            compact={false}
+                            contentBoxMode={true}
+                            on:vote={handleVote}
+                        />
+                    </g>
+                </svelte:fragment>
+                
+                <!-- Statistics Section (15% of box) - NOW EMPTY, handled by VoteControls -->
+                <svelte:fragment slot="stats" let:x let:y let:width let:height>
+                    <!-- Statistics now handled within VoteControls component above -->
+                </svelte:fragment>
+            </ContentBox>
+            
+            <!-- Creator credits (outside content box) -->
+            {#if wordData.createdBy}
+                <CreatorCredits 
+                    createdBy={wordData.createdBy}
+                    publicCredit={wordData.publicCredit}
+                    creatorDetails={wordCreatorDetails}
+                    {radius}
+                    prefix="created by:"
+                />
             {/if}
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
-    <!-- PREVIEW MODE -->
+    <!-- PREVIEW MODE - Keep existing layout for now -->
     <BasePreviewNode {node} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
-            <text
-                y={-radius + 40}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                Word
-            </text>
+            <NodeHeader 
+                title="Word" 
+                {radius} 
+                size="medium"
+            />
         </svelte:fragment>
 
         <svelte:fragment slot="content" let:radius>
             <text
-                y={10}
+                y="10"
                 class="word-preview"
+                style:font-family="Inter"
+                style:font-size="20px"
+                style:font-weight="500"
+                style:fill="white"
+                style:text-anchor="middle"
             >
                 {displayWord}
             </text>
@@ -444,178 +405,47 @@
             <text
                 y={radius - 30}
                 class="score"
+                style:font-family="Inter"
+                style:font-size="14px"
+                style:font-weight="500"
+                style:fill="rgba(255, 255, 255, 0.8)"
+                style:text-anchor="middle"
             >
                 {scoreDisplay}
             </text>
         </svelte:fragment>
-
     </BasePreviewNode>
 {/if}
 
 <style>
-    text {
-        text-anchor: middle;
-        font-family: 'Orbitron', sans-serif;
-        fill: white;
-    }
-
-    .title {
-        fill: rgba(255, 255, 255, 0.7);
-    }
-
     .main-word {
-        font-size: 30px;
-        fill: white;
-        filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));
-    }
-    
-    .word-preview {
-        font-size: 24px;
-        font-weight: 500;
-    }
-
-    .score {
-        font-size: 14px;
-        opacity: 0.8;
-    }
-
-    .stats-label {
-        font-size: 14px;
-        opacity: 0.7;
-    }
-
-
-    .stats-value {
-        font-size: 14px;
+        text-anchor: middle;
+        dominant-baseline: middle;
     }
 
     .context-text {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.9);
+        dominant-baseline: middle;
     }
 
-    .stats-text {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.7);
+    .compact-stats {
+        /* Compact statistics styling */
     }
 
-    .left-align {
-        text-anchor: start;
+    .stats-header {
+        dominant-baseline: middle;
     }
 
-    .creator-label {
-        font-size: 10px;
-        fill: rgba(255, 255, 255, 0.5);
+    .stats-line {
+        dominant-baseline: middle;
     }
 
-    :global(.button-wrapper) {
-        padding-top: 4px;
-        padding-bottom: 4px;
-        height: auto !important;
-        min-height: 45px;
+    .word-preview {
+        text-anchor: middle;
+        dominant-baseline: middle;
     }
 
-    :global(.vote-button) {
-        width: 100%;
-        padding: 8px 12px;
-        border-radius: 4px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 0.9rem;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 100px;
-        box-sizing: border-box;
-        margin: 0;
-        color: white;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        white-space: nowrap;
-    }
-
-    :global(.vote-button.agree) {
-        background: rgba(46, 204, 113, 0.1);
-        border: 1px solid rgba(46, 204, 113, 0.2);
-    }
-
-    :global(.vote-button.disagree) {
-        background: rgba(231, 76, 60, 0.1);
-        border: 1px solid rgba(231, 76, 60, 0.2);
-    }
-
-    :global(.vote-button.no-vote) {
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-
-    :global(.vote-button:hover:not(:disabled)) {
-        transform: translateY(-1px);
-    }
-
-    :global(.vote-button.agree:hover:not(:disabled)) {
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
-    }
-
-    :global(.vote-button.disagree:hover:not(:disabled)) {
-        background: rgba(231, 76, 60, 0.2);
-        border: 1px solid rgba(231, 76, 60, 0.3);
-    }
-
-    :global(.vote-button.no-vote:hover:not(:disabled)) {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-    }
-
-    :global(.vote-button:active:not(:disabled)) {
-        transform: translateY(0);
-    }
-
-    :global(.vote-button.active) {
-        background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.3);
-    }
-
-    :global(.vote-button.agree.active) {
-        background: rgba(46, 204, 113, 0.3);
-        border-color: rgba(46, 204, 113, 0.4);
-    }
-
-    :global(.vote-button.disagree.active) {
-        background: rgba(231, 76, 60, 0.3);
-        border-color: rgba(231, 76, 60, 0.4);
-    }
-
-    :global(.vote-button:disabled) {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-
-    :global(.action-button) {
-        padding: 10px 16px;
-        border-radius: 4px;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 16px;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: none;
-        color: white;
-        background: rgba(52, 152, 219, 0.3);
-        border: 1px solid rgba(52, 152, 219, 0.6);
-        backdrop-filter: blur(5px);
-    }
-
-    :global(.action-button:hover) {
-        background: rgba(52, 152, 219, 0.4);
-        transform: translateY(-2px);
-    }
-
-    :global(.action-button:active) {
-        transform: translateY(0);
+    .score {
+        text-anchor: middle;
+        dominant-baseline: middle;
     }
 </style>

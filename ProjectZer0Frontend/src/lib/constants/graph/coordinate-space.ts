@@ -59,6 +59,41 @@ export const COORDINATE_SPACE = {
         }
     },
 
+    // Content boxes - largest square that fits in each node circle
+    // Formula: side = radius × √2 (where radius = diameter ÷ 2)
+    CONTENT_BOXES: {
+        STANDARD: {
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        WORD: {
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            PREVIEW: 95         // (135÷2) × √2 = 95.46
+        },
+        DEFINITION: {
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        STATEMENT: {
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        QUANTITY: {
+            DETAIL: 919,        // (1300÷2) × √2 = 919.24
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        CONTROL: {
+            DETAIL: 318,        // (450÷2) × √2 = 318.20
+            PREVIEW: 177        // (250÷2) × √2 = 176.78
+        },
+        COMMENT: {
+            DETAIL: 127,        // (180÷2) × √2 = 127.28
+            PREVIEW: 127        // (180÷2) × √2 = 127.28
+        },
+        NAVIGATION: 56,         // (80÷2) × √2 = 56.57
+        HIDDEN: 71              // (100÷2) × √2 = 70.71
+    },
+
     // Layout distances and spacing - adjusted for smaller coordinate space
     LAYOUT: {
         RING_SPACING: {
