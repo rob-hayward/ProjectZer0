@@ -17,8 +17,12 @@
     export let compact: boolean = false;
     export let lastVoteType: VoteStatus | null = null;
     export let voteSuccess: boolean = false;
-    // NEW: ContentBox mode for constrained layouts
-    export let contentBoxMode: boolean = false;
+    
+    // NEW: Content box awareness props
+    export let mode: 'preview' | 'detail' = 'detail';
+    export let availableWidth: number = 400;
+    export let availableHeight: number = 100;
+    export let containerY: number = 0; // Y position within the container
   
     // Events
     const dispatch = createEventDispatcher<{
@@ -30,18 +34,12 @@
     $: voteStatus = netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
     $: totalVotes = positiveVotes + negativeVotes;
   
-    // Layout constants
-    const METRICS_SPACING = {
-      labelX: -200,
-      equalsX: 0,
-      valueX: 30
-    };
-
-    // Button positioning - increased spread and larger icons
-    const VOTE_BUTTON_SPREAD = compact ? 60 : 65; // Increased from 25
-    const ICON_SIZE = compact ? '22px' : '24px'; // Increased icon sizes
+    // Layout calculations based on available space
+    $: buttonSpacing = Math.min(65, availableWidth * 0.15); // Adaptive button spacing
+    $: iconSize = compact ? '20px' : '22px';
+    $: voteCountSize = compact ? '14px' : '16px';
   
-    // Define colors for the vote buttons from color constants
+    // Define colors for the vote buttons
     const upvoteColor = COLORS.PRIMARY.GREEN;
     const downvoteColor = COLORS.PRIMARY.RED;
     const neutralColor = 'white';
@@ -95,15 +93,14 @@
       }
     }
   
-    // Calculate visual states for vote buttons - ENHANCED HOVER LOGIC
+    // Calculate visual states for vote buttons
     $: upvoteButtonState = {
       isVoted: userVoteStatus === 'agree',
       isHovered: upvoteHovered,
       isLoading: isVoting && (lastVoteType === 'agree' || (userVoteStatus === 'agree' && lastVoteType === 'none')),
-      // NEW: When voted and hovered, show white (indicates click will remove vote)
       color: userVoteStatus === 'agree' 
-        ? (upvoteHovered ? neutralColor : upvoteColor)  // White on hover, green when voted
-        : (upvoteHovered ? upvoteColor : neutralColor), // Green on hover, white when not voted
+        ? (upvoteHovered ? neutralColor : upvoteColor)
+        : (upvoteHovered ? upvoteColor : neutralColor),
       filter: getVoteButtonFilter('upvote', userVoteStatus, upvoteHovered, voteSuccess, lastVoteType, isVoting),
       hoverText: userVoteStatus === 'agree' ? 'Remove vote' : 'Agree'
     };
@@ -112,15 +109,14 @@
       isVoted: userVoteStatus === 'disagree',
       isHovered: downvoteHovered,
       isLoading: isVoting && (lastVoteType === 'disagree' || (userVoteStatus === 'disagree' && lastVoteType === 'none')),
-      // NEW: When voted and hovered, show white (indicates click will remove vote)
       color: userVoteStatus === 'disagree' 
-        ? (downvoteHovered ? neutralColor : downvoteColor)  // White on hover, red when voted
-        : (downvoteHovered ? downvoteColor : neutralColor), // Red on hover, white when not voted
+        ? (downvoteHovered ? neutralColor : downvoteColor)
+        : (downvoteHovered ? downvoteColor : neutralColor),
       filter: getVoteButtonFilter('downvote', userVoteStatus, downvoteHovered, voteSuccess, lastVoteType, isVoting),
       hoverText: userVoteStatus === 'disagree' ? 'Remove vote' : 'Disagree'
     };
   
-    // Helper function to determine which filter to apply - ENHANCED LOGIC
+    // Helper function to determine which filter to apply
     function getVoteButtonFilter(
       buttonType: 'upvote' | 'downvote', 
       voteStatus: VoteStatus,
@@ -134,15 +130,13 @@
         return `url(#${buttonType === 'upvote' ? upvoteFilterId : downvoteFilterId})`;
       }
       
-      // NEW LOGIC: Enhanced hover states for voted buttons
+      // Enhanced hover states for voted buttons
       if (voteStatus === 'agree' && buttonType === 'upvote') {
-        // When upvoted and hovered, show white glow (for removal indication)
         return isHovered && !isVotingActive 
           ? `url(#${neutralFilterId})` 
           : `url(#${upvoteFilterId})`;
       }
       if (voteStatus === 'disagree' && buttonType === 'downvote') {
-        // When downvoted and hovered, show white glow (for removal indication)  
         return isHovered && !isVotingActive 
           ? `url(#${neutralFilterId})` 
           : `url(#${downvoteFilterId})`;
@@ -155,24 +149,6 @@
       
       return 'none';
     }
-  
-    // Debug logging
-    $: console.log('[VoteControls] State debug:', {
-      userVoteStatus,
-      isVoting,
-      lastVoteType,
-      voteSuccess,
-      upvoteButtonState: {
-        isVoted: upvoteButtonState.isVoted,
-        color: upvoteButtonState.color,
-        filter: upvoteButtonState.filter
-      },
-      downvoteButtonState: {
-        isVoted: downvoteButtonState.isVoted,
-        color: downvoteButtonState.color,
-        filter: downvoteButtonState.filter
-      }
-    });
   </script>
   
   <!-- Filter defs for glow effects -->
@@ -244,9 +220,9 @@
     </filter>
   </defs>
   
-  <!-- Vote Controls with proper positioning -->
-  <g class="vote-controls" class:compact transform="translate(0, 0)">
-    <!-- Upvote button positioned to the left - INCREASED SPREAD -->
+  <!-- Vote Controls with adaptive positioning -->
+  <g class="vote-controls" class:compact transform="translate(0, {containerY})">
+    <!-- Upvote button -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -255,7 +231,7 @@
       class:voted={upvoteButtonState.isVoted}
       class:disabled={isVoting}
       class:pulse={voteSuccess && lastVoteType === 'agree'}
-      transform="translate(-{VOTE_BUTTON_SPREAD}, 0)"
+      transform="translate(-{buttonSpacing}, 0)"
       on:click={() => handleVote('agree')}
       on:keydown={handleKeydown}
       on:mouseenter={() => handleUpvoteHover(true)}
@@ -273,9 +249,7 @@
         height="24" 
         class="icon-container"
       >
-        <div 
-          class="icon-wrapper"
-        >
+        <div class="icon-wrapper">
           {#if upvoteButtonState.isLoading}
             <div class="loading-spinner" style:color={upvoteButtonState.color}>
               ⟳
@@ -285,7 +259,7 @@
               class="material-symbols-outlined vote-icon"
               class:bounce={voteSuccess && lastVoteType === 'agree'}
               style:color={upvoteButtonState.color}
-              style:font-size={ICON_SIZE}
+              style:font-size={iconSize}
             >
               thumb_up
             </span>
@@ -294,13 +268,13 @@
       </foreignObject>
       
       <!-- Hover text -->
-      {#if upvoteHovered && !isVoting}
+      {#if upvoteHovered && !isVoting && mode === 'detail'}
         <text
           y="30"
           class="hover-text"
-          style:font-family={NODE_CONSTANTS.FONTS.hover.family}
-          style:font-size={NODE_CONSTANTS.FONTS.hover.size}
-          style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
+          style:font-family="Inter"
+          style:font-size="10px"
+          style:font-weight="400"
           style:fill={upvoteButtonState.color}
         >
           {upvoteButtonState.hoverText}
@@ -308,7 +282,7 @@
       {/if}
     </g>
     
-    <!-- Vote count with explicit position -->
+    <!-- Vote count -->
     <text
       class="vote-count"
       class:pulse={voteSuccess}
@@ -317,14 +291,14 @@
       class:neutral={netVotes === 0}
       x="0"
       y="4"
-      style:font-family={NODE_CONSTANTS.FONTS.value.family}
-      style:font-size="16px"
+      style:font-family="Inter"
+      style:font-size={voteCountSize}
       style:font-weight="600"
     >
       {scoreDisplay}
     </text>
     
-    <!-- Downvote button positioned to the right - INCREASED SPREAD -->
+    <!-- Downvote button -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -333,7 +307,7 @@
       class:voted={downvoteButtonState.isVoted}
       class:disabled={isVoting}
       class:pulse={voteSuccess && lastVoteType === 'disagree'}
-      transform="translate({VOTE_BUTTON_SPREAD}, 0)"
+      transform="translate({buttonSpacing}, 0)"
       on:click={() => handleVote('disagree')}
       on:keydown={handleKeydown}
       on:mouseenter={() => handleDownvoteHover(true)}
@@ -351,9 +325,7 @@
         height="24" 
         class="icon-container"
       >
-        <div 
-          class="icon-wrapper"
-        >
+        <div class="icon-wrapper">
           {#if downvoteButtonState.isLoading}
             <div class="loading-spinner" style:color={downvoteButtonState.color}>
               ⟳
@@ -363,7 +335,7 @@
               class="material-symbols-outlined vote-icon"
               class:bounce={voteSuccess && lastVoteType === 'disagree'}
               style:color={downvoteButtonState.color}
-              style:font-size={ICON_SIZE}
+              style:font-size={iconSize}
             >
               thumb_down
             </span>
@@ -372,13 +344,13 @@
       </foreignObject>
       
       <!-- Hover text -->
-      {#if downvoteHovered && !isVoting}
+      {#if downvoteHovered && !isVoting && mode === 'detail'}
         <text
           y="30"
           class="hover-text"
-          style:font-family={NODE_CONSTANTS.FONTS.hover.family}
-          style:font-size={NODE_CONSTANTS.FONTS.hover.size}
-          style:font-weight={NODE_CONSTANTS.FONTS.hover.weight}
+          style:font-family="Inter"
+          style:font-size="10px"
+          style:font-weight="400"
           style:fill={downvoteButtonState.color}
         >
           {downvoteButtonState.hoverText}
@@ -387,119 +359,200 @@
     </g>
   </g>
   
-  <!-- Vote Statistics (if enabled) - CONTENTBOX AWARE -->
-  {#if showStats}
-    <g class="vote-stats" 
-       class:content-box-mode={contentBoxMode}
-       transform="translate(0, {contentBoxMode ? 40 : 70})">
+  <!-- Vote Statistics (content-box aware) -->
+  {#if showStats && mode === 'detail'}
+    <g class="vote-stats-container" transform="translate(0, 50)">
+      <!-- Subtle background for statistics section -->
+      <rect
+        x={-availableWidth/2 + 10}
+        y="-8"
+        width={availableWidth - 20}
+        height="75"
+        rx="6"
+        ry="6"
+        fill="rgba(255, 255, 255, 0.02)"
+        stroke="rgba(255, 255, 255, 0.05)"
+        stroke-width="1"
+      />
       
-      {#if contentBoxMode}
-        <!-- COMPACT LAYOUT for ContentBox -->
-        <text class="stats-label left-align compact-header">
-          Vote Data:
-        </text>
-        
-        <!-- User status (if enabled) -->
+      <!-- Left-aligned header -->
+      <text 
+        class="stats-header"
+        x={-availableWidth/2 + 25}
+        y="4"
+        style:font-family="Inter"
+        style:font-size="12px"
+        style:font-weight="400"
+        style:fill="rgba(255, 255, 255, 0.6)"
+        style:text-anchor="start"
+      >
+        Vote Data
+      </text>
+      
+      <!-- Statistics in clean key-value layout with equals signs -->
+      <g class="stats-content" transform="translate(0, 20)">
+        <!-- Line 1: User status -->
         {#if showUserStatus}
-          <g transform="translate(0, 16)">
-            <text class="compact-stats-text left-align">
-              {userName}: 
-            </text>
-            <text x="80" class="compact-stats-value left-align">
-              {userVoteStatus}
-            </text>
-          </g>
-        {/if}
-        
-        <!-- Vote counts - horizontal layout -->
-        <g transform="translate(0, {showUserStatus ? 32 : 16})">
-          <text class="compact-stats-text left-align">
-            Agree: 
-          </text>
-          <text x="45" class="compact-stats-value left-align positive-stat">
-            {positiveVotes}
-          </text>
-          
-          <text x="80" class="compact-stats-text left-align">
-            Disagree: 
-          </text>
-          <text x="135" class="compact-stats-value left-align negative-stat">
-            {negativeVotes}
-          </text>
-          
-          <text x="170" class="compact-stats-text left-align">
-            Net: 
-          </text>
-          <text x="195" class="compact-stats-value left-align" 
-                class:positive-stat={netVotes > 0}
-                class:negative-stat={netVotes < 0}
-                class:neutral-stat={netVotes === 0}>
-            {netVotes > 0 ? '+' : ''}{netVotes}
-          </text>
-        </g>
-        
-      {:else}
-        <!-- FULL LAYOUT for regular nodes -->
-        <text x={METRICS_SPACING.labelX} class="stats-label left-align">
-          Vote Data:
-        </text>
-        
-        <!-- User's current vote (if enabled) -->
-        {#if showUserStatus}
-          <g transform="translate(0, 25)">
-            <text x={METRICS_SPACING.labelX} class="stats-text left-align">
+          <g class="stat-row">
+            <text 
+              class="stat-key"
+              x={-availableWidth/2 + 25}
+              y="0"
+              style:font-family="Inter"
+              style:font-size="12px"
+              style:font-weight="400"
+              style:fill="rgba(255, 255, 255, 0.8)"
+              style:text-anchor="start"
+            >
               {userName}
             </text>
-            <text x={METRICS_SPACING.equalsX} class="stats-text">
+            <text 
+              class="stat-equals"
+              x="0"
+              y="0"
+              style:font-family="Inter"
+              style:font-size="12px"
+              style:font-weight="400"
+              style:fill="rgba(255, 255, 255, 0.6)"
+              style:text-anchor="middle"
+            >
               =
             </text>
-            <text x={METRICS_SPACING.valueX} class="stats-value left-align">
+            <text 
+              class="stat-value"
+              x={availableWidth/2 - 25}
+              y="0"
+              style:font-family="Inter"
+              style:font-size="12px"
+              style:font-weight="500"
+              style:fill="rgba(255, 255, 255, 0.9)"
+              style:text-anchor="end"
+            >
               {userVoteStatus}
             </text>
           </g>
         {/if}
-    
-        <!-- Vote counts row - side by side -->
-        <g transform="translate(0, {showUserStatus ? 45 : 25})">
-          <!-- Agree votes on left -->
-          <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-            Agree: 
+        
+        <!-- Line 2: Agree count -->
+        <g class="stat-row" transform="translate(0, {showUserStatus ? 15 : 0})">
+          <text 
+            class="stat-key"
+            x={-availableWidth/2 + 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.8)"
+            style:text-anchor="start"
+          >
+            Total Agree
           </text>
-          <text x={METRICS_SPACING.labelX + 50} class="stats-value left-align positive-stat">
+          <text 
+            class="stat-equals"
+            x="0"
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.6)"
+            style:text-anchor="middle"
+          >
+            =
+          </text>
+          <text 
+            class="stat-value"
+            x={availableWidth/2 - 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="500"
+            style:fill="rgba(46, 204, 113, 0.9)"
+            style:text-anchor="end"
+          >
             {positiveVotes}
           </text>
-          
-          <!-- Disagree votes on right -->
-          <text x={METRICS_SPACING.labelX + 120} class="stats-text left-align">
-            Disagree: 
+        </g>
+        
+        <!-- Line 3: Disagree count -->
+        <g class="stat-row" transform="translate(0, {showUserStatus ? 30 : 15})">
+          <text 
+            class="stat-key"
+            x={-availableWidth/2 + 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.8)"
+            style:text-anchor="start"
+          >
+            Total Disagree
           </text>
-          <text x={METRICS_SPACING.labelX + 190} class="stats-value left-align negative-stat">
+          <text 
+            class="stat-equals"
+            x="0"
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.6)"
+            style:text-anchor="middle"
+          >
+            =
+          </text>
+          <text 
+            class="stat-value"
+            x={availableWidth/2 - 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="500"
+            style:fill="rgba(231, 76, 60, 0.9)"
+            style:text-anchor="end"
+          >
             {negativeVotes}
           </text>
         </g>
-    
-        <!-- Net and status row -->
-        <g transform="translate(0, {showUserStatus ? 65 : 45})">
-          <!-- Net votes on left -->
-          <text x={METRICS_SPACING.labelX} class="stats-text left-align">
-            Net: 
+        
+        <!-- Line 4: Net votes -->
+        <g class="stat-row" transform="translate(0, {showUserStatus ? 45 : 30})">
+          <text 
+            class="stat-key"
+            x={-availableWidth/2 + 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.8)"
+            style:text-anchor="start"
+          >
+            Net Votes
           </text>
-          <text x={METRICS_SPACING.labelX + 35} class="stats-value left-align" 
-                class:positive-stat={netVotes > 0}
-                class:negative-stat={netVotes < 0}
-                class:neutral-stat={netVotes === 0}>
+          <text 
+            class="stat-equals"
+            x="0"
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="400"
+            style:fill="rgba(255, 255, 255, 0.6)"
+            style:text-anchor="middle"
+          >
+            =
+          </text>
+          <text 
+            class="stat-value"
+            x={availableWidth/2 - 25}
+            y="0"
+            style:font-family="Inter"
+            style:font-size="12px"
+            style:font-weight="600"
+            style:fill={netVotes > 0 ? 'rgba(46, 204, 113, 0.95)' : netVotes < 0 ? 'rgba(231, 76, 60, 0.95)' : 'rgba(255, 255, 255, 0.9)'}
+            style:text-anchor="end"
+          >
             {netVotes > 0 ? '+' : ''}{netVotes}
           </text>
-          
-          <!-- Status on right -->
-          <text x={METRICS_SPACING.labelX + 120} class="stats-text left-align">
-            Status: 
-          </text>
-          <text x={METRICS_SPACING.labelX + 170} class="stats-value left-align status-text">
-            {voteStatus}
-          </text>
         </g>
-      {/if}
+      </g>
     </g>
   {/if}
   
@@ -510,7 +563,7 @@
     }
   
     .vote-controls.compact {
-      transform: scale(0.8);
+      transform: scale(0.9);
       transform-origin: center;
     }
   
@@ -562,7 +615,7 @@
   
     /* Loading spinner styling */
     .loading-spinner {
-      font-size: 20px;
+      font-size: 18px;
       animation: spin 1s linear infinite;
       display: flex;
       align-items: center;
@@ -573,7 +626,6 @@
   
     /* Vote count styling */
     .vote-count {
-      fill: rgba(255, 255, 255, 0.9);
       transition: fill 0.3s ease, font-size 0.2s ease;
       text-anchor: middle;
       dominant-baseline: middle;
@@ -599,29 +651,34 @@
       pointer-events: none;
     }
   
-    /* Statistics text styling */
-    .stats-label {
-      font-size: 14px;
-      fill: white;
-      font-family: 'Orbitron', sans-serif;
-      font-weight: 500;
+    /* Statistics styling - all Inter font now */
+    .stats-header {
+      text-anchor: middle;
+      dominant-baseline: middle;
     }
   
-    .stats-text {
-      font-size: 14px;
-      fill: rgba(255, 255, 255, 0.7);
-      font-family: 'Orbitron', sans-serif;
+    .stat-line {
+      dominant-baseline: middle;
+    }
+    
+    .stat-row {
+      /* Row container for key-equals-value layout */
+    }
+    
+    .stat-key {
+      dominant-baseline: middle;
+    }
+    
+    .stat-equals {
+      dominant-baseline: middle;
+    }
+    
+    .stat-value {
+      dominant-baseline: middle;
     }
   
-    .stats-value {
-      font-size: 14px;
-      fill: white;
-      font-family: 'Orbitron', sans-serif;
-      font-weight: 500;
-    }
-  
-    .left-align {
-      text-anchor: start;
+    .vote-stats-container {
+      opacity: 0.95;
     }
   
     /* Animations */
@@ -646,14 +703,5 @@
     @keyframes spin {
       from { transform: rotate(0deg); }
       to { transform: rotate(360deg); }
-    }
-  
-    /* Compact mode adjustments */
-    .vote-controls.compact .vote-count {
-      font-size: 14px;
-    }
-  
-    .vote-controls.compact :global(.material-symbols-outlined.vote-icon) {
-      font-size: 18px;
     }
   </style>

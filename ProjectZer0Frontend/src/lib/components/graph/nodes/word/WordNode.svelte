@@ -139,12 +139,11 @@
     $: lastVoteType = behaviorState?.lastVoteType || null;
     $: voteError = behaviorState?.error || null;
     
-    // Text wrapping using new utilities
+    // Text wrapping using new utilities - improved instruction text
     $: contextLines = wrapTextForDetail(
-        "Please vote on whether to include this keyword in ProjectZer0 or not. You can always change your vote using the buttons below.", 
+        "Vote whether to include this keyword in ProjectZer0. You can change your vote anytime using the voting controls below.", 
         'word', 
-        'content',
-        3
+        'content'
     );
 
     // Visibility data
@@ -302,65 +301,103 @@
             <NodeHeader title="Word" {radius} />
             
             <!-- Structured Content Box -->
-            <ContentBox nodeType="word" mode="detail" showBorder={true}>
+            <ContentBox nodeType="word" mode="detail" showBorder={false}>
                 <!-- Main Content Section (60% of box) -->
                 <svelte:fragment slot="content" let:x let:y let:width let:height>
                     <!-- Main Word Display -->
                     <text
                         x="0"
-                        y={y + 40}
+                        y={y + 45}
                         class="main-word"
                         style:font-family="Inter"
-                        style:font-size="28px"
-                        style:font-weight="600"
+                        style:font-size="32px"
+                        style:font-weight="700"
                         style:fill="white"
                         style:text-anchor="middle"
-                        style:filter="drop-shadow(0 0 8px rgba(255, 255, 255, 0.3))"
+                        style:filter="drop-shadow(0 0 12px rgba(255, 255, 255, 0.4))"
                     >
                         {displayWord}
                     </text>
                     
-                    <!-- Context Text -->
-                    <g transform="translate({x + 20}, {y + 80})">
-                        {#each contextLines as line, i}
-                            <text
-                                y={i * 18}
-                                class="context-text"
-                                style:font-family="Inter"
-                                style:font-size="13px"
-                                style:fill="rgba(255, 255, 255, 0.9)"
-                                style:text-anchor="start"
-                            >
-                                {line}
-                            </text>
-                        {/each}
-                    </g>
+                    <!-- Context Text - using provided content box dimensions directly -->
+                    <foreignObject
+                        x={x}
+                        y={y + 75}
+                        width={width}
+                        height={height - 90}
+                    >
+                        <div 
+                            class="instruction-text"
+                            style="
+                                font-family: Inter;
+                                font-size: 14px;
+                                font-weight: 400;
+                                color: rgba(255, 255, 255, 0.85);
+                                text-align: center;
+                                line-height: 1.4;
+                                word-wrap: break-word;
+                                hyphens: auto;
+                                padding: 10px;
+                                margin: 0;
+                                box-sizing: border-box;
+                            "
+                        >
+                            {contextLines}
+                        </div>
+                    </foreignObject>
+                    
+                    <!-- Subtle content area border for visual definition -->
+                    <rect
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        rx="8"
+                        ry="8"
+                        fill="none"
+                        stroke="rgba(255, 255, 255, 0.03)"
+                        stroke-width="1"
+                    />
                 </svelte:fragment>
                 
                 <!-- Voting Section (25% of box) -->
                 <svelte:fragment slot="voting" let:x let:y let:width let:height>
-                    <g transform="translate(0, {y + 20})">
-                        <VoteControls 
-                            {userVoteStatus}
-                            {positiveVotes}
-                            {negativeVotes}
-                            {netVotes}
-                            {isVoting}
-                            {userName}
-                            showStats={true}
-                            showUserStatus={true}
-                            {voteSuccess}
-                            {lastVoteType}
-                            compact={false}
-                            contentBoxMode={true}
-                            on:vote={handleVote}
-                        />
-                    </g>
+                    <!-- Subtle voting area background -->
+                    <rect
+                        x={x + 5}
+                        y={y + 5}
+                        width={width - 10}
+                        height={height - 10}
+                        rx="6"
+                        ry="6"
+                        fill="rgba(255, 255, 255, 0.01)"
+                        stroke="rgba(255, 255, 255, 0.03)"
+                        stroke-width="1"
+                    />
+                    
+                    <VoteControls 
+                        {userVoteStatus}
+                        {positiveVotes}
+                        {negativeVotes}
+                        {netVotes}
+                        {isVoting}
+                        {userName}
+                        showStats={true}
+                        showUserStatus={true}
+                        {voteSuccess}
+                        {lastVoteType}
+                        compact={false}
+                        mode="detail"
+                        availableWidth={width}
+                        availableHeight={height}
+                        containerY={15}
+                        on:vote={handleVote}
+                    />
                 </svelte:fragment>
                 
-                <!-- Statistics Section (15% of box) - NOW EMPTY, handled by VoteControls -->
+                <!-- Statistics Section (15% of box) - Now handled by VoteControls -->
                 <svelte:fragment slot="stats" let:x let:y let:width let:height>
-                    <!-- Statistics now handled within VoteControls component above -->
+                    <!-- Statistics now integrated within VoteControls component above -->
                 </svelte:fragment>
             </ContentBox>
             
@@ -424,18 +461,6 @@
     }
 
     .context-text {
-        dominant-baseline: middle;
-    }
-
-    .compact-stats {
-        /* Compact statistics styling */
-    }
-
-    .stats-header {
-        dominant-baseline: middle;
-    }
-
-    .stats-line {
         dominant-baseline: middle;
     }
 

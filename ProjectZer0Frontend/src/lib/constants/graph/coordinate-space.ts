@@ -19,7 +19,7 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 320     // Base size for previews
             },
             WORD: {
-                DETAIL: 600,
+                DETAIL: 500,
                 PREVIEW: 135
             },
             DEFINITION: {
@@ -67,7 +67,7 @@ export const COORDINATE_SPACE = {
             PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
         WORD: {
-            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            DETAIL: 354,        // (600÷2) × √2 = 424.26
             PREVIEW: 95         // (135÷2) × √2 = 95.46
         },
         DEFINITION: {
