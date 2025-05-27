@@ -3,105 +3,47 @@ import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
 import type { NodeType } from '$lib/types/graph/enhanced';
 
 /**
- * Enhanced text wrapping that uses content box dimensions
+ * CLEAN SEPARATION OF CONCERNS:
+ * - This utility now accepts explicit dimensions instead of calculating them
+ * - It's a pure function that respects whatever width it's given
+ * - No internal width overrides or assumptions about padding
  */
-export function wrapTextForContentBox(
+
+/**
+ * Wrap text for a specific width - the primary function for component use
+ * @param text - Text to wrap
+ * @param availableWidth - Actual available width in pixels
+ * @param options - Text rendering options
+ * @returns Array of wrapped lines
+ */
+export function wrapTextForWidth(
     text: string,
-    nodeType: NodeType,
-    mode: 'preview' | 'detail',
+    availableWidth: number,
     options: {
         fontSize?: number;
         fontFamily?: string;
-        padding?: number;
         maxLines?: number;
-        section?: 'content' | 'voting' | 'stats';
     } = {}
 ): string[] {
     const {
         fontSize = 14,
-        fontFamily = 'Inter', // New default font
-        padding = 20,
-        maxLines = undefined,
-        section = 'content'
+        fontFamily = 'Inter',
+        maxLines = undefined
     } = options;
-
-    // Get content box size for this node type
-    const boxSize = getContentBoxSize(nodeType, mode);
     
-    // Calculate available width (with padding)
-    const availableWidth = boxSize - (padding * 2);
-    
-    // Get section height allocation
-    const sectionHeight = getSectionHeight(boxSize, section);
-    
-    // Estimate character width based on font
+    // Calculate characters per line based on actual available width
     const charWidth = getCharacterWidth(fontSize, fontFamily);
     const maxCharsPerLine = Math.floor(availableWidth / charWidth);
     
-    // Calculate max lines based on section height and font size
-    const lineHeight = fontSize * 1.4; // Standard line height
-    const calculatedMaxLines = Math.floor(sectionHeight / lineHeight);
-    const finalMaxLines = maxLines !== undefined 
-        ? Math.min(maxLines, calculatedMaxLines) 
-        : calculatedMaxLines;
-
-    return wrapText(text, maxCharsPerLine, finalMaxLines);
+    return wrapText(text, maxCharsPerLine, maxLines);
 }
 
 /**
- * Get content box size for any node type and mode
- */
-function getContentBoxSize(nodeType: NodeType, mode: 'preview' | 'detail'): number {
-    const sizeMap = COORDINATE_SPACE.CONTENT_BOXES;
-    
-    switch(nodeType) {
-        case 'word': 
-            return mode === 'detail' ? sizeMap.WORD.DETAIL : sizeMap.WORD.PREVIEW;
-        case 'definition': 
-            return mode === 'detail' ? sizeMap.DEFINITION.DETAIL : sizeMap.DEFINITION.PREVIEW;
-        case 'statement': 
-            return mode === 'detail' ? sizeMap.STATEMENT.DETAIL : sizeMap.STATEMENT.PREVIEW;
-        case 'quantity': 
-            return mode === 'detail' ? sizeMap.QUANTITY.DETAIL : sizeMap.QUANTITY.PREVIEW;
-        case 'comment': 
-            return mode === 'detail' ? sizeMap.COMMENT.DETAIL : sizeMap.COMMENT.PREVIEW;
-        default: 
-            return mode === 'detail' ? sizeMap.STANDARD.DETAIL : sizeMap.STANDARD.PREVIEW;
-    }
-}
-
-/**
- * Get allocated height for different sections within content box
- */
-function getSectionHeight(boxSize: number, section: 'content' | 'voting' | 'stats'): number {
-    switch(section) {
-        case 'content': return Math.floor(boxSize * 0.60); // 60% for main content
-        case 'voting': return Math.floor(boxSize * 0.25);  // 25% for voting controls
-        case 'stats': return Math.floor(boxSize * 0.15);   // 15% for statistics
-        default: return boxSize;
-    }
-}
-
-/**
- * Estimate character width for different fonts
- */
-function getCharacterWidth(fontSize: number, fontFamily: string): number {
-    // Character width estimates (pixels per character at given font size)
-    const fontWidthRatios = {
-        'Inter': 0.6,           // Recommended new font - efficient
-        'Source Sans Pro': 0.6,  // Alternative - efficient  
-        'Roboto': 0.6,          // Alternative - efficient
-        'Orbitron': 0.8,        // Current font - less efficient
-        'monospace': 0.7,       // Fallback
-        'sans-serif': 0.6       // Fallback
-    };
-    
-    const ratio = fontWidthRatios[fontFamily as keyof typeof fontWidthRatios] || 0.6;
-    return fontSize * ratio;
-}
-
-/**
- * Original text wrapping function (enhanced)
+ * Core text wrapping function
+ * @param text - Text to wrap
+ * @param maxCharsPerLine - Maximum characters per line
+ * @param maxLines - Optional maximum number of lines
+ * @returns Array of wrapped text lines
  */
 export function wrapText(
     text: string, 
@@ -148,36 +90,47 @@ export function wrapText(
 }
 
 /**
- * Wraps text for preview mode with standard settings
+ * Estimate character width for different fonts
+ * @param fontSize - Font size in pixels
+ * @param fontFamily - Font family name
+ * @returns Estimated width per character
  */
-export function wrapTextForPreview(
-    text: string, 
-    nodeType: NodeType,
-    maxLines: number = 3
-): string[] {
-    return wrapTextForContentBox(text, nodeType, 'preview', {
-        fontSize: 12,
-        fontFamily: 'Inter',
-        maxLines,
-        section: 'content'
-    });
+function getCharacterWidth(fontSize: number, fontFamily: string): number {
+    // Character width estimates (pixels per character at given font size)
+    const fontWidthRatios = {
+        'Inter': 0.6,           // Efficient, modern font
+        'Source Sans Pro': 0.6,  // Alternative - efficient  
+        'Roboto': 0.6,          // Alternative - efficient
+        'Orbitron': 0.8,        // Less efficient, wider
+        'monospace': 0.7,       // Fallback
+        'sans-serif': 0.6       // Fallback
+    };
+    
+    const ratio = fontWidthRatios[fontFamily as keyof typeof fontWidthRatios] || 0.6;
+    return fontSize * ratio;
 }
 
 /**
- * Wraps text for detail mode with standard settings
+ * Get content box size for any node type and mode
+ * Kept for backward compatibility but components should use ContentBox dimensions
  */
-export function wrapTextForDetail(
-    text: string, 
-    nodeType: NodeType,
-    section: 'content' | 'voting' | 'stats' = 'content',
-    maxLines?: number
-): string[] {
-    return wrapTextForContentBox(text, nodeType, 'detail', {
-        fontSize: 14,
-        fontFamily: 'Inter',
-        maxLines,
-        section
-    });
+export function getContentBoxSize(nodeType: NodeType, mode: 'preview' | 'detail'): number {
+    const sizeMap = COORDINATE_SPACE.CONTENT_BOXES;
+    
+    switch(nodeType) {
+        case 'word': 
+            return mode === 'detail' ? sizeMap.WORD.DETAIL : sizeMap.WORD.PREVIEW;
+        case 'definition': 
+            return mode === 'detail' ? sizeMap.DEFINITION.DETAIL : sizeMap.DEFINITION.PREVIEW;
+        case 'statement': 
+            return mode === 'detail' ? sizeMap.STATEMENT.DETAIL : sizeMap.STATEMENT.PREVIEW;
+        case 'quantity': 
+            return mode === 'detail' ? sizeMap.QUANTITY.DETAIL : sizeMap.QUANTITY.PREVIEW;
+        case 'comment': 
+            return mode === 'detail' ? sizeMap.COMMENT.DETAIL : sizeMap.COMMENT.PREVIEW;
+        default: 
+            return mode === 'detail' ? sizeMap.STANDARD.DETAIL : sizeMap.STANDARD.PREVIEW;
+    }
 }
 
 /**
@@ -227,4 +180,75 @@ export function formatScore(netVotes: number): string {
  */
 export function getVoteStatus(netVotes: number): string {
     return netVotes > 0 ? 'agreed' : netVotes < 0 ? 'disagreed' : 'undecided';
+}
+
+// ============================================
+// DEPRECATED: These functions are kept for backward compatibility
+// New code should use wrapTextForWidth with explicit dimensions
+// ============================================
+
+/**
+ * @deprecated Use wrapTextForWidth with explicit width instead
+ */
+export function wrapTextForContentBox(
+    text: string,
+    nodeType: NodeType,
+    mode: 'preview' | 'detail',
+    options: {
+        fontSize?: number;
+        fontFamily?: string;
+        padding?: number;
+        maxLines?: number;
+        section?: 'content' | 'voting' | 'stats';
+    } = {}
+): string[] {
+    const {
+        fontSize = 14,
+        fontFamily = 'Inter',
+        padding = 20,
+        maxLines = undefined,
+        section = 'content'
+    } = options;
+
+    // Get content box size for this node type
+    const boxSize = getContentBoxSize(nodeType, mode);
+    
+    // Calculate available width (with padding)
+    const availableWidth = boxSize - (padding * 2);
+    
+    // Use the new width-based function
+    return wrapTextForWidth(text, availableWidth, { fontSize, fontFamily, maxLines });
+}
+
+/**
+ * @deprecated Use wrapTextForWidth with explicit width instead
+ */
+export function wrapTextForPreview(
+    text: string, 
+    nodeType: NodeType,
+    maxLines: number = 3
+): string[] {
+    return wrapTextForContentBox(text, nodeType, 'preview', {
+        fontSize: 12,
+        fontFamily: 'Inter',
+        maxLines,
+        section: 'content'
+    });
+}
+
+/**
+ * @deprecated Use wrapTextForWidth with explicit width instead
+ */
+export function wrapTextForDetail(
+    text: string, 
+    nodeType: NodeType,
+    section: 'content' | 'voting' | 'stats' = 'content',
+    maxLines?: number
+): string[] {
+    return wrapTextForContentBox(text, nodeType, 'detail', {
+        fontSize: 14,
+        fontFamily: 'Inter',
+        maxLines,
+        section
+    });
 }
