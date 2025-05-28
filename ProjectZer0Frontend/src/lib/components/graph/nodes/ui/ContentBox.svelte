@@ -132,8 +132,42 @@
         }
     };
     
+    // Layout ratios configuration - different for preview vs detail modes
+    const LAYOUT_RATIOS: Record<string, {
+        detail: { content: number; voting: number; stats: number };
+        preview: { content: number; voting: number; stats: number };
+    }> = {
+        word: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.50, voting: 0.50, stats: 0 }  // Split evenly for centered voting
+        },
+        definition: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.65, voting: 0.35, stats: 0 }
+        },
+        statement: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.65, voting: 0.35, stats: 0 }
+        },
+        quantity: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.65, voting: 0.35, stats: 0 }
+        },
+        comment: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.60, voting: 0.40, stats: 0 }
+        },
+        default: {
+            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            preview: { content: 0.70, voting: 0.30, stats: 0 }
+        }
+    };
+    
     // Get layout config for current node type
     $: layoutConfig = LAYOUT_CONFIGS[nodeType] || LAYOUT_CONFIGS.default;
+    
+    // Get ratios for current node type and mode
+    $: currentRatios = (LAYOUT_RATIOS[nodeType] || LAYOUT_RATIOS.default)[mode];
     
     // Allow overrides via props
     export let horizontalPadding: number | undefined = undefined;
@@ -168,10 +202,10 @@
         }
     }
     
-    // Layout sections within the box (60% content, 25% voting, 15% stats)
-    $: contentHeight = Math.floor(boxSize * 0.60);
-    $: votingHeight = Math.floor(boxSize * 0.25);
-    $: statsHeight = Math.floor(boxSize * 0.15);
+    // Layout sections within the box using mode-specific ratios
+    $: contentHeight = Math.floor(boxSize * currentRatios.content);
+    $: votingHeight = Math.floor(boxSize * currentRatios.voting);
+    $: statsHeight = Math.floor(boxSize * currentRatios.stats);
     
     // SINGLE SOURCE OF TRUTH for Y positioning
     $: contentBaseY = -halfBox + finalVerticalPadding;

@@ -8,16 +8,20 @@
     export let size: 'small' | 'medium' | 'large' = 'medium';
     export let position: 'top' | 'center' = 'top';
     export let color: string = 'rgba(255, 255, 255, 0.7)';
+    export let y: number | undefined = undefined;
+    export let mode: 'preview' | 'detail' = 'detail';
   
-    // Size mappings
+    // Size mappings - using Inter font sizes
     const sizeMap = {
       small: '10px',
-      medium: NODE_CONSTANTS.FONTS.title.size,
+      medium: '14px',  // Changed to match Inter styling
       large: '18px'
     };
   
-    // Position calculations
-    $: yPosition = position === 'top' ? -radius + 40 : 0;
+    // Position calculations - different offsets for preview vs detail
+    $: modeOffset = mode === 'detail' ? 40 : 25; // Keep detail at 40, move preview to 25
+    $: defaultYPosition = position === 'top' ? -radius + modeOffset : 0;
+    $: yPosition = y ?? defaultYPosition;
   </script>
   
   <text
@@ -26,9 +30,9 @@
     class:small={size === 'small'}
     class:medium={size === 'medium'}
     class:large={size === 'large'}
-    style:font-family={NODE_CONSTANTS.FONTS.title.family}
+    style:font-family="Inter"
     style:font-size={sizeMap[size]}
-    style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+    style:font-weight="500"
     style:fill={color}
   >
     {title}
@@ -37,7 +41,7 @@
   <style>
     .node-header {
       text-anchor: middle;
-      font-family: 'Orbitron', sans-serif;
+      font-family: 'Inter', sans-serif;
       dominant-baseline: middle;
       pointer-events: none;
     }
