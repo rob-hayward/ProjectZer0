@@ -200,7 +200,7 @@
 						x={x}
 						y={y + layoutConfig.mainTextYOffset}
 						width={width}
-						height={height - layoutConfig.mainTextYOffset}
+						height={height - layoutConfig.mainTextYOffset + 115}
 					>
 						<div class="instruction-text">
 							{wrapTextForWidth(
@@ -261,7 +261,7 @@
 		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 			<text
 				x="0"
-				y={y + layoutConfig.titleYOffset}
+				y={y + layoutConfig.titleYOffset + 40}
 				class="word-preview"
 				style:font-family="Inter"
 				style:font-size="20px"

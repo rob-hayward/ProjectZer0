@@ -191,43 +191,19 @@
 			<NodeHeader title={nodeTitle} radius={radius} mode="detail" />
 			<ContentBox nodeType="definition" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-			<!-- Combined word and definition text with proper wrapping -->
-			{@const combinedText = `${wordText}: ${definitionText}`}
-			{@const wrappedLines = wrapTextForWidth(
-				combinedText,
-				width,
-				{ fontSize: 12, fontFamily: 'Inter', maxLines: 10 }
-			)}
-			
-			<foreignObject
-				x={x}
-				y={y + layoutConfig.titleYOffset - 0}
-				width={width}
-				height={height - layoutConfig.titleYOffset}
-			>
-				<div class="definition-detial">
-					{#each wrappedLines as line, i}
-						<div class="preview-line">
-							{#if i === 0}
-								<!-- First line: check if it contains the word -->
-								{@const colonIndex = line.indexOf(':')}
-								{#if colonIndex !== -1}
-									<span class="word-bold">{line.substring(0, colonIndex + 1)}</span>
-									<span class="definition-text">{line.substring(colonIndex + 1)}</span>
-								{:else}
-									<span class="definition-text">{line}</span>
-								{/if}
-							{:else}
-								<!-- Subsequent lines: just definition text -->
-								<span class="definition-text">{line}</span>
-							{/if}
+					<!-- Main definition text with bold word styling -->
+					<foreignObject
+						x={x}
+						y={y + layoutConfig.titleYOffset - 20}
+						width={width}
+						height={height - layoutConfig.titleYOffset - 90}
+					>
+						<div class="definition-display">
+							<span class="definition-text"><span class="word-part">{wordText}:</span> {definitionText}</span>
 						</div>
-					{/each}
-				</div>
-			</foreignObject>
-		
+					</foreignObject>
 
-					<!-- Instruction Text -->
+					<!-- Instruction text using EXACT WordNode method -->
 					<foreignObject
 						x={x}
 						y={y + height - 80}
@@ -291,38 +267,15 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-			<!-- Combined word and definition text with proper wrapping -->
-			{@const combinedText = `${wordText}: ${definitionText}`}
-			{@const wrappedLines = wrapTextForWidth(
-				combinedText,
-				width,
-				{ fontSize: 10, fontFamily: 'Inter', maxLines: 10 }
-			)}
-			
+			<!-- Main definition text with bold word styling -->
 			<foreignObject
 				x={x}
-				y={y + layoutConfig.titleYOffset - 0}
+				y={y + layoutConfig.titleYOffset - 10}
 				width={width}
 				height={height - layoutConfig.titleYOffset}
 			>
 				<div class="definition-preview">
-					{#each wrappedLines as line, i}
-						<div class="preview-line">
-							{#if i === 0}
-								<!-- First line: check if it contains the word -->
-								{@const colonIndex = line.indexOf(':')}
-								{#if colonIndex !== -1}
-									<span class="word-bold">{line.substring(0, colonIndex + 1)}</span>
-									<span class="definition-text">{line.substring(colonIndex + 1)}</span>
-								{:else}
-									<span class="definition-text">{line}</span>
-								{/if}
-							{:else}
-								<!-- Subsequent lines: just definition text -->
-								<span class="definition-text">{line}</span>
-							{/if}
-						</div>
-					{/each}
+					<span class="definition-text"><span class="word-part">{wordText}:</span> {definitionText}</span>
 				</div>
 			</foreignObject>
 		</svelte:fragment>
@@ -345,16 +298,11 @@
 {/if}
 
 <style>
-	.word-title {
-		text-anchor: middle;
-		dominant-baseline: middle;
-	}
-
 	.definition-display {
 		font-family: Inter;
 		font-size: 16px;
 		font-weight: 400;
-		color: white;
+		color: rgba(255, 255, 255, 0.9);
 		text-align: center;
 		line-height: 1.4;
 		display: flex;
@@ -375,7 +323,6 @@
 		text-align: center;
 		line-height: 1.4;
 		display: flex;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		width: 100%;
@@ -385,19 +332,14 @@
 		box-sizing: border-box;
 	}
 
-	.preview-line {
-		margin-bottom: 2px;
-		width: 100%;
-	}
-
-	.word-bold {
-		font-weight: 600;
-		color: white;
-	}
-
 	.definition-text {
 		font-weight: 400;
 		color: rgba(255, 255, 255, 0.9);
+	}
+
+	.word-part {
+		font-weight: 600;
+		color: white;
 	}
 
 	.instruction-text {
