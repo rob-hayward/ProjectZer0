@@ -39,8 +39,8 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 250     // Smaller preview for control node
             },
             COMMENT: {
-                DETAIL: 180,    // Same size as STANDARD = 90px radius
-                PREVIEW: 180    // Same size as STANDARD = 90px radius
+                DETAIL: 320,    
+                PREVIEW: 320    
             },
             NAVIGATION: 80,
             HIDDEN: 100
@@ -87,8 +87,8 @@ export const COORDINATE_SPACE = {
             PREVIEW: 177        // (250÷2) × √2 = 176.78
         },
         COMMENT: {
-            DETAIL: 127,        // (180÷2) × √2 = 127.28
-            PREVIEW: 127        // (180÷2) × √2 = 127.28
+            DETAIL: 226,        // (320÷2) × √2 = 226.27
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
         NAVIGATION: 56,         // (80÷2) × √2 = 56.57
         HIDDEN: 71              // (100÷2) × √2 = 70.71

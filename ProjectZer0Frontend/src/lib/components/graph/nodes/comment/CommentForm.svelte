@@ -14,7 +14,7 @@
     let commentText = '';
     let isSubmitting = false;
     let charCount = 0;
-    const MAX_CHARS = 500;
+    const MAX_CHARS = 280; // Match backend limit (Twitter-length)
     
     // For form validation
     let isValid = false;
@@ -129,6 +129,7 @@
                 on:input={handleInput}
                 placeholder={isReply ? "Write your reply..." : "Write your comment..."}
                 disabled={isSubmitting}
+                maxlength={MAX_CHARS}
             ></textarea>
         </foreignObject>
         
