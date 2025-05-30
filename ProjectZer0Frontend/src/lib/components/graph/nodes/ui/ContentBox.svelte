@@ -39,14 +39,14 @@
             mainTextYOffset: 0
         },
         statement: {
-            horizontalPadding: 10,
-            verticalPadding: 15,
-            sectionSpacing: 8,
+            horizontalPadding: 0,
+            verticalPadding: 0,
+            sectionSpacing: 0,
             contentYOffset: 0,
-            votingYOffset: -5,
-            statsYOffset: -5,
-            titleYOffset: 30,
-            mainTextYOffset: 60
+            votingYOffset: 0,
+            statsYOffset: 0,
+            titleYOffset: 0,
+            mainTextYOffset: 0
         },
         quantity: {
             horizontalPadding: 10,
@@ -146,7 +146,7 @@
             preview: { content: 0.65, voting: 0.35, stats: 0 }
         },
         statement: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
             preview: { content: 0.65, voting: 0.35, stats: 0 }
         },
         quantity: {
