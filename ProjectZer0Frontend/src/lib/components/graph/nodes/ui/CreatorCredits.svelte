@@ -32,7 +32,7 @@
   <style>
     .creator-credits {
       text-anchor: middle;
-      font-family: 'Orbitron', sans-serif;
+      font-family: Inter;
       dominant-baseline: middle;
       pointer-events: none;
     }
