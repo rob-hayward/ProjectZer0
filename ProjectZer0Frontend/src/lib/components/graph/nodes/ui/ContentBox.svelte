@@ -5,7 +5,7 @@
     
     export let nodeType: NodeType;
     export let mode: 'preview' | 'detail' = 'detail';
-    export let showBorder: boolean = false;
+    export let showBorder: boolean = true; // Changed from false to true for design work
     
     // Layout configuration per node type (SINGLE SOURCE OF TRUTH)
     const LAYOUT_CONFIGS: Record<string, {
@@ -19,24 +19,24 @@
         mainTextYOffset: number;
     }> = {
         word: {
-            horizontalPadding: 10,
-            verticalPadding: 10,  // Reduced from 20 to move content up
-            sectionSpacing: 5,    // Reduced from 10 for tighter layout
+            horizontalPadding: 0,
+            verticalPadding: 0,  // Reduced from 20 to move content up
+            sectionSpacing: 0,    // Reduced from 10 for tighter layout
             contentYOffset: 0,
-            votingYOffset: -10,   // Move voting section up slightly
-            statsYOffset: -5,     // Move stats up slightly
-            titleYOffset: 25,     // Reduced from 45 - move word display up
+            votingYOffset: 0,   // Move voting section up slightly
+            statsYOffset: 0,     // Move stats up slightly
+            titleYOffset: 0,     // Reduced from 45 - move word display up
             mainTextYOffset: 0   // Reduced from 75 - move instruction text up
         },
         definition: {
-            horizontalPadding: 10,
-            verticalPadding: 10,
-            sectionSpacing: 5,
+            horizontalPadding: 0,
+            verticalPadding: 0,
+            sectionSpacing: 0,
             contentYOffset: 0,
-            votingYOffset: -5,
-            statsYOffset: -5,
-            titleYOffset: 20,
-            mainTextYOffset: 45
+            votingYOffset: 0,
+            statsYOffset: 0,
+            titleYOffset: 0,
+            mainTextYOffset: 0
         },
         statement: {
             horizontalPadding: 10,
@@ -138,11 +138,11 @@
         preview: { content: number; voting: number; stats: number };
     }> = {
         word: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
             preview: { content: 0.50, voting: 0.50, stats: 0 }  // Split evenly for centered voting
         },
         definition: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
+            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
             preview: { content: 0.65, voting: 0.35, stats: 0 }
         },
         statement: {
@@ -207,15 +207,15 @@
     $: votingHeight = Math.floor(boxSize * currentRatios.voting);
     $: statsHeight = Math.floor(boxSize * currentRatios.stats);
     
-    // SINGLE SOURCE OF TRUTH for Y positioning
-    $: contentBaseY = -halfBox + finalVerticalPadding;
+    // SINGLE SOURCE OF TRUTH for Y positioning - removed vertical padding for content and stats
+    $: contentBaseY = -halfBox; // Removed finalVerticalPadding
     $: votingBaseY = contentBaseY + contentHeight + finalSectionSpacing;
     $: statsBaseY = votingBaseY + votingHeight + finalSectionSpacing;
     
-    // Final positions with offsets
-    $: contentY = contentBaseY + finalContentYOffset;
+    // Final positions with offsets - removed offsets for content and stats
+    $: contentY = contentBaseY; // Removed finalContentYOffset
     $: votingY = votingBaseY + finalVotingYOffset;
-    $: statsY = statsBaseY + finalStatsYOffset;
+    $: statsY = statsBaseY; // Removed finalStatsYOffset
     
     // X positioning
     $: sectionX = -halfBox + finalHorizontalPadding;
@@ -248,44 +248,101 @@
 
 <g class="content-box" data-box-size={boxSize}>
     {#if showBorder}
+        <!-- Main content box border - white dashed -->
         <rect
             x={-halfBox}
             y={-halfBox}
             width={boxSize}
             height={boxSize}
             fill="none"
-            stroke="rgba(255,255,255,0.2)"
-            stroke-width="1"
-            stroke-dasharray="5,5"
+            stroke="rgba(255,255,255,0.4)"
+            stroke-width="2"
+            stroke-dasharray="8,4"
         />
         
+        <!-- Content section border - green, aligned with content box -->
         <rect
-            x={sectionX}
+            x={-halfBox}
             y={contentY}
-            width={sectionWidth}
+            width={boxSize}
             height={contentHeight}
             fill="none"
-            stroke="rgba(0,255,0,0.2)"
+            stroke="rgba(46, 204, 113, 0.6)"
             stroke-width="1"
         />
+        
+        <!-- Voting section border - yellow, aligned with content box -->
         <rect
-            x={sectionX}
+            x={-halfBox}
             y={votingY}
-            width={sectionWidth}
+            width={boxSize}
             height={votingHeight}
             fill="none"
-            stroke="rgba(255,255,0,0.2)"
+            stroke="rgba(241, 196, 15, 0.6)"
             stroke-width="1"
         />
-        <rect
-            x={sectionX}
-            y={statsY}
-            width={sectionWidth}
-            height={statsHeight}
-            fill="none"
-            stroke="rgba(255,0,0,0.2)"
-            stroke-width="1"
-        />
+        
+        <!-- Stats section border - red (only if stats section has height), aligned with content box -->
+        {#if statsHeight > 0}
+            <rect
+                x={-halfBox}
+                y={statsY}
+                width={boxSize}
+                height={statsHeight}
+                fill="none"
+                stroke="rgba(231, 76, 60, 0.6)"
+                stroke-width="1"
+            />
+        {/if}
+        
+        <!-- Add labels for each section to make it clear what's what -->
+        <text
+            x={-halfBox + 5}
+            y={contentY + 12}
+            style:font-family="Inter"
+            style:font-size="10px"
+            style:fill="rgba(46, 204, 113, 0.8)"
+            style:font-weight="500"
+        >
+            CONTENT
+        </text>
+        
+        <text
+            x={-halfBox + 5}
+            y={votingY + 12}
+            style:font-family="Inter"
+            style:font-size="10px"
+            style:fill="rgba(241, 196, 15, 0.8)"
+            style:font-weight="500"
+        >
+            VOTING
+        </text>
+        
+        {#if statsHeight > 0}
+            <text
+                x={-halfBox + 5}
+                y={statsY + 12}
+                style:font-family="Inter"
+                style:font-size="10px"
+                style:fill="rgba(231, 76, 60, 0.8)"
+                style:font-weight="500"
+            >
+                STATS
+            </text>
+        {/if}
+        
+        <!-- Add dimensions text for reference -->
+        <text
+            x="0"
+            y={-halfBox - 5}
+            style:font-family="Inter"
+            style:font-size="8px"
+            style:fill="rgba(255, 255, 255, 0.6)"
+            style:text-anchor="middle"
+            style:font-weight="400"
+        >
+            {boxSize}×{boxSize} ({nodeType} {mode})
+        </text>
     {/if}
     
     <g class="content-section">

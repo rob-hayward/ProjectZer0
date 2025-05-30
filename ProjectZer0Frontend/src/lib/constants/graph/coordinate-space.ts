@@ -20,7 +20,7 @@ export const COORDINATE_SPACE = {
             },
             WORD: {
                 DETAIL: 500,
-                PREVIEW: 135
+                PREVIEW: 200
             },
             DEFINITION: {
                 DETAIL: 600,
@@ -68,7 +68,7 @@ export const COORDINATE_SPACE = {
         },
         WORD: {
             DETAIL: 354,        // (600÷2) × √2 = 424.26
-            PREVIEW: 95         // (135÷2) × √2 = 95.46
+            PREVIEW: 141         // (200÷2) × √2 = 141.42
         },
         DEFINITION: {
             DETAIL: 424,        // (600÷2) × √2 = 424.26

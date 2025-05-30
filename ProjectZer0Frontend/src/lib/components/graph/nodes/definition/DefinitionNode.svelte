@@ -26,13 +26,12 @@
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
 	import ContentBox from '../ui/ContentBox.svelte';
 	import { wrapTextForWidth } from '../utils/textUtils';
-	import TextContent from '../ui/TextContent.svelte';
 
 	export let node: RenderableNode;
 	export let wordText: string = '';
 
-	// Debug toggle - set to true to show ContentBox borders
-	const DEBUG_SHOW_BORDERS = false;
+	// Debug toggle - set to true to show ContentBox borders (NOW TRUE FOR DESIGN WORK)
+	const DEBUG_SHOW_BORDERS = true;
 
 	if (!isDefinitionData(node.data)) {
 		throw new Error('Invalid node data type for DefinitionNode');
@@ -44,7 +43,6 @@
 
 	// Get the definition text
 	$: definitionText = definitionData.definitionText;
-	$: displayContent = `${wordText}: ${definitionText}`;
 
 	let voteBehaviour: any;
 	let visibilityBehaviour: any;
@@ -72,7 +70,6 @@
 		dataBehaviour = createDataBehaviour('definition', definitionData, {
 			transformData: (rawData) => ({
 				...rawData,
-				displayContent: `${wordText}: ${rawData.definitionText}`,
 				formattedDate: rawData.createdAt
 					? new Date(rawData.createdAt).toLocaleDateString()
 					: ''
@@ -108,7 +105,6 @@
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode };
 		visibilityChange: { isHidden: boolean };
-		hover: { isHovered: boolean };
 	}>();
 
 	function syncVoteState() {
@@ -144,10 +140,6 @@
 
 	function handleVote(event: CustomEvent<{ voteType: any }>) {
 		updateVoteState(event.detail.voteType);
-	}
-
-	function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
-		dispatch('hover', event.detail);
 	}
 
 	let definitionCreatorDetails: any = null;
@@ -191,24 +183,6 @@
 	onDestroy(() => {
 		if (dataBehaviour?.destroy) dataBehaviour.destroy();
 	});
-
-	// Preview mode text wrapping
-	$: textWidth = node.radius * 2;
-	$: maxCharsPerLine = Math.floor(textWidth / 8);
-	$: previewLines = displayContent.split(' ').reduce((acc, word) => {
-		const currentLine = acc[acc.length - 1] || '';
-		const testLine = currentLine + (currentLine ? ' ' : '') + word;
-		
-		if (!currentLine || testLine.length <= maxCharsPerLine) {
-			acc[acc.length - 1] = testLine;
-		} else {
-			acc.push(word);
-		}
-		return acc;
-	}, ['']);
-
-	// Score display
-	$: scoreDisplay = netVotes > 0 ? `+${netVotes}` : netVotes.toString();
 </script>
 
 {#if isDetail}
@@ -217,30 +191,55 @@
 			<NodeHeader title={nodeTitle} radius={radius} mode="detail" />
 			<ContentBox nodeType="definition" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-					<!-- Definition Display - using full height available -->
-					<foreignObject
-						x={x}
-						y={y + layoutConfig.titleYOffset}
-						width={width}
-						height={height - layoutConfig.titleYOffset - 80}
-					>
-						<div class="definition-container">
-							<div class="definition-display">
-								<span class="word-text">{wordText}:</span>
-								<span class="definition-text">{definitionText}</span>
-							</div>
+			<!-- Combined word and definition text with proper wrapping -->
+			{@const combinedText = `${wordText}: ${definitionText}`}
+			{@const wrappedLines = wrapTextForWidth(
+				combinedText,
+				width,
+				{ fontSize: 12, fontFamily: 'Inter', maxLines: 10 }
+			)}
+			
+			<foreignObject
+				x={x}
+				y={y + layoutConfig.titleYOffset - 0}
+				width={width}
+				height={height - layoutConfig.titleYOffset}
+			>
+				<div class="definition-detial">
+					{#each wrappedLines as line, i}
+						<div class="preview-line">
+							{#if i === 0}
+								<!-- First line: check if it contains the word -->
+								{@const colonIndex = line.indexOf(':')}
+								{#if colonIndex !== -1}
+									<span class="word-bold">{line.substring(0, colonIndex + 1)}</span>
+									<span class="definition-text">{line.substring(colonIndex + 1)}</span>
+								{:else}
+									<span class="definition-text">{line}</span>
+								{/if}
+							{:else}
+								<!-- Subsequent lines: just definition text -->
+								<span class="definition-text">{line}</span>
+							{/if}
 						</div>
-					</foreignObject>
+					{/each}
+				</div>
+			</foreignObject>
+		
 
-					<!-- Instruction Text - positioned at bottom of content area -->
+					<!-- Instruction Text -->
 					<foreignObject
 						x={x}
-						y={y + height - 100}
+						y={y + height - 80}
 						width={width}
-						height="80"
+						height="60"
 					>
 						<div class="instruction-text">
-							Vote whether you agree with this definition for this word, within the context of ProjectZer0. You can change your vote anytime using the voting controls below.
+							{wrapTextForWidth(
+								"Vote whether you agree with this definition for this word, within the context of ProjectZer0. You can change your vote anytime using the voting controls below.",
+								width,
+								{ fontSize: 14, fontFamily: 'Inter' }
+							).join(' ')}
 						</div>
 					</foreignObject>
 				</svelte:fragment>
@@ -254,7 +253,7 @@
 						{voteSuccess}
 						{lastVoteType}
 						availableWidth={width}
-						containerY={height / 2}
+						containerY={height}
 						mode="detail"
 						on:vote={handleVote}
 					/>
@@ -268,7 +267,7 @@
 						{userName}
 						showUserStatus={true}
 						availableWidth={width}
-						containerY={0}
+						containerY={26}
 						showBackground={false}
 					/>
 				</svelte:fragment>
@@ -286,25 +285,49 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} useContentBox={true} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
+	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title={nodeTitle} radius={radius} size="small" mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:radius let:style>
-			<TextContent
-				text={displayContent}
-				{radius}
-				mode="preview"
-				fontSize="12px"
-				fontFamily="Inter"
-				fontWeight="400"
-				alignment="center"
-				maxLines={10}
-			/>
+		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+			<!-- Combined word and definition text with proper wrapping -->
+			{@const combinedText = `${wordText}: ${definitionText}`}
+			{@const wrappedLines = wrapTextForWidth(
+				combinedText,
+				width,
+				{ fontSize: 10, fontFamily: 'Inter', maxLines: 10 }
+			)}
+			
+			<foreignObject
+				x={x}
+				y={y + layoutConfig.titleYOffset - 0}
+				width={width}
+				height={height - layoutConfig.titleYOffset}
+			>
+				<div class="definition-preview">
+					{#each wrappedLines as line, i}
+						<div class="preview-line">
+							{#if i === 0}
+								<!-- First line: check if it contains the word -->
+								{@const colonIndex = line.indexOf(':')}
+								{#if colonIndex !== -1}
+									<span class="word-bold">{line.substring(0, colonIndex + 1)}</span>
+									<span class="definition-text">{line.substring(colonIndex + 1)}</span>
+								{:else}
+									<span class="definition-text">{line}</span>
+								{/if}
+							{:else}
+								<!-- Subsequent lines: just definition text -->
+								<span class="definition-text">{line}</span>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height>
+		<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
 			<VoteButtons
 				{userVoteStatus}
 				{positiveVotes}
@@ -313,7 +336,7 @@
 				{voteSuccess}
 				{lastVoteType}
 				availableWidth={width}
-				containerY={height}
+				containerY={y + height / 2}
 				mode="preview"
 				on:vote={handleVote}
 			/>
@@ -322,69 +345,75 @@
 {/if}
 
 <style>
-	.definition-container {
-	width: 100%;
-	height: 100%;
-	overflow-y: auto;
-	overflow-x: hidden;
-	padding-right: 10px;
-}
+	.word-title {
+		text-anchor: middle;
+		dominant-baseline: middle;
+	}
 
-.definition-display {
-	font-family: Inter;
-	font-size: 16px;
-	line-height: 1.5;
-	color: white;
-	text-align: center;
-	padding: 0;
-	margin: 0;
-	width: 100%;
-}
+	.definition-display {
+		font-family: Inter;
+		font-size: 16px;
+		font-weight: 400;
+		color: white;
+		text-align: center;
+		line-height: 1.4;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		margin: 0;
+		box-sizing: border-box;
+	}
 
-.word-text {
-	font-weight: 600;
-	margin-right: 0px;
-	display: inline;
-}
+	.definition-preview {
+		font-family: Inter;
+		font-size: 12px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.9);
+		text-align: center;
+		line-height: 1.4;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		margin: 0;
+		box-sizing: border-box;
+	}
 
-.definition-text {
-	font-weight: 400;
-	display: inline;
-}
+	.preview-line {
+		margin-bottom: 2px;
+		width: 100%;
+	}
 
-.instruction-text {
-	font-family: Inter;
-	font-size: 14px;
-	font-weight: 400;
-	color: rgba(255, 255, 255, 0.85);
-	text-align: center;
-	line-height: 1.4;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 100%;
-	height: 100%;
-	padding: 0;
-	margin: 0;
-	box-sizing: border-box;
-}
+	.word-bold {
+		font-weight: 600;
+		color: white;
+	}
 
-/* Scrollbar styling for definition container */
-.definition-container::-webkit-scrollbar {
-	width: 6px;
-}
+	.definition-text {
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.9);
+	}
 
-.definition-container::-webkit-scrollbar-track {
-	background: rgba(255, 255, 255, 0.05);
-	border-radius: 3px;
-}
-
-.definition-container::-webkit-scrollbar-thumb {
-	background: rgba(255, 255, 255, 0.2);
-	border-radius: 3px;
-}
-
-.definition-container::-webkit-scrollbar-thumb:hover {
-	background: rgba(255, 255, 255, 0.3);
-}
+	.instruction-text {
+		font-family: Inter;
+		font-size: 14px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.85);
+		text-align: center;
+		line-height: 1.4;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		margin: 0;
+		box-sizing: border-box;
+	}
 </style>

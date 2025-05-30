@@ -10,7 +10,9 @@
 	export let node: RenderableNode;
 	export let nodeX: number | undefined = undefined;
 	export let nodeY: number | undefined = undefined;
-	export let useContentBox: boolean = false;
+	
+	// ContentBox is now always used - remove the useContentBox prop
+	// Keep showContentBoxBorder for debugging
 	export let showContentBoxBorder: boolean = false;
 
 	export let voteBasedStyles = {
@@ -37,7 +39,6 @@
 			nodeX,
 			nodeY,
 			nodePosition: node.position,
-			useContentBox,
 			showContentBoxBorder
 		});
 
@@ -74,18 +75,13 @@
 		dispatch('modeChange', eventData);
 	}
 
-	// Slot shape types
-	type LegacySlot = { radius: number; style: typeof NODE_CONSTANTS };
-	type ContentBoxSlot = { x: number; y: number; width: number; height: number; layoutConfig: any };
-
+	// New consistent slot interface - all slots get ContentBox props
 	interface $Slots {
-		title?: LegacySlot;
-		button?: LegacySlot;
-		score?: LegacySlot;
-		content?: ContentBoxSlot; // When useContentBox=true, content slot always gets ContentBoxSlot props
-		voting?: ContentBoxSlot;
-		stats?: ContentBoxSlot;
-		default?: { radius: number; filterId: string; gradientId: string };
+		title: { radius: number }; // Title stays outside ContentBox
+		content: { x: number; y: number; width: number; height: number; layoutConfig: any };
+		voting: { x: number; y: number; width: number; height: number; layoutConfig: any };
+		stats: { x: number; y: number; width: number; height: number; layoutConfig: any };
+		default: { radius: number; filterId: string; gradientId: string };
 	}
 </script>
 
@@ -98,47 +94,33 @@
 >
 	<BaseNode {node} {voteBasedStyles}>
 		<svelte:fragment slot="default" let:radius let:filterId let:gradientId>
-			{#if useContentBox}
-				<!-- Title stays outside ContentBox -->
-				{#if $$slots.title}
-					<slot name="title" {radius} style={NODE_CONSTANTS} />
-				{/if}
-				
-				<ContentBox nodeType={node.type} mode="preview" showBorder={showContentBoxBorder}>
-					<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-						{#if $$slots.content}
-							<slot name="content" {x} {y} {width} {height} {layoutConfig} />
-						{/if}
-					</svelte:fragment>
-
-					<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
-						{#if $$slots.voting}
-							<slot name="voting" {x} {y} {width} {height} {layoutConfig} />
-						{/if}
-					</svelte:fragment>
-
-					<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig>
-						{#if $$slots.stats}
-							<slot name="stats" {x} {y} {width} {height} {layoutConfig} />
-						{/if}
-					</svelte:fragment>
-				</ContentBox>
-			{:else}
-				<!-- Legacy mode without ContentBox -->
-				{#if $$slots.title}
-					<slot name="title" {radius} style={NODE_CONSTANTS} />
-				{/if}
-				{#if $$slots.content}
-					<slot name="content" {radius} style={NODE_CONSTANTS} />
-				{/if}
-				{#if $$slots.score}
-					<slot name="score" {radius} style={NODE_CONSTANTS} />
-				{/if}
-				{#if $$slots.button}
-					<slot name="button" {radius} style={NODE_CONSTANTS} />
-				{/if}
+			<!-- Title stays outside ContentBox for consistency with detail mode -->
+			{#if $$slots.title}
+				<slot name="title" {radius} />
 			{/if}
+			
+			<!-- ContentBox is now always used -->
+			<ContentBox nodeType={node.type} mode="preview" showBorder={showContentBoxBorder}>
+				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+					{#if $$slots.content}
+						<slot name="content" {x} {y} {width} {height} {layoutConfig} />
+					{/if}
+				</svelte:fragment>
 
+				<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
+					{#if $$slots.voting}
+						<slot name="voting" {x} {y} {width} {height} {layoutConfig} />
+					{/if}
+				</svelte:fragment>
+
+				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig>
+					{#if $$slots.stats}
+						<slot name="stats" {x} {y} {width} {height} {layoutConfig} />
+					{/if}
+				</svelte:fragment>
+			</ContentBox>
+
+			<!-- Expand button -->
 			<ExpandCollapseButton
 				mode="expand"
 				y={radius * 0.7071}

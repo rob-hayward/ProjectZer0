@@ -29,8 +29,8 @@
 	export let node: RenderableNode;
 	export let wordText: string = '';
 
-	// Debug toggle - set to true to show ContentBox borders
-	const DEBUG_SHOW_BORDERS = false;
+	// Debug toggle - set to true to show ContentBox borders (NOW TRUE FOR DESIGN WORK)
+	const DEBUG_SHOW_BORDERS = true;
 
 	if (!isWordNodeData(node.data)) {
 		throw new Error('Invalid node data type for WordNode');
@@ -184,7 +184,7 @@
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 					<text
 						x="0"
-						y={y + layoutConfig.titleYOffset}
+						y={y + layoutConfig.titleYOffset +20}
 						class="main-word"
 						style:font-family="Inter"
 						style:font-size="32px"
@@ -221,7 +221,7 @@
 						{voteSuccess}
 						{lastVoteType}
 						availableWidth={width}
-						containerY={height / 2}
+						containerY={height}
 						mode="detail"
 						on:vote={handleVote}
 					/>
@@ -235,7 +235,7 @@
 						{userName}
 						showUserStatus={true}
 						availableWidth={width}
-						containerY={0}
+						containerY={10}
 						showBackground={false}
 					/>
 				</svelte:fragment>
@@ -253,15 +253,15 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} useContentBox={true} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
+	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title="Word" {radius} size="medium" mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:radius let:style>
+		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 			<text
 				x="0"
-				y={-10}
+				y={y + layoutConfig.titleYOffset}
 				class="word-preview"
 				style:font-family="Inter"
 				style:font-size="20px"
@@ -273,7 +273,7 @@
 			</text>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height>
+		<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
 			<VoteButtons
 				{userVoteStatus}
 				{positiveVotes}
@@ -282,7 +282,7 @@
 				{voteSuccess}
 				{lastVoteType}
 				availableWidth={width}
-				containerY={height / 2}
+				containerY={y + height / 1.6}
 				mode="preview"
 				on:vote={handleVote}
 			/>
