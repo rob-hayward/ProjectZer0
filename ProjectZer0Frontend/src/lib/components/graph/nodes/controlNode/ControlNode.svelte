@@ -336,7 +336,7 @@
                 <ContentBox 
                     nodeType="control" 
                     mode="detail" 
-                    showBorder={true}
+                    showBorder={false}
                 >
                     <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
                         <!-- Sort Controls Section -->

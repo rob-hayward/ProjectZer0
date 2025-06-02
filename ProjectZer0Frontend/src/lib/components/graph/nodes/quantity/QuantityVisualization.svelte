@@ -299,6 +299,8 @@
                 .attr('y', innerHeight / 2)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.text)
+                .style('font-family', 'Inter')
+                .style('font-size', '14px')
                 .text('Not enough data to create visualization');
             return;
         }
@@ -470,6 +472,7 @@
                                 .attr('y', yPos - 12)
                                 .attr('text-anchor', 'middle')
                                 .attr('fill', 'white')
+                                .style('font-family', 'Inter')
                                 .style('font-size', '10px')
                                 .text(`${formatNumber(val)} ${unitSymbol}`);
                         })
@@ -535,8 +538,9 @@
                     .attr('y', 12)
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.stdDev.text)
-                    .attr('font-size', '11px')
-                    .attr('font-weight', 'bold')
+                    .style('font-family', 'Inter')
+                    .style('font-size', '11px')
+                    .style('font-weight', 'bold')
                     .text('−1σ');
                 
                 svg.append('text')
@@ -544,8 +548,9 @@
                     .attr('y', 12)
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.stdDev.text)
-                    .attr('font-size', '11px')
-                    .attr('font-weight', 'bold')
+                    .style('font-family', 'Inter')
+                    .style('font-size', '11px')
+                    .style('font-weight', 'bold')
                     .text('+1σ');
                     
                 // Add annotation for standard deviation value at the top
@@ -554,7 +559,8 @@
                     .attr('y', -10)
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.stdDev.text)
-                    .attr('font-size', '12px')
+                    .style('font-family', 'Inter')
+                    .style('font-size', '12px')
                     .text(`Standard Deviation: ${formatNumber(stdDev)} ${unitSymbol}`);
             }
         }
@@ -574,14 +580,15 @@
                 .attr('stroke-width', 2)    // Thicker line
                 .attr('stroke-dasharray', '4,3');
             
-        // Position text based on proximity to median    
-        svg.append('text')
+            // Position text based on proximity to median    
+            svg.append('text')
                 .attr('x', x(processedStatistics.mean))
                 .attr('y', isMeanMedianClose ? 15 : 20)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.mean)
-                .attr('font-size', '13px')  // Larger font
-                .attr('font-weight', 'bold')
+                .style('font-family', 'Inter')
+                .style('font-size', '13px')
+                .style('font-weight', 'bold')
                 .text(`Mean: ${formatNumber(processedStatistics.mean)} ${unitSymbol}`);
         }
         
@@ -601,8 +608,9 @@
                 .attr('y', 35)  // Position below mean text
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.median)
-                .attr('font-size', '13px')
-                .attr('font-weight', 'bold')
+                .style('font-family', 'Inter')
+                .style('font-size', '13px')
+                .style('font-weight', 'bold')
                 .text(`Median: ${formatNumber(processedStatistics.median)} ${unitSymbol}`);
         }
         
@@ -636,8 +644,9 @@
                     .attr('y', innerHeight - 15) // Moved down to avoid overlap with x-axis
                     .attr('text-anchor', 'middle')
                     .attr('fill', colors.userResponse)
-                    .attr('font-size', '13px')
-                    .attr('font-weight', 'bold')
+                    .style('font-family', 'Inter')
+                    .style('font-size', '13px')
+                    .style('font-weight', 'bold')
                     .text(`Your: ${formatNumber(userValue)} ${unitSymbol}`);
             }
         }
@@ -653,7 +662,8 @@
             .call(g => g.select('.domain').attr('stroke', 'rgba(255, 255, 255, 0.5)'))
             .call(g => g.selectAll('.tick text')
                 .attr('fill', colors.axis)
-                .attr('font-size', '11px'));
+                .style('font-family', 'Inter')
+                .style('font-size', '11px'));
                 
         // Add summary statistics text at the bottom
         if (processedStatistics.responseCount && processedStatistics.responseCount > 0) {
@@ -676,7 +686,8 @@
                 .attr('transform', `translate(${innerWidth / 2}, ${innerHeight + 40})`)
                 .attr('text-anchor', 'middle')
                 .attr('fill', colors.text)
-                .attr('font-size', '12px')
+                .style('font-family', 'Inter')
+                .style('font-size', '12px')
                 .text(summaryText);
         }
         
@@ -686,7 +697,8 @@
             .attr('y', -10)
             .attr('text-anchor', 'end')
             .attr('fill', 'rgba(255, 255, 255, 0.7)')
-            .attr('font-size', '12px')
+            .style('font-family', 'Inter')
+            .style('font-size', '12px')
             .text(`Units: ${unitSymbol}`);
     }
     
@@ -734,10 +746,6 @@
         updateVisualization();
     });
     
-    // Reactive statements to trigger updates when props change
-    $: if (statistics && container) updateVisualization();
-    $: if (userResponse && container) updateVisualization();
-    $: if (displayUnitId && container) updateVisualization();
 </script>
 
 <div bind:this={container} class="visualization-container">
@@ -758,11 +766,11 @@
     }
     
     :global(.visualization-container text) {
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
     }
     
     :global(.visualization-container .tick text) {
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
     }
     
     :global(.visualization-container path) {
@@ -800,7 +808,7 @@
     
     .loading-text {
         color: rgba(255, 255, 255, 0.9);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 14px;
     }
     

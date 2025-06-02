@@ -187,7 +187,7 @@
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="default" let:radius>
 			<NodeHeader title="Statement" radius={radius} mode="detail" />
-			<ContentBox nodeType="statement" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
+			<ContentBox nodeType="statement" mode="detail" showBorder={false}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 					<!-- Main statement text -->
 					<foreignObject
@@ -263,7 +263,7 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
+	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={false}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title="Statement" radius={radius} size="small" mode="preview" />
 		</svelte:fragment>

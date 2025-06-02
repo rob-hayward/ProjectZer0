@@ -1,27 +1,42 @@
 <!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
 <script lang="ts">
-    import { onMount, createEventDispatcher, tick } from 'svelte';
+    import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import { getDisplayName } from '../utils/nodeUtils';
     import { userStore } from '$lib/stores/userStore';
+    import { graphStore } from '$lib/stores/graphStore';
     import { unitPreferenceStore } from '$lib/stores/unitPreferenceStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { fetchWithAuth } from '$lib/services/api';
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
-    import ExpandCollapseButton from '../ui/ExpandCollapseButton.svelte';
-    import ShowHideButton from '../ui/ShowHideButton.svelte';
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
     import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
+    
+    // Import the shared behaviors and UI components
+    import {
+        createVoteBehaviour,
+        createVisibilityBehaviour,
+        createModeBehaviour,
+        createDataBehaviour
+    } from '../behaviours';
+    
+    // Import the shared UI components
+    import NodeHeader from '../ui/NodeHeader.svelte';
+    import CreatorCredits from '../ui/CreatorCredits.svelte';
+    import ContentBox from '../ui/ContentBox.svelte';
+    import { wrapTextForWidth } from '../utils/textUtils';
     
     export let node: RenderableNode;
     export let question: string = '';
     export let unitCategoryId: string = '';
     export let defaultUnitId: string = '';
+    
+    // Debug toggle - set to true to show ContentBox borders
+    const DEBUG_SHOW_BORDERS = false;
     
     // Type guard for quantity data
     if (!isQuantityData(node.data)) {
@@ -29,15 +44,21 @@
     }
 
     // Extract data from node
-    const data = node.data;
+    const quantityData = node.data;
     
     // Use props if provided, otherwise fall back to node data
-    $: displayQuestion = question || data.question;
-    $: displayUnitCategoryId = unitCategoryId || data.unitCategoryId;
-    $: displayDefaultUnitId = defaultUnitId || data.defaultUnitId;
+    $: displayQuestion = question || quantityData.question;
+    $: displayUnitCategoryId = unitCategoryId || quantityData.unitCategoryId;
+    $: displayDefaultUnitId = defaultUnitId || quantityData.defaultUnitId;
     
-    // State variables
-    let userName: string;
+    // Behavior instances
+    let voteBehaviour: any;
+    let visibilityBehaviour: any;
+    let modeBehaviour: any;
+    let dataBehaviour: any;
+    let behavioursInitialized = false;
+    
+    // State variables for quantity-specific features
     let categoryName = '';
     let defaultUnitName = '';
     let defaultUnitSymbol = '';
@@ -46,7 +67,7 @@
     let communityResponses: any[] = [];
     let availableUnits: any[] = [];
     let responseValue: string = '';
-    let selectedUnitId: string = ''; // Will be synchronized with displayUnitId
+    let selectedUnitId: string = '';
     let displayUnitId: string = '';
     let displayUnitSymbol: string = '';
     let isSubmitting = false;
@@ -54,14 +75,25 @@
     let isLoadingResponses = false;
     let isLoadingUnitPreferences = false;
     
-    // Layout constants
-    const METRICS_SPACING = {
-        leftAlign: -520, // Increased to allow more space
-        sectionSpacing: 50,
-        columnWidth: 450,
-        rightAlign: 520,
-    };
-
+    // Initialize behaviors
+    $: if (node.id && !behavioursInitialized) {
+        // Note: Quantity nodes don't typically have voting, but we can add it if needed
+        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { /* options */ });
+        
+        visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
+        modeBehaviour = createModeBehaviour(node.mode);
+        dataBehaviour = createDataBehaviour('quantity', quantityData, {
+            transformData: (rawData) => ({
+                ...rawData,
+                formattedDate: rawData.createdAt
+                    ? new Date(rawData.createdAt).toLocaleDateString()
+                    : ''
+            })
+        });
+        
+        behavioursInitialized = true;
+    }
+    
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
         hover: { isHovered: boolean };
@@ -69,23 +101,14 @@
     }>();
 
     function handleModeChange() {
-        const newMode = isDetail ? 'preview' : 'detail';
-        console.debug(`[QuantityNode] Mode change requested:`, { 
-            currentMode: node.mode, 
-            newMode,
-            isDetail
-        });
-        dispatch('modeChange', { mode: newMode });
-    }
-    
-    function handleCollapse() {
-        console.debug(`[QuantityNode] Collapse requested`);
-        dispatch('modeChange', { mode: 'preview' });
-    }
-    
-    function handleExpand() {
-        console.debug(`[QuantityNode] Expand requested`);
-        dispatch('modeChange', { mode: 'detail' });
+        const newMode = modeBehaviour?.handleModeChange();
+        if (newMode) {
+            console.debug(`[QuantityNode] Mode change requested:`, { 
+                currentMode: node.mode, 
+                newMode
+            });
+            dispatch('modeChange', { mode: newMode });
+        }
     }
     
     function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
@@ -94,12 +117,10 @@
     
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         console.debug(`[QuantityNode] Visibility change requested:`, event.detail);
-        
-        // Simply forward the visibility change event to NodeRenderer
-        // This will be handled by the parent components and graph store
         dispatch('visibilityChange', event.detail);
     }
 
+    // Quantity-specific functions (preserved from original)
     async function loadUnitDetails() {
         try {
             // Get category details
@@ -136,19 +157,16 @@
         try {
             isLoadingUnitPreferences = true;
             
-            // First check if the store has already been initialized
             if (!$unitPreferenceStore.isLoaded) {
                 await unitPreferenceStore.loadPreferences();
             }
             
-            // Get unit preference for this node
             const preference = unitPreferenceStore.getPreference(node.id);
             
             if (preference) {
                 displayUnitId = preference.unitId;
-                selectedUnitId = preference.unitId; // Sync the selectedUnitId with displayUnitId
+                selectedUnitId = preference.unitId;
                 
-                // Update display unit symbol
                 if (availableUnits.length > 0) {
                     const unit = availableUnits.find(u => u.id === displayUnitId);
                     if (unit) {
@@ -158,17 +176,14 @@
                 
                 console.log(`[QuantityNode] Loaded unit preference for node ${node.id}: ${displayUnitId}`);
             } else {
-                // No preference, use default
                 displayUnitId = displayDefaultUnitId;
-                selectedUnitId = displayDefaultUnitId; // Sync the selectedUnitId with displayUnitId
+                selectedUnitId = displayDefaultUnitId;
                 displayUnitSymbol = defaultUnitSymbol;
             }
         } catch (error) {
             console.error('[QuantityNode] Error loading unit preference:', error);
-            
-            // Fall back to default unit
             displayUnitId = displayDefaultUnitId;
-            selectedUnitId = displayDefaultUnitId; // Sync the selectedUnitId with displayUnitId
+            selectedUnitId = displayDefaultUnitId;
             displayUnitSymbol = defaultUnitSymbol;
         } finally {
             isLoadingUnitPreferences = false;
@@ -180,31 +195,25 @@
             userResponse = await getUserResponse(node.id);
             
             if (userResponse) {
-                // Set form values to user's response
                 responseValue = userResponse.value.toString();
                 
-                // If user has a response, set the display unit to match their response unit
-                // unless there's already a unit preference
                 const preference = unitPreferenceStore.getPreference(node.id);
                 if (!preference) {
                     displayUnitId = userResponse.unitId;
                     selectedUnitId = userResponse.unitId;
                 }
                 
-                // Load unit symbol for display
                 if (availableUnits.length > 0) {
                     const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
                     if (responseUnit) {
                         userResponse.unitSymbol = responseUnit.symbol;
                         
-                        // If setting display unit from response, also set symbol
                         if (displayUnitId === userResponse.unitId) {
                             displayUnitSymbol = responseUnit.symbol;
                         }
                     }
                 }
             } else {
-                // No need to initialize selectedUnitId here as it's synchronized with displayUnitId
                 responseValue = '';
             }
         } catch (error) {
@@ -214,13 +223,8 @@
     
     async function loadVisibilityPreference() {
         try {
-            // Always initialize the store to be safe
             await visibilityStore.initialize();
-            
-            // Get visibility preference for this node
             const preference = visibilityStore.getPreference(node.id);
-            
-            // Log for debugging
             console.debug(`[QuantityNode] Loaded visibility preference for node ${node.id}:`, preference);
         } catch (error) {
             console.error('[QuantityNode] Error loading visibility preference:', error);
@@ -233,9 +237,7 @@
             statistics = await getStatistics(node.id);
             console.log('[QuantityNode] Statistics loaded:', statistics);
             
-            // Extract and format community responses if available
             if (statistics?.responses && Array.isArray(statistics.responses)) {
-                // Add unit symbols to responses
                 if (availableUnits.length > 0) {
                     statistics.responses = statistics.responses.map((response: any) => {
                         const unit = availableUnits.find(u => u.id === response.unitId);
@@ -251,7 +253,6 @@
                 
                 communityResponses = statistics.responses.map((response: { value: number; unitSymbol?: string; unitId: string; }) => ({
                     ...response,
-                    // Format display value
                     displayValue: `${formatNumber(response.value)} ${response.unitSymbol || response.unitId}`
                 }));
             }
@@ -269,11 +270,9 @@
         if (newUnitId === displayUnitId) return;
         
         try {
-            // Update both display unit and selected unit (for input)
             displayUnitId = newUnitId;
             selectedUnitId = newUnitId;
             
-            // Update display unit symbol
             if (availableUnits.length > 0) {
                 const unit = availableUnits.find(u => u.id === displayUnitId);
                 if (unit) {
@@ -281,9 +280,7 @@
                 }
             }
             
-            // Save unit preference to store and backend
             await unitPreferenceStore.setPreference(node.id, displayUnitId);
-            
             console.log(`[QuantityNode] Unit changed to ${displayUnitId}`);
         } catch (error) {
             console.error('[QuantityNode] Error changing unit:', error);
@@ -297,13 +294,11 @@
             return;
         }
         
-        // Use displayUnitId for submission
         if (!displayUnitId) {
             errorMessage = 'Please select a unit';
             return;
         }
         
-        // Parse value as number
         const numValue = parseFloat(responseValue);
         if (isNaN(numValue)) {
             errorMessage = 'Please enter a valid number';
@@ -314,10 +309,7 @@
         errorMessage = null;
         
         try {
-            // Submit response to API using the selected display unit
             await submitResponse(node.id, numValue, displayUnitId);
-            
-            // Reload user response and statistics
             await loadUserResponse();
             await loadStatistics();
         } catch (error) {
@@ -335,13 +327,8 @@
         isSubmitting = true;
         
         try {
-            // Delete response via API
             await deleteUserResponse(node.id);
-            
-            // Reset form values
             responseValue = '';
-            
-            // Reload user response and statistics
             userResponse = null;
             await loadStatistics();
         } catch (error) {
@@ -352,29 +339,23 @@
         }
     }
 
-    // Validate input to ensure it's a number
     function handleResponseInput(event: Event) {
         const input = event.target as HTMLInputElement;
         const value = input.value;
         
-        // Allow empty input for now
         if (!value) {
             responseValue = '';
             return;
         }
         
-        // Only allow numbers, decimal point, and negative sign
         if (!/^-?\d*\.?\d*$/.test(value)) {
-            // Invalid input - revert to previous valid value
             input.value = responseValue;
             return;
         }
         
-        // Valid input - update value
         responseValue = value;
     }
     
-    // Helper function to format numbers
     function formatNumber(value: number): string {
         if (value === undefined || value === null) return '-';
         return Math.abs(value) < 0.01 
@@ -384,11 +365,20 @@
                 : value.toFixed(2);
     }
 
-    // Size calculations for preview mode
-    $: textWidth = node.radius * 2 - 45;
-    $: maxCharsPerLine = Math.floor(textWidth / 8);
+    // Reactive declarations
+    $: isDetail = node.mode === 'detail';
+    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
+    $: hasUserResponse = userResponse !== null;
+    $: responseCount = statistics?.responseCount || 0;
+    $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
+    $: maxValue = statistics?.max !== undefined ? formatNumber(statistics.max) : '-';
+    $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
+    $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
+    $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
 
     // Text wrapping for preview mode
+    $: textWidth = node.radius * 2 - 45;
+    $: maxCharsPerLine = Math.floor(textWidth / 8);
     $: lines = displayQuestion.split(' ').reduce((acc, word) => {
         const currentLine = acc[acc.length - 1] || '';
         const testLine = currentLine + (currentLine ? ' ' : '') + word;
@@ -411,11 +401,14 @@
             isHidden: node.isHidden
         });
         
-        // Initialize the unit preference store
-        unitPreferenceStore.initialize();
+        // Initialize behaviors
+        const initPromises = [];
+        if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
+        if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(0)); // No votes for quantity nodes
+        if (initPromises.length > 0) await Promise.all(initPromises);
         
-        // Load unit details, unit preferences, user response, statistics, and visibility
-        // regardless of node mode (preview or detail)
+        // Initialize quantity-specific data
+        unitPreferenceStore.initialize();
         await loadUnitDetails();
         await loadUnitPreference();
         await loadUserResponse();
@@ -423,77 +416,54 @@
         await loadVisibilityPreference();
     });
 
-    // Reactive declarations
-    $: isDetail = node.mode === 'detail';
-    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-    $: hasUserResponse = userResponse !== null;
-    
-    // Prepare display data for statistics
-    $: responseCount = statistics?.responseCount || 0;
-    $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
-    $: maxValue = statistics?.max !== undefined ? formatNumber(statistics.max) : '-';
-    $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
-    $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
-    $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
+    onDestroy(() => {
+        if (dataBehaviour?.destroy) dataBehaviour.destroy();
+    });
 </script>
 
 {#if isDetail}
     <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="default" let:radius>
-            <!-- Title -->
-            <text
-                y={-radius + 40}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                Quantity
-            </text>
-            <!-- Title -->
-            <text
-                y={-radius + 40}
-                class="title"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size={NODE_CONSTANTS.FONTS.title.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                Quantity
-            </text>
-
-             <!-- Keywords Display (if any) -->
-             {#if data.keywords && data.keywords.length > 0}
-             <g transform="translate(0, {-radius + 320})">
-                 <text 
-                     x={METRICS_SPACING.leftAlign} 
-                     class="keywords-label left-align"
-                 >
-                     Keywords:
-                 </text>
-                 
-                 <foreignObject 
-                     x={METRICS_SPACING.leftAlign}
-                     y="10"
-                     width={Math.abs(METRICS_SPACING.leftAlign) * 2}
-                     height="50"
-                 >
-                     <div class="keywords-container">
-                         {#each data.keywords as keyword}
-                             <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
-                                 {keyword.word}
-                             </div>
-                         {/each}
-                     </div>
-                 </foreignObject>
-             </g>
-         {/if}
+            <NodeHeader title="Quantity" radius={radius} mode="detail" />
+            
+            <!-- Custom layout for quantity node - not using ContentBox due to complex layout needs -->
+            
+            <!-- Keywords Display (if any) -->
+            {#if quantityData.keywords && quantityData.keywords.length > 0}
+                <g transform="translate(0, {-radius + 280})">
+                    <text 
+                        x="-520" 
+                        class="keywords-label left-align"
+                        style:font-family="Inter"
+                        style:font-size="14px"
+                        style:fill="rgba(255, 255, 255, 0.8)"
+                    >
+                        Keywords:
+                    </text>
+                    
+                    <foreignObject 
+                        x="-520"
+                        y="10"
+                        width="1040"
+                        height="50"
+                    >
+                        <div class="keywords-container">
+                            {#each quantityData.keywords as keyword}
+                                <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
+                                    {keyword.word}
+                                </div>
+                            {/each}
+                        </div>
+                    </foreignObject>
+                </g>
+            {/if}
 
             <!-- Question Display -->
-            <g transform="translate(0, {-radius + 420})">
+            <g transform="translate(0, {-radius + 340})">
                 <foreignObject 
-                    x={METRICS_SPACING.leftAlign}
-                    width={Math.abs(METRICS_SPACING.leftAlign) * 2}
+                    x="-520"
+                    width="1040"
                     height="100"
                 >
                     <div class="question-text">
@@ -502,29 +472,36 @@
                 </foreignObject>
             </g>
             
-            <!-- Category Display (moved from unit selection) --> 
+            <!-- Category Display --> 
             <g transform="translate(0, {-radius + 490})">
                 <text 
-                    x={METRICS_SPACING.leftAlign} 
+                    x="-520" 
                     class="unit-category-label left-align"
+                    style:font-family="Inter"
+                    style:font-size="14px"
+                    style:fill="rgba(255, 255, 255, 0.8)"
                 >
                     Category: {categoryName}
                 </text>
             </g>
 
-            <!-- Community Responses Visualization - increased size -->
+            <!-- Community Responses Visualization -->
             <g transform="translate(0, {-radius + 530})">
                 <text 
-                    x={METRICS_SPACING.leftAlign} 
+                    x="-520" 
                     class="section-header left-align"
+                    style:font-family="Inter"
+                    style:font-size="16px"
+                    style:fill="rgba(26, 188, 156, 0.9)"
+                    style:font-weight="500"
                 >
                     Community Responses ({responseCount})
                 </text>
                 
                 <foreignObject
-                    x={METRICS_SPACING.leftAlign}
+                    x="-520"
                     y="30"
-                    width={Math.abs(METRICS_SPACING.leftAlign) * 2}
+                    width="1040"
                     height="320"
                 >
                     {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
@@ -549,53 +526,72 @@
                 {#if statistics && (!statistics.distributionCurve || statistics.distributionCurve.length === 0) && responseCount > 0}
                     <g transform="translate(0, 130)">
                         <text 
-                            x={METRICS_SPACING.leftAlign}
+                            x="-520"
                             y="20"
                             class="stats-summary left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.7)"
                         >
-                            Mean: <tspan class="stats-value">{meanValue} {displayUnitSymbol}</tspan>
+                            Mean: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{meanValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
-                            x={METRICS_SPACING.leftAlign}
+                            x="-520"
                             y="50"
                             class="stats-summary left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.7)"
                         >
-                            Median: <tspan class="stats-value">{medianValue} {displayUnitSymbol}</tspan>
+                            Median: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{medianValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
-                            x={METRICS_SPACING.leftAlign + 150}
+                            x="-370"
                             y="20"
                             class="stats-summary left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.7)"
                         >
-                            Min: <tspan class="stats-value">{minValue} {displayUnitSymbol}</tspan>
+                            Min: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{minValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
-                            x={METRICS_SPACING.leftAlign + 150}
+                            x="-370"
                             y="50"
                             class="stats-summary left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.7)"
                         >
-                            Max: <tspan class="stats-value">{maxValue} {displayUnitSymbol}</tspan>
+                            Max: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{maxValue} {displayUnitSymbol}</tspan>
                         </text>
                         
                         <text 
-                            x={METRICS_SPACING.leftAlign + 300}
+                            x="-220"
                             y="20"
                             class="stats-summary left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.7)"
                         >
-                            StdDev: <tspan class="stats-value">{standardDeviation} {displayUnitSymbol}</tspan>
+                            StdDev: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{standardDeviation} {displayUnitSymbol}</tspan>
                         </text>
                     </g>
                 {/if}
             </g>
 
-            <!-- User Response Section combined with Unit Selection -->
+            <!-- User Response Section -->
             <g transform="translate(0, {-radius + 870})">
                 <text 
-                    x={METRICS_SPACING.leftAlign} 
+                    x="-520" 
                     class="section-header left-align"
+                    style:font-family="Inter"
+                    style:font-size="16px"
+                    style:fill="rgba(26, 188, 156, 0.9)"
+                    style:font-weight="500"
                 >
                     {hasUserResponse ? 'Your Response' : 'Add Your Response'}
                 </text>
@@ -604,14 +600,17 @@
                 {#if hasUserResponse}
                     <g transform="translate(0, 30)">
                         <text 
-                            x={METRICS_SPACING.leftAlign}
+                            x="-520"
                             class="user-response-value left-align"
+                            style:font-family="Inter"
+                            style:font-size="14px"
+                            style:fill="rgba(255, 255, 255, 0.8)"
                         >
-                            Current answer: <tspan class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
+                            Current answer: <tspan class="value-highlight" style:fill="rgba(26, 188, 156, 0.9)" style:font-weight="bold">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
                         </text>
                         
-                        <!-- Delete response button moved here -->
-                        <foreignObject x={METRICS_SPACING.rightAlign - 120} y="-5" width="120" height="40">
+                        <!-- Delete response button -->
+                        <foreignObject x="-180" y="40" width="120" height="40">
                             <button 
                                 class="response-button delete-button"
                                 on:click={handleDeleteResponse}
@@ -623,18 +622,20 @@
                     </g>
                 {/if}
                 
-                <!-- Always show the response input form -->
+                <!-- Response input form -->
                 <g transform="translate(0, {hasUserResponse ? 70 : 40})">
-                    <!-- First row -->
                     <text 
-                        x={METRICS_SPACING.leftAlign}
+                        x="-520"
                         y="-10"
                         class="form-label left-align"
+                        style:font-family="Inter"
+                        style:font-size="13px"
+                        style:fill="rgba(255, 255, 255, 0.6)"
                     >
                         {hasUserResponse ? 'Update your answer:' : 'Enter your answer:'}
                     </text>
                 
-                    <foreignObject x={METRICS_SPACING.leftAlign} y="0" width="200" height="40">
+                    <foreignObject x="-520" y="0" width="200" height="40">
                         <input 
                             type="text" 
                             class="response-input"
@@ -645,7 +646,7 @@
                         />
                     </foreignObject>
                     
-                    <foreignObject x={METRICS_SPACING.leftAlign + 210} y="0" width="120" height="40">
+                    <foreignObject x="-310" y="0" width="120" height="40">
                         <button 
                             class="response-button submit-button"
                             on:click={handleSubmitResponse}
@@ -657,24 +658,30 @@
                     
                     {#if errorMessage}
                         <text 
-                            x={METRICS_SPACING.leftAlign}
+                            x="-520"
                             y="50"
                             class="error-message left-align"
+                            style:font-family="Inter"
+                            style:font-size="12px"
+                            style:fill="#ff4444"
                         >
                             {errorMessage}
                         </text>
                     {/if}
                     
-                    <!-- Second row - Unit Selection Control (moved from above) -->
+                    <!-- Unit Selection Control -->
                     <text 
-                        x={METRICS_SPACING.leftAlign}
+                        x="-520"
                         y="70"
                         class="unit-preferences-label left-align"
+                        style:font-family="Inter"
+                        style:font-size="14px"
+                        style:fill="rgba(255, 255, 255, 0.8)"
                     >
                         Change Units:
                     </text>
                     
-                    <foreignObject x={METRICS_SPACING.leftAlign + 110} y="60" width="200" height="40">
+                    <foreignObject x="-410" y="60" width="200" height="40">
                         <select 
                             class="unit-select display-unit-select"
                             value={displayUnitId}
@@ -691,184 +698,122 @@
             </g>
                         
             <!-- Creator credits -->
-            {#if data.createdBy}
-                <g transform="translate(0, {radius - 55})">
-                    <text class="creator-label">
-                        created by: {getDisplayName(data.createdBy, null, !data.publicCredit)}
-                    </text>
-                </g>
+            {#if quantityData.createdBy}
+                <CreatorCredits
+                    createdBy={quantityData.createdBy}
+                    publicCredit={quantityData.publicCredit}
+                    creatorDetails={null}
+                    radius={radius}
+                    prefix="created by:"
+                />
             {/if}
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} on:visibilityChange={handleVisibilityChange}>
+    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} on:visibilityChange={handleVisibilityChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
         <svelte:fragment slot="title" let:radius>
-            <text
-                y={-radius + 40}
-                class="title centered"
-                style:font-family={NODE_CONSTANTS.FONTS.title.family}
-                style:font-size="12px"
-                style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
-            >
-                Quantity
-            </text>
+            <NodeHeader title="Quantity" radius={radius} size="small" mode="preview" />
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:radius>
-            <text
-                y={-radius/4 - 35}
-                x={-radius + 35}
-                class="content left-aligned"
-                style:font-family={NODE_CONSTANTS.FONTS.word.family}
-                style:font-size={NODE_CONSTANTS.FONTS.word.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.word.weight}
+        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+            <foreignObject
+                x={x}
+                y={y + layoutConfig.titleYOffset - 10}
+                width={width}
+                height={height - layoutConfig.titleYOffset}
             >
-                {#each lines as line, i}
-                    <tspan 
-                        x={-radius + 40}
-                        dy={i === 0 ? 0 : "1.2em"}
-                    >
-                        {line}
-                    </tspan>
-                {/each}
-            </text>
+                <div class="question-preview">
+                    {#each lines as line, i}
+                        <div class="question-line">
+                            {line}
+                        </div>
+                    {/each}
+                </div>
+            </foreignObject>
         </svelte:fragment>
 
-        <svelte:fragment slot="score" let:radius>
-            <!-- Moved up stats to prevent them from falling out of the node -->
-            <!-- Show category -->
+        <svelte:fragment slot="voting" let:x let:y let:width let:height>
+            <!-- Show category and stats instead of voting for quantity nodes -->
             <text
-                y={radius - 70}
+                x="0"
+                y={y + height / 2 - 20}
                 class="unit-info"
-                style:font-family={NODE_CONSTANTS.FONTS.word.family}
-                style:font-size={NODE_CONSTANTS.FONTS.value.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+                style:font-family="Inter"
+                style:font-size="12px"
+                style:fill="rgba(255, 255, 255, 0.7)"
+                style:text-anchor="middle"
             >
                 {categoryName || displayUnitCategoryId}
             </text>
             
-            <!-- Show number of responses -->
             <text
-                y={radius - 50}
+                x="0"
+                y={y + height / 2}
                 class="stats-info"
-                style:font-family={NODE_CONSTANTS.FONTS.word.family}
-                style:font-size={NODE_CONSTANTS.FONTS.value.size}
-                style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+                style:font-family="Inter"
+                style:font-size="12px"
+                style:fill="rgba(255, 255, 255, 0.7)"
+                style:text-anchor="middle"
             >
                 {responseCount} {responseCount === 1 ? 'response' : 'responses'}
             </text>
             
-            <!-- Show mean value if we have responses -->
             {#if responseCount > 0 && statistics?.mean !== undefined}
                 <text
-                    y={radius - 30}
+                    x="0"
+                    y={y + height / 2 + 20}
                     class="stats-value"
-                    style:font-family={NODE_CONSTANTS.FONTS.word.family}
-                    style:font-size={NODE_CONSTANTS.FONTS.value.size}
-                    style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+                    style:font-family="Inter"
+                    style:font-size="12px"
+                    style:fill="rgba(26, 188, 156, 0.9)"
+                    style:text-anchor="middle"
                 >
                     Mean: {formatNumber(statistics.mean)} {displayUnitSymbol}
                 </text>
             {/if}
         </svelte:fragment>
-
-        <!-- Button slot is no longer needed since the base component will handle both buttons -->
-        <!-- We just need to make sure to forward the events -->
     </BasePreviewNode>
 {/if}
 
 <style>
-    /* Base Text Styles */
-    text {
-        text-anchor: middle;
-        font-family: 'Orbitron', sans-serif;
-        fill: white;
-        pointer-events: none;
-    }
-
-    .title {
-        fill: rgba(255, 255, 255, 0.7);
-    }
-
-    .centered {
-        text-anchor: middle;
-    }
-
-    .left-aligned, .left-align {
+    .left-align {
         text-anchor: start;
     }
 
-    .content {
-        fill: white;
-    }
-
-    .unit-info {
-        fill: rgba(255, 255, 255, 0.7);
-        font-size: 12px;
-    }
-    
-    .stats-info {
-        fill: rgba(255, 255, 255, 0.7);
-        font-size: 12px;
-    }
-    
-    .stats-value {
-        fill: rgba(26, 188, 156, 0.9); /* TURQUOISE color for highlighting the value */
-        font-size: 12px;
-    }
-    
-    .section-header {
-        font-size: 16px;
-        fill: rgba(26, 188, 156, 0.9); /* TURQUOISE with opacity */
-        font-weight: 500;
-    }
-
-    .user-response-value {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.8);
-    }
-
-    .error-message {
-        font-size: 12px;
-        fill: #ff4444;
-    }
-
-    .creator-label {
-        font-size: 10px;
-        fill: rgba(255, 255, 255, 0.5);
-    }
-
-    .form-label {
-        font-size: 13px;
-        fill: rgba(255, 255, 255, 0.6);
-    }
-    
-    .stats-summary {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.7);
-    }
-    
-    .unit-preferences-label, .unit-category-label {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.8);
-    }
-    
-    .keywords-label {
-        font-size: 14px;
-        fill: rgba(255, 255, 255, 0.8);
-    }
-
-    /* Detail Mode Styling */
+    /* Question styling */
     :global(.question-text) {
         color: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 16px;
         font-weight: 500;
         line-height: 1.5;
         text-align: left;
     }
     
+    .question-preview {
+        font-family: 'Inter', sans-serif;
+        font-size: 12px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.9);
+        text-align: center;
+        line-height: 1.4;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 0;
+        margin: 0;
+        box-sizing: border-box;
+    }
+    
+    .question-line {
+        margin-bottom: 2px;
+    }
+    
+    /* Keywords styling */
     :global(.keywords-container) {
         display: flex;
         flex-wrap: wrap;
@@ -877,13 +822,13 @@
     }
     
     :global(.keyword-chip) {
-        background: rgba(26, 188, 156, 0.2); /* TURQUOISE with opacity */
-        border: 1px solid rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
+        background: rgba(26, 188, 156, 0.2);
+        border: 1px solid rgba(26, 188, 156, 0.3);
         border-radius: 12px;
         padding: 2px 8px;
         font-size: 11px;
         color: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
     }
     
     :global(.keyword-chip.ai-keyword) {
@@ -902,7 +847,7 @@
         font-style: italic;
         text-align: center;
         padding: 20px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 14px;
     }
 
@@ -915,15 +860,15 @@
         border-radius: 4px;
         color: white;
         padding: 6px 10px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 0.9rem;
         box-sizing: border-box;
     }
 
     :global(.response-input:focus) {
         outline: none;
-        border: 2px solid rgba(26, 188, 156, 0.6); /* TURQUOISE with opacity */
-        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
+        border: 2px solid rgba(26, 188, 156, 0.6);
+        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3);
     }
 
     :global(.unit-select) {
@@ -934,7 +879,7 @@
         border-radius: 4px;
         color: white;
         padding: 6px 10px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 0.9rem;
         box-sizing: border-box;
         cursor: pointer;
@@ -955,8 +900,8 @@
 
     :global(.unit-select:focus) {
         outline: none;
-        border: 2px solid rgba(26, 188, 156, 0.6); /* TURQUOISE with opacity */
-        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
+        border: 2px solid rgba(26, 188, 156, 0.6);
+        box-shadow: 0 0 0 1px rgba(26, 188, 156, 0.3);
     }
 
     :global(.response-button) {
@@ -964,7 +909,7 @@
         height: 100%;
         padding: 6px 12px;
         border-radius: 4px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;
         font-size: 0.85rem;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -977,23 +922,13 @@
     }
 
     :global(.submit-button) {
-        background: rgba(26, 188, 156, 0.3); /* TURQUOISE with opacity */
-        border: 1px solid rgba(26, 188, 156, 0.4); /* TURQUOISE with opacity */
+        background: rgba(26, 188, 156, 0.3);
+        border: 1px solid rgba(26, 188, 156, 0.4);
     }
 
     :global(.submit-button:hover:not(:disabled)) {
-        background: rgba(26, 188, 156, 0.4); /* TURQUOISE with opacity */
-        border: 1px solid rgba(26, 188, 156, 0.5); /* TURQUOISE with opacity */
-    }
-    
-    :global(.edit-button) {
-        background: rgba(52, 152, 219, 0.3);
-        border: 1px solid rgba(52, 152, 219, 0.4);
-    }
-
-    :global(.edit-button:hover:not(:disabled)) {
-        background: rgba(52, 152, 219, 0.4);
-        border: 1px solid rgba(52, 152, 219, 0.5);
+        background: rgba(26, 188, 156, 0.4);
+        border: 1px solid rgba(26, 188, 156, 0.5);
     }
 
     :global(.delete-button) {
@@ -1010,9 +945,4 @@
         opacity: 0.5;
         cursor: not-allowed;
     }
-    
-    :global(.value-highlight) {
-        fill: rgba(26, 188, 156, 0.9);
-        font-weight: bold;
-    }
-</style>    
+</style>
