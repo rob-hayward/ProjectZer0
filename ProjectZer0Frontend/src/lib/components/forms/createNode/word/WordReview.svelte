@@ -175,7 +175,6 @@
 </g>
 
 <style>
-    /* Style unchanged */
     :global(.review-container) {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;
@@ -228,13 +227,15 @@
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  
+        font-weight: 400;
     }
 
     :global(.review-item .value) {
         color: white;
         font-size: 13px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  
+        font-weight: 400;
         line-height: 1.3;
     }
 
@@ -253,7 +254,8 @@
         gap: 6px;
         color: white;
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.checkbox-label:first-child) {

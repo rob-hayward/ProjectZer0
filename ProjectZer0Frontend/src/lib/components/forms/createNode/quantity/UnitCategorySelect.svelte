@@ -138,7 +138,7 @@
         Default Unit
     </text>
     
-    <!-- Default Unit Select - Fixed duplicate disabled attribute -->
+    <!-- Default Unit Select -->
     <foreignObject
         x={FORM_STYLES.layout.leftAlign}
         y={FORM_STYLES.layout.verticalSpacing.labelToInput + 50}
@@ -222,35 +222,40 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .validation-message {
         font-size: 12px;
         text-anchor: start;
         fill: #ff4444;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .help-text {
         font-size: 12px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.5);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .error-message {
         font-size: 12px;
         text-anchor: start;
         fill: #ff4444;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .loading-message {
         font-size: 12px;
         text-anchor: start;
         fill: #ffd700;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     :global(.select-input) {
@@ -260,8 +265,9 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 400;
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;

@@ -23,8 +23,9 @@
 
 <style>
   .message {
-      font-family: 'Orbitron', sans-serif;
+      font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
       font-size: 14px;
+      font-weight: 400;
       transition: fill 0.2s ease;
   }
 

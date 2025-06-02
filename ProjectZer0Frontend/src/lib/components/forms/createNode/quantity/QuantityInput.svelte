@@ -106,19 +106,22 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .validation-message {
         font-size: 12px;
         text-anchor: start;
         fill: #ff4444;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .character-count {
         font-size: 12px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
         fill: rgba(255, 255, 255, 0.6);
     }
     
@@ -138,8 +141,9 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 400;
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;

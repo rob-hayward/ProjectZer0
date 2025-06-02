@@ -24,7 +24,8 @@
 <style>
   .character-count {
       font-size: 12px;
-      font-family: 'Orbitron', sans-serif;
+      font-family: 'Inter', sans-serif;  
+      font-weight: 400;
       fill: rgba(255, 255, 255, 0.6);
       transition: fill 0.2s ease;
   }

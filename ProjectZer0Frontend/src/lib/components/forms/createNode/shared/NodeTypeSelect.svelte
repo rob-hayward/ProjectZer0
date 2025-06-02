@@ -66,7 +66,8 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(select.form-input) {
@@ -76,8 +77,9 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 400;
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;

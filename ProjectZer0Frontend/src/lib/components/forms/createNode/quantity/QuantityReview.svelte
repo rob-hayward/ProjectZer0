@@ -15,7 +15,7 @@
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
-    export let userId: string | undefined = undefined; // Used during submission
+    export let userId: string | undefined = undefined;
 
     let shareToX = false;
     let isSubmitting = false;
@@ -103,7 +103,6 @@
             console.log('Quantity node creation response:', JSON.stringify(createdQuantity, null, 2));
 
             // Update graph store to quantity view type
-            // Instead of trying to set the view type directly, modify our approach
             if (browser && graphStore) {
                 console.log('[QuantityReview] Navigating to quantity view');
                 
@@ -237,7 +236,7 @@
     </foreignObject>
 
     <!-- Navigation -->
-    <g transform="translate(0, 240)">
+    <g transform="translate(0, 270)">
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={handleSubmit}
@@ -249,6 +248,27 @@
 </g>
 
 <style>
+    :global(.review-container) {
+        background: rgba(0, 0, 0, 0.3);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    :global(.review-item) {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .scrollable-content {
+        max-height: 65px;
+        overflow-y: auto;
+        padding-right: 8px;
+        margin-bottom: 4px;
+    }
+
     :global(.review-container) {
         background: rgba(0, 0, 0, 0.3);
         padding: 12px;
@@ -288,6 +308,21 @@
     .scrollable-content::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.4);
     }
+
+     .scrollable-content:-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .scrollable-content::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+    }
+
+    .scrollable-content::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+    }
     
     :global(.unit-info) {
         display: flex;
@@ -309,7 +344,8 @@
         padding: 2px 8px;
         font-size: 11px;
         color: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.debug-message) {
@@ -327,13 +363,15 @@
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.review-item .value) {
         color: white;
         font-size: 13px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
         line-height: 1.3;
     }
 
@@ -352,7 +390,8 @@
         gap: 6px;
         color: white;
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.checkbox-label:first-child) {
@@ -401,3 +440,4 @@
         cursor: not-allowed;
     }
 </style>
+    

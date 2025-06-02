@@ -193,21 +193,24 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .description-text {
         font-size: 11px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.5);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     .error-message {
         font-size: 12px;
         text-anchor: start;
         fill: #ff4444;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
     
     :global(input.form-input) {
@@ -217,8 +220,9 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 400;
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;
@@ -242,8 +246,9 @@
         border: 1px solid rgba(74, 144, 226, 0.4);
         border-radius: 4px;
         color: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 500;
         cursor: pointer;
         transition: all 0.2s ease;
     }
@@ -273,8 +278,9 @@
         border: 1px solid rgba(74, 144, 226, 0.3);
         border-radius: 16px;
         padding: 4px 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 12px;
+        font-weight: 400;
     }
     
     :global(.keyword-text) {
@@ -302,8 +308,9 @@
     
     :global(.no-keywords) {
         color: rgba(255, 255, 255, 0.5);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 12px;
+        font-weight: 400;
         font-style: italic;
         padding: 4px;
     }

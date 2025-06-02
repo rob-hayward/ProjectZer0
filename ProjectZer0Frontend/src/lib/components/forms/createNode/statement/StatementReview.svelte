@@ -247,13 +247,15 @@
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.review-item .value) {
         color: white;
         font-size: 13px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
         line-height: 1.3;
     }
 
@@ -271,7 +273,8 @@
         padding: 2px 8px;
         font-size: 11px;
         color: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.options-grid) {
@@ -289,7 +292,8 @@
         gap: 6px;
         color: white;
         font-size: 11px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-weight: 400;
     }
 
     :global(.checkbox-label:first-child) {

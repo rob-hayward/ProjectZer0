@@ -8,7 +8,7 @@
     export let nextLabel = "Next";
     export let loading = false;
     export let nextDisabled = false;
-    export let showBackButton = true; // New prop
+    export let showBackButton = true;
 </script>
 
 <g transform="translate({FORM_STYLES.layout.leftAlign}, 0)">
@@ -65,8 +65,9 @@
         width: 100%;
         padding: 8px 16px;
         border-radius: 4px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
         font-size: 0.9rem;
+        font-weight: 500;  /* Slightly bolder for buttons */
         cursor: pointer;
         transition: all 0.2s ease;
         display: flex;

@@ -450,7 +450,8 @@
     .title {
         font-size: 30px;
         fill: white;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron to Inter */
+        font-weight: 600;  /* Added weight for consistency */
     }
 
     .step-indicator {
