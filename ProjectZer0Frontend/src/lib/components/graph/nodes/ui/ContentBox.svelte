@@ -68,6 +68,16 @@
             titleYOffset: 20,
             mainTextYOffset: 40
         },
+        control: {
+            horizontalPadding: 15,
+            verticalPadding: 10,
+            sectionSpacing: 5,
+            contentYOffset: 0,
+            votingYOffset: 0,
+            statsYOffset: 0,
+            titleYOffset: 20,
+            mainTextYOffset: 40
+        },
         // Add missing node types
         navigation: {
             horizontalPadding: 10,
@@ -157,6 +167,10 @@
             detail: { content: 0.60, voting: 0.25, stats: 0.15 },
             preview: { content: 0.60, voting: 0.40, stats: 0 }
         },
+        control: {
+            detail: { content: 1.0, voting: 0, stats: 0 },  // Control node only needs content area
+            preview: { content: 1.0, voting: 0, stats: 0 }  // No voting or stats for control node
+        },
         default: {
             detail: { content: 0.60, voting: 0.25, stats: 0.15 },
             preview: { content: 0.70, voting: 0.30, stats: 0 }
@@ -198,6 +212,7 @@
             case 'statement': return currentMode === 'detail' ? sizeMap.STATEMENT.DETAIL : sizeMap.STATEMENT.PREVIEW;
             case 'quantity': return currentMode === 'detail' ? sizeMap.QUANTITY.DETAIL : sizeMap.QUANTITY.PREVIEW;
             case 'comment': return currentMode === 'detail' ? sizeMap.COMMENT.DETAIL : sizeMap.COMMENT.PREVIEW;
+            case 'control': return currentMode === 'detail' ? sizeMap.CONTROL.DETAIL : sizeMap.CONTROL.PREVIEW;
             default: return currentMode === 'detail' ? sizeMap.STANDARD.DETAIL : sizeMap.STANDARD.PREVIEW;
         }
     }
@@ -272,15 +287,17 @@
         />
         
         <!-- Voting section border - yellow, aligned with content box -->
-        <rect
-            x={-halfBox}
-            y={votingY}
-            width={boxSize}
-            height={votingHeight}
-            fill="none"
-            stroke="rgba(241, 196, 15, 0.6)"
-            stroke-width="1"
-        />
+        {#if votingHeight > 0}
+            <rect
+                x={-halfBox}
+                y={votingY}
+                width={boxSize}
+                height={votingHeight}
+                fill="none"
+                stroke="rgba(241, 196, 15, 0.6)"
+                stroke-width="1"
+            />
+        {/if}
         
         <!-- Stats section border - red (only if stats section has height), aligned with content box -->
         {#if statsHeight > 0}
@@ -307,16 +324,18 @@
             CONTENT
         </text>
         
-        <text
-            x={-halfBox + 5}
-            y={votingY + 12}
-            style:font-family="Inter"
-            style:font-size="10px"
-            style:fill="rgba(241, 196, 15, 0.8)"
-            style:font-weight="500"
-        >
-            VOTING
-        </text>
+        {#if votingHeight > 0}
+            <text
+                x={-halfBox + 5}
+                y={votingY + 12}
+                style:font-family="Inter"
+                style:font-size="10px"
+                style:fill="rgba(241, 196, 15, 0.8)"
+                style:font-weight="500"
+            >
+                VOTING
+            </text>
+        {/if}
         
         {#if statsHeight > 0}
             <text
@@ -356,27 +375,31 @@
         />
     </g>
     
-    <g class="voting-section">
-        <slot
-            name="voting" 
-            x={sectionX}
-            y={votingY}
-            width={sectionWidth}
-            height={votingHeight}
-            {layoutConfig}
-        />
-    </g>
+    {#if votingHeight > 0}
+        <g class="voting-section">
+            <slot
+                name="voting" 
+                x={sectionX}
+                y={votingY}
+                width={sectionWidth}
+                height={votingHeight}
+                {layoutConfig}
+            />
+        </g>
+    {/if}
     
-    <g class="stats-section">
-        <slot
-            name="stats"
-            x={sectionX}
-            y={statsY}
-            width={sectionWidth}
-            height={statsHeight}
-            {layoutConfig}
-        />
-    </g>
+    {#if statsHeight > 0}
+        <g class="stats-section">
+            <slot
+                name="stats"
+                x={sectionX}
+                y={statsY}
+                width={sectionWidth}
+                height={statsHeight}
+                {layoutConfig}
+            />
+        </g>
+    {/if}
 </g>
 
 <style>
