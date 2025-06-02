@@ -50,26 +50,29 @@
     const nodeId = `hidden-node-${Math.random().toString(36).slice(2)}`;
     const filterId = `hidden-glow-${nodeId}`;
     const gradientId = `hidden-gradient-${nodeId}`;
+    
+    // Define the very dull red color - much more subdued
+    const redGlowColor = "#4A1A1A"; // Very dark dull red - barely visible negative feeling
 </script>
 
-<!-- Reduced size node with grey styling -->
+<!-- Reduced size node with red glowing styling -->
 <g class="hidden-node" data-node-type={node.type} data-node-id={node.id}>
     <!-- Filters and gradients -->
     <defs>
         <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
-            <!-- Strong outer glow -->
+            <!-- Strong outer glow - changed to red -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur1"/>
-            <feFlood flood-color="#444444" flood-opacity="0.4" result="color1"/>
+            <feFlood flood-color={redGlowColor} flood-opacity="0.4" result="color1"/>
             <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
             
-            <!-- Medium glow -->
+            <!-- Medium glow - changed to red -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="3" result="blur2"/>
-            <feFlood flood-color="#444444" flood-opacity="0.6" result="color2"/>
+            <feFlood flood-color={redGlowColor} flood-opacity="0.6" result="color2"/>
             <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
             
-            <!-- Sharp inner glow -->
+            <!-- Sharp inner glow - changed to red -->
             <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur3"/>
-            <feFlood flood-color="#444444" flood-opacity="0.8" result="color3"/>
+            <feFlood flood-color={redGlowColor} flood-opacity="0.8" result="color3"/>
             <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
             
             <feMerge>
@@ -80,10 +83,11 @@
             </feMerge>
         </filter>
         
+        <!-- Changed gradient to red -->
         <radialGradient id={gradientId}>
             <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
-            <stop offset="85%" stop-color="#444444" stop-opacity="0.4"/>
-            <stop offset="100%" stop-color="#444444" stop-opacity="0.1"/>
+            <stop offset="85%" stop-color={redGlowColor} stop-opacity="0.4"/>
+            <stop offset="100%" stop-color={redGlowColor} stop-opacity="0.1"/>
         </radialGradient>
     </defs>
     
@@ -93,18 +97,13 @@
     <circle r={scaledRadius - 4} class="background-layer-3" />
     <circle r={scaledRadius - 6} class="content-background" />
     
-    <!-- Border rings with glow effect -->
+    <!-- Border - single clean glowing circle -->
     <circle
         r={scaledRadius}
         class="outer-ring"
-        style:stroke="#555555"
+        style:stroke={redGlowColor}
         style:stroke-opacity="0.8"
         filter={`url(#${filterId})`}
-    />
-    
-    <circle 
-        r={scaledRadius - 3} 
-        class="middle-ring" 
     />
     
     <!-- Content -->
@@ -113,9 +112,9 @@
         <text
             y="-8"
             class="hidden-label"
-            style:font-family={NODE_CONSTANTS.FONTS.title.family}
+            style:font-family="Inter"
             style:font-size={NODE_CONSTANTS.FONTS.title.size}
-            style:font-weight={NODE_CONSTANTS.FONTS.title.weight}
+            style:font-weight="500"
         >
             Hidden
         </text>
@@ -124,9 +123,9 @@
         <text
             y="8"
             class="hidden-source"
-            style:font-family={NODE_CONSTANTS.FONTS.value.family}
+            style:font-family="Inter"
             style:font-size="10px"
-            style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+            style:font-weight="400"
         >
             by {hiddenBy}
         </text>
@@ -135,9 +134,9 @@
         <text
             y="24"
             class="net-votes"
-            style:font-family={NODE_CONSTANTS.FONTS.value.family}
+            style:font-family="Inter"
             style:font-size={NODE_CONSTANTS.FONTS.value.size}
-            style:font-weight={NODE_CONSTANTS.FONTS.value.weight}
+            style:font-weight="400"
         >
             {displayVotes}
         </text>
@@ -176,34 +175,35 @@
     
     .outer-ring {
         fill: none;
-        stroke-width: 1.5;
+        stroke-width: 2;
         vector-effect: non-scaling-stroke;
         transition: all 0.3s ease-out;
     }
     
-    .middle-ring {
-        fill: none;
-        stroke: rgba(100, 100, 100, 0.2);
-        stroke-width: 1;
-    }
-    
-    /* Text styles */
+    /* Text styles - updated to use Inter fonts */
     text {
         text-anchor: middle;
         fill: rgba(180, 180, 180, 0.9);
         dominant-baseline: middle;
+        font-family: 'Inter', sans-serif;  /* Changed from default to Inter */
     }
     
     .hidden-label {
         fill: rgba(180, 180, 180, 0.9);
+        font-family: 'Inter', sans-serif;  /* Changed to Inter */
+        font-weight: 500;
     }
     
     .hidden-source {
         fill: rgba(150, 150, 150, 0.8);
+        font-family: 'Inter', sans-serif;  /* Changed to Inter */
+        font-weight: 400;
     }
     
     .net-votes {
         fill: rgba(180, 180, 180, 0.8);
+        font-family: 'Inter', sans-serif;  /* Changed to Inter */
+        font-weight: 400;
     }
     
     :global(.hidden-node *) {
