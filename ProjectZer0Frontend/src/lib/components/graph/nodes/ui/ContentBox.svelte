@@ -78,8 +78,7 @@
             titleYOffset: 20,
             mainTextYOffset: 40
         },
-        // Add missing node types
-        navigation: {
+        dashboard: {
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
@@ -89,7 +88,8 @@
             titleYOffset: 45,
             mainTextYOffset: 75
         },
-        dashboard: {
+        // Add missing node types
+        navigation: {
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
@@ -171,6 +171,10 @@
             detail: { content: 1.0, voting: 0, stats: 0 },  // Control node only needs content area
             preview: { content: 1.0, voting: 0, stats: 0 }  // No voting or stats for control node
         },
+        dashboard: {
+            detail: { content: 1.0, voting: 0, stats: 0 },  // Dashboard node only needs content area
+            preview: { content: 1.0, voting: 0, stats: 0 }  // No voting or stats for dashboard node
+        },
         default: {
             detail: { content: 0.60, voting: 0.25, stats: 0.15 },
             preview: { content: 0.70, voting: 0.30, stats: 0 }
@@ -213,6 +217,7 @@
             case 'quantity': return currentMode === 'detail' ? sizeMap.QUANTITY.DETAIL : sizeMap.QUANTITY.PREVIEW;
             case 'comment': return currentMode === 'detail' ? sizeMap.COMMENT.DETAIL : sizeMap.COMMENT.PREVIEW;
             case 'control': return currentMode === 'detail' ? sizeMap.CONTROL.DETAIL : sizeMap.CONTROL.PREVIEW;
+            case 'dashboard': return currentMode === 'detail' ? sizeMap.DASHBOARD.DETAIL : sizeMap.DASHBOARD.PREVIEW;
             default: return currentMode === 'detail' ? sizeMap.STANDARD.DETAIL : sizeMap.STANDARD.PREVIEW;
         }
     }

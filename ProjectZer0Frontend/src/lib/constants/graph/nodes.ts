@@ -144,6 +144,16 @@ export const NODE_CONSTANTS = {
                 start: `${COLORS.PRIMARY.YELLOW}66`,
                 end: `${COLORS.PRIMARY.YELLOW}33`
             }
+        },
+        EDIT_PROFILE: {
+            background: '#FFFFFF33',      // White with 20% opacity
+            border: '#FFFFFFFF',         // Solid white
+            text: '#FFFFFFFF',           // Solid white
+            hover: '#FFFFFFFF',          // Solid white
+            gradient: {
+                start: '#FFFFFF66',      // White with 40% opacity
+                end: '#FFFFFF33'         // White with 20% opacity
+            }
         }
     },
     FONTS: {

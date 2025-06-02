@@ -38,7 +38,8 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron to Inter */
+        font-weight: 400;  /* Added for consistency */
     }
 
     :global(input.input) {
@@ -48,7 +49,9 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron to Inter */
+        font-size: 0.9rem;
+        font-weight: 400;  /* Added for consistency */
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;

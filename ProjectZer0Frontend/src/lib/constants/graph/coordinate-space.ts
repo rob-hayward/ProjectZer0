@@ -34,6 +34,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 1300,    // 3x larger than standard nodes
                 PREVIEW: 320     // Keep the same preview size
             },
+            DASHBOARD: {         // New dashboard specific sizes
+                DETAIL: 600,     // Same as definition detail size
+                PREVIEW: 320     // Same as definition preview size
+            },
             CONTROL: {           // New control node specific sizes
                 DETAIL: 450,     // Smaller detail view for control node
                 PREVIEW: 250     // Smaller preview for control node
@@ -54,6 +58,7 @@ export const COORDINATE_SPACE = {
                 DEFINITION: 150,   // Collision padding for definition nodes
                 STATEMENT: 150,    // Match definition collision padding
                 QUANTITY: 200,     // Larger collision padding for quantity nodes
+                DASHBOARD: 150,    // Same as definition collision padding
                 COMMENT: 10        // Small collision padding for comment nodes
             }
         }
@@ -81,6 +86,10 @@ export const COORDINATE_SPACE = {
         QUANTITY: {
             DETAIL: 919,        // (1300÷2) × √2 = 919.24
             PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        DASHBOARD: {            // New dashboard content box sizes
+            DETAIL: 424,        // (600÷2) × √2 = 424.26 - same as definition
+            PREVIEW: 226        // (320÷2) × √2 = 226.27 - same as definition
         },
         CONTROL: {
             DETAIL: 318,        // (450÷2) × √2 = 318.20
@@ -146,6 +155,7 @@ export const COORDINATE_SPACE = {
                     },
                     STATEMENT: -300,    // Reduced from -1600
                     QUANTITY: -400,     // New strength for quantity nodes
+                    DASHBOARD: -300,    // Same as definition and statement
                     NAVIGATION: -20,    // Reduced from -50
                     COMMENT: -100       // Weak repulsion for comment nodes
                 },

@@ -35,7 +35,9 @@
         color: white;
         padding: 8px 16px;
         cursor: pointer;
-        font-family: 'Orbitron', sans-serif;
+        font-family: 'Inter', sans-serif;  /* Changed from Orbitron to Inter */
+        font-size: 0.9rem;
+        font-weight: 500;  /* Slightly bolder for button */
         transition: all 0.2s ease;
         display: flex;
         align-items: center;

@@ -20,7 +20,7 @@ export const FORM_STYLES = {
         borderRadius: '4px',
         padding: '8px',
         font: {
-            family: 'Orbitron',
+            family: 'Inter',  // Changed from Orbitron to Inter
             size: '0.9rem'
         },
         shadow: {
@@ -37,13 +37,15 @@ export const FORM_STYLES = {
     text: {
         label: {
             size: '14px',
-            color: 'rgba(255, 255, 255, 0.7)'
+            color: 'rgba(255, 255, 255, 0.7)',
+            family: 'Inter'  // Added family property for consistency
         },
         characterCount: {
             size: '12px',
             color: 'rgba(255, 255, 255, 0.6)',
             warning: '#ffd700',
-            error: '#ff4444'
+            error: '#ff4444',
+            family: 'Inter'  // Added family property for consistency
         }
     }
 };

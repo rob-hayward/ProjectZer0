@@ -8,7 +8,7 @@
     import { COORDINATE_SPACE } from '../../../../constants/graph';
     import { updateUserProfile } from '$lib/services/userProfile';
     import { userStore } from '$lib/stores/userStore';
-    import { graphStore } from '$lib/stores/graphStore'; // Add graphStore import
+    import { graphStore } from '$lib/stores/graphStore';
     
     import UsernameInput from '$lib/components/forms/editProfile/UsernameInput.svelte';
     import EmailInput from '$lib/components/forms/editProfile/EmailInput.svelte';
@@ -39,11 +39,11 @@
     let updateSuccess = false;
     let loading = false;
 
-    // Correctly reference coordinate space constants
+    // Create white color scheme for edit profile node
     const style = {
         previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
         detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        colors: NODE_CONSTANTS.COLORS.WORD,
+        colors: NODE_CONSTANTS.COLORS.EDIT_PROFILE,
         padding: {
             preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
             detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
@@ -147,12 +147,16 @@
 <style>
     .title {
         font-size: 30px;
+        font-family: 'Inter', sans-serif;
+        font-weight: 600;
         text-anchor: middle;
         fill: white;
     }
 
     .success {
         font-size: 14px;
+        font-family: 'Inter', sans-serif;
+        font-weight: 400;
         text-anchor: middle;
         fill: var(--success-color, #4CAF50);
     }
