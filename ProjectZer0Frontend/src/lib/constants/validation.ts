@@ -1,8 +1,10 @@
-// ProjectZer0Frontend/src/lib/constants/validation.ts
+// src/lib/constants/validation.ts
 export const TEXT_LIMITS = {
-  // NOTE: These values must match the backend validation in ProjectZer0Backend/src/constants/validation.ts
-  MAX_DEFINITION_LENGTH: 280,
-  MAX_COMMENT_LENGTH: 280,
-  MAX_STATEMENT_LENGTH: 280,  // Adding statement length limit
-  MAX_KEYWORD_LENGTH: 30      // Adding keyword length limit
-};
+    MAX_WORD_LENGTH: 50,
+    MAX_DEFINITION_LENGTH: 500,
+    MAX_STATEMENT_LENGTH: 2000,
+    MAX_OPENQUESTION_LENGTH: 280,        
+    MAX_COMMENT_LENGTH: 1000,
+    MAX_KEYWORD_LENGTH: 30,
+    MAX_KEYWORDS: 10
+} as const;

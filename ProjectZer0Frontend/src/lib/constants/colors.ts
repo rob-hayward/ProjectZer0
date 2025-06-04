@@ -9,7 +9,8 @@ export const COLORS = {
         TURQUOISE: '#1abc9c', // Turquoise
         ORANGE: '#e67e22',  // Carrot orange
         RED: '#e74c3c',     // Coral red
-        FOREST: '#27ae60'   // Forest green
+        FOREST: '#27ae60',  // Forest green
+        CYAN: '#00bcd4'     // Material Design Cyan
     },
 
     // UI colors

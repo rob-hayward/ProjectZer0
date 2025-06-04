@@ -42,6 +42,9 @@ export class Neo4jInitService implements OnModuleInit {
         // Statement constraints
         'CREATE CONSTRAINT statement_id_unique IF NOT EXISTS FOR (s:StatementNode) REQUIRE s.id IS UNIQUE',
 
+        // OpenQuestion constraints
+        'CREATE CONSTRAINT openquestion_id_unique IF NOT EXISTS FOR (oq:OpenQuestionNode) REQUIRE oq.id IS UNIQUE',
+
         // Definition constraints
         'CREATE CONSTRAINT definition_id_unique IF NOT EXISTS FOR (d:DefinitionNode) REQUIRE d.id IS UNIQUE',
 

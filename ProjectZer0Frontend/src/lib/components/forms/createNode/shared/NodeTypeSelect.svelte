@@ -45,6 +45,7 @@
             <option value="">Choose type...</option>
             <option value="word">Word</option>
             <option value="statement">Statement</option>
+            <option value="openquestion">Open Question</option>
             <option value="quantity">Quantity</option>
         </select>
     </foreignObject>

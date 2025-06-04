@@ -59,6 +59,41 @@ export interface StatementNode {
     };
 }
 
+// OpenQuestion Node related interfaces
+export interface RelatedQuestion {
+    nodeId: string;
+    questionText: string;
+    sharedWord: string;
+    strength: number;
+}
+
+export interface AnswerStatement {
+    id: string;
+    statement: string;
+    createdBy: string;
+    createdAt: string;
+    netVotes: number;
+}
+
+export interface OpenQuestionNode {
+    id: string;
+    questionText: string;
+    createdBy: string;
+    publicCredit: boolean;
+    initialComment?: string;
+    createdAt: string;
+    updatedAt: string;
+    positiveVotes: number;
+    negativeVotes: number;
+    keywords?: Keyword[];
+    relatedQuestions?: RelatedQuestion[];
+    answers?: AnswerStatement[];
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
 /**
  * Interface representing a Quantity Node
  */

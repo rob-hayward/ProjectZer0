@@ -1,6 +1,6 @@
 // src/lib/types/graph/enhanced.ts
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle, StatementNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
@@ -15,16 +15,16 @@ export interface ControlNodeData {
 }
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'quantity' |'comment' | 'comment-form' | 'control';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'quantity' | 'comment' | 'comment-form' | 'control';
-export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
 export interface NodeMetadata {
     centralRadius?: number;
-    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'quantity'| 'comment' | 'comment-form' | 'control';
+    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'openquestion' | 'quantity'| 'comment' | 'comment-form' | 'control';
     fixed?: boolean;
     isDetail?: boolean;
     votes?: number;
@@ -41,7 +41,7 @@ export interface NodeMetadata {
 export interface GraphNode {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
     group: NodeGroup;
     mode?: NodeMode;
     metadata?: NodeMetadata; // Make metadata optional in GraphNode
@@ -61,7 +61,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -150,7 +150,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -212,6 +212,7 @@ export interface GraphPageData {
     viewType: ViewType;
     wordData: WordNode | null;
     statementData: StatementNode | null;
+    openQuestionData?: OpenQuestionNode | null; // Add openQuestion data
     quantityData?: QuantityNode | null; // Add quantity data
     nodes?: GraphNode[];
     links?: GraphLink[];
@@ -245,6 +246,9 @@ export const isNavigationData = (data: any): data is NavigationOption =>
 export const isStatementData = (data: any): data is StatementNode =>
     data && 'statement' in data && typeof data.statement === 'string';
 
+export const isOpenQuestionData = (data: any): data is OpenQuestionNode =>
+    data && 'questionText' in data && typeof data.questionText === 'string';
+
 export const isQuantityData = (data: any): data is QuantityNode =>
     data && 'question' in data && 'unitCategoryId' in data && 'defaultUnitId' in data;
 
@@ -255,7 +259,7 @@ export const isCommentFormData = (data: any): data is CommentFormData =>
     data && 'id' in data && ('parentCommentId' in data || data.parentCommentId === null);
 
 export const isControlNodeData = (data: any): data is ControlNodeData =>
-    data && 'id' in data && !('word' in data) && !('statement' in data) && !('commentText' in data);
+    data && 'id' in data && !('word' in data) && !('statement' in data) && !('questionText' in data) && !('commentText' in data);
 
 // Node type guards
 export const isDashboardNode = (node: RenderableNode): node is RenderableNode & { data: UserProfile } =>
@@ -279,6 +283,9 @@ export const isNavigationNode = (node: RenderableNode): node is RenderableNode &
 export const isStatementNode = (node: RenderableNode): node is RenderableNode & { data: StatementNode } =>
     node.type === 'statement' && isStatementData(node.data);
 
+export const isOpenQuestionNode = (node: RenderableNode): node is RenderableNode & { data: OpenQuestionNode } =>
+    node.type === 'openquestion' && isOpenQuestionData(node.data);
+
 export const isQuantityNode = (node: RenderableNode): node is RenderableNode & { data: QuantityNode } =>
     node.type === 'quantity' && isQuantityData(node.data);
 
@@ -300,3 +307,6 @@ export const isAlternativeLink = (link: RenderableLink): boolean =>
 
 export const isRelatedLink = (link: RenderableLink): boolean =>
     link.type === 'related';
+
+export const isAnswersLink = (link: RenderableLink): boolean =>
+    link.type === 'answers';

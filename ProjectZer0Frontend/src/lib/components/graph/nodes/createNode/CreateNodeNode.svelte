@@ -20,6 +20,10 @@
     import StatementInput from '$lib/components/forms/createNode/statement/StatementInput.svelte';
     import StatementReview from '$lib/components/forms/createNode/statement/StatementReview.svelte';
     
+    // OpenQuestion related imports
+    import OpenQuestionInput from '$lib/components/forms/createNode/openquestion/OpenQuestionInput.svelte';
+    import OpenQuestionReview from '$lib/components/forms/createNode/openquestion/OpenQuestionReview.svelte';
+    
     // Quantity related imports
     import QuantityInput from '$lib/components/forms/createNode/quantity/QuantityInput.svelte';
     import UnitCategorySelect from '$lib/components/forms/createNode/quantity/UnitCategorySelect.svelte';
@@ -51,10 +55,11 @@
         word: '',
         definitionText: '',      // For word node
         statement: '',           // For statement node
+        questionText: '',        // For openquestion node
         question: '',            // For quantity node
         unitCategoryId: '',      // For quantity node
         defaultUnitId: '',       // For quantity node
-        userKeywords: [],        // For statement and quantity nodes
+        userKeywords: [],        // For statement, openquestion and quantity nodes
         discussion: '',
         publicCredit: false
     };
@@ -85,7 +90,7 @@
 
     $: if (formData.nodeType === '') {
         if (!intervalId) {
-            // Colors array
+            // Colors array - including the new CYAN
             const colors = [
                 {
                     base: COLORS.PRIMARY.BLUE,
@@ -98,6 +103,12 @@
                     full: `${COLORS.PRIMARY.PURPLE}FF`,
                     semi: `${COLORS.PRIMARY.PURPLE}66`,
                     light: `${COLORS.PRIMARY.PURPLE}33`
+                },
+                {
+                    base: COLORS.PRIMARY.CYAN,
+                    full: `${COLORS.PRIMARY.CYAN}FF`,
+                    semi: `${COLORS.PRIMARY.CYAN}66`,
+                    light: `${COLORS.PRIMARY.CYAN}33`
                 },
                 {
                     base: COLORS.PRIMARY.TURQUOISE,
@@ -175,21 +186,36 @@
             highlightColor: COLORS.PRIMARY.BLUE
         };
     } else if (formData.nodeType === 'statement') {
-        // For statement nodes, use green
-        // Use type assertion to bypass TypeScript's literal type checking
+        // For statement nodes, use purple (moved from green)
         completeStyle = {
             ...baseStyle,
             colors: {
-                background: `${COLORS.PRIMARY.GREEN}33`,
-                border: `${COLORS.PRIMARY.GREEN}FF`,
-                text: `${COLORS.PRIMARY.GREEN}FF`,
-                hover: `${COLORS.PRIMARY.GREEN}FF`,
+                background: `${COLORS.PRIMARY.PURPLE}33`,
+                border: `${COLORS.PRIMARY.PURPLE}FF`,
+                text: `${COLORS.PRIMARY.PURPLE}FF`,
+                hover: `${COLORS.PRIMARY.PURPLE}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.GREEN}66`,
-                    end: `${COLORS.PRIMARY.GREEN}33`
+                    start: `${COLORS.PRIMARY.PURPLE}66`,
+                    end: `${COLORS.PRIMARY.PURPLE}33`
                 }
-            } as any, // Type assertion to avoid literal type checking
-            highlightColor: COLORS.PRIMARY.GREEN as any // Type assertion
+            } as any,
+            highlightColor: COLORS.PRIMARY.PURPLE as any
+        };
+    } else if (formData.nodeType === 'openquestion') {
+        // For openquestion nodes, use cyan
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.CYAN}33`,
+                border: `${COLORS.PRIMARY.CYAN}FF`,
+                text: `${COLORS.PRIMARY.CYAN}FF`,
+                hover: `${COLORS.PRIMARY.CYAN}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.CYAN}66`,
+                    end: `${COLORS.PRIMARY.CYAN}33`
+                }
+            } as any,
+            highlightColor: COLORS.PRIMARY.CYAN as any
         };
     } else if (formData.nodeType === 'quantity') {
         // For quantity nodes, use turquoise
@@ -204,8 +230,8 @@
                     start: `${COLORS.PRIMARY.TURQUOISE}66`,
                     end: `${COLORS.PRIMARY.TURQUOISE}33`
                 }
-            } as any, // Type assertion to avoid literal type checking
-            highlightColor: COLORS.PRIMARY.TURQUOISE as any // Type assertion
+            } as any,
+            highlightColor: COLORS.PRIMARY.TURQUOISE as any
         };
     } else if (formData.nodeType !== '') {
         // For other node types, use current style from the animation
@@ -227,6 +253,11 @@
                      currentStep === 3 ? 'Add Keywords' :
                      currentStep === 4 ? 'Start Discussion' :
                      'Review Creation') :
+                  formData.nodeType === 'openquestion' ?
+                    (currentStep === 2 ? 'Enter Question' :
+                     currentStep === 3 ? 'Add Keywords' :
+                     currentStep === 4 ? 'Start Discussion' :
+                     'Review Creation') :
                   formData.nodeType === 'quantity' ?
                     (currentStep === 2 ? 'Enter Question' :
                      currentStep === 3 ? 'Select Unit' :
@@ -238,7 +269,7 @@
     $: showStepIndicators = currentStep < (formData.nodeType === 'quantity' ? 6 : 5);
 
     // Max steps based on node type
-    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' ? 5 : 
+    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' || formData.nodeType === 'openquestion' ? 5 : 
                  formData.nodeType === 'quantity' ? 6 : 1;
 
     function handleBack() {
@@ -263,6 +294,7 @@
             word: '',
             definitionText: '',
             statement: '',
+            questionText: '',
             question: '',
             unitCategoryId: '',
             defaultUnitId: '',
@@ -384,6 +416,42 @@
                     {:else if currentStep === 5}
                         <StatementReview
                             statement={formData.statement}
+                            userKeywords={formData.userKeywords}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'openquestion'}
+                    <!-- OpenQuestion node creation flow -->
+                    {#if currentStep === 2}
+                        <OpenQuestionInput
+                            bind:questionText={formData.questionText}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <OpenQuestionReview
+                            questionText={formData.questionText}
                             userKeywords={formData.userKeywords}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
