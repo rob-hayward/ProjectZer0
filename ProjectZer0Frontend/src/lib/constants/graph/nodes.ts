@@ -125,6 +125,15 @@ export const NODE_CONSTANTS = {
                 end: `${COLORS.PRIMARY.GREEN}33`
             }
         },
+          OPENQUESTION: {  // NEW: OpenQuestion colors (cyan to match the UI)
+            background: 'rgba(0, 188, 212, 0.2)',
+            border: 'rgba(0, 188, 212, 1)',
+            hover: 'rgba(0, 188, 212, 0.3)',
+            gradient: {
+                start: 'rgba(0, 188, 212, 0.4)',
+                end: 'rgba(0, 188, 212, 0.1)'
+            }
+        },
         QUANTITY: {
             background: `${COLORS.PRIMARY.TURQUOISE}33`,
             border: `${COLORS.PRIMARY.TURQUOISE}FF`,

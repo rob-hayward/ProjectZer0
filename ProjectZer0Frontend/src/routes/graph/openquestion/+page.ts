@@ -2,7 +2,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageLoad } from './$types';
 import type { GraphPageData } from '$lib/types/graph/enhanced';
-import { getOpenQuestionData } from '$lib/services/openquestion';
+import { getOpenQuestionData } from '$lib/services/openQuestion';
 
 export const ssr = false;
 

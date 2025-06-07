@@ -21,6 +21,7 @@ import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 import { DiscussionLayout } from './layouts/DiscussionLayout';
+import { OpenQuestionAnswerLayout } from './layouts/OpenQuestionAnswerLayout';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -29,7 +30,7 @@ export class GraphManager {
     private _viewType: ViewType;
     private managerId: string;
     private simulationActive = false;
-    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | null = null;
+    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | OpenQuestionAnswerLayout | null = null;
     private isUpdatingStore = writable(false);
     
     // Caches for better performance
@@ -689,13 +690,6 @@ export class GraphManager {
             console.log('[LAYOUT_DEBUG] Stopped previous layout strategy');
         }
         
-        // Add debug for view type comparison
-        if (this._viewType === 'discussion') {
-            console.log('[LAYOUT_DEBUG] View type is "discussion", should create DiscussionLayout instance');
-        } else {
-            console.log('[LAYOUT_DEBUG] View type is not "discussion", current type:', this._viewType);
-        }
-        
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
             console.log('[LAYOUT_DEBUG] Creating StatementNetworkLayout');
@@ -746,11 +740,21 @@ export class GraphManager {
                 console.error('[LAYOUT_DEBUG] Error creating DiscussionLayout:', error);
             }
         }
+        else if (this._viewType === 'openquestion') {
+            // OpenQuestion Answer Layout
+            console.log('[LAYOUT_DEBUG] Creating OpenQuestionAnswerLayout');
+            this.currentLayoutStrategy = new OpenQuestionAnswerLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+        }
         else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
             this._viewType === 'create-node' ||
-            this._viewType === 'statement') {
-            // Single central node views - including statement view
+            this._viewType === 'statement' ||
+            this._viewType === 'quantity') {
+            // Single central node views - including statement and quantity views
             console.log('[LAYOUT_DEBUG] Creating SingleNodeLayout');
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
@@ -1376,6 +1380,12 @@ export class GraphManager {
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
                 break;
+                
+            case 'openquestion':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW / 2;
+                break;
             
             case 'quantity':
                 radius = node.mode === 'detail' ?
@@ -1490,6 +1500,8 @@ export class GraphManager {
                     this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.alternative);
             case 'statement':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            case 'openquestion':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
             case 'quantity':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
             case 'comment':
@@ -1532,6 +1544,8 @@ export class GraphManager {
                     NODE_CONSTANTS.COLORS.DEFINITION.alternative.background;
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.background;
+            case 'openquestion':
+                return NODE_CONSTANTS.COLORS.OPENQUESTION.background;
             case 'quantity':
                 return NODE_CONSTANTS.COLORS.QUANTITY.background;
             case 'comment':
@@ -1559,6 +1573,8 @@ export class GraphManager {
                     NODE_CONSTANTS.COLORS.DEFINITION.alternative.border;
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.border;
+            case 'openquestion':
+                return NODE_CONSTANTS.COLORS.OPENQUESTION.border;
             case 'quantity':
                 return NODE_CONSTANTS.COLORS.QUANTITY.border;
             case 'comment':
@@ -1586,6 +1602,8 @@ export class GraphManager {
                     NODE_CONSTANTS.COLORS.DEFINITION.alternative.hover;
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.hover;
+            case 'openquestion':
+                return NODE_CONSTANTS.COLORS.OPENQUESTION.hover;
             case 'quantity':
                 return NODE_CONSTANTS.COLORS.QUANTITY.hover;
             case 'comment':
@@ -1613,6 +1631,8 @@ export class GraphManager {
                     NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.start;
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
+            case 'openquestion':
+                return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.start;
             case 'quantity':
                 return NODE_CONSTANTS.COLORS.QUANTITY.gradient.start;
             case 'comment':
@@ -1640,6 +1660,8 @@ export class GraphManager {
                     NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.end;
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
+            case 'openquestion':
+                return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.end;
             case 'quantity':
                 return NODE_CONSTANTS.COLORS.QUANTITY.gradient.end;
             case 'comment':

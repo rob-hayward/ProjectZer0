@@ -4,6 +4,7 @@
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
     import { FORM_STYLES } from '$lib/styles/forms';
+    import { openQuestionStore } from '$lib/stores/openQuestionStore';
     import { graphStore } from '$lib/stores/graphStore';
     import FormNavigation from '$lib/components/forms/createNode/shared/FormNavigation.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
@@ -13,7 +14,7 @@
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
-    export let userId: string | undefined = undefined; // Used during submission
+    export let userId: string | undefined = undefined;
 
     let shareToX = false;
     let isSubmitting = false;
@@ -23,7 +24,7 @@
 
     const dispatch = createEventDispatcher<{
         back: void;
-        success: { message: string; questionText: string; };
+        success: { message: string; questionId: string; };
         error: { message: string; };
     }>();
 
@@ -41,26 +42,30 @@
         try {
             // Prepare data for the backend
             const questionData = {
-                questionText: questionText,
-                createdBy: userId, // Include userId in the submission
+                questionText: questionText.trim(),
+                createdBy: userId,
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
                 initialComment: discussion || '',
-                publicCredit
+                publicCredit,
+                shareToX
             };
             
-            console.log('Submitting open question:', JSON.stringify(questionData, null, 2));
+            if (browser) console.log('Submitting open question:', JSON.stringify(questionData, null, 2));
             
-            // The endpoint should match the backend controller for open question creation
-            const endpoint = `/nodes/openquestion`;
-            console.log(`Using endpoint: ${endpoint}`);
-            
-            const createdQuestion = await fetchWithAuth(endpoint, {
+            const createdQuestion = await fetchWithAuth('/nodes/openquestion', {
                 method: 'POST',
                 body: JSON.stringify(questionData),
             });
             
-            console.log('Open question creation response:', JSON.stringify(createdQuestion, null, 2));
+            if (browser) console.log('Open question creation response:', JSON.stringify(createdQuestion, null, 2));
 
+            if (!createdQuestion?.id) {
+                throw new Error('Created question data is incomplete');
+            }
+
+            // Update openQuestionStore with the created question
+            openQuestionStore.set(createdQuestion);
+            
             // Update graph store to openquestion view type
             if (browser && graphStore && graphStore.setViewType) {
                 console.log('[OpenQuestionReview] Updating graph store to openquestion view');
@@ -76,26 +81,25 @@
                 }
             }
 
-            // Dispatch success event
-            const successMsg = `Open question created successfully`;
+            const successMsg = `Question created successfully`;
             dispatch('success', {
                 message: successMsg,
-                questionText: questionText
+                questionId: createdQuestion.id
             });
             
             // Set success message for display
             successMessage = successMsg;
 
-            // Use direct navigation instead of goto to ensure reliability
+            // Use direct navigation to ensure reliability
             setTimeout(() => {
                 if (browser) {
-                    // Navigate to the question view with the new question ID
                     const targetUrl = `/graph/openquestion?id=${encodeURIComponent(createdQuestion.id)}`;
                     console.log('[OpenQuestionReview] Navigating to:', targetUrl);
                     
+                    // Use direct window location for reliable navigation
                     window.location.href = targetUrl;
                 }
-            }, 800);
+            }, 800); // Match the timing from WordReview
 
         } catch (e) {
             if (browser) {
@@ -120,10 +124,10 @@
     >
         <div class="review-container">
             <!-- Question text -->
-            <div class="review-item">
+            <div class="review-item question-item">
                 <span class="label">Question:</span>
                 <div class="scrollable-content">
-                    <span class="value">{questionText}</span>
+                    <span class="value question-value">{questionText}</span>
                 </div>
             </div>
             
@@ -169,22 +173,22 @@
                     <span>Share on X (Twitter)</span>
                 </label>
             </div>
-            
-            <!-- Debug message -->
-            {#if debugMessage}
-                <div class="debug-message">
-                    Debug: {debugMessage}
-                </div>
-            {/if}
         </div>
     </foreignObject>
 
+    <!-- Messages -->
+    {#if errorMessage}
+        <g transform="translate(0, 240)">
+            <MessageDisplay errorMessage={errorMessage} successMessage={null} />
+        </g>
+    {/if}
+
     <!-- Navigation -->
-    <g transform="translate(0, 200)">
+    <g transform="translate(0, 270)">
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Submitting..." : "Create Question"}
+            nextLabel={isSubmitting ? "Creating..." : "Create Question"}
             loading={isSubmitting}
             nextDisabled={disabled || isSubmitting || !questionText.trim()}
         />
@@ -204,6 +208,15 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+    }
+
+    :global(.question-item) {
+        margin-bottom: 4px;
+    }
+
+    :global(.question-value) {
+        font-size: 14px;
+        font-weight: 500;
     }
 
     .scrollable-content {
@@ -232,29 +245,17 @@
         background: rgba(255, 255, 255, 0.4);
     }
 
-    :global(.debug-message) {
-        color: #ffa500;
-        font-size: 11px;
-        font-family: monospace;
-        margin-top: 8px;
-        padding: 4px;
-        background: rgba(0, 0, 0, 0.5);
-        border-radius: 4px;
-        white-space: pre-wrap;
-        overflow-wrap: break-word;
-    }
-
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
         font-size: 11px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
     :global(.review-item .value) {
         color: white;
         font-size: 13px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
         line-height: 1.3;
     }
@@ -267,13 +268,13 @@
     }
 
     :global(.keyword-chip) {
-        background: rgba(0, 188, 212, 0.2);  /* Using CYAN colors */
+        background: rgba(0, 188, 212, 0.2);
         border: 1px solid rgba(0, 188, 212, 0.3);
         border-radius: 12px;
         padding: 2px 8px;
         font-size: 11px;
         color: white;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
@@ -292,7 +293,7 @@
         gap: 6px;
         color: white;
         font-size: 11px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
@@ -334,7 +335,7 @@
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked) {
-        background: rgba(0, 188, 212, 0.3);  /* Using CYAN colors */
+        background: rgba(0, 188, 212, 0.3);
     }
 
     :global(.checkbox-label input[type="checkbox"]:disabled) {

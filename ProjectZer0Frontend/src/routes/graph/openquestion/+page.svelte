@@ -2,7 +2,7 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
-    import { getOpenQuestionData } from '$lib/services/openquestion';
+    import { getOpenQuestionData } from '$lib/services/openQuestion';
     import Graph from '$lib/components/graph/Graph.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
@@ -115,6 +115,7 @@
         console.log('Answer question event received:', event.detail.questionId);
         // TODO: Navigate to create statement form with this question as parent
         // For now, we'll just log it
+        alert('Answer question functionality coming soon!');
     }
 
     // Get question data from store or initial data
@@ -125,11 +126,19 @@
         openQuestionViewStore.setQuestionData(questionData);
     }
     
+    // Ensure question data has expected structure
+    $: normalizedQuestionData = questionData ? {
+        ...questionData,
+        answers: questionData.answers || [],
+        positiveVotes: questionData.positiveVotes || 0,
+        negativeVotes: questionData.negativeVotes || 0
+    } : null;
+    
     // Create central question node
-    $: centralQuestionNode = isReady && questionData ? {
-        id: questionData.id,
+    $: centralQuestionNode = isReady && normalizedQuestionData ? {
+        id: normalizedQuestionData.id,
         type: 'openquestion' as NodeType,
-        data: questionData,
+        data: normalizedQuestionData,
         group: 'central' as NodeGroup,
         mode: questionNodeMode
     } : null;
@@ -145,12 +154,19 @@
 
     // Create graph data
     function createGraphData(): GraphData {
-        if (!centralQuestionNode || !questionData) {
+        if (!centralQuestionNode || !normalizedQuestionData) {
             return { nodes: [], links: [] };
         }
 
+        // Get answers safely, filtering out any with null IDs
+        const answers = (normalizedQuestionData.answers || []).filter(answer => 
+            answer && answer.id !== null && answer.id !== undefined
+        );
+        
+        console.log('[OpenQuestion] Filtered answers:', answers);
+        
         // Sort answers by netVotes to establish rank order (highest first)
-        const sortedAnswers = [...(questionData.answers || [])].sort((a, b) => 
+        const sortedAnswers = [...answers].sort((a, b) => 
             b.netVotes - a.netVotes
         );
 
@@ -163,15 +179,15 @@
             ...navigationNodes
         ] as GraphNode[];
 
-        // Create answer nodes (as statement nodes) with their rank-based grouping
+        // Only create answer nodes if we have valid answers
         const answerNodes: GraphNode[] = sortedAnswers.map((answer, index) => ({
             id: answer.id,
             type: 'statement' as NodeType,
             data: {
                 id: answer.id,
-                statement: answer.statement,
-                createdBy: answer.createdBy,
-                createdAt: answer.createdAt,
+                statement: answer.statement || '',
+                createdBy: answer.createdBy || '',
+                createdAt: answer.createdAt || new Date().toISOString(),
                 positiveVotes: answer.netVotes > 0 ? answer.netVotes : 0,
                 negativeVotes: answer.netVotes < 0 ? Math.abs(answer.netVotes) : 0,
                 publicCredit: true, // Default value
@@ -182,13 +198,24 @@
             mode: 'preview' as NodeMode
         }));
 
-        // Define relationship links between question and answer nodes
-        const answerLinks: GraphLink[] = sortedAnswers.map((answer, index) => ({
-            id: `${centralQuestionNode.id}-${answer.id}-${Date.now()}-${index}`,
-            source: centralQuestionNode.id,
-            target: answer.id,
-            type: (index === 0 ? 'live' : 'alternative') as LinkType
-        }));
+        // Only create links if we have valid answers
+        const answerLinks: GraphLink[] = sortedAnswers.length > 0 
+            ? sortedAnswers.map((answer, index) => ({
+                id: `${centralQuestionNode.id}-${answer.id}-${Date.now()}-${index}`,
+                source: centralQuestionNode.id,
+                target: answer.id,
+                type: (index === 0 ? 'live' : 'alternative') as LinkType
+            }))
+            : [];
+
+        console.log('[OpenQuestion] Creating graph data:', {
+            centralNode: centralQuestionNode.id,
+            navigationCount: navigationNodes.length,
+            answerCount: answerNodes.length,
+            linkCount: answerLinks.length,
+            validAnswers: answers,
+            invalidAnswers: normalizedQuestionData.answers?.filter(a => !a || !a.id) || []
+        });
 
         return {
             nodes: [...baseNodes, ...answerNodes],
@@ -198,7 +225,7 @@
 
     // Initialize variables & create graph data
     $: isReady = authInitialized && dataInitialized;
-    $: graphData = isReady && questionData ? createGraphData() : { nodes: [], links: [] };
+    $: graphData = isReady && normalizedQuestionData ? createGraphData() : { nodes: [], links: [] };
 
     // Initialize on mount
     onMount(() => {
@@ -235,7 +262,7 @@
         {#if isOpenQuestionNode(node)}
             <OpenQuestionNode 
                 {node}
-                questionText={questionData.questionText}
+                questionText={normalizedQuestionData?.questionText || ''}
                 on:modeChange={handleModeChange}
                 on:answerQuestion={handleAnswerQuestion}
             />

@@ -30,6 +30,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,     // IMPORTANT: Match definition size exactly
                 PREVIEW: 320     // Match definition preview size
             },
+            OPENQUESTION: {      // NEW: OpenQuestion node sizes (same as statement)
+                DETAIL: 600,
+                PREVIEW: 320
+            },
             QUANTITY: {
                 DETAIL: 1300,    // 3x larger than standard nodes
                 PREVIEW: 320     // Keep the same preview size
@@ -57,6 +61,7 @@ export const COORDINATE_SPACE = {
                 NAVIGATION: 5,     // Collision padding for navigation nodes
                 DEFINITION: 150,   // Collision padding for definition nodes
                 STATEMENT: 150,    // Match definition collision padding
+                OPENQUESTION: 150, // NEW: Same as statement collision padding
                 QUANTITY: 200,     // Larger collision padding for quantity nodes
                 DASHBOARD: 150,    // Same as definition collision padding
                 COMMENT: 10        // Small collision padding for comment nodes

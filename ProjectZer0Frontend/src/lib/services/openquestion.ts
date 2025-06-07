@@ -1,4 +1,4 @@
-// src/lib/services/openquestion.ts
+// src/lib/services/openQuestion.ts
 import { fetchWithAuth } from './api';
 import type { OpenQuestionNode } from '$lib/types/domain/nodes';
 

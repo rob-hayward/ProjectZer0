@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 import * as auth0 from './auth0';
 import type { NavigationOption } from '$lib/types/domain/navigation';
 import { wordStore } from '$lib/stores/wordStore';
+import { openQuestionStore } from '$lib/stores/openQuestionStore';
 import { graphStore } from '$lib/stores/graphStore';
 import type { ViewType } from '$lib/types/graph/enhanced';
 
@@ -17,7 +18,8 @@ export const NavigationOptionId = {
     LOGOUT: 'logout',
     ALTERNATIVE_DEFINITIONS: 'alternative-definitions',
     CREATE_DEFINITION: 'create-definition', 
-    DISCUSS: 'discuss'
+    DISCUSS: 'discuss',
+    QUESTIONS: 'questions'  // NEW: For browsing all questions
 } as const;
 
 export type NavigationOptionId = typeof NavigationOptionId[keyof typeof NavigationOptionId];
@@ -32,15 +34,25 @@ function navigateWithWord(path: string) {
     }
 }
 
+// Helper function for question-related navigation
+function navigateWithQuestion(path: string) {
+    const currentQuestion = get(openQuestionStore);
+    if (currentQuestion) {
+        const url = `${path}?id=${encodeURIComponent(currentQuestion.id)}`;
+        window.location.href = url;
+    }
+}
+
 // Map navigation options to view types for graph state updates
 const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.DASHBOARD]: 'dashboard',
     [NavigationOptionId.CREATE_NODE]: 'create-node',
     [NavigationOptionId.EDIT_PROFILE]: 'edit-profile',
     [NavigationOptionId.NETWORK]: 'network',
-    [NavigationOptionId.CREATE_DEFINITION]: 'create-definition', // Updated to use new name
-    [NavigationOptionId.EXPLORE]: 'statement-network', // Added mapping for EXPLORE
-    [NavigationOptionId.DISCUSS]: 'discussion', // Added mapping for DISCUSS
+    [NavigationOptionId.CREATE_DEFINITION]: 'create-definition',
+    [NavigationOptionId.EXPLORE]: 'statement-network',
+    [NavigationOptionId.DISCUSS]: 'discussion',
+    [NavigationOptionId.QUESTIONS]: 'openquestion',  // NEW: Map questions to openquestion view type
 };
 
 // Helper to update graph store without TypeScript errors
@@ -65,7 +77,7 @@ function updateGraphStore(viewType: ViewType): void {
 /**
  * Determines the appropriate API endpoint for node discussions based on node type
  * 
- * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
  * @param nodeId The ID of the node
  * @param nodeText Optional text representation (for word nodes)
  * @returns The appropriate API endpoint
@@ -74,17 +86,18 @@ export function getNodeDiscussionEndpoint(
     nodeType: string, 
     nodeId: string, 
     nodeText?: string,
-    wordObject?: any
+    nodeObject?: any
   ): string {
     switch (nodeType) {
       case 'statement':
       case 'quantity':
+      case 'openquestion':  // NEW: OpenQuestion support
         // These node types use ID-based endpoints with a standard pattern
         return `/nodes/${nodeType}/${nodeId}/discussion`;
       case 'word':
         // For word nodes, we need the actual word text, not ID
-        if (wordObject && wordObject.word) {
-          return `/nodes/word/${wordObject.word}/discussion`;
+        if (nodeObject && nodeObject.word) {
+          return `/nodes/word/${nodeObject.word}/discussion`;
         } else if (nodeText) {
           return `/nodes/word/${nodeText}/discussion`;
         } else {
@@ -103,7 +116,7 @@ export function getNodeDiscussionEndpoint(
 /**
  * Determines the appropriate API endpoint for node comments based on node type
  * 
- * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
  * @param nodeId The ID of the node
  * @param nodeText Optional text representation (for word nodes)
  * @returns The appropriate API endpoint
@@ -112,17 +125,18 @@ export function getNodeCommentsEndpoint(
     nodeType: string, 
     nodeId: string, 
     nodeText?: string,
-    wordObject?: any
+    nodeObject?: any
   ): string {
     switch (nodeType) {
       case 'statement':
       case 'quantity':
+      case 'openquestion':  // NEW: OpenQuestion support
         // These node types use ID-based endpoints with a standard pattern
         return `/nodes/${nodeType}/${nodeId}/comments`;
       case 'word':
         // For word nodes, we need the actual word text, not ID
-        if (wordObject && wordObject.word) {
-          return `/nodes/word/${wordObject.word}/comments`;
+        if (nodeObject && nodeObject.word) {
+          return `/nodes/word/${nodeObject.word}/comments`;
         } else if (nodeText) {
           return `/nodes/word/${nodeText}/comments`;
         } else {
@@ -141,7 +155,7 @@ export function getNodeCommentsEndpoint(
 /**
  * Determines the appropriate API endpoint for fetching node data based on node type
  * 
- * @param nodeType The type of node (statement, word, definition, quantity)
+ * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
  * @param nodeId The ID of the node
  * @param nodeText Optional text representation (for word nodes)
  * @returns The appropriate API endpoint
@@ -154,6 +168,7 @@ export function getNodeDataEndpoint(
     switch (nodeType) {
       case 'statement':
       case 'quantity':
+      case 'openquestion':  // NEW: OpenQuestion support
         // These node types use ID-based endpoints
         return `/nodes/${nodeType}/${nodeId}`;
       case 'word':
@@ -246,28 +261,42 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     },
     [NavigationOptionId.DISCUSS]: () => {
         const currentWord = get(wordStore);
-        console.log(`[Navigation] DISCUSS handler called, currentWord:`, currentWord);
+        const currentQuestion = get(openQuestionStore);
+        
+        console.log(`[Navigation] DISCUSS handler called, currentWord:`, currentWord, 'currentQuestion:', currentQuestion);
         
         if (currentWord) {
             // Use the new navigation function for consistency
             navigateToNodeDiscussion('word', currentWord.id, currentWord.word);
+        } else if (currentQuestion) {
+            // NEW: Support for discussing questions
+            navigateToNodeDiscussion('openquestion', currentQuestion.id);
         } else {
-            // Try to get word from URL if we're already in a word view
-            console.warn('[Navigation] No word in store, checking URL for word parameter');
+            // Try to get from URL parameters
+            console.warn('[Navigation] No node in store, checking URL parameters');
             const url = new URL(window.location.href);
             const wordParam = url.searchParams.get('word');
+            const questionParam = url.searchParams.get('id');
             
             if (wordParam) {
                 console.log(`[Navigation] Found word parameter in URL: ${wordParam}`);
-                // In this case, we need to fetch the word data first
-                // For now, redirect to dashboard
                 console.warn('[Navigation] Cannot discuss word without ID, redirecting to dashboard');
                 window.location.href = '/graph/dashboard';
+            } else if (questionParam) {
+                console.log(`[Navigation] Found question parameter in URL: ${questionParam}`);
+                navigateToNodeDiscussion('openquestion', questionParam);
             } else {
-                console.warn('[Navigation] Cannot discuss word: No word found in store or URL');
+                console.warn('[Navigation] Cannot discuss: No node found in store or URL');
                 window.location.href = '/graph/dashboard';
             }
         }
+    },
+    // NEW: Questions navigation handler
+    [NavigationOptionId.QUESTIONS]: () => {
+        updateGraphStore('openquestion');
+        // Future: Navigate to questions network view
+        // For now, redirect to dashboard
+        window.location.href = '/graph/dashboard';
     }
 };
 
@@ -276,8 +305,9 @@ export const NavigationContext = {
     CREATE_NODE: 'create-node',
     EXPLORE: 'explore',
     WORD: 'word',
+    OPENQUESTION: 'openquestion',  // NEW: OpenQuestion context
     EDIT_PROFILE: 'edit-profile',
-    DISCUSSION: 'discussion'  // Added DISCUSSION context
+    DISCUSSION: 'discussion'
 } as const;
 
 export type NavigationContext = typeof NavigationContext[keyof typeof NavigationContext];
@@ -294,7 +324,8 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.DASHBOARD]: 'home',
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: 'format_list_bulleted',
     [NavigationOptionId.CREATE_DEFINITION]: 'playlist_add_circle',
-    [NavigationOptionId.DISCUSS]: 'forum'
+    [NavigationOptionId.DISCUSS]: 'forum',
+    [NavigationOptionId.QUESTIONS]: 'help'  // NEW: Questions icon
 };
 
 // Navigation option configurations per context - preserved exactly as in the original
@@ -332,11 +363,21 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.CREATE_NODE,
         NavigationOptionId.ALTERNATIVE_DEFINITIONS,
         NavigationOptionId.LOGOUT,
-        NavigationOptionId.CREATE_DEFINITION, // Updated to use new name
+        NavigationOptionId.CREATE_DEFINITION,
         NavigationOptionId.DISCUSS,
         NavigationOptionId.DASHBOARD
     ],
-    [NavigationContext.DISCUSSION]: [  // Added navigation options for discussion context
+    // NEW: OpenQuestion navigation context
+    [NavigationContext.OPENQUESTION]: [
+        NavigationOptionId.DASHBOARD,
+        NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.EXPLORE,
+        NavigationOptionId.QUESTIONS,
+        NavigationOptionId.DISCUSS,
+        NavigationOptionId.LOGOUT,
+        NavigationOptionId.EDIT_PROFILE
+    ],
+    [NavigationContext.DISCUSSION]: [
         NavigationOptionId.DASHBOARD,
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,

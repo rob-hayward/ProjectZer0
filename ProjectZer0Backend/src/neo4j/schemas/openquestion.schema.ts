@@ -129,13 +129,14 @@ export class OpenQuestionSchema {
                questionText: r.questionText,
                relationshipType: 'direct'
              }) as directlyRelatedQuestions,
-             collect(DISTINCT {
+             // Fix: Filter out null entries from answers collection
+             [answer IN collect(DISTINCT CASE WHEN ans IS NOT NULL THEN {
                id: ans.id,
                statement: ans.statement,
                createdBy: ans.createdBy,
                createdAt: ans.createdAt,
                netVotes: ans.netVotes
-             }) as answers
+             } ELSE NULL END) WHERE answer IS NOT NULL] as answers
       `;
 
       // Add sorting based on parameter, but keep all vote data in scope
@@ -430,7 +431,7 @@ export class OpenQuestionSchema {
         // Get discussion
         OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         
-        RETURN oq,
+        WITH oq,
                collect(DISTINCT {
                  word: w.word, 
                  frequency: t.frequency,
@@ -447,14 +448,17 @@ export class OpenQuestionSchema {
                  questionText: r.questionText,
                  relationshipType: 'direct'
                }) as directlyRelatedQuestions,
-               collect(DISTINCT {
+               // Fix: Filter out null entries from answers collection
+               [answer IN collect(DISTINCT CASE WHEN ans IS NOT NULL THEN {
                  id: ans.id,
                  statement: ans.statement,
                  createdBy: ans.createdBy,
                  createdAt: ans.createdAt,
                  netVotes: ans.netVotes
-               }) as answers,
+               } ELSE NULL END) WHERE answer IS NOT NULL] as answers,
                d.id as discussionId
+        
+        RETURN oq, keywords, relatedQuestions, directlyRelatedQuestions, answers, discussionId
         `,
         { id },
       );

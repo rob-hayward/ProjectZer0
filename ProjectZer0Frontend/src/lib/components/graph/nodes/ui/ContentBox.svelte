@@ -48,6 +48,16 @@
             titleYOffset: 0,
             mainTextYOffset: 0
         },
+        openquestion: {
+            horizontalPadding: 0,
+            verticalPadding: 0,
+            sectionSpacing: 0,
+            contentYOffset: 0,
+            votingYOffset: 0,
+            statsYOffset: 0,
+            titleYOffset: 0,
+            mainTextYOffset: 0
+        },
         quantity: {
             horizontalPadding: 10,
             verticalPadding: 15,
@@ -89,16 +99,16 @@
             mainTextYOffset: 75
         },
         // Add missing node types
-        navigation: {
-            horizontalPadding: 10,
-            verticalPadding: 20,
-            sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
-            titleYOffset: 45,
-            mainTextYOffset: 75
-        },
+        // navigation: {
+        //     horizontalPadding: 10,
+        //     verticalPadding: 20,
+        //     sectionSpacing: 10,
+        //     contentYOffset: 0,
+        //     votingYOffset: 0,
+        //     statsYOffset: 0,
+        //     titleYOffset: 45,
+        //     mainTextYOffset: 75
+        // },
         'edit-profile': {
             horizontalPadding: 10,
             verticalPadding: 20,
