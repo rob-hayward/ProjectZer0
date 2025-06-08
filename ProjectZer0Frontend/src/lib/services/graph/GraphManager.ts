@@ -1068,7 +1068,13 @@ export class GraphManager {
                 console.log(`[GraphManager:transformNodes] Created new ${node.type} node ${node.id} with radius: ${nodeRadius} (hidden: ${isHidden})`);
             } else {
                 // For other node types, use normal mode handling
-                nodeMode = node.mode || undefined;
+                // IMPORTANT: Default central nodes to detail mode
+                if (node.group === 'central' && !node.mode) {
+                    nodeMode = 'detail';
+                    console.log(`[GraphManager:transformNodes] Defaulting central node ${node.id} to detail mode`);
+                } else {
+                    nodeMode = node.mode || undefined;
+                }
                 
                 // Calculate radius through the standard method
                 nodeRadius = this.getNodeRadius({

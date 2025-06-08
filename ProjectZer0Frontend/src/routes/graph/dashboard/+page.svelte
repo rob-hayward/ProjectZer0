@@ -75,12 +75,13 @@
         });
     }
 
-    // Create dashboard node
+    // Create dashboard node - FIXED: Now includes explicit mode
     $: centralNode = isReady && $userStore ? {
         id: $userStore.sub,
         type: 'dashboard' as NodeType,
         data: $userStore,
-        group: 'central' as NodeGroup
+        group: 'central' as NodeGroup,
+        mode: 'detail' as NodeMode  // CRITICAL: Set explicit detail mode
     } : null;
 
     // Get navigation options for dashboard context
@@ -101,7 +102,8 @@
         const nodes = [centralNode, ...navigationNodes] as GraphNode[];
         
         console.log('[DASHBOARD] Created graph data', {
-            nodeCount: nodes.length
+            nodeCount: nodes.length,
+            centralNodeMode: centralNode.mode  // Log the mode
         });
         
         return { nodes, links: [] };
