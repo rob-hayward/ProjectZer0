@@ -278,21 +278,49 @@ export abstract class BaseLayoutStrategy {
                 return node.mode === 'detail' ?
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
                     COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+                    
+            case 'openquestion':  // ADD THIS CASE
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW / 2;
 
             case 'quantity':
                 return node.mode === 'detail' ?
                     COORDINATE_SPACE.NODES.SIZES.QUANTITY.DETAIL / 2 :
-                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;        
+                    COORDINATE_SPACE.NODES.SIZES.QUANTITY.PREVIEW / 2;
+                    
+            case 'comment':
+            case 'comment-form':
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
                 
             case 'navigation':
                 return COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
                 
-            case 'dashboard':
+            case 'dashboard':  // ADD SPECIFIC HANDLING
+                // Check if this is the control node (smaller dashboard variant)
+                if (node.data && 'sub' in node.data && node.data.sub === 'controls') {
+                    return node.mode === 'detail' ?
+                        COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                        COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+                }
+                // Regular dashboard nodes
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.DASHBOARD.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.DASHBOARD.PREVIEW / 2;
+                    
+            case 'control':  // ADD THIS CASE
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+                
             case 'edit-profile':
             case 'create-node':
                 return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
                 
             default:
+                console.warn(`[BaseLayoutStrategy] Unknown node type in getNodeRadius: ${node.type}, using standard size`);
                 return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
         }
     }
