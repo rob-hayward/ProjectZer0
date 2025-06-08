@@ -77,14 +77,18 @@ export const COORDINATE_SPACE = {
             PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
         WORD: {
-            DETAIL: 354,        // (600÷2) × √2 = 424.26
-            PREVIEW: 141         // (200÷2) × √2 = 141.42
+            DETAIL: 354,        // (500÷2) × √2 = 353.55
+            PREVIEW: 141        // (200÷2) × √2 = 141.42
         },
         DEFINITION: {
             DETAIL: 424,        // (600÷2) × √2 = 424.26
             PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
         STATEMENT: {
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
+            PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        OPENQUESTION: {         // NEW: OpenQuestion content box sizes (same as statement)
             DETAIL: 424,        // (600÷2) × √2 = 424.26
             PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
@@ -159,6 +163,7 @@ export const COORDINATE_SPACE = {
                         ALTERNATIVE: -100  // Reduced from -300
                     },
                     STATEMENT: -300,    // Reduced from -1600
+                    OPENQUESTION: -300, // NEW: Same as statement
                     QUANTITY: -400,     // New strength for quantity nodes
                     DASHBOARD: -300,    // Same as definition and statement
                     NAVIGATION: -20,    // Reduced from -50

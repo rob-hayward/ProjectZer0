@@ -11,7 +11,6 @@
 	import { graphStore } from '$lib/stores/graphStore';
 	import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
 	import { getUserDetails } from '$lib/services/userLookup';
-
 	import {
 		createVoteBehaviour,
 		createVisibilityBehaviour,
@@ -30,9 +29,11 @@
 
 	export let node: RenderableNode;
 	export let questionText: string = '';
+	export let nodeX: number | undefined = undefined;
+	export let nodeY: number | undefined = undefined;
 
 	// Debug toggle - set to true to show ContentBox borders
-	const DEBUG_SHOW_BORDERS = true;
+	const DEBUG_SHOW_BORDERS = false;
 
 	if (!isOpenQuestionData(node.data)) {
 		throw new Error('Invalid node data type for OpenQuestionNode');
@@ -101,8 +102,31 @@
 	$: voteSuccess = behaviorState.voteSuccess || false;
 	$: lastVoteType = behaviorState.lastVoteType || null;
 
+	// FIXED: Consistent cyan styling (not vote-based)
+	// Update node style with cyan highlight color
+	$: {
+		if (node.style) {
+			node.style.highlightColor = NODE_CONSTANTS.COLORS.OPENQUESTION.border;
+		}
+	}
+
+	// Consistent styling like definition nodes - NOT vote-based
+	$: voteBasedStyles = {
+		glow: {
+			intensity: 8,
+			opacity: 0.6
+		},
+		ring: {
+			width: 6,
+			opacity: 0.5
+		}
+	};
+
 	const dispatch = createEventDispatcher<{
-		modeChange: { mode: NodeMode };
+		modeChange: { 
+			mode: NodeMode;
+			position?: { x: number; y: number };
+		};
 		visibilityChange: { isHidden: boolean };
 		answerQuestion: { questionId: string };
 	}>();
@@ -133,9 +157,24 @@
 		}
 	}
 
-	function handleModeChange() {
-		const newMode = modeBehaviour?.handleModeChange();
-		if (newMode) dispatch('modeChange', { mode: newMode });
+	function handleModeChange(event: CustomEvent<{ 
+		mode: NodeMode; 
+		position?: { x: number; y: number };
+		nodeId?: string;
+	}>) {
+		console.log('[OpenQuestionNode] Mode change event:', event.detail);
+		
+		// Update the mode behaviour
+		const newMode = event.detail.mode;
+		if (modeBehaviour) {
+			modeBehaviour.setMode(newMode);
+		}
+		
+		// Forward the event with position data
+		dispatch('modeChange', {
+			mode: newMode,
+			position: event.detail.position
+		});
 	}
 
 	function handleVote(event: CustomEvent<{ voteType: any }>) {
@@ -147,6 +186,10 @@
 		// TODO: Navigate to create statement form with this question as parent
 		// This could trigger a modal, navigate to create node, or open an answer form
 		dispatch('answerQuestion', { questionId: event.detail.questionId });
+	}
+
+	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+		dispatch('visibilityChange', event.detail);
 	}
 
 	let questionCreatorDetails: any = null;
@@ -193,10 +236,17 @@
 </script>
 
 {#if isDetail}
-	<BaseDetailNode {node} on:modeChange={handleModeChange}>
+	<BaseDetailNode 
+		{node} 
+		{nodeX}
+		{nodeY}
+		{voteBasedStyles}
+		on:modeChange={handleModeChange}
+		on:visibilityChange={handleVisibilityChange}
+	>
 		<svelte:fragment slot="default" let:radius>
 			<NodeHeader title="Open Question" radius={radius} mode="detail" />
-			<ContentBox nodeType="openquestion" mode="detail" showBorder={false}>
+			<ContentBox nodeType="openquestion" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 					<!-- Main question text -->
 					<foreignObject
@@ -305,7 +355,15 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={false}>
+	<BasePreviewNode 
+		{node} 
+		{nodeX}
+		{nodeY}
+		{voteBasedStyles}
+		on:modeChange={handleModeChange}
+		on:visibilityChange={handleVisibilityChange}
+		showContentBoxBorder={DEBUG_SHOW_BORDERS}
+	>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title="Question" radius={radius} size="small" mode="preview" />
 		</svelte:fragment>

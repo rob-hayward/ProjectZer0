@@ -106,11 +106,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             }
         });
 
-        NavigationNodeLayout.positionNavigationNodes(
-            nodes, 
-            this.getNodeRadius.bind(this)
-        );
-
         const centralNode = nodes.find(n => n.fixed || n.group === 'central');
         if (!centralNode) {
             console.warn('[OpenQuestionAnswerLayout] No central node found');
@@ -128,6 +123,13 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         if (centralNode.metadata) {
             centralNode.metadata.fixed = true;
         }
+
+        // CRITICAL: Position navigation nodes AFTER setting central node position
+        // This ensures they calculate distance from the correct central node size
+        NavigationNodeLayout.positionNavigationNodes(
+            nodes, 
+            this.getNodeRadius.bind(this)
+        );
 
         console.debug('[OpenQuestionAnswerLayout] Central node positioned at center with fixed constraints', {
             id: centralNode.id,
@@ -214,7 +216,7 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
     }
 
     /**
-     * Handle node mode changes
+     * Handle node mode changes - COMPLETE METHOD
      */
     public handleNodeStateChange(nodeId: string, mode: NodeMode): void {
         console.debug('[OpenQuestionAnswerLayout] Node state change', {
@@ -231,22 +233,23 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         }
 
         const oldMode = node.mode;
-        node.mode = mode;
-        node.expanded = mode === 'detail';
-        
         const oldRadius = node.radius;
-        node.radius = this.getNodeRadius(node);
-
-        console.debug('[OpenQuestionAnswerLayout] Node mode updated', {
+        
+        // CRITICAL: Don't update node properties here - GraphManager already did it
+        // Just log the change for debugging
+        console.debug('[OpenQuestionAnswerLayout] Node mode change detected', {
             nodeId,
             oldMode,
-            newMode: mode,
+            newMode: node.mode,
             oldRadius,
-            newRadius: node.radius
+            newRadius: node.radius,
+            nodeType: node.type
         });
 
+        // Update expansion state tracking
         this.expansionState.set(nodeId, mode === 'detail');
 
+        // Handle statement nodes
         if (node.type === 'statement') {
             let ringIndex = 0;
             if (node.group === 'live-definition') {
@@ -279,22 +282,56 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             }
         }
 
+        // CRITICAL: Handle openquestion nodes specifically
         if (node.type === 'openquestion') {
-            console.debug('[OpenQuestionAnswerLayout] Question node mode changed, repositioning all nodes');
+            console.debug('[OpenQuestionAnswerLayout] OpenQuestion node mode changed', {
+                nodeId,
+                oldMode,
+                newMode: mode,
+                oldRadius,
+                newRadius: node.radius
+            });
+            
+            // Update expansion state for the question node
+            const adjustment = (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL - 
+                              COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW) / 2;
+            
+            if (mode === 'detail') {
+                this.expandedStatements.set(nodeId, { ringIndex: -1, adjustment }); // Use -1 for central node
+            } else {
+                this.expandedStatements.delete(nodeId);
+            }
+            
+            // CRITICAL: First enforce the new node properties
+            this.enforceFixedPositions();
+            
+            // Then reposition navigation nodes based on new question size
+            console.debug('[OpenQuestionAnswerLayout] Repositioning navigation nodes for central node size change');
             NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
                 this.getNodeRadius.bind(this)
             );
+            
+            // Reposition all statements
             this.repositionStatements(nodes);
         }
         
+        // If it's a statement and the question is involved, reposition
         if (node.type === 'statement') {
             console.debug('[OpenQuestionAnswerLayout] Statement node mode changed, repositioning all statements');
             this.repositionStatements(nodes);
         }
         
+        // Stop simulation, enforce positions, and restart with minimal alpha
         this.simulation.stop();
         this.enforceFixedPositions();
+        
+        // Force a few ticks to settle positions
+        for (let i = 0; i < 5; i++) {
+            this.simulation.tick();
+            this.enforceFixedPositions();
+        }
+        
         this.simulation.alpha(0.01).restart();
     }
 
@@ -488,12 +525,13 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         const questionNode = (this.simulation.nodes() as unknown as EnhancedNode[])
             .find(n => n.fixed || n.group === 'central');
         
+        // FIXED: Use OPENQUESTION sizes instead of WORD sizes
         const questionAdjustment = questionNode?.mode === 'preview' ?
-            (COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL - COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW) / 2 :
+            (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL - COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW) / 2 :
             0;
             
         const questionHiddenAdjustment = questionNode?.isHidden ?
-            (COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
+            (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
             0;
             
         const expansionAdjustment = node.mode === 'detail' ?
@@ -568,12 +606,13 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         const questionNode = (this.simulation.nodes() as unknown as EnhancedNode[])
             .find(n => n.fixed || n.group === 'central');
         
+        // FIXED: Use OPENQUESTION sizes instead of WORD sizes
         const questionAdjustment = questionNode?.mode === 'preview' ?
-            (COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL - COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW) / 2 :
+            (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL - COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW) / 2 :
             0;
             
         const questionHiddenAdjustment = questionNode?.isHidden ?
-            (COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
+            (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW - COORDINATE_SPACE.NODES.SIZES.HIDDEN) / 2 :
             0;
             
         const expansionAdjustment = node.mode === 'detail' ?

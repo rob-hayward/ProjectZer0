@@ -169,6 +169,10 @@
             detail: { content: 0.60, voting: 0.15, stats: 0.25 },
             preview: { content: 0.65, voting: 0.35, stats: 0 }
         },
+        openquestion: {
+            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
+            preview: { content: 0.65, voting: 0.35, stats: 0 }
+        },
         quantity: {
             detail: { content: 0.60, voting: 0.25, stats: 0.15 },
             preview: { content: 0.65, voting: 0.35, stats: 0 }
@@ -224,6 +228,7 @@
             case 'word': return currentMode === 'detail' ? sizeMap.WORD.DETAIL : sizeMap.WORD.PREVIEW;
             case 'definition': return currentMode === 'detail' ? sizeMap.DEFINITION.DETAIL : sizeMap.DEFINITION.PREVIEW;
             case 'statement': return currentMode === 'detail' ? sizeMap.STATEMENT.DETAIL : sizeMap.STATEMENT.PREVIEW;
+            case 'openquestion': return currentMode === 'detail' ? sizeMap.OPENQUESTION.DETAIL : sizeMap.OPENQUESTION.PREVIEW;
             case 'quantity': return currentMode === 'detail' ? sizeMap.QUANTITY.DETAIL : sizeMap.QUANTITY.PREVIEW;
             case 'comment': return currentMode === 'detail' ? sizeMap.COMMENT.DETAIL : sizeMap.COMMENT.PREVIEW;
             case 'control': return currentMode === 'detail' ? sizeMap.CONTROL.DETAIL : sizeMap.CONTROL.PREVIEW;

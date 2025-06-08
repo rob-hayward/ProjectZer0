@@ -159,6 +159,7 @@ export class GraphManager {
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
+            console.warn(`[GraphManager] Node ${nodeId} not found`);
             return;
         }
         
@@ -167,21 +168,33 @@ export class GraphManager {
         
         // Skip update if already in requested mode
         if (node.mode === mode) {
+            console.log(`[GraphManager] Node ${nodeId} already in mode ${mode}`);
             return;
         }
         
+        console.log(`[GraphManager] Updating node ${nodeId} mode from ${node.mode} to ${mode}`);
+        
         // Stop simulation before updating
         this.simulation.alpha(0).alphaTarget(0);
+        
+        // Clear radius cache for this node to ensure fresh calculation
+        const cacheKey = `${nodeId}-${node.type}-${mode}-${node.isHidden ? 'hidden' : 'visible'}`;
+        this.nodeRadiusCache.delete(cacheKey);
+        
+        // Calculate new radius BEFORE creating the updated node
+        const newRadius = this.getNodeRadius({
+            ...node,
+            mode: mode
+        });
+        
+        console.log(`[GraphManager] Node ${nodeId} (type: ${node.type}) radius change: ${node.radius} -> ${newRadius}`);
         
         // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
             ...node,
             mode,
             expanded: mode === 'detail',
-            radius: this.getNodeRadius({
-                ...node, 
-                mode
-            }),
+            radius: newRadius, // Use the calculated radius
             metadata: {
                 ...node.metadata,
                 isDetail: mode === 'detail'
@@ -210,19 +223,27 @@ export class GraphManager {
         
         // If layout strategy exists, let it handle the mode change
         if (this.currentLayoutStrategy) {
-            this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
+            // CRITICAL: For OpenQuestionAnswerLayout, we need to call the right method
+            if (this.currentLayoutStrategy instanceof OpenQuestionAnswerLayout) {
+                console.log(`[GraphManager] Calling OpenQuestionAnswerLayout.handleNodeStateChange`);
+                this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
+            } else if (typeof this.currentLayoutStrategy.handleNodeStateChange === 'function') {
+                this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
+            }
         }
         
         // Ensure fixed positions are maintained
         this.enforceFixedPositionsStrict();
         
         // Force several ticks to immediately update positions
-        // More ticks for statement network view
-        const tickCount = this._viewType === 'statement-network' ? 5 : 2;
+        const tickCount = this._viewType === 'statement-network' ? 5 : 3;
         for (let i = 0; i < tickCount; i++) {
             this.simulation.tick();
             this.enforceFixedPositionsStrict();
         }
+        
+        // Update store again after ticks
+        this.nodesStore.set([...this.simulation.nodes() as unknown as EnhancedNode[]]);
         
         // Restart simulation with minimal alpha for smooth transition
         this.simulation.alpha(0.1).restart();
