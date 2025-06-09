@@ -4,7 +4,7 @@ ProjectZer0 is an innovative knowledge-sharing platform that enables collaborati
 
 ## 🚀 Project Overview
 
-ProjectZer0 is built on a microservice architecture with three main components:
+ProjectZer0 is built on a monorepo architecture with three main components:
 
 - **Frontend**: A SvelteKit application with advanced D3.js graph visualization
 - **Backend**: A NestJS service managing the Neo4j graph database
@@ -28,6 +28,9 @@ ProjectZer0 is built on a microservice architecture with three main components:
 - Statement Nodes: Share and discuss personal perspectives with keyword extraction
 - Navigation Nodes: Context-aware circular menu system
 - Discussion Nodes: Threaded conversations linked to any node type
+- Open Question Nodes: Pose questions to the community with AI-generated keywords
+- Quantity Nodes: Visualize numerical data with dynamic scaling
+- Comment Nodes: Add context to any node with threaded discussions
 
 ### Interactive Features
 - Preview/Detail node state transitions
