@@ -24,7 +24,6 @@
 	import NodeHeader from '../ui/NodeHeader.svelte';
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
 	import ContentBox from '../ui/ContentBox.svelte';
-	import AnswerQuestionButton from '../ui/AnswerQuestionButton.svelte';
 	import { wrapTextForWidth } from '../utils/textUtils';
 
 	export let node: RenderableNode;
@@ -128,7 +127,6 @@
 			position?: { x: number; y: number };
 		};
 		visibilityChange: { isHidden: boolean };
-		answerQuestion: { questionId: string };
 	}>();
 
 	function syncVoteState() {
@@ -179,13 +177,6 @@
 
 	function handleVote(event: CustomEvent<{ voteType: any }>) {
 		updateVoteState(event.detail.voteType);
-	}
-
-	function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
-		console.log('Answer question clicked for:', event.detail.questionId);
-		// TODO: Navigate to create statement form with this question as parent
-		// This could trigger a modal, navigate to create node, or open an answer form
-		dispatch('answerQuestion', { questionId: event.detail.questionId });
 	}
 
 	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
@@ -319,14 +310,6 @@
 						mode="detail"
 						on:vote={handleVote}
 					/>
-					
-					<!-- Answer Question Button -->
-					<AnswerQuestionButton
-						questionId={questionData.id}
-						x={width / 2}
-						y={height - 50}
-						on:answerQuestion={handleAnswerQuestion}
-					/>
 				</svelte:fragment>
 
 				<svelte:fragment slot="stats" let:width>
@@ -394,14 +377,6 @@
 				containerY={y + height / 2}
 				mode="preview"
 				on:vote={handleVote}
-			/>
-			
-			<!-- Answer Question Button for Preview Mode -->
-			<AnswerQuestionButton
-				questionId={questionData.id}
-				x={width / 2}
-				y={y + height / 2 + 40}
-				on:answerQuestion={handleAnswerQuestion}
 			/>
 		</svelte:fragment>
 	</BasePreviewNode>

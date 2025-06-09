@@ -7,6 +7,7 @@
     import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import QuantityNode from '$lib/components/graph/nodes/quantity/QuantityNode.svelte';
+    import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte'; // ADDED
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import CommentNode from '$lib/components/graph/nodes/comment/CommentNode.svelte';
     import CommentFormNode from '$lib/components/graph/nodes/comment/CommentForm.svelte';
@@ -37,6 +38,7 @@
         isDefinitionNode, 
         isStatementNode,
         isQuantityNode,
+        isOpenQuestionNode, // ADDED
         isNavigationNode,
         isCommentNode
     } from '$lib/types/graph/enhanced';
@@ -655,6 +657,14 @@
         console.log('[STATE_DEBUG] Delete comment event:', event.detail);
         // TODO: Implement comment deletion
     }
+
+    // ADDED: Event handler for answer question events
+    function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
+        console.log('Answer question event received:', event.detail.questionId);
+        // TODO: Navigate to create statement form with this question as parent
+        // For now, we'll just log it
+        alert('Answer question functionality coming soon!');
+    }
     
     // ADDED: Validation function for comment hierarchy
     function validateCommentHierarchy(data: GraphData): void {
@@ -765,7 +775,7 @@
     <!-- Discussion controls -->
     <div class="discussion-controls">
         <div class="discussion-header">
-            <h2>Discussion: {centralNode.word || centralNode.statement || centralNode.question || 'Node'}</h2>
+            <h2>Discussion: {centralNode.word || centralNode.statement || centralNode.questionText || 'Node'}</h2>
             <span class="comment-count">{commentCount} {commentCount === 1 ? 'comment' : 'comments'}</span>
         </div>
         
@@ -845,6 +855,13 @@
                 <QuantityNode 
                     {node}
                     on:modeChange={handleModeChange}
+                />
+            {:else if isOpenQuestionNode(node)}
+                <OpenQuestionNode 
+                    {node}
+                    questionText={centralNode.questionText || ''}
+                    on:modeChange={handleModeChange}
+                    on:answerQuestion={handleAnswerQuestion}
                 />
             {:else if isNavigationNode(node)}
                 <NavigationNode 
@@ -1075,4 +1092,3 @@
         }
     }
 </style>
-                    class="sort-button

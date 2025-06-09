@@ -18,7 +18,7 @@ import { COORDINATE_SPACE } from '../../../constants/graph';
  * Layout strategy for discussion view showing comments
  * 
  * Features:
- * - Central node (word, definition, statement, quantity) fixed at the center (0,0)
+ * - Central node (word, definition, statement, quantity, openquestion) fixed at the center (0,0)
  * - Navigation nodes in a circle around the central node
  * - Root comments positioned around the central node in a circle
  * - Reply comments positioned to the outer side of their parent comments
@@ -62,6 +62,17 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             height: COORDINATE_SPACE.WORLD.HEIGHT,
             viewType
         });
+    }
+
+    /**
+     * Check if a node can be a central node in discussion view
+     */
+    private isCentralNodeType(node: EnhancedNode): boolean {
+        // FIXED: Add openquestion to the list of valid central node types
+        const validCentralTypes = ['word', 'definition', 'statement', 'quantity', 'openquestion'];
+        return validCentralTypes.includes(node.type) || 
+               node.group === 'central' || 
+               (node.fixed === true);
     }
 
     /**
@@ -146,10 +157,11 @@ export class DiscussionLayout extends BaseLayoutStrategy {
             this.getNodeRadius.bind(this)
         );
 
-        // Find and position central node
-        const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+        // Find and position central node - UPDATED to include openquestion
+        const centralNode = nodes.find(n => this.isCentralNodeType(n));
         if (!centralNode) {
             console.warn('[DiscussionLayout] No central node found');
+            console.debug('[DiscussionLayout] Available nodes:', nodes.map(n => ({ id: n.id, type: n.type, group: n.group, fixed: n.fixed })));
             return;
         }
 
@@ -168,6 +180,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
 
         console.debug('[DiscussionLayout] Central node positioned at center', {
             id: centralNode.id,
+            type: centralNode.type,
             position: { x: centralNode.x, y: centralNode.y },
             fixed: { fx: centralNode.fx, fy: centralNode.fy }
         });
@@ -412,7 +425,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         const parent = (this.simulation.nodes() as unknown as EnhancedNode[])
             .find(n => n.id === parentId);
             
-        return parent?.group === 'central';
+        return parent?.group === 'central' || this.isCentralNodeType(parent!);
     }
     
     /**
@@ -500,7 +513,7 @@ export class DiscussionLayout extends BaseLayoutStrategy {
         // Fix all nodes at their current positions
         nodes.forEach(node => {
             // For central node, ensure it stays at origin
-            if (node.group === 'central' || node.fixed) {
+            if (node.group === 'central' || node.fixed || this.isCentralNodeType(node)) {
                 node.x = 0;
                 node.y = 0;
                 node.fx = 0;
@@ -1118,7 +1131,7 @@ private calculateTotalDescendants(nodes: EnhancedNode[], resultMap: Map<string, 
     private updateExpansionState(nodes: EnhancedNode[]): void {
         // Update our expansion state map
         nodes.forEach(node => {
-            if (node.type === 'comment' || node.group === 'central') {
+            if (node.type === 'comment' || node.group === 'central' || this.isCentralNodeType(node)) {
                 const wasExpanded = this.expansionState.get(node.id) || false;
                 const isExpanded = node.mode === 'detail';
                 
@@ -1158,7 +1171,7 @@ private calculateTotalDescendants(nodes: EnhancedNode[], resultMap: Map<string, 
         if (mode === 'detail' && !node.fixed) {
             node.fx = node.x;
             node.fy = node.y;
-        } else if (mode === 'preview' && !node.fixed && node.group !== 'central') {
+        } else if (mode === 'preview' && !node.fixed && node.group !== 'central' && !this.isCentralNodeType(node)) {
             // Don't release fixed position - keep static layout
         }
         
@@ -1263,8 +1276,8 @@ public updateData(nodes: EnhancedNode[], links: EnhancedLink[], skipAnimation: b
     this.clearAllForces();
     
     // Build comment hierarchy
-    // Find central node for this
-    const centralNode = nodes.find(n => n.fixed || n.group === 'central');
+    // Find central node for this - UPDATED to use new method
+    const centralNode = nodes.find(n => this.isCentralNodeType(n));
     if (centralNode) {
         this.buildCommentHierarchy(centralNode.id);
         

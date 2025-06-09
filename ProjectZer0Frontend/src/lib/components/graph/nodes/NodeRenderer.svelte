@@ -7,9 +7,11 @@
     import DiscussButton from './ui/DiscussButton.svelte';
     import ReplyButton from './ui/ReplyButton.svelte';
     import CreateLinkedNodeButton from './ui/CreateLinkedNodeButton.svelte';
+    import AnswerQuestionButton from './ui/AnswerQuestionButton.svelte';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
     import { wordViewStore } from '$lib/stores/wordViewStore';
+    import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { navigateToNodeDiscussion } from '$lib/services/navigation';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
@@ -40,6 +42,7 @@
             nodeId: string;
             nodeType: string;
         };
+        answerQuestion: { questionId: string }; // For answer question events
     }>();
 
     // Store the expected radius for comment nodes
@@ -208,6 +211,15 @@
         dispatch('reply', { commentId: nodeId });
     }
     
+    // Handle answer question button click (NEW)
+    function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
+        const questionId = event.detail.questionId || node.id;
+        console.log(`[NodeRenderer] Answer question event received for question ${questionId}`);
+        
+        // Dispatch answer question event to parent
+        dispatch('answerQuestion', { questionId: questionId });
+    }
+    
     // Position information from node
     $: posX = node.position.x;
     $: posY = node.position.y;
@@ -250,7 +262,9 @@
         ? statementNetworkStore.getVoteData(node.id).netVotes 
         : (node.type === 'word' || node.type === 'definition')
             ? wordViewStore.getVoteData(node.id).netVotes
-            : 0;
+            : node.type === 'openquestion'
+                ? openQuestionViewStore.getVoteData(node.id).netVotes
+                : 0;
     
     // Calculate button positions based on node radius
     $: showHideButtonX = node.radius * 0.7071;
@@ -258,7 +272,7 @@
     
     onMount(() => {
         // Check for initial visibility preferences
-        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment') {
+        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment' || node.type === 'openquestion') {
             const preference = visibilityStore.getPreference(node.id);
             if (preference !== undefined) {
                 const shouldBeHidden = !preference;
@@ -307,8 +321,8 @@
         />
     
         <!-- ONLY add buttons to visible nodes (not hidden ones) -->
-        <!-- Add show/hide button to qualifying nodes (including comment nodes) - positioned at 4:30 -->
-        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment'}
+        <!-- Add show/hide button to qualifying nodes (including openquestion nodes) - positioned at 4:30 -->
+        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment' || node.type === 'openquestion'}
             <!-- Use key to force re-render when radius changes -->
             {#key `${node.radius}-${forceRefresh}`}
                 <ShowHideButton 
@@ -330,7 +344,7 @@
                     on:reply={handleReply}
                 />
             {:else if node.type !== 'comment'}
-                <!-- Add discuss button to qualifying non-comment nodes - positioned at 2:30 -->
+                <!-- Add discuss button to qualifying non-comment nodes (including openquestion) - positioned at 2:30 -->
                 <DiscussButton 
                     y={-node.radius * 0.7071}  
                     x={node.radius * 0.7071}
@@ -357,6 +371,16 @@
                         // Temporary alert until implementation is complete
                         alert(`Create linked node system not yet implemented for ${event.detail.nodeType || node.type} node ${event.detail.nodeId || node.id}`);
                     }}
+                />
+            {/if}
+            
+            <!-- Add answer question button only to openquestion nodes - positioned at 10:30 -->
+            {#if node.type === 'openquestion'}
+                <AnswerQuestionButton 
+                    y={-node.radius * 0.7071}  
+                    x={-node.radius * 0.7071}
+                    questionId={node.id}
+                    on:answerQuestion={handleAnswerQuestion}
                 />
             {/if}
         {/if}
