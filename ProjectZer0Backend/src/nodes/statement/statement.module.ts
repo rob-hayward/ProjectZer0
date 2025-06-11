@@ -9,6 +9,7 @@ import { VoteModule } from '../../neo4j/vote/vote.module';
 import { VoteSchema } from '../../neo4j/schemas/vote.schema';
 import { DiscussionModule } from '../discussion/discussion.module';
 import { CommentModule } from '../comment/comment.module';
+import { Neo4jModule } from '../../neo4j/neo4j.module'; // Add this
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CommentModule } from '../comment/comment.module';
     VoteModule,
     DiscussionModule,
     CommentModule,
+    Neo4jModule, // Add this
   ],
   controllers: [StatementController],
   providers: [StatementService, StatementSchema, VoteSchema],

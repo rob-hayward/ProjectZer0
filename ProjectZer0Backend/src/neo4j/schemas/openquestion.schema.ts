@@ -102,11 +102,7 @@ export class OpenQuestionSchema {
         OPTIONAL MATCH (oq)-[:RELATED_TO]-(r:OpenQuestionNode)
         WHERE r.visibilityStatus <> false OR r.visibilityStatus IS NULL
         
-        // Get answer statements
-        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
-        WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
-        
-        // Get vote counts
+        // Get vote counts for the question itself
         OPTIONAL MATCH (oq)<-[pv:VOTED_ON {status: 'agree'}]-()
         OPTIONAL MATCH (oq)<-[nv:VOTED_ON {status: 'disagree'}]-()
         
@@ -128,15 +124,33 @@ export class OpenQuestionSchema {
                nodeId: r.id,
                questionText: r.questionText,
                relationshipType: 'direct'
-             }) as directlyRelatedQuestions,
-             // Fix: Filter out null entries from answers collection
-             [answer IN collect(DISTINCT CASE WHEN ans IS NOT NULL THEN {
+             }) as directlyRelatedQuestions
+        
+        // Get answer statements separately
+        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
+        WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
+        OPTIONAL MATCH (ans)<-[apv:VOTED_ON {status: 'agree'}]-()
+        OPTIONAL MATCH (ans)<-[anv:VOTED_ON {status: 'disagree'}]-()
+        
+        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+             ans,
+             COUNT(DISTINCT apv) as answerPositiveVotes,
+             COUNT(DISTINCT anv) as answerNegativeVotes
+        
+        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+             collect(CASE WHEN ans IS NOT NULL THEN {
                id: ans.id,
                statement: ans.statement,
                createdBy: ans.createdBy,
                createdAt: ans.createdAt,
-               netVotes: ans.netVotes
-             } ELSE NULL END) WHERE answer IS NOT NULL] as answers
+               publicCredit: ans.publicCredit,
+               positiveVotes: answerPositiveVotes,
+               negativeVotes: answerNegativeVotes,
+               netVotes: answerPositiveVotes - answerNegativeVotes
+             } ELSE NULL END) as answersWithNulls
+        
+        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+             [answer IN answersWithNulls WHERE answer IS NOT NULL] as answers
       `;
 
       // Add sorting based on parameter, but keep all vote data in scope
@@ -254,9 +268,11 @@ export class OpenQuestionSchema {
         // Convert vote counts in answers as well
         if (openQuestion.answers && openQuestion.answers.length > 0) {
           openQuestion.answers.forEach((answer) => {
-            if (answer.netVotes !== undefined) {
-              answer.netVotes = this.toNumber(answer.netVotes);
-            }
+            ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+              if (answer[prop] !== undefined) {
+                answer[prop] = this.toNumber(answer[prop]);
+              }
+            });
           });
         }
       });
@@ -420,13 +436,11 @@ export class OpenQuestionSchema {
         
         // Get questions with shared keywords
         OPTIONAL MATCH (oq)-[st:SHARED_TAG]->(o:OpenQuestionNode)
+        WHERE o.visibilityStatus <> false OR o.visibilityStatus IS NULL
         
         // Get directly related questions
         OPTIONAL MATCH (oq)-[:RELATED_TO]-(r:OpenQuestionNode)
-        
-        // Get answer statements
-        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
-        WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
+        WHERE r.visibilityStatus <> false OR r.visibilityStatus IS NULL
         
         // Get discussion
         OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
@@ -448,15 +462,35 @@ export class OpenQuestionSchema {
                  questionText: r.questionText,
                  relationshipType: 'direct'
                }) as directlyRelatedQuestions,
-               // Fix: Filter out null entries from answers collection
-               [answer IN collect(DISTINCT CASE WHEN ans IS NOT NULL THEN {
-                 id: ans.id,
-                 statement: ans.statement,
-                 createdBy: ans.createdBy,
-                 createdAt: ans.createdAt,
-                 netVotes: ans.netVotes
-               } ELSE NULL END) WHERE answer IS NOT NULL] as answers,
                d.id as discussionId
+        
+        // Get answer statements separately to avoid aggregation issues
+        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
+        WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
+        
+        // Get vote counts for each answer individually
+        OPTIONAL MATCH (ans)<-[pv:VOTED_ON {status: 'agree'}]-()
+        OPTIONAL MATCH (ans)<-[nv:VOTED_ON {status: 'disagree'}]-()
+        
+        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+             ans,
+             COUNT(DISTINCT pv) as positiveVotes,
+             COUNT(DISTINCT nv) as negativeVotes
+        
+        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+             collect(CASE WHEN ans IS NOT NULL THEN {
+               id: ans.id,
+               statement: ans.statement,
+               createdBy: ans.createdBy,
+               createdAt: ans.createdAt,
+               publicCredit: ans.publicCredit,
+               positiveVotes: positiveVotes,
+               negativeVotes: negativeVotes,
+               netVotes: positiveVotes - negativeVotes
+             } ELSE NULL END) as answersWithNulls
+        
+        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+             [answer IN answersWithNulls WHERE answer IS NOT NULL] as answers
         
         RETURN oq, keywords, relatedQuestions, directlyRelatedQuestions, answers, discussionId
         `,
@@ -491,13 +525,22 @@ export class OpenQuestionSchema {
       // Convert vote counts in answers as well
       if (openQuestion.answers && openQuestion.answers.length > 0) {
         openQuestion.answers.forEach((answer) => {
-          if (answer.netVotes !== undefined) {
-            answer.netVotes = this.toNumber(answer.netVotes);
-          }
+          ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+            if (answer[prop] !== undefined) {
+              answer[prop] = this.toNumber(answer[prop]);
+            }
+          });
         });
+
+        // Sort answers by netVotes descending
+        openQuestion.answers.sort(
+          (a, b) => (b.netVotes || 0) - (a.netVotes || 0),
+        );
       }
 
-      this.logger.debug(`Retrieved open question with ID: ${id}`);
+      this.logger.debug(
+        `Retrieved open question with ID: ${id}, found ${openQuestion.answers?.length || 0} answers`,
+      );
       return openQuestion;
     } catch (error) {
       this.logger.error(

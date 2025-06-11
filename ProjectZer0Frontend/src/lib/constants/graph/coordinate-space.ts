@@ -47,7 +47,7 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 250     // Smaller preview for control node
             },
             COMMENT: {
-                DETAIL: 320,    
+                DETAIL: 600,    
                 PREVIEW: 320    
             },
             NAVIGATION: 80,
@@ -105,7 +105,7 @@ export const COORDINATE_SPACE = {
             PREVIEW: 177        // (250÷2) × √2 = 176.78
         },
         COMMENT: {
-            DETAIL: 226,        // (320÷2) × √2 = 226.27
+            DETAIL: 424,        // (600÷2) × √2 = 424.26
             PREVIEW: 226        // (320÷2) × √2 = 226.27
         },
         NAVIGATION: 56,         // (80÷2) × √2 = 56.57

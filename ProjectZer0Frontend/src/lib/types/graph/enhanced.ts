@@ -16,8 +16,8 @@ export interface ControlNodeData {
 
 // View and group types
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
 export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers';
 export type NodeMode = 'preview' | 'detail';
 
@@ -297,6 +297,9 @@ export const isCommentFormNode = (node: RenderableNode): boolean =>
 
 export const isControlNode = (node: RenderableNode): node is RenderableNode & { data: ControlNodeData } =>
     node.type === 'control' && isControlNodeData(node.data);
+
+export const isStatementAnswerFormNode = (node: RenderableNode): boolean =>
+    node.type === 'statement-answer-form' && isUserProfileData(node.data);
 
 // Link type guards
 export const isLiveLink = (link: RenderableLink): boolean =>

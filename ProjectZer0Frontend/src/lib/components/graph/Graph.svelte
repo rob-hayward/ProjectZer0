@@ -41,6 +41,7 @@
         modechange: { nodeId: string; mode: NodeMode };
         visibilitychange: { nodeId: string; isHidden: boolean };
         reply: { commentId: string };
+        answerQuestion: { questionId: string };
     }>();
 
     // DOM references
@@ -920,6 +921,10 @@
                                     console.log('[Graph] Reply event from NodeRenderer:', event.detail);
                                     // Ensure we're dispatching the exact event structure expected
                                     dispatch('reply', { commentId: event.detail.commentId });
+                                }}
+                                on:answerQuestion={event => {
+                                    console.log('[Graph] Answer question event from NodeRenderer:', event.detail);
+                                    dispatch('answerQuestion', { questionId: event.detail.questionId });
                                 }}
                             >
                                 <svelte:fragment 

@@ -1,12 +1,13 @@
 <!-- src/routes/graph/openquestion/+page.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, tick } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
     import { getOpenQuestionData } from '$lib/services/openQuestion';
     import Graph from '$lib/components/graph/Graph.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
+    import StatementAnswerForm from '$lib/components/forms/createNode/statement/StatementAnswerForm.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { openQuestionStore } from '$lib/stores/openQuestionStore';
@@ -28,7 +29,8 @@
     import { 
         isOpenQuestionNode, 
         isStatementNode, 
-        isNavigationNode 
+        isNavigationNode,
+        isStatementAnswerFormNode
     } from '$lib/types/graph/enhanced';
 
     export let data: GraphPageData;
@@ -43,11 +45,15 @@
     // Define view type
     const viewType: ViewType = 'openquestion';
     
-    // Create a unique key for forcing re-renders
-    let routeKey = `${viewType}-${Date.now()}`;
-    
     // Node mode handling for question node (starts in detail mode)
     let questionNodeMode: NodeMode = 'detail'; 
+
+    // Statement answer form state
+    let showStatementAnswerForm = false;
+    let statementAnswerFormNodeId = '';
+    
+    // Declare graphData variable
+    let graphData: GraphData = { nodes: [], links: [] };
 
     // Initialize data and authenticate user
     async function initializeData() {
@@ -70,7 +76,6 @@
                     const loadedQuestion = await getOpenQuestionData(questionId);
                     if (loadedQuestion) {
                         openQuestionStore.set(loadedQuestion);
-                        // Add data to openQuestionViewStore for vote management
                         openQuestionViewStore.setQuestionData(loadedQuestion);
                     } else {
                         window.location.href = '/graph/dashboard';
@@ -82,7 +87,6 @@
                 }
             } else {
                 openQuestionStore.set(initialQuestionData);
-                // Add data to openQuestionViewStore for vote management
                 openQuestionViewStore.setQuestionData(initialQuestionData);
             }
             
@@ -112,10 +116,54 @@
     }
 
     function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
-        console.log('Answer question event received:', event.detail.questionId);
-        // TODO: Navigate to create statement form with this question as parent
-        // For now, we'll just log it
-        alert('Answer question functionality coming soon!');
+        console.log('[OpenQuestion Page] Answer question event received:', event.detail.questionId);
+        
+        if (!$userStore) {
+            console.warn('[OpenQuestion Page] User not authenticated');
+            return;
+        }
+
+        // Create a statement answer form node
+        statementAnswerFormNodeId = `statement-answer-form-${Date.now()}`;
+        showStatementAnswerForm = true;
+        
+        console.log('[OpenQuestion Page] Creating statement answer form for question:', event.detail.questionId);
+        console.log('[OpenQuestion Page] Form node ID:', statementAnswerFormNodeId);
+        console.log('[OpenQuestion Page] showStatementAnswerForm:', showStatementAnswerForm);
+        
+        // Force a tick to ensure reactive updates
+        tick().then(() => {
+            console.log('[OpenQuestion Page] After tick - graphData nodes:', graphData.nodes.length);
+            console.log('[OpenQuestion Page] Form node exists in graphData:', 
+                graphData.nodes.some((n: GraphNode) => n.id === statementAnswerFormNodeId)
+            );
+        });
+    }
+
+    function handleStatementAnswerFormSuccess(event: CustomEvent<{ statementId: string; message: string }>) {
+        console.log('Statement answer form success:', event.detail);
+        
+        // Hide the form
+        showStatementAnswerForm = false;
+        statementAnswerFormNodeId = '';
+        
+        // Reload the question data to get the new answer
+        if (questionData) {
+            getOpenQuestionData(questionData.id).then((updatedQuestion) => {
+                if (updatedQuestion) {
+                    openQuestionStore.set(updatedQuestion);
+                    openQuestionViewStore.setQuestionData(updatedQuestion);
+                }
+            });
+        }
+    }
+
+    function handleStatementAnswerFormCancel() {
+        console.log('Statement answer form cancelled');
+        
+        // Hide the form
+        showStatementAnswerForm = false;
+        statementAnswerFormNodeId = '';
     }
 
     // Get question data from store or initial data
@@ -152,9 +200,35 @@
             group: 'navigation' as const
         }));
 
+    // Create statement answer form node if needed
+    $: statementAnswerFormNode = showStatementAnswerForm && $userStore ? {
+        id: statementAnswerFormNodeId,
+        type: 'statement-answer-form' as NodeType,
+        data: $userStore,
+        group: 'alternative-definition' as NodeGroup, // Position like alternative definition
+        mode: 'detail' as NodeMode
+    } : null;
+
+    // Log form node state for debugging
+    $: console.log('[OpenQuestion] Form node state:', {
+        showStatementAnswerForm,
+        hasUser: !!$userStore,
+        formNodeCreated: !!statementAnswerFormNode,
+        formNodeId: statementAnswerFormNode?.id
+    });
+
     // Create graph data
     function createGraphData(): GraphData {
+        console.log('[OpenQuestion] createGraphData called with:', {
+            showStatementAnswerForm,
+            statementAnswerFormNode: !!statementAnswerFormNode,
+            formNodeId: statementAnswerFormNode?.id,
+            isReady,
+            normalizedQuestionData: !!normalizedQuestionData
+        });
+        
         if (!centralQuestionNode || !normalizedQuestionData) {
+            console.log('[OpenQuestion] Early return - no central node or question data');
             return { nodes: [], links: [] };
         }
 
@@ -179,6 +253,11 @@
             ...navigationNodes
         ] as GraphNode[];
 
+        // Add statement answer form node if it exists
+        if (statementAnswerFormNode) {
+            baseNodes.push(statementAnswerFormNode);
+        }
+
         // Only create answer nodes if we have valid answers
         const answerNodes: GraphNode[] = sortedAnswers.map((answer, index) => ({
             id: answer.id,
@@ -198,7 +277,7 @@
             mode: 'preview' as NodeMode
         }));
 
-        // Only create links if we have valid answers
+        // Create links for answers
         const answerLinks: GraphLink[] = sortedAnswers.length > 0 
             ? sortedAnswers.map((answer, index) => ({
                 id: `${centralQuestionNode.id}-${answer.id}-${Date.now()}-${index}`,
@@ -208,24 +287,62 @@
             }))
             : [];
 
+        // Create link for statement answer form if it exists
+        const formLinks: GraphLink[] = statementAnswerFormNode ? [{
+            id: `${centralQuestionNode.id}-${statementAnswerFormNode.id}-form`,
+            source: centralQuestionNode.id,
+            target: statementAnswerFormNode.id,
+            type: 'alternative' as LinkType
+        }] : [];
+
         console.log('[OpenQuestion] Creating graph data:', {
             centralNode: centralQuestionNode.id,
             navigationCount: navigationNodes.length,
             answerCount: answerNodes.length,
-            linkCount: answerLinks.length,
+            showStatementAnswerForm: showStatementAnswerForm,
+            formNode: statementAnswerFormNode?.id || 'none',
+            linkCount: answerLinks.length + formLinks.length,
             validAnswers: answers,
             invalidAnswers: normalizedQuestionData.answers?.filter(a => !a || !a.id) || []
         });
 
+        // Log final graph data before return
+        console.log('[OpenQuestion] Final graph data before return:', {
+            totalNodes: [...baseNodes, ...answerNodes].length,
+            baseNodesCount: baseNodes.length,
+            hasFormNode: baseNodes.some(n => n.type === 'statement-answer-form'),
+            formNodeInBaseNodes: baseNodes.find(n => n.type === 'statement-answer-form')
+        });
+
         return {
             nodes: [...baseNodes, ...answerNodes],
-            links: answerLinks
+            links: [...answerLinks, ...formLinks]
         };
     }
 
-    // Initialize variables & create graph data
+    // Initialize variables
     $: isReady = authInitialized && dataInitialized;
-    $: graphData = isReady && normalizedQuestionData ? createGraphData() : { nodes: [], links: [] };
+    
+    // Reactive statement for graphData with logging
+    $: {
+        console.log('[OpenQuestion] graphData reactive triggered:', {
+            isReady,
+            hasQuestionData: !!normalizedQuestionData,
+            showStatementAnswerForm
+        });
+        graphData = isReady && normalizedQuestionData ? createGraphData() : { nodes: [], links: [] };
+    }
+    
+    // Force graphData to recalculate when showStatementAnswerForm changes
+    $: showStatementAnswerForm, graphData = isReady && normalizedQuestionData ? createGraphData() : { nodes: [], links: [] };
+
+    // Log when graphData changes to verify it includes the form node
+    $: if (graphData.nodes.length > 0) {
+        console.log('[OpenQuestion] Graph data nodes:', graphData.nodes.map((n: GraphNode) => ({
+            id: n.id,
+            type: n.type
+        })));
+    }
 
     // Initialize on mount
     onMount(() => {
@@ -234,7 +351,8 @@
 
     // Force update when openQuestionStore changes
     $: if ($openQuestionStore && isReady) {
-        routeKey = `${viewType}-${Date.now()}`;
+        // Trigger reactivity by accessing the store value
+        const currentQuestion = $openQuestionStore;
     }
 </script>
 
@@ -252,45 +370,52 @@
         <div class="loading-text">Question data not found</div>
     </div>
 {:else}
-{#key routeKey}
-<Graph 
-    data={graphData}
-    viewType={viewType}
-    on:modechange={handleNodeModeChange}
->
-    <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isOpenQuestionNode(node)}
-            <OpenQuestionNode 
-                {node}
-                questionText={normalizedQuestionData?.questionText || ''}
-                on:modeChange={handleModeChange}
-                on:answerQuestion={handleAnswerQuestion}
-            />
-        {:else if isStatementNode(node)}
-            <StatementNode 
-                {node}
-                statementText={node.data.statement}
-                on:modeChange={handleModeChange}
-            />
-        {:else if isNavigationNode(node)}
-            <NavigationNode 
-                {node}
-                on:hover={() => {}} 
-            />
-        {:else}
-            <!-- Fallback for unrecognized node types -->
-            <g>
-                <text 
-                    dy="-10" 
-                    class="error-text"
-                >
-                    Unknown node type: {node.type}
-                </text>
-            </g>
-        {/if}
-    </svelte:fragment>
-</Graph>
-{/key}
+    <Graph 
+        data={graphData}
+        viewType={viewType}
+        on:modechange={handleNodeModeChange}
+        on:answerQuestion={handleAnswerQuestion}
+    >
+        <svelte:fragment slot="default" let:node let:handleModeChange>
+            {#if isOpenQuestionNode(node)}
+                <OpenQuestionNode 
+                    {node}
+                    questionText={normalizedQuestionData?.questionText || ''}
+                    on:modeChange={handleModeChange}
+                    on:answerQuestion={handleAnswerQuestion}
+                />
+            {:else if isStatementNode(node)}
+                <StatementNode 
+                    {node}
+                    statementText={node.data.statement}
+                    on:modeChange={handleModeChange}
+                />
+            {:else if isNavigationNode(node)}
+                <NavigationNode 
+                    {node}
+                    on:hover={() => {}} 
+                />
+            {:else if node.type === 'statement-answer-form'}
+                <StatementAnswerForm 
+                    {node}
+                    parentQuestionId={normalizedQuestionData?.id}
+                    on:modeChange={handleModeChange}
+                    on:success={handleStatementAnswerFormSuccess}
+                    on:cancel={handleStatementAnswerFormCancel}
+                />
+            {:else}
+                <!-- Fallback for unrecognized node types -->
+                <g>
+                    <text 
+                        dy="-10" 
+                        class="error-text"
+                    >
+                        Unknown node type: {node.type}
+                    </text>
+                </g>
+            {/if}
+        </svelte:fragment>
+    </Graph>
 {/if}
 
 <style>

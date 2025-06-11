@@ -978,6 +978,13 @@ export class GraphManager {
         });
         
         return nodes.map(node => {
+            if (node.type === 'statement-answer-form') {
+                console.log('[GraphManager] Processing statement-answer-form node:', {
+                    id: node.id,
+                    type: node.type,
+                    group: node.group
+                });
+            }
             // Check if we already have this node
             const existing = enhancedNodeCache.get(node.id);
             if (existing && existing.type === node.type) {

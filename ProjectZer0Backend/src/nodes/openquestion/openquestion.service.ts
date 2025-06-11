@@ -154,6 +154,25 @@ export class OpenQuestionService {
           question.netVotes = Number(question.netVotes.valueOf());
         }
       }
+
+      // Normalize vote counts in answers as well
+      if (question.answers && question.answers.length > 0) {
+        question.answers.forEach((answer) => {
+          ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+            if (
+              answer[prop] !== undefined &&
+              typeof answer[prop] === 'object' &&
+              answer[prop] !== null
+            ) {
+              if ('low' in answer[prop]) {
+                answer[prop] = Number(answer[prop].low);
+              } else if ('valueOf' in answer[prop]) {
+                answer[prop] = Number(answer[prop].valueOf());
+              }
+            }
+          });
+        });
+      }
     });
   }
 
@@ -277,6 +296,16 @@ export class OpenQuestionService {
       if (!question) {
         this.logger.debug(`Open question with ID ${id} not found`);
         throw new NotFoundException(`Open question with ID ${id} not found`);
+      }
+
+      // Log answer information for debugging
+      this.logger.debug(
+        `Question ${id} has ${question.answers?.length || 0} answers`,
+      );
+      if (question.answers && question.answers.length > 0) {
+        this.logger.debug(
+          `Answers: ${JSON.stringify(question.answers.map((a) => ({ id: a.id, statement: a.statement.substring(0, 50) + '...', netVotes: a.netVotes })))}`,
+        );
       }
 
       return question;

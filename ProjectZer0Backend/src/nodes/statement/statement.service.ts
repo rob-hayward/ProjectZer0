@@ -13,6 +13,7 @@ import { WordService } from '../word/word.service';
 import { v4 as uuidv4 } from 'uuid';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
+import { Neo4jService } from '../../neo4j/neo4j.service';
 
 interface CreateStatementData {
   createdBy: string;
@@ -20,6 +21,11 @@ interface CreateStatementData {
   statement: string;
   userKeywords?: string[];
   initialComment: string;
+  parentNode?: {
+    id: string;
+    type: 'OpenQuestionNode' | 'StatementNode' | 'QuantityNode';
+    relationshipType?: string;
+  };
 }
 
 interface UpdateStatementData {
@@ -46,6 +52,7 @@ export class StatementService {
     private readonly statementSchema: StatementSchema,
     private readonly keywordExtractionService: KeywordExtractionService,
     private readonly wordService: WordService,
+    private readonly neo4jService: Neo4jService,
   ) {}
 
   async getStatementNetwork(
@@ -155,6 +162,11 @@ export class StatementService {
       // Validate input data
       this.validateCreateStatementData(statementData);
 
+      // Validate parent node if provided
+      if (statementData.parentNode) {
+        await this.validateParentNode(statementData.parentNode);
+      }
+
       this.logger.log(
         `Creating statement: "${statementData.statement.substring(0, 30)}..." by user ${statementData.createdBy}`,
       );
@@ -172,11 +184,12 @@ export class StatementService {
         statementData,
       );
 
-      // Create statement with extracted keywords
+      // Create statement with extracted keywords and parent node
       const statementWithId = {
         ...statementData,
         id: uuidv4(),
         keywords: extractionResult.keywords,
+        parentNode: statementData.parentNode, // Pass through the parentNode
       };
 
       const createdStatement =
@@ -333,6 +346,31 @@ export class StatementService {
       );
       throw new InternalServerErrorException(
         `Failed to update statement: ${error.message}`,
+      );
+    }
+  }
+
+  private async validateParentNode(parentNode: { id: string; type: string }) {
+    try {
+      // Check if parent node exists based on type
+      const query = `
+      MATCH (n:${parentNode.type} {id: $id})
+      RETURN n
+    `;
+
+      const result = await this.neo4jService.read(query, { id: parentNode.id });
+
+      if (!result.records || result.records.length === 0) {
+        throw new BadRequestException(
+          `Parent ${parentNode.type} with ID ${parentNode.id} not found`,
+        );
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Failed to validate parent node: ${error.message}`,
       );
     }
   }

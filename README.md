@@ -95,7 +95,7 @@ npm run dev
 # Backend
 cd ProjectZer0Backend
 npm install
-npm run start:dev
+npm start run:dev
 
 # AI Component
 cd ProjectZer0AI

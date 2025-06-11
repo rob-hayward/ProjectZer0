@@ -19,6 +19,8 @@
     $: isReply = link.type === 'reply';
     $: isCommentForm = link.type === 'comment-form';
     $: isReplyForm = link.type === 'reply-form';
+    // ADD: Check for answer links
+    $: isAnswerLink = link.type === 'answers' || (link.type === 'alternative' && link.sourceType === 'openquestion');
     
     // ENHANCED: Get source and target colors based on node types
     $: sourceColor = getSourceColor(link);
@@ -82,6 +84,9 @@
                 return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.live);
             } else if (link.sourceType === 'quantity') {
                 return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+            } else if (link.sourceType === 'openquestion') {
+                // ADD: OpenQuestion support
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
             }
         }
         
@@ -104,8 +109,16 @@
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION.live);
                 } else if (link.sourceType === 'quantity') {
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                } else if (link.sourceType === 'openquestion') {
+                    // ADD: OpenQuestion support
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
                 }
             }
+        }
+        
+        // ADD: Handle answer links from openquestion
+        if (isAnswerLink) {
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
         }
         
         // Default for word-definition links
@@ -129,6 +142,14 @@
         if (isReply || isReplyForm) {
             // Reply to another comment - always use comment color from NODE_CONSTANTS
             return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
+        }
+        
+        // ADD: Handle answer links to statements
+        if (isAnswerLink) {
+            // If target is statement-answer-form, use statement color
+            if (link.targetType === 'statement-answer-form' || link.targetType === 'statement') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            }
         }
         
         // Default handling for word-definition links
@@ -165,6 +186,12 @@
             return 1.5;
         }
         
+        // ADD: Handle answer links
+        if (isAnswerLink) {
+            // Answer links - medium thickness
+            return 2.0;
+        }
+        
         // Default for word-definition links
         return isLiveDefinition ?
             LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.STROKE_WIDTH :
@@ -193,6 +220,12 @@
             return position === 'start' ? 0.7 : 0.7;
         }
         
+        // ADD: Handle answer links
+        if (isAnswerLink) {
+            // Answer links - solid with good visibility
+            return position === 'start' ? 0.8 : 0.8;
+        }
+        
         // Default for word-definition links
         return position === 'start' ?
             (isLiveDefinition ? 
@@ -207,7 +240,9 @@
      * Get the stroke-dasharray for the link
      * Used to create dashed lines for form links
      */
-    $: dashArray = (isCommentForm || isReplyForm) ? '5,5' : 'none';
+    $: dashArray = (isCommentForm || isReplyForm) ? '5,5' : 
+                   (isAnswerLink && link.targetType === 'statement-answer-form') ? '5,5' : // Dashed for form links
+                   'none';
 </script>
 
 {#if link.path}

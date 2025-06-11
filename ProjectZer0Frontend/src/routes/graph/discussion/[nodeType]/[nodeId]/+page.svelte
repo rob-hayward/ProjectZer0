@@ -10,7 +10,7 @@
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte'; // ADDED
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import CommentNode from '$lib/components/graph/nodes/comment/CommentNode.svelte';
-    import CommentFormNode from '$lib/components/graph/nodes/comment/CommentForm.svelte';
+    import CommentFormNode from '$lib/components/forms/comment/CommentForm.svelte';
     import { 
         getNavigationOptions, 
         NavigationContext, 

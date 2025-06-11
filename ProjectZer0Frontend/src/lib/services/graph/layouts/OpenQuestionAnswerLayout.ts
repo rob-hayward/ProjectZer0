@@ -124,6 +124,21 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             centralNode.metadata.fixed = true;
         }
 
+        // In initializeNodePositions method, add handling for statement-answer-form
+        const statementAnswerForm = nodes.find(n => n.type === 'statement-answer-form');
+        if (statementAnswerForm) {
+            // Position it below the central node
+            statementAnswerForm.x = 0;
+            statementAnswerForm.y = (centralNode?.radius || 200) + 150; // Below the central node
+            statementAnswerForm.fx = statementAnswerForm.x;
+            statementAnswerForm.fy = statementAnswerForm.y;
+            
+            console.debug('[OpenQuestionAnswerLayout] Positioned statement answer form', {
+                id: statementAnswerForm.id,
+                position: { x: statementAnswerForm.x, y: statementAnswerForm.y }
+            });
+        }
+
         // CRITICAL: Position navigation nodes AFTER setting central node position
         // This ensures they calculate distance from the correct central node size
         NavigationNodeLayout.positionNavigationNodes(

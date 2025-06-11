@@ -319,6 +319,11 @@ export abstract class BaseLayoutStrategy {
             case 'create-node':
                 return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
                 
+            case 'statement-answer-form':
+                return node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.STANDARD.PREVIEW / 2;    
+                
             default:
                 console.warn(`[BaseLayoutStrategy] Unknown node type in getNodeRadius: ${node.type}, using standard size`);
                 return COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;

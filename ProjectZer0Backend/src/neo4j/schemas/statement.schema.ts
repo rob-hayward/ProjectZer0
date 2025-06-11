@@ -245,6 +245,9 @@ export class StatementSchema {
     }
   }
 
+  // src/neo4j/schemas/statement.schema.ts
+
+  // Update the createStatement method
   async createStatement(statementData: {
     id: string;
     createdBy: string;
@@ -252,6 +255,11 @@ export class StatementSchema {
     statement: string;
     keywords: KeywordWithFrequency[];
     initialComment: string;
+    parentNode?: {
+      id: string;
+      type: 'OpenQuestionNode' | 'StatementNode' | 'QuantityNode';
+      relationshipType?: string;
+    };
   }) {
     try {
       if (!statementData.statement || statementData.statement.trim() === '') {
@@ -261,74 +269,105 @@ export class StatementSchema {
       this.logger.log(`Creating statement with ID: ${statementData.id}`);
       this.logger.debug(`Statement data: ${JSON.stringify(statementData)}`);
 
-      const result = await this.neo4jService.write(
-        `
-        // Create the statement node
-        CREATE (s:StatementNode {
-          id: $id,
-          createdBy: $createdBy,
-          publicCredit: $publicCredit,
-          statement: $statement,
-          initialComment: $initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          netVotes: 0
-        })
-        
-        // Process each keyword
+      // Build the base query
+      let query = `
+      // Create the statement node
+      CREATE (s:StatementNode {
+        id: $id,
+        createdBy: $createdBy,
+        publicCredit: $publicCredit,
+        statement: $statement,
+        initialComment: $initialComment,
+        createdAt: datetime(),
+        updatedAt: datetime(),
+        positiveVotes: 0,
+        negativeVotes: 0,
+        netVotes: 0
+      })
+    `;
+
+      // Handle parent node relationship if provided
+      if (statementData.parentNode) {
+        const relationshipType =
+          statementData.parentNode.relationshipType ||
+          this.getDefaultRelationshipType(statementData.parentNode.type);
+
+        query += `
         WITH s
-        UNWIND $keywords as keyword
-        
-        // Find word node for each keyword (don't create - already done by WordService)
-        MATCH (w:WordNode {word: keyword.word})
-        
-        // Create TAGGED relationship with frequency and source
-        CREATE (s)-[:TAGGED {
-          frequency: keyword.frequency,
-          source: keyword.source
-        }]->(w)
-        
-        // Connect to other statements that share this keyword
-        WITH s, w, keyword
-        MATCH (o:StatementNode)-[t:TAGGED]->(w)
-        WHERE o.id <> s.id
-        
-        // Create SHARED_TAG relationships between statements
-        MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
-        ON CREATE SET st.strength = keyword.frequency * t.frequency
-        ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-        
-        // Create discussion node automatically
-        WITH DISTINCT s
-        CREATE (d:DiscussionNode {
-          id: apoc.create.uuid(),
-          createdAt: datetime(),
-          createdBy: $createdBy,
-          visibilityStatus: true
-        })
-        CREATE (s)-[:HAS_DISCUSSION]->(d)
-        
-        // Create initial comment only if provided
-        WITH s, d, $initialComment as initialComment
-        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
-        CREATE (c:CommentNode {
-          id: apoc.create.uuid(),
-          createdBy: $createdBy,
-          commentText: initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          visibilityStatus: true
-        })
-        CREATE (d)-[:HAS_COMMENT]->(c)
-        
-        RETURN s
-        `,
-        statementData,
-      );
+        MATCH (parent:${statementData.parentNode.type} {id: $parentNodeId})
+        CREATE (parent)-[:${relationshipType}]->(s)
+      `;
+      }
+
+      // Continue with the rest of the query for keywords and discussion
+      query += `
+      // Process each keyword
+      WITH s
+      UNWIND $keywords as keyword
+      
+      // Find word node for each keyword (don't create - already done by WordService)
+      MATCH (w:WordNode {word: keyword.word})
+      
+      // Create TAGGED relationship with frequency and source
+      CREATE (s)-[:TAGGED {
+        frequency: keyword.frequency,
+        source: keyword.source
+      }]->(w)
+      
+      // Connect to other statements that share this keyword
+      WITH s, w, keyword
+      MATCH (o:StatementNode)-[t:TAGGED]->(w)
+      WHERE o.id <> s.id
+      
+      // Create SHARED_TAG relationships between statements
+      MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
+      ON CREATE SET st.strength = keyword.frequency * t.frequency
+      ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+      
+      // Create discussion node automatically
+      WITH DISTINCT s
+      CREATE (d:DiscussionNode {
+        id: apoc.create.uuid(),
+        createdAt: datetime(),
+        createdBy: $createdBy,
+        visibilityStatus: true
+      })
+      CREATE (s)-[:HAS_DISCUSSION]->(d)
+      
+      // Create initial comment only if provided
+      WITH s, d, $initialComment as initialComment
+      WHERE initialComment IS NOT NULL AND size(initialComment) > 0
+      CREATE (c:CommentNode {
+        id: apoc.create.uuid(),
+        createdBy: $createdBy,
+        commentText: initialComment,
+        createdAt: datetime(),
+        updatedAt: datetime(),
+        positiveVotes: 0,
+        negativeVotes: 0,
+        visibilityStatus: true
+      })
+      CREATE (d)-[:HAS_COMMENT]->(c)
+      
+      RETURN s
+    `;
+
+      // Prepare parameters
+      const params: any = {
+        id: statementData.id,
+        createdBy: statementData.createdBy,
+        publicCredit: statementData.publicCredit,
+        statement: statementData.statement,
+        initialComment: statementData.initialComment,
+        keywords: statementData.keywords,
+      };
+
+      // Add parent node ID if provided
+      if (statementData.parentNode) {
+        params.parentNodeId = statementData.parentNode.id;
+      }
+
+      const result = await this.neo4jService.write(query, params);
 
       if (!result.records || result.records.length === 0) {
         throw new Error('Failed to create statement');
@@ -338,6 +377,13 @@ export class StatementSchema {
       this.logger.log(
         `Successfully created statement with ID: ${createdStatement.id}`,
       );
+
+      if (statementData.parentNode) {
+        this.logger.log(
+          `Successfully linked statement ${createdStatement.id} to parent ${statementData.parentNode.type} ${statementData.parentNode.id}`,
+        );
+      }
+
       this.logger.debug(
         `Created statement: ${JSON.stringify(createdStatement)}`,
       );
@@ -354,6 +400,13 @@ export class StatementSchema {
         throw error;
       }
 
+      // Handle the case where the parent node doesn't exist
+      if (error.message && error.message.includes('no rows available')) {
+        throw new BadRequestException(
+          `Parent node not found or invalid parent node type`,
+        );
+      }
+
       // Handle the specific case of missing word nodes
       if (error.message && error.message.includes('not found')) {
         throw new BadRequestException(
@@ -363,6 +416,17 @@ export class StatementSchema {
 
       throw new Error(`Failed to create statement: ${error.message}`);
     }
+  }
+
+  // Add helper method to determine default relationship types
+  private getDefaultRelationshipType(parentNodeType: string): string {
+    const relationshipMap = {
+      OpenQuestionNode: 'ANSWERS',
+      StatementNode: 'RELATED_TO',
+      QuantityNode: 'RESPONDS_TO',
+    };
+
+    return relationshipMap[parentNodeType] || 'RELATED_TO';
   }
 
   async getStatement(id: string) {
