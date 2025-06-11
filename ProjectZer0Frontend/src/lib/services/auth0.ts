@@ -3,7 +3,8 @@ import type { UserProfile } from '../types/domain/user';
 import { jwtStore } from '../stores/JWTStore';
 import { userStore } from '../stores/userStore';
 
-const API_URL = 'http://localhost:3000/api'; 
+// Use environment variable with fallback to localhost for development
+const API_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'}/api`;
 
 export function login() {
  window.location.href = `${API_URL}/auth/login`;
