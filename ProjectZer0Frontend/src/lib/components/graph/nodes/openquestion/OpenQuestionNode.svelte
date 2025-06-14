@@ -279,20 +279,6 @@
 							width={width}
 							height="100"
 						>
-							<div class="answers-section">
-								<div class="answers-header">Answers ({questionData.answers.length})</div>
-								<div class="answers-container">
-									{#each questionData.answers.slice(0, 3) as answer}
-										<div class="answer-preview" title={answer.statement}>
-											<span class="answer-text">{answer.statement.substring(0, 60)}{answer.statement.length > 60 ? '...' : ''}</span>
-											<span class="answer-votes">+{answer.netVotes}</span>
-										</div>
-									{/each}
-									{#if questionData.answers.length > 3}
-										<div class="more-answers">+{questionData.answers.length - 3} more</div>
-									{/if}
-								</div>
-							</div>
 						</foreignObject>
 					{/if}
 				</svelte:fragment>
@@ -453,63 +439,5 @@
 	.keyword-chip.user-keyword {
 		background: rgba(0, 188, 212, 0.2);  /* CYAN for user keywords */
 		border: 1px solid rgba(0, 188, 212, 0.3);
-	}
-
-	.answers-section {
-		font-family: Inter;
-		color: rgba(255, 255, 255, 0.9);
-		text-align: left;
-		width: 100%;
-		height: 100%;
-		padding: 8px;
-		margin: 0;
-		box-sizing: border-box;
-		border-top: 1px solid rgba(0, 188, 212, 0.3);
-	}
-
-	.answers-header {
-		font-size: 11px;
-		font-weight: 600;
-		color: rgba(0, 188, 212, 0.8);
-		margin-bottom: 6px;
-	}
-
-	.answers-container {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		max-height: 80px;
-		overflow-y: auto;
-	}
-
-	.answer-preview {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		background: rgba(0, 188, 212, 0.1);
-		border: 1px solid rgba(0, 188, 212, 0.2);
-		border-radius: 8px;
-		padding: 4px 8px;
-		font-size: 10px;
-	}
-
-	.answer-text {
-		flex: 1;
-		color: rgba(255, 255, 255, 0.8);
-		margin-right: 8px;
-	}
-
-	.answer-votes {
-		color: rgba(0, 188, 212, 0.9);
-		font-weight: 600;
-		font-size: 9px;
-	}
-
-	.more-answers {
-		font-size: 9px;
-		color: rgba(0, 188, 212, 0.6);
-		text-align: center;
-		font-style: italic;
-		padding: 2px;
 	}
 </style>

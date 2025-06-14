@@ -50,12 +50,13 @@
             const statementData = {
                 statement: statement,
                 createdBy: userId,
-                userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
+                userKeywords: userKeywords.length > 0 ? userKeywords : [],  // Always send an array
                 initialComment: discussion || '',
                 publicCredit,
                 parentNode: parentQuestionId ? {
                     id: parentQuestionId,
-                    type: 'OpenQuestionNode'
+                    type: 'OpenQuestionNode' as const
+                    // Let the backend determine the relationship type based on the node type
                 } : undefined
             };
 
@@ -67,26 +68,11 @@
                 body: JSON.stringify(statementData),
             });
 
-            // No need for separate linking - it's done automatically
             console.log('Statement creation response:', JSON.stringify(createdStatement, null, 2));
 
-            // After creating the statement, link it to the parent question
-            try {
-                const linkEndpoint = `/nodes/openquestion/${parentQuestionId}/link-answer`;
-                console.log(`Linking answer to question using endpoint: ${linkEndpoint}`);
-                
-                await fetchWithAuth(linkEndpoint, {
-                    method: 'POST',
-                    body: JSON.stringify({ statementId: createdStatement.id }),
-                });
-                
-                console.log('Successfully linked statement to question');
-            } catch (linkError) {
-                console.error('Error linking statement to question:', linkError);
-                // Don't fail the whole operation - the statement was created successfully
-                debugMessage = `Statement created but linking failed: ${linkError instanceof Error ? linkError.message : 'Unknown error'}`;
-            }
-
+            // SUCCESS! The statement was created and automatically linked via the parentNode
+            // No need for a separate linking step anymore
+            
             // Update graph store to openquestion view (stay on the question page)
             if (browser && graphStore && graphStore.setViewType) {
                 console.log('[StatementAnswerReview] Staying on openquestion view');

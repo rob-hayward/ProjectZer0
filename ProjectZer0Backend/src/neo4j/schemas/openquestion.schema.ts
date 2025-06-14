@@ -126,8 +126,8 @@ export class OpenQuestionSchema {
                relationshipType: 'direct'
              }) as directlyRelatedQuestions
         
-        // Get answer statements separately
-        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
+        // Get answer statements separately - FIXED: Correct relationship direction (Statement -> Question)
+        OPTIONAL MATCH (ans:StatementNode)-[:ANSWERS]->(oq)
         WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
         OPTIONAL MATCH (ans)<-[apv:VOTED_ON {status: 'agree'}]-()
         OPTIONAL MATCH (ans)<-[anv:VOTED_ON {status: 'disagree'}]-()
@@ -464,8 +464,8 @@ export class OpenQuestionSchema {
                }) as directlyRelatedQuestions,
                d.id as discussionId
         
-        // Get answer statements separately to avoid aggregation issues
-        OPTIONAL MATCH (oq)<-[:ANSWERS]-(ans:StatementNode)
+        // Get answer statements separately - FIXED: Correct relationship direction (Statement -> Question)
+        OPTIONAL MATCH (ans:StatementNode)-[:ANSWERS]->(oq)
         WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
         
         // Get vote counts for each answer individually
@@ -730,9 +730,9 @@ export class OpenQuestionSchema {
         // Get associated discussion and comments to delete as well
         OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
-        // Remove ANSWERS relationships but keep the statement nodes
-        OPTIONAL MATCH (oq)<-[ans:ANSWERS]-(s:StatementNode)
-        DELETE ans
+        // Remove ANSWERS relationships but keep the statement nodes (FIXED: Correct direction)
+        OPTIONAL MATCH (ans:StatementNode)-[answersRel:ANSWERS]->(oq)
+        DELETE answersRel
         // Delete question, discussion, and comments
         DETACH DELETE oq, d, c
         `,
@@ -1102,6 +1102,7 @@ export class OpenQuestionSchema {
 
   /**
    * Creates an ANSWERS relationship between a statement and this open question
+   * FIXED: Now creates Statement -> Question relationship (Statement ANSWERS Question)
    */
   async linkAnswerToQuestion(questionId: string, statementId: string) {
     try {
@@ -1122,7 +1123,7 @@ export class OpenQuestionSchema {
         MATCH (oq:OpenQuestionNode {id: $questionId})
         MATCH (s:StatementNode {id: $statementId})
         
-        // Create ANSWERS relationship
+        // Create ANSWERS relationship (Statement -> Question)
         MERGE (s)-[r:ANSWERS]->(oq)
         ON CREATE SET r.createdAt = datetime()
         
@@ -1161,6 +1162,7 @@ export class OpenQuestionSchema {
 
   /**
    * Removes an ANSWERS relationship between a statement and this open question
+   * FIXED: Now removes Statement -> Question relationship
    */
   async unlinkAnswerFromQuestion(questionId: string, statementId: string) {
     try {
@@ -1207,6 +1209,7 @@ export class OpenQuestionSchema {
 
   /**
    * Gets all statements that answer this open question
+   * FIXED: Now uses Statement -> Question relationship direction
    */
   async getQuestionAnswers(questionId: string) {
     try {
@@ -1218,7 +1221,7 @@ export class OpenQuestionSchema {
 
       const result = await this.neo4jService.read(
         `
-        MATCH (oq:OpenQuestionNode {id: $questionId})<-[:ANSWERS]-(s:StatementNode)
+        MATCH (s:StatementNode)-[:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})
         WHERE s.visibilityStatus <> false OR s.visibilityStatus IS NULL
         
         // Get vote counts for each answer

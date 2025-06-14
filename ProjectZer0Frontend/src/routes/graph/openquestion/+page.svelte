@@ -13,7 +13,7 @@
     import { openQuestionStore } from '$lib/stores/openQuestionStore';
     import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
     import { graphStore } from '$lib/stores/graphStore';
-    import { getNetVotes } from '$lib/components/graph/nodes/utils/nodeUtils';
+    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import type { 
         GraphData, 
         GraphNode, 
@@ -30,8 +30,10 @@
         isOpenQuestionNode, 
         isStatementNode, 
         isNavigationNode,
+        isStatementData,
         isStatementAnswerFormNode
     } from '$lib/types/graph/enhanced';
+    import type { StatementNode as StatementNodeType } from '$lib/types/domain/nodes';
 
     export let data: GraphPageData;
 
@@ -166,6 +168,21 @@
         statementAnswerFormNodeId = '';
     }
 
+    // Handle node visibility changes  
+    function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
+        const { nodeId, isHidden } = event.detail;
+        
+        // Update visibility preference - note that isVisible is the opposite of isHidden
+        if (typeof window !== 'undefined' && visibilityStore) {
+            visibilityStore.setPreference(nodeId, !isHidden, 'user');
+        }
+        
+        // Update node visibility in graph
+        if (graphStore) {
+            graphStore.updateNodeVisibility(nodeId, isHidden, 'user');
+        }
+    }
+
     // Get question data from store or initial data
     $: questionData = $openQuestionStore || initialQuestionData;
     
@@ -232,17 +249,58 @@
             return { nodes: [], links: [] };
         }
 
-        // Get answers safely, filtering out any with null IDs
-        const answers = (normalizedQuestionData.answers || []).filter(answer => 
-            answer && answer.id !== null && answer.id !== undefined
-        );
+        // CRITICAL FIX: Better handling of answers array
+        const rawAnswers = normalizedQuestionData.answers || [];
+        console.log('[OpenQuestion] Raw answers from backend:', rawAnswers);
         
-        console.log('[OpenQuestion] Filtered answers:', answers);
+        // Additional debug: Check the actual structure of answers
+        if (rawAnswers.length > 0) {
+            console.log('[OpenQuestion] First answer structure:', {
+                answer: rawAnswers[0],
+                keys: Object.keys(rawAnswers[0] || {}),
+                hasId: !!rawAnswers[0]?.id,
+                hasStatement: !!rawAnswers[0]?.statement,
+                idType: typeof rawAnswers[0]?.id,
+                statementType: typeof rawAnswers[0]?.statement
+            });
+        }
+        
+        // Filter out invalid answers and convert to proper format
+        const validAnswers = rawAnswers.filter(answer => {
+            const isValid = answer && 
+                           answer.id && 
+                           typeof answer.id === 'string' && 
+                           answer.id.trim() !== '' &&
+                           answer.statement &&
+                           typeof answer.statement === 'string';
+            
+            if (!isValid) {
+                console.warn('[OpenQuestion] Invalid answer filtered out:', {
+                    answer,
+                    hasAnswer: !!answer,
+                    hasId: !!answer?.id,
+                    idType: typeof answer?.id,
+                    hasStatement: !!answer?.statement,
+                    statementType: typeof answer?.statement
+                });
+            }
+            return isValid;
+        });
+        
+        console.log('[OpenQuestion] Valid answers after filtering:', validAnswers);
         
         // Sort answers by netVotes to establish rank order (highest first)
-        const sortedAnswers = [...answers].sort((a, b) => 
-            b.netVotes - a.netVotes
-        );
+        const sortedAnswers = [...validAnswers].sort((a, b) => {
+            const aVotes = typeof a.netVotes === 'number' ? a.netVotes : 0;
+            const bVotes = typeof b.netVotes === 'number' ? b.netVotes : 0;
+            return bVotes - aVotes;
+        });
+
+        console.log('[OpenQuestion] Sorted answers:', sortedAnswers.map(a => ({
+            id: a.id,
+            statement: a.statement.substring(0, 50) + '...',
+            netVotes: a.netVotes
+        })));
 
         // Create question node with mode
         const baseNodes = [
@@ -258,34 +316,73 @@
             baseNodes.push(statementAnswerFormNode);
         }
 
-        // Only create answer nodes if we have valid answers
-        const answerNodes: GraphNode[] = sortedAnswers.map((answer, index) => ({
-            id: answer.id,
-            type: 'statement' as NodeType,
-            data: {
+        // Create statement nodes for answers - FIXED: Proper StatementNode structure
+        const answerStatementNodes: GraphNode[] = sortedAnswers.map((answer, index) => {
+            // CRITICAL: Convert netVotes to proper positive/negative vote counts
+            const netVotes = typeof answer.netVotes === 'number' ? answer.netVotes : 0;
+            const positiveVotes = Math.max(0, netVotes);
+            const negativeVotes = Math.max(0, -netVotes);
+            
+            // Create a proper StatementNode data structure
+            const statementData: StatementNodeType = {
                 id: answer.id,
-                statement: answer.statement || '',
-                createdBy: answer.createdBy || '',
+                statement: answer.statement,
+                createdBy: answer.createdBy || 'unknown',
+                publicCredit: answer.publicCredit !== undefined ? answer.publicCredit : true,
                 createdAt: answer.createdAt || new Date().toISOString(),
-                positiveVotes: answer.netVotes > 0 ? answer.netVotes : 0,
-                negativeVotes: answer.netVotes < 0 ? Math.abs(answer.netVotes) : 0,
-                publicCredit: true, // Default value
-                keywords: [], // Will be populated by backend
-                relatedStatements: []
-            },
-            group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup, // Reuse definition groups
-            mode: 'preview' as NodeMode
-        }));
+                updatedAt: answer.createdAt || new Date().toISOString(), // Use createdAt as fallback
+                positiveVotes: positiveVotes,
+                negativeVotes: negativeVotes,
+                keywords: [], // Will be populated by backend if needed
+                relatedStatements: [] // Will be populated by backend if needed
+            };
 
-        // Create links for answers
-        const answerLinks: GraphLink[] = sortedAnswers.length > 0 
-            ? sortedAnswers.map((answer, index) => ({
-                id: `${centralQuestionNode.id}-${answer.id}-${Date.now()}-${index}`,
+            const statementNode: GraphNode = {
+                id: answer.id,
+                type: 'statement' as NodeType,
+                data: statementData,
+                group: (index === 0 ? 'live-definition' : 'alternative-definition') as NodeGroup,
+                mode: 'preview' as NodeMode
+            };
+
+            console.log('[OpenQuestion] Created statement node:', {
+                id: statementNode.id,
+                statement: statementData.statement.substring(0, 50) + '...',
+                group: statementNode.group,
+                positiveVotes: statementData.positiveVotes,
+                negativeVotes: statementData.negativeVotes,
+                originalNetVotes: answer.netVotes
+            });
+
+            return statementNode;
+        });
+
+        // Create links between question and answers - FIXED: Better link creation
+        const answerLinks: GraphLink[] = sortedAnswers.map((answer, index) => {
+            const linkId = `${centralQuestionNode.id}-answers-${answer.id}`;
+            const linkType = index === 0 ? 'live' : 'alternative';
+            
+            const link: GraphLink = {
+                id: linkId,
                 source: centralQuestionNode.id,
                 target: answer.id,
-                type: (index === 0 ? 'live' : 'alternative') as LinkType
-            }))
-            : [];
+                type: linkType as LinkType,
+                metadata: {
+                    relationshipType: 'answers',
+                    answerRank: index + 1
+                }
+            };
+
+            console.log('[OpenQuestion] Created answer link:', {
+                id: link.id,
+                source: link.source,
+                target: link.target,
+                type: link.type,
+                answerRank: index + 1
+            });
+
+            return link;
+        });
 
         // Create link for statement answer form if it exists
         const formLinks: GraphLink[] = statementAnswerFormNode ? [{
@@ -295,27 +392,17 @@
             type: 'alternative' as LinkType
         }] : [];
 
-        console.log('[OpenQuestion] Creating graph data:', {
-            centralNode: centralQuestionNode.id,
-            navigationCount: navigationNodes.length,
-            answerCount: answerNodes.length,
-            showStatementAnswerForm: showStatementAnswerForm,
-            formNode: statementAnswerFormNode?.id || 'none',
-            linkCount: answerLinks.length + formLinks.length,
-            validAnswers: answers,
-            invalidAnswers: normalizedQuestionData.answers?.filter(a => !a || !a.id) || []
-        });
-
         // Log final graph data before return
         console.log('[OpenQuestion] Final graph data before return:', {
-            totalNodes: [...baseNodes, ...answerNodes].length,
+            totalNodes: [...baseNodes, ...answerStatementNodes].length,
             baseNodesCount: baseNodes.length,
             hasFormNode: baseNodes.some(n => n.type === 'statement-answer-form'),
-            formNodeInBaseNodes: baseNodes.find(n => n.type === 'statement-answer-form')
+            formNodeInBaseNodes: baseNodes.find(n => n.type === 'statement-answer-form'),
+            answerNodes: answerStatementNodes.length
         });
 
         return {
-            nodes: [...baseNodes, ...answerNodes],
+            nodes: [...baseNodes, ...answerStatementNodes],
             links: [...answerLinks, ...formLinks]
         };
     }
@@ -342,6 +429,20 @@
             id: n.id,
             type: n.type
         })));
+        
+        // Also log if we have the expected number of answer nodes
+        const answerNodeCount = graphData.nodes.filter(n => n.type === 'statement').length;
+        const expectedAnswerCount = normalizedQuestionData?.answers?.length || 0;
+        
+        if (answerNodeCount !== expectedAnswerCount) {
+            console.warn('[OpenQuestion] Answer node count mismatch:', {
+                expected: expectedAnswerCount,
+                actual: answerNodeCount,
+                rawAnswers: normalizedQuestionData?.answers
+            });
+        } else {
+            console.log('[OpenQuestion] Answer node count matches expected:', answerNodeCount);
+        }
     }
 
     // Initialize on mount
@@ -374,6 +475,7 @@
         data={graphData}
         viewType={viewType}
         on:modechange={handleNodeModeChange}
+        on:visibilitychange={handleVisibilityChange}
         on:answerQuestion={handleAnswerQuestion}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
@@ -387,8 +489,9 @@
             {:else if isStatementNode(node)}
                 <StatementNode 
                     {node}
-                    statementText={node.data.statement}
+                    statementText={isStatementData(node.data) ? node.data.statement : ''}
                     on:modeChange={handleModeChange}
+                    on:visibilityChange={(e) => handleVisibilityChange(new CustomEvent('visibilityChange', { detail: { nodeId: node.id, isHidden: e.detail.isHidden } }))}
                 />
             {:else if isNavigationNode(node)}
                 <NavigationNode 

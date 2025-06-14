@@ -898,6 +898,7 @@ export class OpenQuestionService {
 
   /**
    * Creates a statement that answers this open question
+   * FIXED: Now properly passes parentNode to statement service
    */
   async createAnswerStatement(
     questionId: string,
@@ -918,14 +919,24 @@ export class OpenQuestionService {
         );
       }
 
-      // Create the statement using the statement service
-      const statement = await this.statementService.createStatement(answerData);
+      // FIXED: Create the statement with parentNode information
+      // This ensures the statement service knows to create an ANSWERS relationship
+      const statementData = {
+        ...answerData,
+        parentNode: {
+          id: questionId,
+          type: 'OpenQuestionNode' as const,
+          relationshipType: 'ANSWERS',
+        },
+      };
 
-      // Link the statement as an answer to this question
-      await this.openQuestionSchema.linkAnswerToQuestion(
-        questionId,
-        statement.id,
-      );
+      // Create the statement using the statement service
+      const statement =
+        await this.statementService.createStatement(statementData);
+
+      // NOTE: We no longer need to manually link the statement as an answer
+      // because the statement service now handles this when parentNode is provided
+      // The old code that called linkAnswerToQuestion is no longer needed
 
       this.logger.debug(
         `Created answer statement ${statement.id} for question ${questionId}`,

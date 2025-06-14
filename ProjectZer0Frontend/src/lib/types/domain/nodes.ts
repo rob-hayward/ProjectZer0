@@ -72,6 +72,7 @@ export interface AnswerStatement {
     statement: string;
     createdBy: string;
     createdAt: string;
+    publicCredit?: boolean; // ADD THIS PROPERTY
     netVotes: number;
 }
 

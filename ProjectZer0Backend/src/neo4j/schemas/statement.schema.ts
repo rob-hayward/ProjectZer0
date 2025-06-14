@@ -245,9 +245,16 @@ export class StatementSchema {
     }
   }
 
-  // src/neo4j/schemas/statement.schema.ts
+  private getDefaultRelationshipType(parentNodeType: string): string {
+    const relationshipMap = {
+      OpenQuestionNode: 'ANSWERS',
+      StatementNode: 'RELATED_TO',
+      QuantityNode: 'RESPONDS_TO',
+    };
 
-  // Update the createStatement method
+    return relationshipMap[parentNodeType] || 'RELATED_TO';
+  }
+
   async createStatement(statementData: {
     id: string;
     createdBy: string;
@@ -271,20 +278,20 @@ export class StatementSchema {
 
       // Build the base query
       let query = `
-      // Create the statement node
-      CREATE (s:StatementNode {
-        id: $id,
-        createdBy: $createdBy,
-        publicCredit: $publicCredit,
-        statement: $statement,
-        initialComment: $initialComment,
-        createdAt: datetime(),
-        updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0,
-        netVotes: 0
-      })
-    `;
+    // Create the statement node
+    CREATE (s:StatementNode {
+      id: $id,
+      createdBy: $createdBy,
+      publicCredit: $publicCredit,
+      statement: $statement,
+      initialComment: $initialComment,
+      createdAt: datetime(),
+      updatedAt: datetime(),
+      positiveVotes: 0,
+      negativeVotes: 0,
+      netVotes: 0
+    })
+  `;
 
       // Handle parent node relationship if provided
       if (statementData.parentNode) {
@@ -292,65 +299,88 @@ export class StatementSchema {
           statementData.parentNode.relationshipType ||
           this.getDefaultRelationshipType(statementData.parentNode.type);
 
-        query += `
-        WITH s
-        MATCH (parent:${statementData.parentNode.type} {id: $parentNodeId})
-        CREATE (parent)-[:${relationshipType}]->(s)
-      `;
+        // Log the relationship being created
+        this.logger.debug(
+          `Creating relationship: ${relationshipType} from statement to ${statementData.parentNode.type}`,
+        );
+
+        // FIXED: Create relationship FROM statement TO parent for ANSWERS relationship
+        // This ensures (Statement)-[:ANSWERS]->(OpenQuestion) which is semantically correct
+        if (relationshipType === 'ANSWERS') {
+          query += `
+      WITH s
+      MATCH (parent:${statementData.parentNode.type} {id: $parentNodeId})
+      CREATE (s)-[:${relationshipType}]->(parent)
+    `;
+        } else {
+          // For other relationship types, keep the original direction
+          query += `
+      WITH s
+      MATCH (parent:${statementData.parentNode.type} {id: $parentNodeId})
+      CREATE (parent)-[:${relationshipType}]->(s)
+    `;
+        }
       }
 
-      // Continue with the rest of the query for keywords and discussion
-      query += `
-      // Process each keyword
-      WITH s
-      UNWIND $keywords as keyword
-      
-      // Find word node for each keyword (don't create - already done by WordService)
-      MATCH (w:WordNode {word: keyword.word})
-      
-      // Create TAGGED relationship with frequency and source
-      CREATE (s)-[:TAGGED {
-        frequency: keyword.frequency,
-        source: keyword.source
-      }]->(w)
-      
-      // Connect to other statements that share this keyword
-      WITH s, w, keyword
-      MATCH (o:StatementNode)-[t:TAGGED]->(w)
-      WHERE o.id <> s.id
-      
-      // Create SHARED_TAG relationships between statements
+      // CRITICAL FIX: Handle keywords only if they exist and are not empty
+      if (statementData.keywords && statementData.keywords.length > 0) {
+        query += `
+    // Process each keyword
+    WITH s
+    UNWIND $keywords as keyword
+    
+    // Find word node for each keyword (don't create - already done by WordService)
+    MATCH (w:WordNode {word: keyword.word})
+    
+    // Create TAGGED relationship with frequency and source
+    CREATE (s)-[:TAGGED {
+      frequency: keyword.frequency,
+      source: keyword.source
+    }]->(w)
+    
+    // Connect to other statements that share this keyword
+    WITH s, w, keyword
+    OPTIONAL MATCH (o:StatementNode)-[t:TAGGED]->(w)
+    WHERE o.id <> s.id
+    
+    // Create SHARED_TAG relationships between statements only if other statements exist
+    FOREACH (dummy IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
       MERGE (s)-[st:SHARED_TAG {word: w.word}]->(o)
       ON CREATE SET st.strength = keyword.frequency * t.frequency
       ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-      
-      // Create discussion node automatically
-      WITH DISTINCT s
-      CREATE (d:DiscussionNode {
-        id: apoc.create.uuid(),
-        createdAt: datetime(),
-        createdBy: $createdBy,
-        visibilityStatus: true
-      })
-      CREATE (s)-[:HAS_DISCUSSION]->(d)
-      
-      // Create initial comment only if provided
-      WITH s, d, $initialComment as initialComment
-      WHERE initialComment IS NOT NULL AND size(initialComment) > 0
-      CREATE (c:CommentNode {
-        id: apoc.create.uuid(),
-        createdBy: $createdBy,
-        commentText: initialComment,
-        createdAt: datetime(),
-        updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0,
-        visibilityStatus: true
-      })
-      CREATE (d)-[:HAS_COMMENT]->(c)
-      
-      RETURN s
+    )
     `;
+      }
+
+      // Continue with discussion creation
+      query += `
+    // Create discussion node automatically
+    WITH DISTINCT s
+    CREATE (d:DiscussionNode {
+      id: apoc.create.uuid(),
+      createdAt: datetime(),
+      createdBy: $createdBy,
+      visibilityStatus: true
+    })
+    CREATE (s)-[:HAS_DISCUSSION]->(d)
+    
+    // Create initial comment only if provided
+    WITH s, d, $initialComment as initialComment
+    WHERE initialComment IS NOT NULL AND size(initialComment) > 0
+    CREATE (c:CommentNode {
+      id: apoc.create.uuid(),
+      createdBy: $createdBy,
+      commentText: initialComment,
+      createdAt: datetime(),
+      updatedAt: datetime(),
+      positiveVotes: 0,
+      negativeVotes: 0,
+      visibilityStatus: true
+    })
+    CREATE (d)-[:HAS_COMMENT]->(c)
+    
+    RETURN s
+  `;
 
       // Prepare parameters
       const params: any = {
@@ -358,19 +388,26 @@ export class StatementSchema {
         createdBy: statementData.createdBy,
         publicCredit: statementData.publicCredit,
         statement: statementData.statement,
-        initialComment: statementData.initialComment,
-        keywords: statementData.keywords,
+        initialComment: statementData.initialComment || '',
       };
+
+      // Only add keywords if they exist and are not empty
+      if (statementData.keywords && statementData.keywords.length > 0) {
+        params.keywords = statementData.keywords;
+      }
 
       // Add parent node ID if provided
       if (statementData.parentNode) {
         params.parentNodeId = statementData.parentNode.id;
       }
 
+      // Log the final query and params for debugging
+      this.logger.debug(`Executing createStatement query with params:`, params);
+
       const result = await this.neo4jService.write(query, params);
 
       if (!result.records || result.records.length === 0) {
-        throw new Error('Failed to create statement');
+        throw new Error('Failed to create statement - no records returned');
       }
 
       const createdStatement = result.records[0].get('s').properties;
@@ -403,7 +440,7 @@ export class StatementSchema {
       // Handle the case where the parent node doesn't exist
       if (error.message && error.message.includes('no rows available')) {
         throw new BadRequestException(
-          `Parent node not found or invalid parent node type`,
+          `Parent node not found: ${statementData.parentNode?.id}. Please ensure the question exists.`,
         );
       }
 
@@ -414,19 +451,14 @@ export class StatementSchema {
         );
       }
 
+      // Handle Neo4j syntax errors
+      if (error.message && error.message.includes('SyntaxError')) {
+        this.logger.error(`Cypher syntax error: ${error.message}`);
+        throw new Error(`Database query error: ${error.message}`);
+      }
+
       throw new Error(`Failed to create statement: ${error.message}`);
     }
-  }
-
-  // Add helper method to determine default relationship types
-  private getDefaultRelationshipType(parentNodeType: string): string {
-    const relationshipMap = {
-      OpenQuestionNode: 'ANSWERS',
-      StatementNode: 'RELATED_TO',
-      QuantityNode: 'RESPONDS_TO',
-    };
-
-    return relationshipMap[parentNodeType] || 'RELATED_TO';
   }
 
   async getStatement(id: string) {

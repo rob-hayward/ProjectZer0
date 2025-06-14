@@ -497,7 +497,11 @@
                     {node}
                     statementText={isStatementData(node.data) ? node.data.statement : ''}
                     on:modeChange={handleModeChange}
-                    on:visibilityChange={(e) => handleVisibilityChange(e)}
+                    on:visibilityChange={(e) => handleVisibilityChange(
+                        new CustomEvent('visibilitychange', {
+                            detail: { nodeId: node.id, ...e.detail }
+                        })
+                    )}
                 />
             {:else if node.id === controlNodeId}
                 <ControlNode 
