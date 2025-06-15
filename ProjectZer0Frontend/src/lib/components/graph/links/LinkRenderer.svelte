@@ -237,11 +237,13 @@
     }
     
     /**
-     * Get the stroke-dasharray for the link
+     * ENHANCED: Get the stroke-dasharray for the link
      * Used to create dashed lines for form links
+     * Now also checks metadata for custom dash patterns
      */
     $: dashArray = (isCommentForm || isReplyForm) ? '5,5' : 
                    (isAnswerLink && link.targetType === 'statement-answer-form') ? '5,5' : // Dashed for form links
+                   (link.metadata?.isDashed || link.metadata?.linkStyle === 'form') ? '5,5' : // ENHANCED: Check metadata
                    'none';
 </script>
 
@@ -303,6 +305,7 @@
             d={link.path}
             stroke={`url(#${gradientId})`}
             class="link-path"
+            class:dashed-link={dashArray !== 'none'}
             stroke-width={strokeWidth}
             stroke-linecap="round"
             stroke-dasharray={dashArray}
@@ -336,5 +339,16 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         vector-effect: non-scaling-stroke;
+    }
+    
+    /* ENHANCED: Add animation for dashed links */
+    .dashed-link {
+        animation: dash-flow 20s linear infinite;
+    }
+    
+    @keyframes dash-flow {
+        to {
+            stroke-dashoffset: -100;
+        }
     }
 </style>

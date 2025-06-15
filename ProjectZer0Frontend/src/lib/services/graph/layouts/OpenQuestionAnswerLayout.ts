@@ -5,14 +5,14 @@ import { NavigationNodeLayout } from './common/NavigationNodeLayout';
 import type { EnhancedNode, EnhancedLink } from '../../../types/graph/enhanced';
 import { asD3Nodes, asD3Links } from '../../../types/graph/enhanced';
 import type { 
-    GraphData, 
     ViewType, 
     NodeMode, 
     NodeType,
     GraphNode,
-    GraphLink
+    GraphLink,
+    NodeMetadata
 } from '$lib/types/graph/enhanced';
-import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../constants/graph';
+import { COORDINATE_SPACE } from '../../../constants/graph';
 
 /**
  * Layout strategy for open question and statement nodes (as answers)
@@ -26,6 +26,7 @@ import { COORDINATE_SPACE, FORCE_SIMULATION } from '../../../constants/graph';
  * - Smooth transitions between preview and detail modes
  * - Support for hidden nodes with smaller size and adjusted positioning
  * - All statements use standard statement node styling
+ * - Statement answer form positioned dynamically based on viewport
  */
 export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
     private readonly GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
@@ -36,6 +37,11 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
     private expandedStatements: Map<string, { ringIndex: number, adjustment: number }> = new Map();
     // Track hidden statements and their ring indices
     private hiddenNodes: Map<string, { ringIndex: number, adjustment: number }> = new Map();
+    
+    // Track pending form position for when it's created
+    private _pendingAnswerForm: {
+        position: { x: number; y: number };
+    } | null = null;
 
     constructor(width: number, height: number, viewType: ViewType) {
         super(width, height, viewType);
@@ -71,12 +77,11 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         
         const remainingForces = Object.keys(sim._forces || {});
         if (remainingForces.length > 0) {
-            console.warn('[OpenQuestionAnswerLayout] Some forces still remain:', remainingForces);
             remainingForces.forEach(name => {
                 try {
                     sim.force(name, null);
                 } catch (e) {
-                    console.warn(`[OpenQuestionAnswerLayout] Cannot remove force: ${name}`);
+                    // Ignore errors
                 }
             });
         }
@@ -124,23 +129,36 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             centralNode.metadata.fixed = true;
         }
 
-        // In initializeNodePositions method, add handling for statement-answer-form
+        // ENHANCED: Position statement answer form dynamically
         const statementAnswerForm = nodes.find(n => n.type === 'statement-answer-form');
         if (statementAnswerForm) {
-            // Position it below the central node
-            statementAnswerForm.x = 0;
-            statementAnswerForm.y = (centralNode?.radius || 200) + 150; // Below the central node
+            // Position it to the left and slightly below the central node, similar to how reply forms work
+            const centralRadius = this.getNodeRadius(centralNode);
+            const formRadius = this.getNodeRadius(statementAnswerForm);
+            
+            // Calculate position at 7:30 position (225 degrees) from center
+            const angle = (225 * Math.PI) / 180; // Convert to radians
+            const distance = centralRadius + formRadius + 100; // Add spacing
+            
+            statementAnswerForm.x = Math.cos(angle) * distance;
+            statementAnswerForm.y = Math.sin(angle) * distance;
             statementAnswerForm.fx = statementAnswerForm.x;
             statementAnswerForm.fy = statementAnswerForm.y;
             
-            console.debug('[OpenQuestionAnswerLayout] Positioned statement answer form', {
-                id: statementAnswerForm.id,
+            // Store this position for later reference if needed
+            this._pendingAnswerForm = {
                 position: { x: statementAnswerForm.x, y: statementAnswerForm.y }
+            };
+            
+            console.debug('[OpenQuestionAnswerLayout] Positioned statement answer form dynamically', {
+                id: statementAnswerForm.id,
+                position: { x: statementAnswerForm.x, y: statementAnswerForm.y },
+                angle: angle * (180 / Math.PI),
+                distance
             });
         }
 
         // CRITICAL: Position navigation nodes AFTER setting central node position
-        // This ensures they calculate distance from the correct central node size
         NavigationNodeLayout.positionNavigationNodes(
             nodes, 
             this.getNodeRadius.bind(this)
@@ -202,6 +220,49 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
     }
 
     /**
+     * Handle the start of answering a question
+     * This is called when the answer button is clicked
+     */
+    public handleAnswerStart(questionId: string): void {
+        console.log(`[OpenQuestionAnswerLayout] Handling answer start for question: ${questionId}`);
+        
+        // Get current nodes
+        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+        
+        // Find the central question node
+        const centralNode = nodes.find(n => n.id === questionId || n.group === 'central');
+        if (!centralNode) {
+            console.warn(`[OpenQuestionAnswerLayout] Central question node not found`);
+            return;
+        }
+        
+        // Calculate where the form should appear
+        const centralRadius = this.getNodeRadius(centralNode);
+        const formRadius = 300; // Approximate form radius
+        
+        // Position at 7:30 position (225 degrees) from center
+        const angle = (225 * Math.PI) / 180;
+        const distance = centralRadius + formRadius + 100;
+        
+        const formX = Math.cos(angle) * distance;
+        const formY = Math.sin(angle) * distance;
+        
+        // Store this information for use when the form is actually created
+        this._pendingAnswerForm = {
+            position: { x: formX, y: formY }
+        };
+        
+        console.log(`[OpenQuestionAnswerLayout] Prepared for answer form at position (${formX}, ${formY})`);
+    }
+
+    /**
+     * Get the pending form position if available
+     */
+    public getPendingFormPosition(): { x: number; y: number } | null {
+        return this._pendingAnswerForm?.position || null;
+    }
+
+    /**
      * Ensure positions are fixed
      */
     public enforceFixedPositions(): void {
@@ -250,8 +311,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         const oldMode = node.mode;
         const oldRadius = node.radius;
         
-        // CRITICAL: Don't update node properties here - GraphManager already did it
-        // Just log the change for debugging
         console.debug('[OpenQuestionAnswerLayout] Node mode change detected', {
             nodeId,
             oldMode,
@@ -540,7 +599,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         const questionNode = (this.simulation.nodes() as unknown as EnhancedNode[])
             .find(n => n.fixed || n.group === 'central');
         
-        // FIXED: Use OPENQUESTION sizes instead of WORD sizes
         const questionAdjustment = questionNode?.mode === 'preview' ?
             (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL - COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW) / 2 :
             0;
@@ -621,7 +679,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         const questionNode = (this.simulation.nodes() as unknown as EnhancedNode[])
             .find(n => n.fixed || n.group === 'central');
         
-        // FIXED: Use OPENQUESTION sizes instead of WORD sizes
         const questionAdjustment = questionNode?.mode === 'preview' ?
             (COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL - COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW) / 2 :
             0;

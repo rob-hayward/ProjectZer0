@@ -56,6 +56,9 @@
     
     // Declare graphData variable
     let graphData: GraphData = { nodes: [], links: [] };
+    
+    // Reference to Graph component for viewport control
+    let graphComponent: any;
 
     // Initialize data and authenticate user
     async function initializeData() {
@@ -139,25 +142,173 @@
             console.log('[OpenQuestion Page] Form node exists in graphData:', 
                 graphData.nodes.some((n: GraphNode) => n.id === statementAnswerFormNodeId)
             );
+            
+            // ENHANCEMENT: Center viewport on the form after a short delay
+            setTimeout(() => {
+                if (!graphComponent) {
+                    console.log('[OpenQuestion Page] No graphComponent available');
+                    return;
+                }
+                
+                // Try to center on the form node
+                if (typeof graphComponent.centerOnNodeById === 'function') {
+                    console.log('[OpenQuestion Page] Centering on form node:', statementAnswerFormNodeId);
+                    graphComponent.centerOnNodeById(statementAnswerFormNodeId);
+                }
+            }, 300); // 300ms delay to allow layout to stabilize
         });
     }
 
-    function handleStatementAnswerFormSuccess(event: CustomEvent<{ statementId: string; message: string }>) {
-        console.log('Statement answer form success:', event.detail);
+    async function handleStatementAnswerFormSuccess(event: CustomEvent<{ statementId: string; message: string }>) {
+        console.log('[OpenQuestion Page] Statement answer form success:', event.detail);
         
-        // Hide the form
+        const receivedStatementId = event.detail.statementId;
+        
+        // Store the current answer IDs before update
+        const previousAnswerIds = new Set(
+            normalizedQuestionData?.answers?.map(a => a.id) || []
+        );
+        console.log('[OpenQuestion Page] Previous answer IDs:', Array.from(previousAnswerIds));
+        
+        // Hide the form immediately
         showStatementAnswerForm = false;
         statementAnswerFormNodeId = '';
         
         // Reload the question data to get the new answer
         if (questionData) {
-            getOpenQuestionData(questionData.id).then((updatedQuestion) => {
+            try {
+                const updatedQuestion = await getOpenQuestionData(questionData.id);
                 if (updatedQuestion) {
+                    console.log('[OpenQuestion Page] Updated question data received');
+                    
+                    // Update stores
                     openQuestionStore.set(updatedQuestion);
                     openQuestionViewStore.setQuestionData(updatedQuestion);
+                    
+                    // Force graph data update and wait for it
+                    await tick();
+                    
+                    // Force the graph data to rebuild
+                    graphData = createGraphData();
+                    
+                    // Wait another tick for the graph to process the new data
+                    await tick();
+                    
+                    // Determine which statement to center on
+                    let statementIdToCenter: string | null = null;
+                    
+                    if (receivedStatementId === 'pending-find-newest') {
+                        // Find the new answer by comparing with previous IDs
+                        console.log('[OpenQuestion Page] Finding new answer by comparing IDs...');
+                        
+                        if (updatedQuestion.answers) {
+                            for (const answer of updatedQuestion.answers) {
+                                if (!previousAnswerIds.has(answer.id)) {
+                                    statementIdToCenter = answer.id;
+                                    console.log('[OpenQuestion Page] Found new answer that wasn\'t in previous list:', {
+                                        id: answer.id,
+                                        statement: answer.statement.substring(0, 50) + '...'
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (!statementIdToCenter) {
+                            console.error('[OpenQuestion Page] Could not find new answer by ID comparison');
+                        }
+                    } else if (receivedStatementId && receivedStatementId !== 'pending-reload') {
+                        // Normal case - we have the statement ID
+                        statementIdToCenter = receivedStatementId;
+                        console.log('[OpenQuestion Page] Using provided statement ID:', statementIdToCenter);
+                        
+                        // Verify it exists in the updated data
+                        const nodeExists = updatedQuestion.answers?.some(a => a.id === statementIdToCenter);
+                        if (!nodeExists) {
+                            console.error('[OpenQuestion Page] Provided statement ID not found in updated answers!');
+                            statementIdToCenter = null;
+                        }
+                    }
+                    
+                    // Center on the statement if we found one
+                    if (statementIdToCenter) {
+                        const finalId = statementIdToCenter;
+                        console.log('[OpenQuestion Page] Will center on statement:', finalId);
+                        
+                        // Wait for layout to stabilize, then center
+                        setTimeout(() => {
+                            console.log('[OpenQuestion Page] Attempting to center after delay on:', finalId);
+                            centerOnNewNode(finalId);
+                        }, 1000); // Increased delay to ensure layout is fully stable
+                    }
                 }
-            });
+            } catch (error) {
+                console.error('[OpenQuestion Page] Error reloading question data:', error);
+            }
         }
+    }
+    
+    // Helper function to center on a node with multiple fallback methods
+    function centerOnNewNode(nodeId: string) {
+        console.log('[OpenQuestion Page] centerOnNewNode called for:', nodeId);
+        
+        if (!graphComponent) {
+            console.error('[OpenQuestion Page] Graph component not available');
+            return;
+        }
+        
+        // First, let's check if the node exists in the current graph data
+        const nodeInGraphData = graphData.nodes.find(n => n.id === nodeId);
+        console.log('[OpenQuestion Page] Node in graph data:', nodeInGraphData ? {
+            id: nodeInGraphData.id,
+            type: nodeInGraphData.type,
+            group: nodeInGraphData.group
+        } : 'NOT FOUND');
+        
+        // Method 1: Try direct centerOnNodeById
+        if (typeof graphComponent.centerOnNodeById === 'function') {
+            console.log('[OpenQuestion Page] Trying centerOnNodeById...');
+            const success = graphComponent.centerOnNodeById(nodeId);
+            if (success) {
+                console.log('[OpenQuestion Page] Successfully centered using centerOnNodeById');
+                return;
+            } else {
+                console.log('[OpenQuestion Page] centerOnNodeById returned false');
+            }
+        }
+        
+        // Method 2: Try to get node state and center on coordinates
+        if (typeof graphComponent.getInternalState === 'function') {
+            console.log('[OpenQuestion Page] Trying getInternalState method...');
+            const state = graphComponent.getInternalState();
+            if (state && state.nodes) {
+                console.log('[OpenQuestion Page] Graph state has', state.nodes.length, 'nodes');
+                const node = state.nodes.find((n: any) => n.id === nodeId);
+                if (node && node.position) {
+                    console.log('[OpenQuestion Page] Found node in state:', {
+                        id: node.id,
+                        position: node.position,
+                        type: node.type
+                    });
+                    if (typeof graphComponent.centerViewportOnCoordinates === 'function') {
+                        graphComponent.centerViewportOnCoordinates(node.position.x, node.position.y);
+                        console.log('[OpenQuestion Page] Centered using coordinates');
+                        return;
+                    }
+                } else {
+                    console.log('[OpenQuestion Page] Node not found in state or has no position');
+                }
+            }
+        }
+        
+        // Method 3: Dispatch a custom event (like discussion view does)
+        console.log('[OpenQuestion Page] Falling back to custom event dispatch');
+        window.dispatchEvent(new CustomEvent('center-on-node', { 
+            detail: { 
+                nodeId: nodeId,
+                duration: 750
+            }
+        }));
     }
 
     function handleStatementAnswerFormCancel() {
@@ -241,7 +392,8 @@
             statementAnswerFormNode: !!statementAnswerFormNode,
             formNodeId: statementAnswerFormNode?.id,
             isReady,
-            normalizedQuestionData: !!normalizedQuestionData
+            normalizedQuestionData: !!normalizedQuestionData,
+            answerCount: normalizedQuestionData?.answers?.length || 0
         });
         
         if (!centralQuestionNode || !normalizedQuestionData) {
@@ -384,12 +536,16 @@
             return link;
         });
 
-        // Create link for statement answer form if it exists
+        // ENHANCEMENT: Create link for statement answer form with dashed style metadata
         const formLinks: GraphLink[] = statementAnswerFormNode ? [{
             id: `${centralQuestionNode.id}-${statementAnswerFormNode.id}-form`,
             source: centralQuestionNode.id,
             target: statementAnswerFormNode.id,
-            type: 'alternative' as LinkType
+            type: 'alternative' as LinkType,
+            metadata: {
+                isDashed: true,  // This will make the link render as dashed
+                linkStyle: 'form' // Additional metadata for styling
+            }
         }] : [];
 
         // Log final graph data before return
@@ -454,6 +610,9 @@
     $: if ($openQuestionStore && isReady) {
         // Trigger reactivity by accessing the store value
         const currentQuestion = $openQuestionStore;
+        console.log('[OpenQuestion Page] Store updated, recreating graph data');
+        // Force graph data recreation
+        graphData = createGraphData();
     }
 </script>
 
@@ -472,6 +631,7 @@
     </div>
 {:else}
     <Graph 
+        bind:this={graphComponent}
         data={graphData}
         viewType={viewType}
         on:modechange={handleNodeModeChange}
@@ -501,7 +661,7 @@
             {:else if node.type === 'statement-answer-form'}
                 <StatementAnswerForm 
                     {node}
-                    parentQuestionId={normalizedQuestionData?.id}
+                    parentQuestionId={normalizedQuestionData?.id || undefined}
                     on:modeChange={handleModeChange}
                     on:success={handleStatementAnswerFormSuccess}
                     on:cancel={handleStatementAnswerFormCancel}

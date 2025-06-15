@@ -47,6 +47,12 @@
     let isLoading = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
+    
+    // CRITICAL FIX: Create parentNode object from parentQuestionId
+    $: parentNode = parentQuestionId ? {
+        id: parentQuestionId,
+        type: 'OpenQuestionNode'
+    } : null;
 
     // Style configuration - PURPLE color scheme for statement answers
     const nodeStyle = {
@@ -175,7 +181,7 @@
                         discussion={formData.discussion}
                         publicCredit={formData.publicCredit}
                         userId={userData.sub}
-                        {parentQuestionId}
+                        {parentNode}
                         disabled={isLoading}
                         on:back={handleBack}
                         on:success={handleSuccess}
