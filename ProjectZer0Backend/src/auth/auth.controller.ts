@@ -40,6 +40,17 @@ export class AuthController {
   @Get('callback')
   @UseGuards(AuthGuard('auth0'))
   async callback(@Req() req: AuthenticatedRequest, @Res() res: Response) {
+    // Add debug logs at the very beginning
+    console.log('=== AUTH CALLBACK STARTED ===');
+    console.log('Request URL:', req.url);
+    console.log('Request method:', req.method);
+    console.log('Request headers:', JSON.stringify(req.headers, null, 2));
+    console.log('Request query params:', JSON.stringify(req.query, null, 2));
+    console.log('Request user exists:', !!req.user);
+    console.log('Request user data:', JSON.stringify(req.user, null, 2));
+    console.log('Request session:', JSON.stringify(req.session, null, 2));
+    console.log('============================');
+
     const auth0Profile = req.user;
     try {
       this.logger.log(`Auth0 callback received for user: ${auth0Profile.sub}`);
@@ -58,6 +69,8 @@ export class AuthController {
 
       // Determine if we're in production
       const isProduction = nodeEnv === 'production';
+
+      console.log(`Environment: ${nodeEnv}, Frontend URL: ${frontendUrl}`);
 
       res.cookie('jwt', token, {
         httpOnly: true,
@@ -82,9 +95,16 @@ export class AuthController {
       }
     } catch (error) {
       this.logger.error(`Error in callback: ${error.message}`, error.stack);
-      throw new InternalServerErrorException(
-        'Error during authentication callback: ' + error.message,
-      );
+      console.log('=== CALLBACK ERROR ===');
+      console.log('Error message:', error.message);
+      console.log('Error stack:', error.stack);
+      console.log('====================');
+
+      // Redirect to frontend with error for better UX
+      const frontendUrl =
+        this.configService.get<string>('FRONTEND_URL') ||
+        'http://localhost:5173';
+      res.redirect(`${frontendUrl}?auth_error=callback_failed`);
     }
   }
 
@@ -155,5 +175,29 @@ export class AuthController {
   test() {
     this.logger.debug('Backend reachability test');
     return { message: 'Backend is reachable' };
+  }
+
+  @Get('debug')
+  debug() {
+    const domain = this.configService.get<string>('AUTH0_DOMAIN');
+    const clientId = this.configService.get<string>('AUTH0_CLIENT_ID');
+    const callbackUrl = this.configService.get<string>('AUTH0_CALLBACK_URL');
+    const audience = this.configService.get<string>('AUTH0_AUDIENCE');
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+    const nodeEnv = this.configService.get<string>('NODE_ENV');
+
+    return {
+      environment: nodeEnv,
+      frontendUrl,
+      auth0: {
+        domain,
+        clientId: clientId ? clientId.substring(0, 8) + '...' : 'NOT SET',
+        callbackUrl,
+        audience,
+        hasClientSecret: !!this.configService.get<string>(
+          'AUTH0_CLIENT_SECRET',
+        ),
+      },
+    };
   }
 }
