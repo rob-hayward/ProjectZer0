@@ -53,7 +53,7 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       scope: 'openid profile email',
       state: true, // Explicitly enable state parameter
       store: true, // Use session store for state
-      passReqToCallback: false,
+      passReqToCallback: true, // Enable access to request object
     });
 
     // Post-initialization logging
@@ -62,6 +62,7 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
   }
 
   async validate(
+    req: any,
     accessToken: string,
     refreshToken: string,
     extraParams: any,
@@ -69,6 +70,12 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
   ): Promise<any> {
     try {
       console.log('=== AUTH0 STRATEGY VALIDATE CALLED ===');
+      console.log('Request session ID:', req.sessionID);
+      console.log(
+        'Request session data:',
+        JSON.stringify(req.session, null, 2),
+      );
+      console.log('Request cookies:', JSON.stringify(req.cookies, null, 2));
       console.log('Access Token exists:', !!accessToken);
       console.log('Profile ID:', profile.id || profile.sub);
       console.log('Profile provider:', profile.provider);

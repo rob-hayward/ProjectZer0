@@ -101,7 +101,8 @@ export class AuthController {
         secure: isProduction,
         sameSite: isProduction ? ('none' as const) : ('lax' as const),
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        domain: isProduction ? '.onrender.com' : undefined,
+        // Remove domain setting for Render
+        // domain: isProduction ? '.onrender.com' : undefined,
       };
 
       this.logger.debug(
@@ -174,10 +175,8 @@ export class AuthController {
 
       // Clear JWT cookie
       res.clearCookie('jwt', {
-        domain:
-          this.configService.get<string>('NODE_ENV') === 'production'
-            ? '.onrender.com'
-            : undefined,
+        // Remove domain setting for Render
+        // domain: this.configService.get<string>('NODE_ENV') === 'production' ? '.onrender.com' : undefined,
         path: '/',
       });
 

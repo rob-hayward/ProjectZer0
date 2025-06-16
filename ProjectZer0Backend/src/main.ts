@@ -24,6 +24,12 @@ async function bootstrap() {
   const frontendUrl = configService.get<string>('FRONTEND_URL');
   const isProduction = nodeEnv === 'production';
 
+  // CRITICAL: Set trust proxy for production (required for secure cookies and session handling)
+  if (isProduction) {
+    app.getHttpAdapter().getInstance().set('trust proxy', 1);
+    logger.log('Trust proxy enabled for production');
+  }
+
   // Configure allowed origins based on environment
   const allowedOrigins = isProduction
     ? ['https://projectzer0frontend.onrender.com', frontendUrl].filter(Boolean)
@@ -67,7 +73,8 @@ async function bootstrap() {
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours
         sameSite: isProduction ? 'none' : 'lax',
-        domain: isProduction ? '.onrender.com' : undefined, // Allow subdomain sharing
+        // Remove domain setting for Render - let it use default
+        // domain: isProduction ? '.onrender.com' : undefined,
       },
       // Force session creation for auth flows
       genid: () => {
@@ -95,11 +102,30 @@ async function bootstrap() {
   // Add session debugging middleware
   app.use((req, res, next) => {
     if (req.url.includes('/auth/')) {
+      logger.debug(`=== REQUEST: ${req.method} ${req.url} ===`);
       logger.debug(`Session ID: ${req.sessionID}`);
       logger.debug(`Session data: ${JSON.stringify(req.session)}`);
       logger.debug(`Cookies: ${JSON.stringify(req.cookies)}`);
+      logger.debug(`Headers: ${JSON.stringify(req.headers)}`);
+      logger.debug(`==========================================`);
+
+      // Force session save before auth operations
+      if (req.url.includes('/login') && !req.session.authInitiated) {
+        req.session.authInitiated = true;
+        req.session.save((err) => {
+          if (err) {
+            logger.error('Error saving session during login init:', err);
+          } else {
+            logger.debug('Session saved successfully during login init');
+          }
+          next();
+        });
+      } else {
+        next();
+      }
+    } else {
+      next();
     }
-    next();
   });
 
   // Global validation pipe
