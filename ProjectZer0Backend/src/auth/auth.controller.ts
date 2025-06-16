@@ -52,23 +52,33 @@ export class AuthController {
 
       this.logger.debug(`JWT token created for user: ${user.sub}`);
 
+      // Get environment configuration
+      const nodeEnv = this.configService.get<string>('NODE_ENV', 'development');
+      const frontendUrl = this.configService.get<string>('FRONTEND_URL');
+
+      // Determine if we're in production
+      const isProduction = nodeEnv === 'production';
+
       res.cookie('jwt', token, {
         httpOnly: true,
-        secure: false, // set to false for HTTP in development
-        sameSite: 'lax',
+        secure: isProduction, // Use secure cookies in production
+        sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
       });
+
+      // Use environment-based frontend URL
+      const baseUrl = frontendUrl || 'http://localhost:5173';
 
       if (isNewUser) {
         this.logger.log(
           `New user registered: ${user.sub}, redirecting to profile edit`,
         );
-        res.redirect('http://localhost:5173/edit-profile');
+        res.redirect(`${baseUrl}/edit-profile`);
       } else {
         this.logger.log(
           `Existing user logged in: ${user.sub}, redirecting to dashboard`,
         );
-        res.redirect('http://localhost:5173/graph/dashboard');
+        res.redirect(`${baseUrl}/graph/dashboard`);
       }
     } catch (error) {
       this.logger.error(`Error in callback: ${error.message}`, error.stack);
@@ -120,7 +130,11 @@ export class AuthController {
           );
         }
 
-        const returnTo = encodeURIComponent('http://localhost:5173');
+        // Use environment-based frontend URL
+        const frontendUrl =
+          this.configService.get<string>('FRONTEND_URL') ||
+          'http://localhost:5173';
+        const returnTo = encodeURIComponent(frontendUrl);
         const domain = this.configService.get<string>('AUTH0_DOMAIN');
         const clientId = this.configService.get<string>('AUTH0_CLIENT_ID');
 

@@ -16,22 +16,48 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
+  // Get environment configuration
+  const nodeEnv = configService.get<string>('NODE_ENV', 'development');
+  const frontendUrl = configService.get<string>('FRONTEND_URL');
+  const isProduction = nodeEnv === 'production';
+
+  // Configure allowed origins based on environment
+  const allowedOrigins = isProduction
+    ? ['https://projectzer0frontend.onrender.com', frontendUrl].filter(Boolean) // Remove any null/undefined values
+    : ['http://localhost:5173', 'http://localhost:3000', frontendUrl].filter(
+        Boolean,
+      );
+
+  logger.log(`Environment: ${nodeEnv}`);
+  logger.log(`Allowed CORS origins: ${allowedOrigins.join(', ')}`);
+
   app.enableCors({
-    origin: 'http://localhost:5173',
+    origin: allowedOrigins,
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: [
+      'Origin',
+      'X-Requested-With',
+      'Content-Type',
+      'Accept',
+      'Authorization',
+      'Cache-Control',
+    ],
   });
 
   app.use(cookieParser());
 
   app.use(
     session({
-      secret: configService.get<string>('SESSION_SECRET'),
+      secret:
+        configService.get<string>('SESSION_SECRET') || 'fallback-secret-key',
       resave: false,
       saveUninitialized: false,
       cookie: {
-        secure: false, // set to false for HTTP in development
+        secure: isProduction, // Use secure cookies in production
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours
+        sameSite: isProduction ? 'none' : 'lax', // Allow cross-origin cookies in production
       },
     }),
   );
@@ -62,7 +88,12 @@ async function bootstrap() {
     new AllExceptionsFilter(logger),
   );
 
-  await app.listen(3000);
-  logger.log('Application is running on: http://localhost:3000');
+  // Use port from environment variable or default to 3000
+  const port = configService.get<number>('MAIN_APP_PORT') || 3000;
+  await app.listen(port);
+
+  logger.log(`Application is running on port: ${port}`);
+  logger.log(`Environment: ${nodeEnv}`);
+  logger.log(`Frontend URL: ${frontendUrl || 'Not configured'}`);
 }
 bootstrap();
