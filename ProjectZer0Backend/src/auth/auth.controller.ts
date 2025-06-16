@@ -32,8 +32,20 @@ export class AuthController {
 
   @Get('login')
   @UseGuards(AuthGuard('auth0'))
-  async login() {
+  async login(@Req() req: Request) {
     this.logger.log('Auth0 login initiated');
+    this.logger.debug(`Session ID at login: ${req.sessionID}`);
+    this.logger.debug(`Session data at login: ${JSON.stringify(req.session)}`);
+
+    // Ensure session is saved before redirecting
+    req.session.save((err) => {
+      if (err) {
+        this.logger.error('Error saving session at login:', err);
+      } else {
+        this.logger.debug('Session saved successfully at login');
+      }
+    });
+
     // Auth0 will handle the redirect
   }
 
@@ -48,10 +60,21 @@ export class AuthController {
     console.log('Request query params:', JSON.stringify(req.query, null, 2));
     console.log('Request user exists:', !!req.user);
     console.log('Request user data:', JSON.stringify(req.user, null, 2));
+    console.log('Request session ID:', req.sessionID);
     console.log('Request session:', JSON.stringify(req.session, null, 2));
+    console.log('Request cookies:', JSON.stringify(req.cookies, null, 2));
     console.log('============================');
 
     const auth0Profile = req.user;
+
+    if (!auth0Profile) {
+      this.logger.error('No user profile found in callback request');
+      const frontendUrl =
+        this.configService.get<string>('FRONTEND_URL') ||
+        'http://localhost:5173';
+      return res.redirect(`${frontendUrl}?auth_error=no_profile`);
+    }
+
     try {
       this.logger.log(`Auth0 callback received for user: ${auth0Profile.sub}`);
 
@@ -72,12 +95,20 @@ export class AuthController {
 
       console.log(`Environment: ${nodeEnv}, Frontend URL: ${frontendUrl}`);
 
-      res.cookie('jwt', token, {
+      // Set cookie with enhanced configuration
+      const cookieOptions = {
         httpOnly: true,
-        secure: isProduction, // Use secure cookies in production
-        sameSite: isProduction ? 'none' : 'lax', // 'none' for cross-origin in production
+        secure: isProduction,
+        sameSite: isProduction ? ('none' as const) : ('lax' as const),
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
-      });
+        domain: isProduction ? '.onrender.com' : undefined,
+      };
+
+      this.logger.debug(
+        `Setting cookie with options: ${JSON.stringify(cookieOptions)}`,
+      );
+
+      res.cookie('jwt', token, cookieOptions);
 
       // Use environment-based frontend URL
       const baseUrl = frontendUrl || 'http://localhost:5173';
@@ -140,7 +171,15 @@ export class AuthController {
       this.logger.log(
         `Logout request received for user: ${userSub || 'unknown'}`,
       );
-      res.clearCookie('jwt');
+
+      // Clear JWT cookie
+      res.clearCookie('jwt', {
+        domain:
+          this.configService.get<string>('NODE_ENV') === 'production'
+            ? '.onrender.com'
+            : undefined,
+        path: '/',
+      });
 
       req.session.destroy((err) => {
         if (err) {
@@ -178,7 +217,7 @@ export class AuthController {
   }
 
   @Get('debug')
-  debug() {
+  debug(@Req() req: Request) {
     const domain = this.configService.get<string>('AUTH0_DOMAIN');
     const clientId = this.configService.get<string>('AUTH0_CLIENT_ID');
     const callbackUrl = this.configService.get<string>('AUTH0_CALLBACK_URL');
@@ -189,6 +228,9 @@ export class AuthController {
     return {
       environment: nodeEnv,
       frontendUrl,
+      sessionId: req.sessionID,
+      sessionData: req.session,
+      cookies: req.cookies,
       auth0: {
         domain,
         clientId: clientId ? clientId.substring(0, 8) + '...' : 'NOT SET',

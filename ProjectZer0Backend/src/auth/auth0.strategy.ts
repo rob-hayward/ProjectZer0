@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-auth0';
 import { ConfigService } from '@nestjs/config';
@@ -47,7 +43,7 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       throw new Error(errorMsg);
     }
 
-    // Call super() first - this is required for TypeScript
+    // Call super() with enhanced configuration for production
     super({
       domain,
       clientID,
@@ -55,6 +51,9 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       callbackURL,
       audience,
       scope: 'openid profile email',
+      state: true, // Explicitly enable state parameter
+      store: true, // Use session store for state
+      passReqToCallback: false,
     });
 
     // Post-initialization logging
@@ -75,6 +74,7 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       console.log('Profile provider:', profile.provider);
       console.log('Profile emails:', profile.emails);
       console.log('Raw profile data:', JSON.stringify(profile, null, 2));
+      console.log('Extra params:', JSON.stringify(extraParams, null, 2));
       console.log('====================================');
 
       this.logger.log(
@@ -90,13 +90,21 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
         })}`,
       );
 
+      // Ensure we have a valid user identifier
+      const userId = profile.id || profile.sub || profile._json?.sub;
+      if (!userId) {
+        this.logger.error('No user ID found in Auth0 profile');
+        throw new Error('No user identifier found in Auth0 profile');
+      }
+
       // Return normalized profile data
       const normalizedProfile = {
-        sub: profile.id || profile.sub,
-        email: profile.emails?.[0]?.value || profile.email,
-        name: profile.displayName || profile.name,
-        picture: profile.picture,
-        provider: profile.provider,
+        sub: userId,
+        email:
+          profile.emails?.[0]?.value || profile.email || profile._json?.email,
+        name: profile.displayName || profile.name || profile._json?.name,
+        picture: profile.picture || profile._json?.picture,
+        provider: profile.provider || 'auth0',
         ...profile._json, // Include the raw Auth0 profile data
       };
 
@@ -113,9 +121,10 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
         `Error in Auth0Strategy validate: ${error.message}`,
         error.stack,
       );
-      throw new InternalServerErrorException(
-        'Error fetching user profile from Auth0',
-      );
+
+      // Don't throw InternalServerErrorException here as it might interfere with passport
+      // Instead, return null to indicate authentication failure
+      return null;
     }
   }
 }

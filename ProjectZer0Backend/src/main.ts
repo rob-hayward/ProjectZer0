@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import * as session from 'express-session';
 import * as passport from 'passport';
 import * as cookieParser from 'cookie-parser';
+import * as crypto from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
@@ -25,7 +26,7 @@ async function bootstrap() {
 
   // Configure allowed origins based on environment
   const allowedOrigins = isProduction
-    ? ['https://projectzer0frontend.onrender.com', frontendUrl].filter(Boolean) // Remove any null/undefined values
+    ? ['https://projectzer0frontend.onrender.com', frontendUrl].filter(Boolean)
     : ['http://localhost:5173', 'http://localhost:3000', frontendUrl].filter(
         Boolean,
       );
@@ -49,17 +50,30 @@ async function bootstrap() {
 
   app.use(cookieParser());
 
+  // Enhanced session configuration for production
+  const sessionSecret =
+    configService.get<string>('SESSION_SECRET') || 'fallback-secret-key';
+
+  logger.log(`Configuring session with secure: ${isProduction}`);
+
   app.use(
     session({
-      secret:
-        configService.get<string>('SESSION_SECRET') || 'fallback-secret-key',
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
+      name: 'connect.sid', // Explicit session name
       cookie: {
-        secure: isProduction, // Use secure cookies in production
+        secure: isProduction,
         httpOnly: true,
         maxAge: 1000 * 60 * 60 * 24, // 24 hours
-        sameSite: isProduction ? 'none' : 'lax', // Allow cross-origin cookies in production
+        sameSite: isProduction ? 'none' : 'lax',
+        domain: isProduction ? '.onrender.com' : undefined, // Allow subdomain sharing
+      },
+      // Force session creation for auth flows
+      genid: () => {
+        const sessionId = crypto.randomBytes(16).toString('hex');
+        logger.debug(`Generated session ID: ${sessionId}`);
+        return sessionId;
       },
     }),
   );
@@ -67,12 +81,25 @@ async function bootstrap() {
   app.use(passport.initialize());
   app.use(passport.session());
 
+  // Enhanced passport serialization with logging
   passport.serializeUser((user, done) => {
+    logger.debug(`Serializing user: ${JSON.stringify(user)}`);
     done(null, user);
   });
 
   passport.deserializeUser((user: any, done) => {
+    logger.debug(`Deserializing user: ${JSON.stringify(user)}`);
     done(null, user);
+  });
+
+  // Add session debugging middleware
+  app.use((req, res, next) => {
+    if (req.url.includes('/auth/')) {
+      logger.debug(`Session ID: ${req.sessionID}`);
+      logger.debug(`Session data: ${JSON.stringify(req.session)}`);
+      logger.debug(`Cookies: ${JSON.stringify(req.cookies)}`);
+    }
+    next();
   });
 
   // Global validation pipe
@@ -98,4 +125,5 @@ async function bootstrap() {
   logger.log(`Environment: ${nodeEnv}`);
   logger.log(`Frontend URL: ${frontendUrl || 'Not configured'}`);
 }
+
 bootstrap();
