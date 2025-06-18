@@ -174,6 +174,12 @@ export class OpenQuestionSchema {
                positiveVotes, negativeVotes
           ORDER BY oq.createdAt ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
         `;
+      } else if (sortBy === 'consensus') {
+        query += `
+          WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, answers,
+               positiveVotes, negativeVotes
+          ORDER BY oq.consensus_ratio ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
+        `;
       }
 
       // Add pagination if specified
@@ -197,6 +203,7 @@ export class OpenQuestionSchema {
           positiveVotes: positiveVotes,
           negativeVotes: negativeVotes,
           netVotes: positiveVotes - negativeVotes,
+          consensus_ratio: oq.consensus_ratio,
           keywords: keywords,
           relatedQuestions: CASE 
             WHEN size(relatedQuestions) > 0 THEN relatedQuestions
@@ -264,6 +271,10 @@ export class OpenQuestionSchema {
             openQuestion[prop] = this.toNumber(openQuestion[prop]);
           }
         });
+        // Ensure consensus_ratio is a number
+        if (openQuestion.consensus_ratio !== undefined) {
+          openQuestion.consensus_ratio = Number(openQuestion.consensus_ratio);
+        }
 
         // Convert vote counts in answers as well
         if (openQuestion.answers && openQuestion.answers.length > 0) {
@@ -327,7 +338,8 @@ export class OpenQuestionSchema {
           updatedAt: datetime(),
           positiveVotes: 0,
           negativeVotes: 0,
-          netVotes: 0
+          netVotes: 0,
+          consensus_ratio: 0.0
         })
         
         // Process each keyword
@@ -520,6 +532,9 @@ export class OpenQuestionSchema {
       }
       if (openQuestion.netVotes !== undefined) {
         openQuestion.netVotes = this.toNumber(openQuestion.netVotes);
+      }
+      if (openQuestion.consensus_ratio !== undefined) {
+        openQuestion.consensus_ratio = Number(openQuestion.consensus_ratio);
       }
 
       // Convert vote counts in answers as well
@@ -866,12 +881,17 @@ export class OpenQuestionSchema {
         `Processing vote on open question ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
       );
 
-      return await this.voteSchema.vote(
+      const result = await this.voteSchema.vote(
         'OpenQuestionNode',
         { id },
         sub,
         isPositive,
       );
+
+      // Calculate and update consensus ratio
+      await this.updateConsensusRatio(id);
+
+      return result;
     } catch (error) {
       this.logger.error(
         `Error voting on open question ${id}: ${error.message}`,
@@ -933,7 +953,16 @@ export class OpenQuestionSchema {
 
       this.logger.log(`Removing vote from open question ${id} by user ${sub}`);
 
-      return await this.voteSchema.removeVote('OpenQuestionNode', { id }, sub);
+      const result = await this.voteSchema.removeVote(
+        'OpenQuestionNode',
+        { id },
+        sub,
+      );
+
+      // Recalculate consensus ratio after removing vote
+      await this.updateConsensusRatio(id);
+
+      return result;
     } catch (error) {
       this.logger.error(
         `Error removing vote from open question ${id}: ${error.message}`,
@@ -988,6 +1017,40 @@ export class OpenQuestionSchema {
       }
 
       throw new Error(`Failed to get open question votes: ${error.message}`);
+    }
+  }
+
+  /**
+   * Update consensus ratio for an open question
+   */
+  private async updateConsensusRatio(id: string): Promise<void> {
+    try {
+      const result = await this.neo4jService.write(
+        `
+        MATCH (oq:OpenQuestionNode {id: $id})
+        WITH oq, 
+             oq.positiveVotes + oq.negativeVotes as totalVotes,
+             abs(oq.positiveVotes - oq.negativeVotes) as netVotes
+        SET oq.consensus_ratio = CASE 
+          WHEN totalVotes = 0 THEN 0.0 
+          ELSE toFloat(netVotes) / toFloat(totalVotes)
+        END
+        RETURN oq.consensus_ratio as consensusRatio
+        `,
+        { id },
+      );
+
+      if (result.records.length > 0) {
+        const consensusRatio = result.records[0].get('consensusRatio');
+        this.logger.debug(
+          `Updated consensus ratio for open question ${id}: ${consensusRatio}`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Error updating consensus ratio for open question ${id}: ${error.message}`,
+      );
+      // Don't throw - this is a non-critical update
     }
   }
 

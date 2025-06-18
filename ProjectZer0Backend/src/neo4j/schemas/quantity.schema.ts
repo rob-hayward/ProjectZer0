@@ -86,7 +86,8 @@ export class QuantitySchema {
           defaultUnitId: $defaultUnitId,
           createdAt: datetime(),
           updatedAt: datetime(),
-          responseCount: 0
+          responseCount: 0,
+          consensus_ratio: 0.0
         })
         
         // Process each keyword if provided
@@ -228,6 +229,9 @@ export class QuantitySchema {
       // Convert Neo4j integers to JavaScript numbers
       if (quantityNode.responseCount !== undefined) {
         quantityNode.responseCount = this.toNumber(quantityNode.responseCount);
+      }
+      if (quantityNode.consensus_ratio !== undefined) {
+        quantityNode.consensus_ratio = Number(quantityNode.consensus_ratio);
       }
 
       this.logger.debug(`Retrieved quantity node with ID: ${id}`);
@@ -900,7 +904,18 @@ export class QuantitySchema {
     try {
       const stats = await this.getStatistics(quantityNodeId);
 
-      // Store basic statistics directly on the quantity node for quick access
+      // Calculate consensus ratio for quantity nodes
+      let consensusRatio = 0.0;
+      if (stats.responseCount > 0 && stats.responses) {
+        // Count responses within 1 standard deviation of mean
+        const withinOneSD = stats.responses.filter(
+          (r) =>
+            Math.abs(r.normalizedValue - stats.mean) <= stats.standardDeviation,
+        ).length;
+        consensusRatio = withinOneSD / stats.responseCount;
+      }
+
+      // Store basic statistics and consensus ratio directly on the quantity node for quick access
       await this.neo4jService.write(
         `
         MATCH (q:QuantityNode {id: $quantityNodeId})
@@ -908,7 +923,8 @@ export class QuantitySchema {
             q.max = $max,
             q.mean = $mean,
             q.median = $median,
-            q.standardDeviation = $standardDeviation
+            q.standardDeviation = $standardDeviation,
+            q.consensus_ratio = $consensusRatio
         `,
         {
           quantityNodeId,
@@ -917,7 +933,12 @@ export class QuantitySchema {
           mean: stats.mean,
           median: stats.median,
           standardDeviation: stats.standardDeviation,
+          consensusRatio,
         },
+      );
+
+      this.logger.debug(
+        `Updated consensus ratio for quantity node ${quantityNodeId}: ${consensusRatio}`,
       );
     } catch (error) {
       this.logger.error(

@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { DictionaryModule } from './dictionary/dictionary.module';
 import { UnitModule } from './units/unit.module';
+import { UniversalGraphModule } from './nodes/universal/universal-graph.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { UnitModule } from './units/unit.module';
     UsersModule,
     DictionaryModule,
     UnitModule,
+    UniversalGraphModule,
   ],
   controllers: [AppController],
   providers: [AppService],
