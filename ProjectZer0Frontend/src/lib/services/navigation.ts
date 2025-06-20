@@ -19,7 +19,8 @@ export const NavigationOptionId = {
     ALTERNATIVE_DEFINITIONS: 'alternative-definitions',
     CREATE_DEFINITION: 'create-definition', 
     DISCUSS: 'discuss',
-    QUESTIONS: 'questions'  // NEW: For browsing all questions
+    QUESTIONS: 'questions',  // NEW: For browsing all questions
+    UNIVERSAL_GRAPH: 'universal-graph'  // NEW: Universal graph view
 } as const;
 
 export type NavigationOptionId = typeof NavigationOptionId[keyof typeof NavigationOptionId];
@@ -53,6 +54,7 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.EXPLORE]: 'statement-network',
     [NavigationOptionId.DISCUSS]: 'discussion',
     [NavigationOptionId.QUESTIONS]: 'openquestion',  // NEW: Map questions to openquestion view type
+    [NavigationOptionId.UNIVERSAL_GRAPH]: 'universal',  // NEW: Map to universal view type
 };
 
 // Helper to update graph store without TypeScript errors
@@ -297,6 +299,11 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
         // Future: Navigate to questions network view
         // For now, redirect to dashboard
         window.location.href = '/graph/dashboard';
+    },
+    // NEW: Universal graph navigation handler
+    [NavigationOptionId.UNIVERSAL_GRAPH]: () => {
+        updateGraphStore('universal');
+        window.location.href = '/graph/universal';
     }
 };
 
@@ -325,7 +332,8 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: 'format_list_bulleted',
     [NavigationOptionId.CREATE_DEFINITION]: 'playlist_add_circle',
     [NavigationOptionId.DISCUSS]: 'forum',
-    [NavigationOptionId.QUESTIONS]: 'help'  // NEW: Questions icon
+    [NavigationOptionId.QUESTIONS]: 'help',  // NEW: Questions icon
+    [NavigationOptionId.UNIVERSAL_GRAPH]: 'hub'  // NEW: Universal graph icon
 };
 
 // Navigation option configurations per context - preserved exactly as in the original
@@ -333,6 +341,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.DASHBOARD]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph to dashboard
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE,
@@ -342,6 +351,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.EDIT_PROFILE]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.DASHBOARD,  
@@ -351,13 +361,21 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.CREATE_NODE]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.DASHBOARD,
+        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE,
         NavigationOptionId.INTERACTIONS,
         NavigationOptionId.CREATIONS
     ],
-    [NavigationContext.EXPLORE]: [],
+    [NavigationContext.EXPLORE]: [
+        NavigationOptionId.DASHBOARD,
+        NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
+        NavigationOptionId.NETWORK,
+        NavigationOptionId.LOGOUT,
+        NavigationOptionId.EDIT_PROFILE
+    ],
     [NavigationContext.WORD]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
@@ -381,6 +399,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.DASHBOARD,
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE
     ]

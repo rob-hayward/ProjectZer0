@@ -15,7 +15,7 @@ export interface ControlNodeData {
 }
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal';
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
 export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers';
@@ -35,6 +35,11 @@ export interface NodeMetadata {
     parentCommentId?: string; // Added for comment threading
     depth?: number;    // Added for comment nesting level
     isExpanded?: boolean; // Added for expanded comments
+    
+    // NEW: Universal graph properties
+    consensus_ratio?: number;  // Consensus ratio (0.0 to 1.0)
+    participant_count?: number; // Number of participants
+    net_votes?: number; // Net positive/negative votes
 }
 
 // Core node interface for initial data

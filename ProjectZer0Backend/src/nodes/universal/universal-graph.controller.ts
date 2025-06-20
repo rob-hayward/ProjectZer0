@@ -28,7 +28,7 @@ export class UniversalNodesQueryDto implements UniversalGraphOptions {
 }
 
 @Controller('graph/universal')
-// @UseGuards(JwtAuthGuard)  // Keep commented out for testing
+@UseGuards(JwtAuthGuard) // Comment out for endpoint testing
 export class UniversalGraphController {
   private readonly logger = new Logger(UniversalGraphController.name);
 

@@ -22,6 +22,7 @@ import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 import { DiscussionLayout } from './layouts/DiscussionLayout';
 import { OpenQuestionAnswerLayout } from './layouts/OpenQuestionAnswerLayout';
+import { UniversalGraphLayout } from './layouts/UniversalGraphLayout';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -30,7 +31,7 @@ export class GraphManager {
     private _viewType: ViewType;
     private managerId: string;
     private simulationActive = false;
-    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | OpenQuestionAnswerLayout | null = null;
+    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | OpenQuestionAnswerLayout | UniversalGraphLayout | null = null;
     private isUpdatingStore = writable(false);
     
     // Caches for better performance
@@ -755,7 +756,7 @@ export class GraphManager {
                 
                 // Verify layout was created
                 console.log('[LAYOUT_DEBUG] DiscussionLayout created:', 
-                        !!this.currentLayoutStrategy,
+                        !this.currentLayoutStrategy,
                         'Type:', this.currentLayoutStrategy?.constructor.name);
             } catch (error) {
                 console.error('[LAYOUT_DEBUG] Error creating DiscussionLayout:', error);
@@ -769,6 +770,21 @@ export class GraphManager {
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
             );
+        }
+        else if (this._viewType === 'universal') {
+            // NEW: Universal Graph Layout
+            console.log('[LAYOUT_DEBUG] Creating UniversalGraphLayout');
+            this.currentLayoutStrategy = new UniversalGraphLayout(
+                COORDINATE_SPACE.WORLD.WIDTH,
+                COORDINATE_SPACE.WORLD.HEIGHT,
+                this._viewType
+            );
+            
+            // Apply appropriate settings for universal graph
+            this.simulation.velocityDecay(0.4);
+            
+            // Remove any fixed position handlers from other views
+            this.simulation.on('tick.fixedPosition', null);
         }
         else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 
@@ -1049,6 +1065,14 @@ export class GraphManager {
                     this.nodeRadiusCache.delete(node.id);
                 }
                 
+                // UPDATE: Merge in any new metadata properties
+                if (node.metadata) {
+                    existing.metadata = {
+                        ...existing.metadata,
+                        ...node.metadata
+                    };
+                }
+                
                 return existing;
             }
             
@@ -1129,12 +1153,18 @@ export class GraphManager {
                             undefined,
                     parentCommentId: node.type === 'comment' && 'parentCommentId' in node.data ? 
                         (node.data as any).parentCommentId : 
-                        node.metadata?.parentCommentId
+                        node.metadata?.parentCommentId,
+                    // NEW: Preserve universal graph metadata if provided
+                    consensus_ratio: node.metadata?.consensus_ratio,
+                    participant_count: node.metadata?.participant_count,
+                    net_votes: node.metadata?.net_votes,
+                    // Also preserve any other metadata properties that were passed in
+                    ...(node.metadata || {})
                 }
             };
             
-           // If this is a central/fixed node, explicitly set position
-           if (enhancedNode.fixed || enhancedNode.group === 'central') {
+        // If this is a central/fixed node, explicitly set position
+        if (enhancedNode.fixed || enhancedNode.group === 'central') {
                 enhancedNode.fx = 0; // Force X position to center
                 enhancedNode.fy = 0; // Force Y position to center
                 enhancedNode.x = 0;  // Initial X position

@@ -141,10 +141,16 @@ export function createVoteBehaviour(
       }
     }
     
-    // Update external store if provided
+    // Update external store if provided - but check if the node exists in the store first
     if (voteStore && typeof voteStore.updateVoteData === 'function') {
-      voteStore.updateVoteData(nodeId, pos, neg);
-      console.log(`[VoteBehaviour] Updated external store for ${nodeId}:`, { pos, neg });
+      // Only update if this is actually a statement network view or the statement exists in the store
+      try {
+        voteStore.updateVoteData(nodeId, pos, neg);
+        console.log(`[VoteBehaviour] Updated external store for ${nodeId}:`, { pos, neg });
+      } catch (error) {
+        // Silently ignore if the statement doesn't exist in this store
+        console.log(`[VoteBehaviour] Node ${nodeId} not in external store, skipping update`);
+      }
     }
     
     // Update graph store visibility if provided
