@@ -34,9 +34,9 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
      * Initialize node positions based on their consensus/sort value
      */
     public initializeNodePositions(nodes: EnhancedNode[]): void {
-        // Position navigation nodes in a circle
+        // Position navigation nodes in a circle - back to normal distance
         const navNodes = nodes.filter(n => n.type === 'navigation');
-        const navRadius = this.maxRadius * 1.2; // Navigation nodes outside main content
+        const navRadius = this.maxRadius * 1.2; // Back to original 1.2
         
         navNodes.forEach((node, i) => {
             const angle = (i / navNodes.length) * 2 * Math.PI - Math.PI / 2;
@@ -81,7 +81,8 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
             let nodeIndex = 0;
 
             rings.forEach((ring, ringIndex) => {
-                const ringRadius = (ringIndex + 1) / rings.length * this.maxRadius;
+                // Increase ring spacing
+                const ringRadius = ((ringIndex + 1) / rings.length) * this.maxRadius * 0.9; // Scale down slightly to leave room
                 const nodesInRing = ring.nodeCount;
                 const angleStep = (2 * Math.PI) / nodesInRing;
 
@@ -89,8 +90,13 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
                     const { node } = nodesWithValues[nodeIndex];
                     const angle = i * angleStep + (ringIndex * Math.PI / rings.length); // Offset each ring
                     
-                    node.x = this.centerX + Math.cos(angle) * ringRadius;
-                    node.y = this.centerY + Math.sin(angle) * ringRadius;
+                    // Add some randomness to prevent perfect circles
+                    const jitter = 0.2; // 20% position variation
+                    const jitterRadius = ringRadius * (1 + (Math.random() - 0.5) * jitter);
+                    const jitterAngle = angle + (Math.random() - 0.5) * 0.3;
+                    
+                    node.x = this.centerX + Math.cos(jitterAngle) * jitterRadius;
+                    node.y = this.centerY + Math.sin(jitterAngle) * jitterRadius;
                     
                     // Store the target position for the consensus force
                     this.nodeDataMap.set(node.id, {
@@ -113,8 +119,10 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
         let ringNumber = 1;
 
         while (remainingNodes > 0) {
-            // Each ring can hold approximately 6 * ringNumber nodes
-            const nodesInRing = Math.min(remainingNodes, Math.max(1, 6 * ringNumber));
+            // Fewer nodes per ring for better spacing
+            // First ring: 1-6 nodes, then 8, 12, 16, etc.
+            const baseNodesPerRing = ringNumber === 1 ? 6 : 4 * ringNumber;
+            const nodesInRing = Math.min(remainingNodes, baseNodesPerRing);
             rings.push({ nodeCount: nodesInRing });
             remainingNodes -= nodesInRing;
             ringNumber++;
@@ -164,60 +172,63 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
             .force('radial', null)
             .force('consensus', null);
 
-        // Many-body force - repulsion between nodes
+        // Many-body force - even stronger repulsion for maximum spacing
         this.simulation.force('charge', 
             d3.forceManyBody()
                 .strength(d => {
-                    // Stronger repulsion for larger nodes
                     const node = d as EnhancedNode;
-                    if (node.mode === 'detail') return -300;
-                    if (node.group === 'central') return -400;
-                    return -150;
+                    // Very strong repulsion for all nodes
+                    if (node.mode === 'detail') return -1500;
+                    if (node.group === 'central') return -2000;
+                    if (node.type === 'navigation') return -1000;
+                    return -1000; // Much stronger base repulsion
                 })
-                .distanceMin(50)
-                .distanceMax(300)
+                .distanceMin(100) // Minimum distance between nodes
+                .distanceMax(800) // Increased max distance for effect
         );
 
-        // Collision detection - prevent overlap
+        // Collision detection - even larger radius to prevent overlap
         this.simulation.force('collision',
             d3.forceCollide()
                 .radius(d => {
                     const node = d as EnhancedNode;
-                    return this.getNodeRadius(node) + 10; // Add padding
+                    // Add significant padding
+                    return this.getNodeRadius(node) + 80; // Increased from 40
                 })
-                .strength(0.8)
-                .iterations(3)
+                .strength(0.95) // Very strong collision avoidance
+                .iterations(5) // More iterations for better separation
         );
 
-        // Link force - attraction between connected nodes
+        // Link force - much longer distances between connected nodes
         const links = this.simulation.force('link') as d3.ForceLink<any, any> | null;
         if (links) {
             links
                 .distance(d => {
                     const link = d as EnhancedLink;
-                    // Shorter distance for stronger relationships
-                    const baseDistance = 150;
+                    // Much longer distance for all links
+                    const baseDistance = 400; // Increased from 250
                     const strength = link.metadata?.strength || 0.5;
-                    return baseDistance * (1 - strength * 0.5);
+                    return baseDistance * (1 - strength * 0.2); // Even less strength influence
                 })
                 .strength(d => {
                     const link = d as EnhancedLink;
-                    return link.metadata?.strength || 0.5;
+                    return (link.metadata?.strength || 0.5) * 0.3; // Weaker link force
                 });
         }
 
-        // Custom consensus force - pull nodes toward their target positions
+        // Custom consensus force - very gentle to allow spacing
         this.simulation.force('consensus', this.createConsensusForce());
 
-        // Gentle centering force to keep the graph centered
+        // Almost no centering force to allow maximum spread
         this.simulation
-            .force('x', d3.forceX(this.centerX).strength(0.02))
-            .force('y', d3.forceY(this.centerY).strength(0.02));
+            .force('x', d3.forceX(this.centerX).strength(0.005)) // Very weak
+            .force('y', d3.forceY(this.centerY).strength(0.005)); // Very weak
 
-        // Configure alpha decay for smooth animation
+        // Configure for quick settling - no jiggling
         this.simulation
-            .alphaDecay(0.02)
-            .velocityDecay(0.4);
+            .alphaMin(0.01) // Stop simulation sooner
+            .alphaDecay(0.05) // Much faster decay to stop jiggling quickly
+            .velocityDecay(0.7); // High damping to stop movement quickly
     }
 
     /**
@@ -251,9 +262,9 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
                     const dx = targetX - (node.x ?? 0);
                     const dy = targetY - (node.y ?? 0);
                     
-                    // Gentle force that gets stronger as nodes get further from target
+                    // Very gentle force that gets stronger as nodes get further from target
                     const distance = Math.sqrt(dx * dx + dy * dy);
-                    const strength = Math.min(0.1, distance / 1000);
+                    const strength = Math.min(0.02, distance / 3000); // Even gentler
                     
                     // Only update velocity if it's defined
                     if (node.vx !== null && node.vx !== undefined) {
@@ -282,8 +293,8 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
             const nodes = this.simulation.nodes() as EnhancedNode[];
             this.initializeNodePositions(nodes);
             
-            // Restart simulation with higher alpha for re-sorting
-            this.simulation.alpha(0.8).restart();
+            // Restart simulation with moderate alpha for re-sorting
+            this.simulation.alpha(0.5).restart(); // Reduced from 0.8
         }
     }
 
@@ -295,8 +306,8 @@ export class UniversalGraphLayout extends BaseLayoutStrategy {
         
         // When a node expands/contracts, we may need to adjust forces
         if (this.simulation) {
-            // Restart with low alpha for smooth transition
-            this.simulation.alpha(0.3).restart();
+            // Restart with very low alpha for smooth transition
+            this.simulation.alpha(0.1).restart(); // Reduced from 0.3
         }
     }
 

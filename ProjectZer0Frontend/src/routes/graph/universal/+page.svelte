@@ -83,6 +83,8 @@
     $: {
         if (relationships.length > 0) {
             console.log('[UNIVERSAL-GRAPH] Relationships updated in reactive statement:', relationships.length);
+        } else {
+            console.log('[UNIVERSAL-GRAPH] No relationships loaded from store');
         }
     }
     
@@ -310,7 +312,10 @@
                 nodeData = {
                     ...nodeData,
                     question: node.content, // Map content to question
-                    responses: node.metadata.responses || {}
+                    responses: node.metadata.responses || {},
+                    // Add required properties for QuantityNode
+                    unitCategoryId: nodeData.unitCategoryId || 'default',
+                    defaultUnitId: nodeData.defaultUnitId || 'default'
                 };
             }
             
@@ -336,8 +341,11 @@
             source: rel.source,
             target: rel.target,
             type: rel.type as LinkType,
+            strength: rel.metadata?.strength,
             metadata: rel.metadata
         }));
+        
+        console.log('[UNIVERSAL-GRAPH] Transformed links:', graphLinks.length);
         
         // Combine all nodes and links
         graphData = {

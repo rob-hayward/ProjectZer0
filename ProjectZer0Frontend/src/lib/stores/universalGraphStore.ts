@@ -224,6 +224,15 @@ function createUniversalGraphStore() {
                 hasMore: hasMore
             });
 
+            // TEMPORARY: If no relationships but we have nodes, log a warning
+            if (nodes.length > 0 && relationships.length === 0) {
+                console.warn('[UniversalGraphStore] WARNING: Backend returned nodes but no relationships. Links will not be displayed.');
+                console.warn('[UniversalGraphStore] This suggests the backend universal graph endpoint needs to implement relationship fetching.');
+                
+                // Log the first few nodes to see their structure
+                console.log('[UniversalGraphStore] Sample nodes:', nodes.slice(0, 3));
+            }
+
             update(state => ({
                 ...state,
                 nodes: nodes,
