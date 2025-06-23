@@ -1,7 +1,8 @@
 // src/lib/stores/universalGraphStore.ts
+
 import { writable, derived, get } from 'svelte/store';
-import type { UserProfile } from '$lib/types/domain/user';
-import { getAuth0User } from '$lib/services/auth0';
+import type { Writable, Readable } from 'svelte/store';
+import { fetchWithAuth } from '$lib/services/api';
 
 // Types for universal graph data
 export interface UniversalNodeData {
@@ -14,10 +15,28 @@ export interface UniversalNodeData {
     updated_at?: string;
     created_by: string;
     public_credit: boolean;
+    
+    // Type-specific metadata
     metadata: {
         keywords: Array<{ word: string; frequency: number }>;
-        votes?: { positive: number; negative: number; net: number };
-        responses?: { count: number; mean?: number; std_dev?: number; min?: number; max?: number };
+        
+        // For binary voting nodes (statement, openquestion)
+        votes?: {
+            positive: number;
+            negative: number;
+            net: number;
+        };
+        
+        // For quantity nodes
+        responses?: {
+            count: number;
+            mean?: number;
+            std_dev?: number;
+            min?: number;
+            max?: number;
+        };
+        
+        // For open questions
         answer_count?: number;
     };
 }
@@ -41,100 +60,102 @@ export interface UniversalGraphResponse {
     has_more: boolean;
 }
 
-// Sort types for universal graph
-export type UniversalSortType = 'consensus' | 'chronological' | 'participants' | 'net_positive';
+export type UniversalSortType = 'consensus' | 'chronological' | 'participants';
 export type UniversalSortDirection = 'asc' | 'desc';
+export type FilterOperator = 'AND' | 'OR';
 
-// Filter types
-export interface UniversalGraphFilters {
-    node_types?: Array<'statement' | 'openquestion' | 'quantity'>;
-    keywords?: string[];
-    keyword_operator?: 'AND' | 'OR';
-    min_consensus?: number;
-    max_consensus?: number;
-    min_participants?: number;
+interface UniversalGraphFilters {
+    node_types: Array<'statement' | 'openquestion' | 'quantity'>;
+    keywords: string[];
+    keyword_operator: FilterOperator;
     user_id?: string;
+    consensus_min: number;
+    consensus_max: number;
     date_from?: string;
     date_to?: string;
 }
 
-// Store state interface
 interface UniversalGraphState {
     nodes: UniversalNodeData[];
     relationships: UniversalRelationshipData[];
-    loading: boolean;
-    error: string | null;
     totalCount: number;
     hasMore: boolean;
-    sortType: UniversalSortType;
-    sortDirection: UniversalSortDirection;
-    filters: UniversalGraphFilters;
+    loading: boolean;
+    error: string | null;
+    
+    // Pagination
     limit: number;
     offset: number;
+    
+    // Sorting
+    sortBy: UniversalSortType;
+    sortDirection: UniversalSortDirection;
+    
+    // Filters
+    filters: UniversalGraphFilters;
 }
 
-// Create the store
 function createUniversalGraphStore() {
     const initialState: UniversalGraphState = {
         nodes: [],
         relationships: [],
-        loading: false,
-        error: null,
         totalCount: 0,
         hasMore: false,
-        sortType: 'consensus',
+        loading: false,
+        error: null,
+        
+        limit: 200,
+        offset: 0,
+        
+        sortBy: 'consensus',
         sortDirection: 'desc',
+        
         filters: {
             node_types: ['statement', 'openquestion', 'quantity'],
             keywords: [],
-            keyword_operator: 'OR'
-        },
-        limit: 200,
-        offset: 0
+            keyword_operator: 'OR',
+            consensus_min: 0,
+            consensus_max: 1,
+        }
     };
 
-    const { subscribe, set, update } = writable<UniversalGraphState>(initialState);
+    const { subscribe, set, update }: Writable<UniversalGraphState> = writable(initialState);
 
     // Build query parameters from state
     function buildQueryParams(state: UniversalGraphState): URLSearchParams {
         const params = new URLSearchParams();
         
-        // Sorting
-        params.append('sort_by', state.sortType);
-        params.append('sort_direction', state.sortDirection);
-        
         // Pagination
         params.append('limit', state.limit.toString());
         params.append('offset', state.offset.toString());
         
-        // Filters
-        if (state.filters.node_types && state.filters.node_types.length > 0) {
-            state.filters.node_types.forEach(type => params.append('node_types', type));
+        // Sorting
+        params.append('sort_by', state.sortBy);
+        params.append('sort_direction', state.sortDirection);
+        
+        // Node type filters
+        state.filters.node_types.forEach(type => {
+            params.append('node_types', type);
+        });
+        
+        // Consensus filter
+        params.append('min_consensus', state.filters.consensus_min.toString());
+        params.append('max_consensus', state.filters.consensus_max.toString());
+        
+        // Keywords filter
+        if (state.filters.keywords.length > 0) {
+            state.filters.keywords.forEach(keyword => {
+                params.append('keywords', keyword);
+            });
+            params.append('keyword_operator', state.filters.keyword_operator);
         }
         
-        if (state.filters.keywords && state.filters.keywords.length > 0) {
-            state.filters.keywords.forEach(keyword => params.append('keywords', keyword));
-            if (state.filters.keyword_operator) {
-                params.append('keyword_operator', state.filters.keyword_operator);
-            }
-        }
-        
-        if (state.filters.min_consensus !== undefined) {
-            params.append('min_consensus', state.filters.min_consensus.toString());
-        }
-        
-        if (state.filters.max_consensus !== undefined) {
-            params.append('max_consensus', state.filters.max_consensus.toString());
-        }
-        
-        if (state.filters.min_participants !== undefined) {
-            params.append('min_participants', state.filters.min_participants.toString());
-        }
-        
+        // User filter
         if (state.filters.user_id) {
             params.append('user_id', state.filters.user_id);
         }
         
+        // Date filters
         if (state.filters.date_from) {
             params.append('date_from', state.filters.date_from);
         }
@@ -147,7 +168,7 @@ function createUniversalGraphStore() {
     }
 
     // Load nodes from the API
-    async function loadNodes(user: UserProfile | null) {
+    async function loadNodes(user: any) {
         console.log('[UniversalGraphStore] loadNodes called with user:', user?.sub);
         
         if (!user) {
@@ -160,48 +181,14 @@ function createUniversalGraphStore() {
         try {
             const state = get({ subscribe });
             const params = buildQueryParams(state);
-            const url = `/api/graph/universal/nodes?${params.toString()}`;
+            const url = `/graph/universal/nodes?${params.toString()}`;
             
             console.log('[UniversalGraphStore] Loading nodes with URL:', url);
             console.log('[UniversalGraphStore] Query params:', params.toString());
             
-            // Get access token
-            const accessToken = await getAuth0User().then(() => {
-                const tokenMeta = document.querySelector('meta[name="auth0-token"]');
-                return tokenMeta?.getAttribute('content') || '';
-            });
-            
-            console.log('[UniversalGraphStore] Got access token:', accessToken ? 'yes' : 'no');
-            
-            const response = await fetch(`http://localhost:3000${url}`, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
+            // Use fetchWithAuth which handles JWT authentication properly
+            const data = await fetchWithAuth(url);
 
-            console.log('[UniversalGraphStore] Response status:', response.status);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[UniversalGraphStore] Error response:', errorText);
-                throw new Error(`Failed to load universal graph data: ${response.statusText}`);
-            }
-
-            // First, let's see what the raw response looks like
-            const responseText = await response.text();
-            console.log('[UniversalGraphStore] Raw response text:', responseText);
-            
-            let data: UniversalGraphResponse;
-            try {
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                console.error('[UniversalGraphStore] Failed to parse JSON:', parseError);
-                console.error('[UniversalGraphStore] Response was:', responseText);
-                throw new Error('Invalid JSON response from server');
-            }
-            
             console.log('[UniversalGraphStore] Raw response data:', data);
             console.log('[UniversalGraphStore] Response data type:', typeof data);
             console.log('[UniversalGraphStore] Response data keys:', data ? Object.keys(data) : 'null');
@@ -224,12 +211,9 @@ function createUniversalGraphStore() {
                 hasMore: hasMore
             });
 
-            // TEMPORARY: If no relationships but we have nodes, log a warning
+            // Log if we have nodes but no relationships
             if (nodes.length > 0 && relationships.length === 0) {
-                console.warn('[UniversalGraphStore] WARNING: Backend returned nodes but no relationships. Links will not be displayed.');
-                console.warn('[UniversalGraphStore] This suggests the backend universal graph endpoint needs to implement relationship fetching.');
-                
-                // Log the first few nodes to see their structure
+                console.warn('[UniversalGraphStore] Backend returned nodes but no relationships.');
                 console.log('[UniversalGraphStore] Sample nodes:', nodes.slice(0, 3));
             }
 
@@ -252,111 +236,90 @@ function createUniversalGraphStore() {
     }
 
     // Load more nodes (pagination)
-    async function loadMore(user: UserProfile | null) {
+    async function loadMore(user: any) {
         const state = get({ subscribe });
-        if (!user || state.loading || !state.hasMore) {
-            return;
-        }
-
+        if (!state.hasMore || state.loading) return;
+        
         update(s => ({ ...s, offset: s.offset + s.limit }));
         await loadNodes(user);
     }
 
-    // Update sort type
-    function setSortType(sortType: UniversalSortType) {
-        update(state => ({ ...state, sortType, offset: 0 }));
+    // Reset and reload
+    async function reset(user: any) {
+        update(s => ({ ...s, offset: 0, nodes: [], relationships: [] }));
+        await loadNodes(user);
     }
 
-    // Update sort direction
-    function setSortDirection(sortDirection: UniversalSortDirection) {
-        update(state => ({ ...state, sortDirection, offset: 0 }));
+    // Filter setters
+    function setNodeTypeFilter(types: Array<'statement' | 'openquestion' | 'quantity'>) {
+        update(s => ({ ...s, filters: { ...s.filters, node_types: types } }));
     }
 
-    // Update filters
-    function setFilters(filters: Partial<UniversalGraphFilters>) {
-        update(state => ({
-            ...state,
-            filters: { ...state.filters, ...filters },
-            offset: 0
+    function setKeywordFilter(keywords: string[], operator: FilterOperator = 'OR') {
+        update(s => ({ 
+            ...s, 
+            filters: { 
+                ...s.filters, 
+                keywords,
+                keyword_operator: operator 
+            } 
         }));
-    }
-
-    // Set specific filter
-    function setNodeTypeFilter(nodeTypes: Array<'statement' | 'openquestion' | 'quantity'>) {
-        setFilters({ node_types: nodeTypes });
-    }
-
-    function setKeywordFilter(keywords: string[], operator: 'AND' | 'OR' = 'OR') {
-        setFilters({ keywords, keyword_operator: operator });
-    }
-
-    function setConsensusFilter(min?: number, max?: number) {
-        setFilters({ min_consensus: min, max_consensus: max });
     }
 
     function setUserFilter(userId?: string) {
-        setFilters({ user_id: userId });
+        update(s => ({ ...s, filters: { ...s.filters, user_id: userId } }));
     }
 
-    function setDateFilter(dateFrom?: string, dateTo?: string) {
-        setFilters({ date_from: dateFrom, date_to: dateTo });
-    }
-
-    // Reset filters
-    function resetFilters() {
-        update(state => ({
-            ...state,
-            filters: {
-                node_types: ['statement', 'openquestion', 'quantity'],
-                keywords: [],
-                keyword_operator: 'OR'
-            },
-            offset: 0
+    function setConsensusFilter(min: number, max: number) {
+        update(s => ({ 
+            ...s, 
+            filters: { 
+                ...s.filters, 
+                consensus_min: Math.max(0, Math.min(1, min)),
+                consensus_max: Math.max(0, Math.min(1, max))
+            } 
         }));
     }
 
-    // Reset store
-    function reset() {
-        set(initialState);
+    function setDateFilter(from?: string, to?: string) {
+        update(s => ({ 
+            ...s, 
+            filters: { 
+                ...s.filters, 
+                date_from: from,
+                date_to: to
+            } 
+        }));
+    }
+
+    // Sort setters
+    function setSortType(sortBy: UniversalSortType) {
+        update(s => ({ ...s, sortBy }));
+    }
+
+    function setSortDirection(direction: UniversalSortDirection) {
+        update(s => ({ ...s, sortDirection: direction }));
+    }
+
+    // Pagination setters
+    function setLimit(limit: number) {
+        update(s => ({ ...s, limit: Math.max(1, Math.min(500, limit)) }));
     }
 
     return {
         subscribe,
         loadNodes,
         loadMore,
-        setSortType,
-        setSortDirection,
-        setFilters,
+        reset,
         setNodeTypeFilter,
         setKeywordFilter,
-        setConsensusFilter,
         setUserFilter,
+        setConsensusFilter,
         setDateFilter,
-        resetFilters,
-        reset
+        setSortType,
+        setSortDirection,
+        setLimit
     };
 }
 
-// Create and export the store instance
 export const universalGraphStore = createUniversalGraphStore();
-
-// Derived stores for convenient access
-export const universalNodes = derived(
-    universalGraphStore,
-    $store => $store.nodes
-);
-
-export const universalRelationships = derived(
-    universalGraphStore,
-    $store => $store.relationships
-);
-
-export const universalGraphLoading = derived(
-    universalGraphStore,
-    $store => $store.loading
-);
-
-export const universalGraphError = derived(
-    universalGraphStore,
-    $store => $store.error
-);
