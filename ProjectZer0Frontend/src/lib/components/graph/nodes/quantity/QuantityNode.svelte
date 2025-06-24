@@ -122,23 +122,72 @@
 
     // Quantity-specific functions (preserved from original)
     async function loadUnitDetails() {
+        // CRITICAL FIX: Skip API calls if no valid unit data or if values are null/invalid
+        if (!displayUnitCategoryId || 
+            displayUnitCategoryId === 'default' || 
+            displayUnitCategoryId === 'null' ||
+            displayUnitCategoryId === null ||
+            displayUnitCategoryId.trim() === '' ||
+            !displayDefaultUnitId || 
+            displayDefaultUnitId === 'default' ||
+            displayDefaultUnitId === 'null' ||
+            displayDefaultUnitId === null ||
+            displayDefaultUnitId.trim() === '') {
+            
+            console.log('[QuantityNode] Skipping unit details - no valid unit data:', {
+                categoryId: displayUnitCategoryId,
+                defaultId: displayDefaultUnitId,
+                nodeId: node.id
+            });
+            
+            // Set fallback values instead of making API calls
+            categoryName = 'No units configured';
+            defaultUnitName = 'No unit';
+            defaultUnitSymbol = '';
+            availableUnits = [];
+            
+            // Still initialize display units to prevent errors
+            if (!displayUnitId) {
+                displayUnitId = 'none';
+                selectedUnitId = 'none';
+                displayUnitSymbol = '';
+            }
+            
+            return;
+        }
+        
         try {
+            console.log('[QuantityNode] Loading unit details for valid IDs:', {
+                categoryId: displayUnitCategoryId,
+                defaultId: displayDefaultUnitId,
+                nodeId: node.id
+            });
+            
             // Get category details
-            const category = await fetchWithAuth(`/units/categories/${displayUnitCategoryId}`);
+            const category = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}`);
             if (category) {
                 categoryName = category.name;
+                console.log(`[QuantityNode] Loaded category: ${categoryName}`);
+            } else {
+                categoryName = 'Unknown Category';
             }
             
             // Get units for this category
-            const units = await fetchWithAuth(`/units/categories/${displayUnitCategoryId}/units`);
+            const units = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}/units`);
             if (units && Array.isArray(units)) {
                 availableUnits = units;
+                console.log(`[QuantityNode] Loaded ${units.length} units`);
                 
                 // Find default unit details
                 const defaultUnit = units.find(u => u.id === displayDefaultUnitId);
                 if (defaultUnit) {
                     defaultUnitName = defaultUnit.name;
                     defaultUnitSymbol = defaultUnit.symbol;
+                    console.log(`[QuantityNode] Found default unit: ${defaultUnitName} (${defaultUnitSymbol})`);
+                } else {
+                    console.warn(`[QuantityNode] Default unit ${displayDefaultUnitId} not found in available units`);
+                    defaultUnitName = 'Unknown Unit';
+                    defaultUnitSymbol = '';
                 }
                 
                 // Initialize selected and display units
@@ -147,9 +196,35 @@
                     selectedUnitId = displayDefaultUnitId;
                     displayUnitSymbol = defaultUnitSymbol;
                 }
+            } else {
+                console.warn(`[QuantityNode] No units found for category ${displayUnitCategoryId}`);
+                availableUnits = [];
+                defaultUnitName = 'No units available';
+                defaultUnitSymbol = '';
             }
+            
+            console.log('[QuantityNode] Successfully loaded unit details:', {
+                categoryName,
+                defaultUnitName,
+                defaultUnitSymbol,
+                availableUnitsCount: availableUnits.length
+            });
+            
         } catch (error) {
             console.error('[QuantityNode] Error loading unit details:', error);
+            
+            // Set fallback values on error to prevent further API calls
+            categoryName = 'Error loading units';
+            defaultUnitName = 'Error';
+            defaultUnitSymbol = '';
+            availableUnits = [];
+            
+            // Ensure display units are set to prevent undefined errors
+            if (!displayUnitId) {
+                displayUnitId = 'error';
+                selectedUnitId = 'error';
+                displayUnitSymbol = '';
+            }
         }
     }
 

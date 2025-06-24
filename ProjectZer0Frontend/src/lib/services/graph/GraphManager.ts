@@ -37,6 +37,8 @@ export class GraphManager {
     // Caches for better performance
     private nodeVotesCache = new Map<string, number>();
     private nodeRadiusCache = new Map<string, number>();
+    // NEW: Add link path cache for performance
+    private linkPathCache = new Map<string, string>();
 
     // Public derived stores for renderable data
     public readonly renderableNodes: Readable<RenderableNode[]>;
@@ -69,7 +71,6 @@ export class GraphManager {
 
     private setupReplyListener(): void {
         if (typeof window !== 'undefined') {
-            console.log('[FORM_DEBUG] GraphManager - Setting up reply listener');
             window.addEventListener('discussion-reply-started', ((event: CustomEvent) => {
                 if (!event.detail || !event.detail.commentId) {
                     console.warn('[FORM_DEBUG] GraphManager - Reply event missing commentId');
@@ -125,6 +126,8 @@ export class GraphManager {
         // Clear caches for fresh start
         this.nodeVotesCache.clear();
         this.nodeRadiusCache.clear();
+        // NEW: Clear link path cache when data changes
+        this.linkPathCache.clear();
         
         // Transform input data
         const enhancedNodes = this.transformNodes(data.nodes);
@@ -983,7 +986,7 @@ export class GraphManager {
         );
     }
 
-    private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
+        private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
         // Reuse existing enhanced nodes when possible
         const enhancedNodeCache = new Map<string, EnhancedNode>();
         
@@ -1115,10 +1118,82 @@ export class GraphManager {
                 });
             }
             
+            // Build the base node data structure that matches the expected types
+            let nodeData: any = {
+                // Add raw data for the layout to access
+                ...(node.data || {}),
+                // Override with node ID to ensure consistency
+                id: node.id
+            };
+            
+            // Add type-specific properties based on node type
+            if (node.type === 'statement') {
+                // Access metadata votes safely with proper type checking
+                const votes = node.metadata && typeof node.metadata === 'object' && 'votes' in node.metadata ? 
+                    node.metadata.votes as any : null;
+                    
+                nodeData = {
+                    ...nodeData,
+                    statement: node.data && 'content' in node.data ? node.data.content : 
+                               node.data && 'statement' in node.data ? (node.data as any).statement : '',
+                    positiveVotes: votes?.positive || 0,
+                    negativeVotes: votes?.negative || 0,
+                    netVotes: votes?.net || 0,
+                    votes: votes
+                };
+            } else if (node.type === 'openquestion') {
+                // Access answer_count safely from metadata
+                const answerCount = node.metadata && typeof node.metadata === 'object' && 'answer_count' in node.metadata ? 
+                    (node.metadata as any).answer_count : 0;
+                    
+                nodeData = {
+                    ...nodeData,
+                    questionText: node.data && 'content' in node.data ? node.data.content : 
+                                 node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
+                    answerCount: answerCount || 0
+                };
+            } else if (node.type === 'quantity') {
+                // PERFORMANCE FIX: Prevent API spam by validating unit data
+                const rawUnitCategoryId = node.data && 'unitCategoryId' in node.data ? 
+                    (node.data as any).unitCategoryId : null;
+                const rawDefaultUnitId = node.data && 'defaultUnitId' in node.data ? 
+                    (node.data as any).defaultUnitId : null;
+                
+                // Only use valid unit IDs, not defaults that cause 404s
+                const validUnitCategoryId = rawUnitCategoryId && 
+                    rawUnitCategoryId !== 'default' && 
+                    rawUnitCategoryId.trim() !== '' ? rawUnitCategoryId : null;
+                    
+                const validDefaultUnitId = rawDefaultUnitId && 
+                    rawDefaultUnitId !== 'default' && 
+                    rawDefaultUnitId.trim() !== '' ? rawDefaultUnitId : null;
+                
+                // Access responses safely from metadata
+                const responses = node.metadata && typeof node.metadata === 'object' && 'responses' in node.metadata ? 
+                    (node.metadata as any).responses : {};
+                
+                nodeData = {
+                    ...nodeData,
+                    question: node.data && 'content' in node.data ? node.data.content : 
+                             node.data && 'question' in node.data ? (node.data as any).question : '',
+                    responses: responses || {},
+                    // FIXED: Use null instead of 'default' to prevent API calls
+                    unitCategoryId: validUnitCategoryId,
+                    defaultUnitId: validDefaultUnitId
+                };
+                
+                console.log(`[GraphManager:transformNodes] Quantity node ${node.id} unit data:`, {
+                    originalCategoryId: rawUnitCategoryId,
+                    originalDefaultId: rawDefaultUnitId,
+                    validCategoryId: validUnitCategoryId,
+                    validDefaultId: validDefaultUnitId
+                });
+            }
+            
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
-                data: node.data,
+                data: nodeData,
                 group: node.group,
                 mode: nodeMode,
                 radius: nodeRadius, // Use pre-calculated radius
@@ -1739,12 +1814,20 @@ export class GraphManager {
         }
     }
 
-    private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
+        private calculateLinkPath(source: EnhancedNode, target: EnhancedNode): string {
         // Get positions with null safety
         const sourceX = source.x ?? 0;
         const sourceY = source.y ?? 0;
         const targetX = target.x ?? 0;
         const targetY = target.y ?? 0;
+        
+        // Create cache key based on positions and node IDs
+        const cacheKey = `${source.id}-${target.id}-${sourceX.toFixed(1)}-${sourceY.toFixed(1)}-${targetX.toFixed(1)}-${targetY.toFixed(1)}`;
+        
+        // Return cached path if available and positions haven't changed significantly
+        if (this.linkPathCache.has(cacheKey)) {
+            return this.linkPathCache.get(cacheKey)!;
+        }
         
         // Skip calculation if nodes are at the same position
         if (sourceX === targetX && sourceY === targetY) {
@@ -1772,6 +1855,18 @@ export class GraphManager {
         const endY = targetY - (unitY * targetRadius);
         
         // Create a straight line path
-        return `M${startX},${startY}L${endX},${endY}`;
+        const path = `M${startX},${startY}L${endX},${endY}`;
+        
+        // Cache the result (limit cache size to prevent memory issues)
+        if (this.linkPathCache.size > 1000) {
+            // Clear oldest entries when cache gets too large
+            const firstKey = this.linkPathCache.keys().next().value;
+            if (firstKey) {
+                this.linkPathCache.delete(firstKey);
+            }
+        }
+        this.linkPathCache.set(cacheKey, path);
+        
+        return path;
     }
 }
