@@ -19,7 +19,6 @@ export function logout() {
 
 export async function getAuth0User(autoRedirect: boolean = true): Promise<UserProfile | null> {
  try {
-   console.log('Fetching user data from backend...');
    const response = await fetch(`${API_URL}/auth/profile`, {
      method: 'GET',
      credentials: 'include',
@@ -30,9 +29,7 @@ export async function getAuth0User(autoRedirect: boolean = true): Promise<UserPr
    
    if (!response.ok) {
      if (response.status === 401) {
-       console.log('User is not authenticated.');
        if (autoRedirect) {
-         console.log('Auto-redirect enabled, redirecting to login...');
          login();
        }
        return null;

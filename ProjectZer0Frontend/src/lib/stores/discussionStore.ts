@@ -213,7 +213,6 @@ function createDiscussionStore() {
                 const currentUser = get(userStore);
                 if (currentUser) {
                     try {
-                        console.log('[DiscussionStore] Fetching user comment votes...');
                         const votesResponse = await fetchWithAuth(`/comments/users/comments/votes`);
                         console.log('[DiscussionStore] Received votes response:', votesResponse);
                         

@@ -75,8 +75,6 @@ function createUnitPreferenceStore() {
             isLoaded: true,
             lastUpdated: Date.now()
           }));
-          
-          console.log('Initialized with cached unit preferences');
         }
       }
     },

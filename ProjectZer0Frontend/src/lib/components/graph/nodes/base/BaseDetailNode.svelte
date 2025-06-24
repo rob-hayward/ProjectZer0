@@ -57,21 +57,10 @@
     onMount(() => {
         baseOpacity.set(1);
         
-        console.log('[NODE_CENTRE_DEBUG] BaseDetailNode mounted with position:', {
-            nodeId: node.id,
-            nodeX,
-            nodeY,
-            nodePosition: node.position
-        });
-        
         // If we don't have nodeX/nodeY but we have node.position, use that
         if ((nodeX === undefined || nodeY === undefined) && node.position) {
             nodeX = node.position.x;
             nodeY = node.position.y;
-            console.log('[NODE_CENTRE_DEBUG] BaseDetailNode using node.position instead:', {
-                x: nodeX,
-                y: nodeY
-            });
         }
     });
 
@@ -97,7 +86,6 @@
         // Otherwise, use the position from props if available
         else if (nodeX !== undefined && nodeY !== undefined) {
             eventData.position = { x: nodeX, y: nodeY };
-            console.log('[NODE_CENTRE_DEBUG] BaseDetailNode adding position to event:', eventData.position);
         }
         // If all else fails, use node's position
         else if (node.position) {
@@ -105,7 +93,6 @@
                 x: node.position.x,
                 y: node.position.y
             };
-            console.log('[NODE_CENTRE_DEBUG] BaseDetailNode using node.position for event:', eventData.position);
         }
         
         // Forward the enhanced event

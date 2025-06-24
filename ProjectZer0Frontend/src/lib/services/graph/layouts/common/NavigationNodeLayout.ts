@@ -39,7 +39,6 @@ export class NavigationNodeLayout {
         // Get navigation nodes
         const navNodes = nodes.filter(n => n.type === 'navigation');
         if (navNodes.length === 0) {
-            console.debug('[NavigationNodeLayout] No navigation nodes to position');
             return 0;
         }
         
@@ -313,8 +312,6 @@ export class NavigationNodeLayout {
                 this.safelyRemoveForce(simulation, name);
             });
         }
-        
-        console.debug('[NavigationNodeLayout] Removed all navigation forces');
     }
 
     /**
@@ -342,8 +339,6 @@ export class NavigationNodeLayout {
         nodes: EnhancedNode[],
         getNodeRadius: (node: EnhancedNode) => number
     ): void {
-        console.debug('[NavigationNodeLayout] Updating navigation positions due to central node mode change');
-        
         // Find central node to determine if it's a control node
         const centralNode = nodes.find(n => n.fixed || n.group === 'central');
         const isControlNode = centralNode?.type === 'dashboard' && 

@@ -36,8 +36,6 @@ export class SingleNodeLayout extends BaseLayoutStrategy {
      * This ensures no forces can affect node positions
      */
     private clearAllForces(): void {
-        console.debug('[SingleNodeLayout] Clearing all forces');
-        
         // Get all force names
         const sim = this.simulation as any;
         

@@ -12,7 +12,6 @@ export class Background {
   private scene: Scene;
 
   constructor(scene: Scene) {
-    console.log('Background constructor called');
     this.scene = scene;
     this.createBackground();
   }
@@ -29,7 +28,6 @@ export class Background {
   }
 
   private createBackground() {
-    console.log('Creating background elements');
     const nodeGeometry = new THREE.SphereGeometry(BACKGROUND.NODE_SIZE, 8, 8);
     const nodeMaterial = new THREE.MeshBasicMaterial({
       transparent: true,
@@ -41,7 +39,6 @@ export class Background {
   }
 
   private createNodes(geometry: THREE.SphereGeometry, material: THREE.MeshBasicMaterial) {
-    console.log('Creating background nodes');
     for (let i = 0; i < BACKGROUND.NODE_COUNT; i++) {
       const nodeColor = this.getRandomPrimaryColor();
       const nodeMaterial = material.clone();
@@ -70,7 +67,6 @@ export class Background {
   }
 
   private createEdges() {
-    console.log('Creating background edges');
     this.nodes.forEach((node, i) => {
       const connectionCount = BACKGROUND.MIN_CONNECTIONS +
         Math.floor(Math.random() * (BACKGROUND.MAX_CONNECTIONS - BACKGROUND.MIN_CONNECTIONS + 1));
@@ -176,7 +172,6 @@ export class Background {
   }
 
   public dispose() {
-    console.log('Disposing background elements');
     this.nodes.forEach(node => {
       this.scene.remove(node.mesh);
       node.mesh.geometry.dispose();
@@ -191,6 +186,5 @@ export class Background {
 
     this.nodes = [];
     this.edges = [];
-    console.log('Background disposed');
   }
 }

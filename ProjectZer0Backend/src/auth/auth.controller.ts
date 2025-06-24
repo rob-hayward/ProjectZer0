@@ -53,7 +53,6 @@ export class AuthController {
   @UseGuards(AuthGuard('auth0'))
   async callback(@Req() req: AuthenticatedRequest, @Res() res: Response) {
     // Add debug logs at the very beginning
-    console.log('=== AUTH CALLBACK STARTED ===');
     console.log('Request URL:', req.url);
     console.log('Request method:', req.method);
     console.log('Request headers:', JSON.stringify(req.headers, null, 2));
@@ -63,8 +62,6 @@ export class AuthController {
     console.log('Request session ID:', req.sessionID);
     console.log('Request session:', JSON.stringify(req.session, null, 2));
     console.log('Request cookies:', JSON.stringify(req.cookies, null, 2));
-    console.log('============================');
-
     const auth0Profile = req.user;
 
     if (!auth0Profile) {
@@ -127,11 +124,8 @@ export class AuthController {
       }
     } catch (error) {
       this.logger.error(`Error in callback: ${error.message}`, error.stack);
-      console.log('=== CALLBACK ERROR ===');
       console.log('Error message:', error.message);
       console.log('Error stack:', error.stack);
-      console.log('====================');
-
       // Redirect to frontend with error for better UX
       const frontendUrl =
         this.configService.get<string>('FRONTEND_URL') ||

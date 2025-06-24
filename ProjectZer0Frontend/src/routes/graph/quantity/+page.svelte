@@ -46,13 +46,11 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[QUANTITY-VIEW] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[QUANTITY-VIEW] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -66,7 +64,6 @@
             
             // Load quantity data if needed
             if (!initialQuantityData) {
-                console.log('[QUANTITY-VIEW] No initial quantity data, loading from URL parameter');
                 const idParam = new URL(window.location.href).searchParams.get('id');
                 if (idParam) {
                     const loadedQuantity = await getQuantityData(idParam);
@@ -87,16 +84,12 @@
                     return;
                 }
             } else {
-                console.log('[QUANTITY-VIEW] Using initial quantity data from page data');
                 quantityStore.set(initialQuantityData);
             }
-            
-            console.log('[QUANTITY-VIEW] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[QUANTITY-VIEW] Setting graph store view type to quantity');
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }
@@ -187,7 +180,6 @@
 
     // Force update when quantityStore changes
     $: if ($quantityStore && isReady) {
-        console.log('[QUANTITY-VIEW] Quantity store updated, rebuilding graph data');
         routeKey = `${viewType}-${Date.now()}`;
     }
 </script>

@@ -26,12 +26,10 @@ function createWordStore() {
                 try {
                     const state = { word };
                     window.history.replaceState(state, '', newUrl);
-                    console.log('WordStore: URL updated successfully via history API');
                 } catch (error) {
                     console.error('WordStore: Error updating URL:', error);
                 }
             } else {
-                console.log('WordStore: URL already correct');
             }
         }
     }
@@ -62,7 +60,6 @@ function createWordStore() {
             }
         },
         reset: () => {
-            console.log('WordStore: Resetting word data');
             currentWordId = null;
             baseSet(null);
         },

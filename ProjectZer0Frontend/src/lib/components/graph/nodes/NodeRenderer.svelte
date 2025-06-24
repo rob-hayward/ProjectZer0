@@ -136,8 +136,6 @@
             
             // For transition from hidden to visible, verify radius is updated
             if (node.isHidden && !event.detail.isHidden) {
-                console.log('[NodeRenderer] Comment node transitioning from hidden to visible, verifying radius');
-                
                 // Force a refresh after a short delay to ensure all updates have happened
                 setTimeout(() => {
                     // Force component refresh by incrementing counter

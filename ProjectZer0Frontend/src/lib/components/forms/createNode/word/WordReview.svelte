@@ -58,7 +58,6 @@
             
             // Update graph store to word view type
             if (browser && graphStore && graphStore.setViewType) {
-                console.log('[WordReview] Updating graph store to word view');
                 graphStore.setViewType('word');
                 
                 // Force immediate visual update if available

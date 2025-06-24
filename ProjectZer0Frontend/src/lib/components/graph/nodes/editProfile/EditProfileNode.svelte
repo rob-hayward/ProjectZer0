@@ -71,7 +71,6 @@
                 
                 // CRITICAL FIX 1: Update graph store to dashboard view type
                 if (graphStore && graphStore.setViewType) {
-                    console.log('[EditProfile] Updating graph store to dashboard view');
                     graphStore.setViewType('dashboard');
                     
                     // Force immediate visual update if available
@@ -86,7 +85,6 @@
                 
                 // CRITICAL FIX 2: Use direct navigation instead of goto
                 setTimeout(() => {
-                    console.log('[EditProfile] Navigating to dashboard');
                     window.location.href = '/graph/dashboard';
                 }, 1500); // Keep a shorter timeout for better UX
             }

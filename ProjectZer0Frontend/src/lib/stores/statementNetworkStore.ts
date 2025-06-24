@@ -150,15 +150,6 @@ function createStatementNetworkStore() {
                     const aTimestamp = getTimestamp(a);
                     const bTimestamp = getTimestamp(b);
                     
-                    // Remove debug logging in production code
-                    // Only log if debug mode is enabled
-                    if (process.env.NODE_ENV === 'development' && aTimestamp && bTimestamp) {
-                        console.debug(`[Chronological Sort] Comparing dates:`, {
-                            a: { id: a.id.substring(0, 8), timestamp: aTimestamp, date: new Date(aTimestamp).toISOString() },
-                            b: { id: b.id.substring(0, 8), timestamp: bTimestamp, date: new Date(bTimestamp).toISOString() }
-                        });
-                    }
-                    
                     // Handle cases where one or both timestamps are 0 (invalid)
                     if (aTimestamp === 0 && bTimestamp === 0) {
                         comparison = 0;  // Keep original order if both invalid

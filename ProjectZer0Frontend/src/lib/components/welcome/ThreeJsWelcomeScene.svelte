@@ -17,7 +17,6 @@
   let background: Background;
   
   function initScene() {
-    console.log('Initializing scene');
     scene = new THREE.Scene();
     scene.background = COLORS.BLACK;
     camera = new THREE.PerspectiveCamera(
@@ -45,11 +44,9 @@
       0.85    // bloom threshold
     );
     composer.addPass(bloomPass);
-    console.log('Scene initialized');
   }
   
   function createLargerSphere() {
-    console.log('Creating larger sphere');
     const geometry = new THREE.SphereGeometry(
       LARGER_SPHERE.RADIUS, 
       LARGER_SPHERE.SEGMENTS, 
@@ -66,7 +63,6 @@
   }
   
   function createSmallerSphere() {
-    console.log('Creating smaller sphere');
     const geometry = new THREE.SphereGeometry(
       SMALLER_SPHERE.RADIUS, 
       SMALLER_SPHERE.SEGMENTS, 
@@ -125,10 +121,7 @@
     let cleanupFunction: (() => void) | undefined;
   
     try {
-      console.log('Starting scene initialization');
       initScene();
-      
-      console.log('Creating background');
       background = new Background(scene);
       console.log('Background created:', background);
 
@@ -140,7 +133,6 @@
       window.addEventListener('resize', onWindowResize);
       
       cleanupFunction = () => {
-        console.log('Cleaning up scene');
         window.removeEventListener('resize', onWindowResize);
         gsap.killTweensOf(smallerSphere.position);
         
@@ -156,7 +148,6 @@
         
         renderer.dispose();
         composer.dispose();
-        console.log('Cleanup complete');
       };
     } catch (error) {
       console.error('Error initializing Three.js scene:', error);

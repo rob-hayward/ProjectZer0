@@ -104,8 +104,6 @@
 
             // Update graph store to quantity view type
             if (browser && graphStore) {
-                console.log('[QuantityReview] Navigating to quantity view');
-                
                 // Force immediate visual update if available
                 if (graphStore.forceTick) {
                     try {

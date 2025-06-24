@@ -127,7 +127,6 @@
             if (!parentNode || parentNode.type !== 'OpenQuestionNode') {
                 // Update graph store to statement-network view type
                 if (browser && graphStore && graphStore.setViewType) {
-                    console.log('[StatementAnswerReview] Updating graph store to statement-network view');
                     graphStore.setViewType('statement-network');
                     
                     // Force immediate visual update if available

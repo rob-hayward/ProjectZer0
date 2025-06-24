@@ -7,12 +7,9 @@ import { getWordData } from '$lib/services/word';
 export const ssr = false;
 
 export const load = (async ({ url }): Promise<GraphPageData> => {
-    console.debug('[CREATE-DEFINITION-ROUTE] Loading create definition view');
-
     // Get word param from URL
     const wordParam = url.searchParams.get('word');
     if (!wordParam) {
-        console.debug('[CREATE-DEFINITION-ROUTE] No word parameter, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 
@@ -21,7 +18,6 @@ export const load = (async ({ url }): Promise<GraphPageData> => {
         const wordData = await getWordData(wordParam);
         
         if (!wordData) {
-            console.debug('[CREATE-DEFINITION-ROUTE] Word data not found, redirecting to dashboard');
             throw redirect(307, '/graph/dashboard');
         }
 

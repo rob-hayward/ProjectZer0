@@ -56,8 +56,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
      * Clear ALL forces from the simulation
      */
     private clearAllForces(): void {
-        console.debug('[OpenQuestionAnswerLayout] Clearing all forces');
-        
         const sim = this.simulation as any;
         
         const potentialForceNames = [
@@ -188,8 +186,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
      * Configure forces for this layout
      */
     configureForces(): void {
-        console.debug('[OpenQuestionAnswerLayout] Configuring forces');
-
         this.clearAllForces();
         NavigationNodeLayout.configureNoForces(this.simulation);
 
@@ -283,8 +279,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             if (typeof centralNode.index === 'number') {
                 centralNode.index = 0;
             }
-            
-            console.debug('[OpenQuestionAnswerLayout] Enforced central node position at (0,0)');
         }
         
         NavigationNodeLayout.enforceFixedPositions(nodes);
@@ -380,7 +374,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
             this.enforceFixedPositions();
             
             // Then reposition navigation nodes based on new question size
-            console.debug('[OpenQuestionAnswerLayout] Repositioning navigation nodes for central node size change');
             NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
                 this.getNodeRadius.bind(this)
@@ -392,7 +385,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         
         // If it's a statement and the question is involved, reposition
         if (node.type === 'statement') {
-            console.debug('[OpenQuestionAnswerLayout] Statement node mode changed, repositioning all statements');
             this.repositionStatements(nodes);
         }
         
@@ -472,7 +464,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         }
 
         if (node.type === 'openquestion') {
-            console.debug('[OpenQuestionAnswerLayout] Question node visibility changed, repositioning all nodes');
             NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
                 this.getNodeRadius.bind(this)
@@ -481,7 +472,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
         }
         
         if (node.type === 'statement') {
-            console.debug('[OpenQuestionAnswerLayout] Statement node visibility changed, repositioning all statements');
             this.repositionStatements(nodes);
         }
         
@@ -787,7 +777,6 @@ export class OpenQuestionAnswerLayout extends BaseLayoutStrategy {
      * Stops the layout strategy and clears all forces
      */
     public stop(): void {
-        console.debug('[OpenQuestionAnswerLayout] Stopping layout');
         super.stop();
         if (this.simulation) {
             this.clearAllForces();

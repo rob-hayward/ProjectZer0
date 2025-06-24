@@ -34,21 +34,9 @@
 	}
 
 	onMount(() => {
-		console.log('[NODE_CENTRE_DEBUG] BasePreviewNode mounted with position:', {
-			nodeId: node.id,
-			nodeX,
-			nodeY,
-			nodePosition: node.position,
-			showContentBoxBorder
-		});
-
 		if ((nodeX === undefined || nodeY === undefined) && node.position) {
 			nodeX = node.position.x;
 			nodeY = node.position.y;
-			console.log('[NODE_CENTRE_DEBUG] BasePreviewNode using node.position instead:', {
-				x: nodeX,
-				y: nodeY
-			});
 		}
 	});
 

@@ -7,12 +7,9 @@ import { getOpenQuestionData } from '$lib/services/openQuestion';
 export const ssr = false;
 
 export const load = (async ({ url }): Promise<GraphPageData> => {
-    console.debug('[OPENQUESTION-ROUTE] Loading openquestion view');
-
     // Get id param from URL
     const questionId = url.searchParams.get('id');
     if (!questionId) {
-        console.debug('[OPENQUESTION-ROUTE] No question ID parameter, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 
@@ -21,7 +18,6 @@ export const load = (async ({ url }): Promise<GraphPageData> => {
         const questionData = await getOpenQuestionData(questionId);
         
         if (!questionData) {
-            console.debug('[OPENQUESTION-ROUTE] Question data not found, redirecting to dashboard');
             throw redirect(307, '/graph/dashboard');
         }
 

@@ -5,8 +5,6 @@ import type { GraphPageData } from '$lib/types/graph/enhanced';
 export const ssr = false;
 
 export const load = (async (): Promise<GraphPageData> => {
-    console.debug('[EDIT-PROFILE-ROUTE] Loading edit profile view');
-
     return {
         view: 'edit-profile',
         viewType: 'edit-profile',

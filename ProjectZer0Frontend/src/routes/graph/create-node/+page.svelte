@@ -31,13 +31,11 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[CREATE-NODE] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[CREATE-NODE] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -47,13 +45,10 @@
             });
             authInitialized = true;
             userStore.set(fetchedUser);
-            
-            console.log('[CREATE-NODE] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[CREATE-NODE] Setting graph store view type to create-node');
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }

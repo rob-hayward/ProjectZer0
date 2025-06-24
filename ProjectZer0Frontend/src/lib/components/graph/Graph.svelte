@@ -102,8 +102,6 @@
      * External method to center viewport on specific coordinates
      */
     export function centerViewportOnCoordinates(x: number, y: number, duration: number = 750): boolean {
-        console.log('[STATE_DEBUG] External call to centerViewportOnCoordinates:', { x, y, duration });
-        
         if (!svg || !zoomInstance) {
             console.error('[STATE_DEBUG] Cannot center - svg or zoomInstance is null');
             return false;
@@ -112,7 +110,6 @@
         try {
             // Get the current transform for reference
             const currentTransform = coordinateSystem.getCurrentTransform();
-            console.log('[STATE_DEBUG] Current transform before centering:', currentTransform.toString());
             
             // Use the scale from current transform
             const scale = currentTransform.k;
@@ -122,12 +119,6 @@
             const transform = d3.zoomIdentity
                 .translate(-x * scale, -y * scale)
                 .scale(scale);
-            
-            console.log('[STATE_DEBUG] Applying transform to center:', {
-                position: { x, y },
-                scale: scale,
-                transform: transform.toString()
-            });
             
             // Apply the transform
             d3.select(svg)
@@ -164,36 +155,23 @@
     export function logNodeState(nodeType?: string): void {
         // Log all nodes or nodes of a specific type
         if (!graphStore) {
-            console.log('[STATE_DEBUG] No graph store available');
             return;
         }
         
         const state = graphStore.getState() as any; // Type assertion
         if (!state || !state.nodes) {
-            console.log('[STATE_DEBUG] No nodes in graph store');
             return;
         }
         
         const nodes = nodeType ? 
             state.nodes.filter((n: any) => n.type === nodeType) : // Type assertion
             state.nodes;
-            
-        console.log(`[STATE_DEBUG] ${nodes.length} nodes${nodeType ? ` of type ${nodeType}` : ''}:`, 
-            nodes.map((n: any) => ({ // Type assertion
-                id: n.id,
-                type: n.type,
-                metadata: n.metadata,
-                position: n.position ? { x: n.position.x, y: n.position.y } : 'no position'
-            }))
-        );
     }
     
     /**
      * External method to center viewport on a specific node by ID
      */
     export function centerOnNodeById(nodeId: string, duration: number = 750): boolean {
-        console.log('[STATE_DEBUG] External call to centerOnNodeById:', nodeId);
-        
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
             console.error('[STATE_DEBUG] centerOnNodeById failed: graphStore is not initialized');
             return false;
@@ -205,12 +183,6 @@
             console.error(`[STATE_DEBUG] centerOnNodeById failed: node ${nodeId} not found or has no position`);
             return false;
         }
-        
-        console.log('[STATE_DEBUG] Found node to center on:', {
-            id: nodeId,
-            type: node.type,
-            position: node.position
-        });
         
         // Call the existing centerViewportOnCoordinates method with the node's position
         return centerViewportOnCoordinates(node.position.x, node.position.y, duration);
@@ -351,8 +323,6 @@
      * For centering nodes using direct D3 transformations
      */
     function centerViewportOn(x: number, y: number, zoomLevel?: number, duration: number = 750) {
-        console.log('[STATE_DEBUG] centerViewportOn called with coordinates:', { x, y, zoomLevel, duration });
-        
         if (!svg || !zoomInstance) {
             console.error('[STATE_DEBUG] centerViewportOn failed: svg or zoomInstance is null');
             return;
@@ -360,7 +330,6 @@
         
         // Get the current transform for reference
         const currentTransform = coordinateSystem.getCurrentTransform();
-        console.log('[STATE_DEBUG] Current transform before centering:', currentTransform.toString());
         
         try {
             // Get or use zoom level
@@ -372,12 +341,6 @@
                 .translate(-x * scale, -y * scale)
                 .scale(scale);
             
-            console.log('[STATE_DEBUG] Applying transform to center:', {
-                position: { x, y },
-                scale: scale,
-                transform: transform.toString()
-            });
-            
             // Apply the transform
             d3.select(svg)
                 .transition()
@@ -387,9 +350,6 @@
             // Verify transformation after a short delay
             setTimeout(() => {
                 const newTransform = coordinateSystem.getCurrentTransform();
-                console.log('[STATE_DEBUG] Transform after centering:', newTransform.toString(),
-                    'Expected:', transform.toString(),
-                    'Match:', newTransform.toString() === transform.toString());
             }, duration + 50);
         } catch (e) {
             console.error('[STATE_DEBUG] Error centering viewport:', e);
@@ -400,8 +360,6 @@
      * Center on a specific node by ID
      */
     function centerOnNode(nodeId: string, duration: number = 750): void {
-        console.log('[STATE_DEBUG] centerOnNode called with nodeId:', nodeId);
-        
         if (!graphStore) {
             console.error('[STATE_DEBUG] centerOnNode failed: graphStore is null');
             return;
@@ -421,9 +379,6 @@
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node) {
             console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} not found`);
-            // Log all available node IDs for debugging
-            console.log('[STATE_DEBUG] Available nodes:', 
-                $graphStore.nodes.map(n => ({ id: n.id, type: n.type })));
             return;
         }
         
@@ -431,12 +386,6 @@
             console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} has no position`);
             return;
         }
-        
-        console.log('[STATE_DEBUG] Found node to center on:', {
-            id: nodeId,
-            type: node.type,
-            position: node.position
-        });
         
         // Call the existing centerViewportOn method with the node's position
         centerViewportOn(node.position.x, node.position.y, undefined, duration);
@@ -448,8 +397,6 @@
         mode: NodeMode;
         position?: { x: number; y: number }; 
     }>) {
-        console.log('[STATE_DEBUG] handleModeChange called with:', event.detail);
-        
         const nodeId = event.detail.nodeId;
         const newMode = event.detail.mode;
         
@@ -472,8 +419,6 @@
                         const node = $graphStore.nodes.find(n => n.id === nodeId);
                         
                         if (node && node.position) {
-                            console.log('[STATE_DEBUG] Post-expansion node position:', node.position);
-                            
                             // Center viewport
                             centerViewportOn(
                                 node.position.x,
@@ -576,9 +521,6 @@
      */
     function resetViewport() {
         if (!svg || !resetZoom) return;
-        
-        console.log('[STATE_DEBUG] Resetting viewport to initial state');
-        
         // Reset zoom to initial state
         resetZoom();
     }
@@ -588,8 +530,6 @@
      */
     function initialize() {
         if (initialized) return;
-        
-        console.log(`[STATE_DEBUG] Graph.svelte ${componentId} - Initializing graph component for viewType: ${viewType}`);
         
         // Create graph store for this view
         graphStore = createGraphStore(viewType);
@@ -618,7 +558,6 @@
         } else {
             // Normal initialization for other views
             if (data) {
-                console.log(`[STATE_DEBUG] Setting initial data with ${data.nodes.length} nodes`);
                 graphStore.setData(data);
             }
         }
@@ -641,7 +580,6 @@
 
     // Lifecycle hooks
     onMount(() => {
-        console.log(`[STATE_DEBUG] Graph.svelte ${componentId} - onMount`);
         initialize();
         
         if (typeof window !== 'undefined') {
@@ -649,29 +587,19 @@
             
             // Setup event listeners for centering
             centerOnNodeHandler = ((event: CustomEvent) => {
-                console.log('[STATE_DEBUG] center-on-node event received in Graph.svelte', event.detail);
-                
                 if (!event.detail) {
-                    console.warn('[STATE_DEBUG] center-on-node event has no detail');
                     return;
                 }
                 
                 if (event.detail.nodeId || (event.detail.x !== undefined && event.detail.y !== undefined)) {
-                    console.log('[STATE_DEBUG] Processing valid center-on-node event:', event.detail);
-                    
                     if (event.detail.nodeId) {
                         // Center by ID if provided
-                        console.log('[STATE_DEBUG] Centering by node ID:', event.detail.nodeId);
                         centerOnNode(event.detail.nodeId, event.detail.duration);
                     } else {
                         // Or center by coordinates
-                        console.log('[STATE_DEBUG] Centering by coordinates:', 
-                                    { x: event.detail.x, y: event.detail.y });
                         centerViewportOn(event.detail.x, event.detail.y, 
                                         event.detail.zoomLevel, event.detail.duration);
                     }
-                } else {
-                    console.warn('[STATE_DEBUG] center-on-node event missing required data', event.detail);
                 }
             }) as EventListener;
             window.addEventListener('center-on-node', centerOnNodeHandler);
@@ -679,8 +607,6 @@
             // Add listener for setting transform directly
             setTransformHandler = ((event: CustomEvent) => {
                 if (event.detail && event.detail.transform && svg && zoomInstance) {
-                    console.log('[STATE_DEBUG] set-transform event received:', event.detail);
-                    
                     d3.select(svg)
                         .transition()
                         .duration(event.detail.duration || 750)
@@ -691,11 +617,7 @@
             
             // Test event system
             window.addEventListener('test-event', ((event: CustomEvent) => {
-                console.log('[STATE_DEBUG] Test event received in Graph.svelte');
             }) as EventListener);
-            
-            console.log('[STATE_DEBUG] Event listeners registered for center-on-node and set-transform');
-            
             // Load visibility preferences when component mounts
             if ($userStore) {
                 // Apply any cached preferences immediately
@@ -717,7 +639,6 @@
         
         // Test events after a short delay
         setTimeout(() => {
-            console.log('[STATE_DEBUG] Testing event system...');
             window.dispatchEvent(new CustomEvent('test-event', { detail: { test: true } }));
         }, 1000);
     });
@@ -725,12 +646,6 @@
     // When the graph data changes or we navigate to a new page,
     // make sure preferences are applied (but only once)
     afterUpdate(() => {
-        console.log(`[STATE_DEBUG] Graph.svelte ${componentId} - afterUpdate`, {
-            initialized,
-            viewType,
-            dataNodes: data?.nodes?.length
-        });
-        
         if (data && graphStore && !preferencesApplied) {
             preferencesApplied = true; // Set the flag to prevent loops
             
@@ -745,8 +660,6 @@
     });
 
     onDestroy(() => {
-        console.log(`[STATE_DEBUG] Graph.svelte ${componentId} - onDestroy`);
-        
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateContainerDimensions);
             window.removeEventListener('center-on-node', centerOnNodeHandler);
@@ -797,19 +710,8 @@
     
     // When data changes
     $: if (initialized && graphStore && data) {
-        console.log(`[STATE_DEBUG] Graph.svelte ${componentId} - Data changed:`, {
-            nodeCount: data.nodes.length,
-            linkCount: data.links.length
-        });
-        
         // Log form nodes in the incoming data
         const formNodes = data.nodes.filter(n => n.type === 'comment-form');
-        if (formNodes.length > 0) {
-            console.log('[STATE_DEBUG] Form nodes in incoming data:', formNodes.map(n => ({
-                id: n.id,
-                parent: n.metadata?.parentCommentId || 'none'
-            })));
-        }
         
         // Use skipAnimation for statement network view
         if (viewType === 'statement-network') {
@@ -832,20 +734,10 @@
             // Check state after setData
             setTimeout(() => {
                 const state = graphStore.getState() as any;
-                console.log('[STATE_DEBUG] GraphStore state after setData:',
-                           state ? `${state.nodes?.length || 0} nodes` : 'unavailable');
                 
                 // Log form nodes in the graph store after setting data
                 if (state && state.nodes) {
                     const storeFormNodes = state.nodes.filter((n: any) => n.type === 'comment-form');
-                    if (storeFormNodes.length > 0) {
-                        console.log('[STATE_DEBUG] Form nodes in graph store after setData:', 
-                                   storeFormNodes.map((n: any) => ({
-                                       id: n.id,
-                                       parent: n.metadata?.parentCommentId || 'none',
-                                       position: n.position ? {x: n.position.x, y: n.position.y} : 'no position'
-                                   })));
-                    }
                 }
             }, 50);
         }
@@ -918,12 +810,10 @@
                                 on:modeChange={handleModeChange}
                                 on:visibilityChange={handleVisibilityChange}
                                 on:reply={event => {
-                                    console.log('[Graph] Reply event from NodeRenderer:', event.detail);
                                     // Ensure we're dispatching the exact event structure expected
                                     dispatch('reply', { commentId: event.detail.commentId });
                                 }}
                                 on:answerQuestion={event => {
-                                    console.log('[Graph] Answer question event from NodeRenderer:', event.detail);
                                     dispatch('answerQuestion', { questionId: event.detail.questionId });
                                 }}
                             >

@@ -40,13 +40,11 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[CREATE-DEFINITION] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[CREATE-DEFINITION] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -60,7 +58,6 @@
             
             // Load word data if needed
             if (!initialWordData) {
-                console.log('[CREATE-DEFINITION] No initial word data, loading from URL parameter');
                 const wordParam = new URL(window.location.href).searchParams.get('word');
                 if (wordParam) {
                     const loadedWord = await getWordData(wordParam);
@@ -82,16 +79,12 @@
                     return;
                 }
             } else {
-                console.log('[CREATE-DEFINITION] Using initial word data from page data');
                 wordStore.set(initialWordData);
             }
-            
-            console.log('[CREATE-DEFINITION] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[CREATE-DEFINITION] Setting graph store view type to create-definition');
                 // Note: For now, we're using 'create-alternative' here until we update the graphStore
                 // to support 'create-definition' as a valid ViewType
                 graphStore.setViewType('create-definition' as ViewType);

@@ -73,12 +73,10 @@ export class GraphManager {
         if (typeof window !== 'undefined') {
             window.addEventListener('discussion-reply-started', ((event: CustomEvent) => {
                 if (!event.detail || !event.detail.commentId) {
-                    console.warn('[FORM_DEBUG] GraphManager - Reply event missing commentId');
                     return;
                 }
                 
                 const commentId = event.detail.commentId;
-                console.log(`[FORM_DEBUG] GraphManager - Detected reply started to comment: ${commentId}`);
                 
                 // Update graph to reflect the new reply form
                 this.handleReplyFormStarted(commentId);
@@ -89,7 +87,6 @@ export class GraphManager {
     private handleReplyFormStarted(commentId: string): void {
         // Only process for discussion view
         if (this._viewType !== 'discussion') {
-            console.log(`[FORM_DEBUG] GraphManager - Not processing reply form - view type is not discussion: ${this._viewType}`);
             return;
         }
         
@@ -99,23 +96,13 @@ export class GraphManager {
         // Find the target comment
         const targetComment = currentNodes.find(n => n.id === commentId);
         if (!targetComment) {
-            console.warn(`[FORM_DEBUG] GraphManager - Cannot find comment ${commentId} for reply form`);
             return;
         }
         
-        console.log(`[FORM_DEBUG] GraphManager - Found target comment:`, {
-            id: targetComment.id,
-            type: targetComment.type,
-            position: { x: targetComment.x, y: targetComment.y }
-        });
-        
         // If we have a DiscussionLayout, let it handle the positioning
         if (this.currentLayoutStrategy instanceof DiscussionLayout) {
-            console.log(`[FORM_DEBUG] GraphManager - Notifying DiscussionLayout to handle reply start`);
             // Notify the layout strategy about the reply start
             (this.currentLayoutStrategy as any).handleReplyStart(commentId);
-        } else {
-            console.warn(`[FORM_DEBUG] GraphManager - No DiscussionLayout available for reply form positioning`);
         }
     }
 
@@ -163,7 +150,6 @@ export class GraphManager {
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[GraphManager] Node ${nodeId} not found`);
             return;
         }
         
@@ -172,11 +158,8 @@ export class GraphManager {
         
         // Skip update if already in requested mode
         if (node.mode === mode) {
-            console.log(`[GraphManager] Node ${nodeId} already in mode ${mode}`);
             return;
         }
-        
-        console.log(`[GraphManager] Updating node ${nodeId} mode from ${node.mode} to ${mode}`);
         
         // Stop simulation before updating
         this.simulation.alpha(0).alphaTarget(0);
@@ -190,8 +173,6 @@ export class GraphManager {
             ...node,
             mode: mode
         });
-        
-        console.log(`[GraphManager] Node ${nodeId} (type: ${node.type}) radius change: ${node.radius} -> ${newRadius}`);
         
         // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
@@ -229,7 +210,6 @@ export class GraphManager {
         if (this.currentLayoutStrategy) {
             // CRITICAL: For OpenQuestionAnswerLayout, we need to call the right method
             if (this.currentLayoutStrategy instanceof OpenQuestionAnswerLayout) {
-                console.log(`[GraphManager] Calling OpenQuestionAnswerLayout.handleNodeStateChange`);
                 this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
             } else if (typeof this.currentLayoutStrategy.handleNodeStateChange === 'function') {
                 this.currentLayoutStrategy.handleNodeStateChange(nodeId, mode);
@@ -260,7 +240,6 @@ export class GraphManager {
         const nodeIndex = currentNodes.findIndex((n: EnhancedNode) => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[GraphManager] Node ${nodeId} not found for visibility update`);
             return;
         }
         
@@ -269,11 +248,8 @@ export class GraphManager {
         
         // Skip if already in correct state
         if (oldNode.isHidden === isHidden) {
-            console.log(`[GraphManager] Node ${nodeId} already in correct visibility state: ${isHidden ? 'hidden' : 'visible'}`);
             return;
         }
-        
-        console.log(`[GraphManager] Updating visibility for ${oldNode.type} node ${nodeId}: ${isHidden ? 'hiding' : 'showing'} (${hiddenReason})`);
         
         // Clear all cache entries for this node
         for (const key of Array.from(this.nodeRadiusCache.keys())) {
@@ -288,7 +264,6 @@ export class GraphManager {
         if (oldNode.isHidden && !isHidden) {
             // If we're transitioning from hidden to visible, set to preview mode
             updatedMode = 'preview';
-            console.log(`[GraphManager] Node ${nodeId} transitioning from hidden to visible, setting mode to 'preview'`);
         }
         
         // Calculate new radius using the updated mode and visibility
@@ -297,8 +272,6 @@ export class GraphManager {
             mode: updatedMode,
             isHidden: isHidden
         });
-        
-        console.log(`[GraphManager] Node ${nodeId} radius: ${oldNode.radius} -> ${newRadius} (hidden: ${isHidden}, mode: ${updatedMode})`);
         
         // Create a new node object with updated properties
         const updatedNode: EnhancedNode = {
@@ -317,8 +290,6 @@ export class GraphManager {
         // Update the simulation with the new nodes array
         this.simulation.nodes(updatedNodes);
         this.nodesStore.set(updatedNodes);
-        
-        console.log(`[GraphManager] Updated ${oldNode.type} node ${nodeId} visibility state successfully. New radius: ${updatedNode.radius}, mode: ${updatedNode.mode}`);
         
         // If layout strategy exists, let it handle the visibility change
         if (this.currentLayoutStrategy) {
@@ -345,12 +316,8 @@ export class GraphManager {
         const node = currentNodes.find((n: EnhancedNode) => n.id === nodeId);
         
         if (!node) {
-            console.log(`[GraphManager] Node ${nodeId} not found in simulation`);
             return;
         }
-        
-        // Log the internal node radius
-        console.log(`[GraphManager] Internal node ${nodeId} (type: ${node.type}) radius: ${node.radius}`);
         
         // Then check the DOM if we're in browser environment
         if (typeof document !== 'undefined') {
@@ -363,11 +330,6 @@ export class GraphManager {
                 // Try to find circle elements within the node
                 const circles = nodeElem.querySelectorAll('circle');
                 const radii = Array.from(circles).map(circle => circle.getAttribute('r'));
-                
-                console.log(`[GraphManager] DOM node ${nodeId} data-radius: ${dataRadius}`);
-                console.log(`[GraphManager] DOM node ${nodeId} circle radii:`, radii);
-            } else {
-                console.log(`[GraphManager] Node ${nodeId} not found in DOM`);
             }
         }
     }
@@ -414,11 +376,6 @@ export class GraphManager {
             
             // Only update if visibility state would change
             if (node.isHidden !== shouldBeHidden) {
-                // CRITICAL: Add debug log for comment nodes
-                if (node.type === 'comment') {
-                    console.log(`[GraphManager] Updating comment node ${nodeId} visibility from ${node.isHidden} to ${shouldBeHidden} by user preference`);
-                }
-                
                 // Update node visibility with 'user' as the reason
                 this.updateNodeVisibility(nodeId, shouldBeHidden, 'user');
             }
@@ -430,11 +387,6 @@ export class GraphManager {
             
             // Only update if visibility state would change
             if (node.isHidden !== shouldBeHiddenByCommunity) {
-                // CRITICAL: Add debug log for comment nodes
-                if (node.type === 'comment') {
-                    console.log(`[GraphManager] Updating comment node ${nodeId} visibility from ${node.isHidden} to ${shouldBeHiddenByCommunity} by community standard`);
-                }
-                
                 // Update node visibility with 'community' as the reason
                 this.updateNodeVisibility(nodeId, shouldBeHiddenByCommunity, 'community');
             }
@@ -704,20 +656,13 @@ export class GraphManager {
 
     //  applyLayoutStrategy method
     private applyLayoutStrategy(): void {
-        // Add this at the start of the method
-        console.log('[LAYOUT_DEBUG] Applying layout strategy for view type:', this._viewType);
-        console.log('[LAYOUT_DEBUG] Current layoutStrategy type:', 
-                    this.currentLayoutStrategy ? this.currentLayoutStrategy.constructor.name : 'none');
-        
         // Stop current layout strategy if exists
         if (this.currentLayoutStrategy) {
             this.currentLayoutStrategy.stop();
-            console.log('[LAYOUT_DEBUG] Stopped previous layout strategy');
         }
         
         // Select appropriate layout strategy
         if (this._viewType === 'statement-network') {
-            console.log('[LAYOUT_DEBUG] Creating StatementNetworkLayout');
             this.currentLayoutStrategy = new StatementNetworkLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -737,14 +682,11 @@ export class GraphManager {
         }
         else if (this._viewType === 'discussion') {
             // Add debug to verify this is executed
-            console.log('[LAYOUT_DEBUG] Initializing DiscussionLayout');
-            
             try {
                 // Check if DiscussionLayout is available
                 if (typeof DiscussionLayout === 'undefined') {
                     console.error('[LAYOUT_DEBUG] Error: DiscussionLayout class is not defined');
                 } else {
-                    console.log('[LAYOUT_DEBUG] DiscussionLayout class is available');
                 }
                 
                 // Create the discussion layout
@@ -756,18 +698,12 @@ export class GraphManager {
                 
                 // Configure discussion-specific forces
                 this.configureDiscussionForces();
-                
-                // Verify layout was created
-                console.log('[LAYOUT_DEBUG] DiscussionLayout created:', 
-                        !this.currentLayoutStrategy,
-                        'Type:', this.currentLayoutStrategy?.constructor.name);
             } catch (error) {
                 console.error('[LAYOUT_DEBUG] Error creating DiscussionLayout:', error);
             }
         }
         else if (this._viewType === 'openquestion') {
             // OpenQuestion Answer Layout
-            console.log('[LAYOUT_DEBUG] Creating OpenQuestionAnswerLayout');
             this.currentLayoutStrategy = new OpenQuestionAnswerLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -776,7 +712,6 @@ export class GraphManager {
         }
         else if (this._viewType === 'universal') {
             // NEW: Universal Graph Layout
-            console.log('[LAYOUT_DEBUG] Creating UniversalGraphLayout');
             this.currentLayoutStrategy = new UniversalGraphLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -795,7 +730,6 @@ export class GraphManager {
             this._viewType === 'statement' ||
             this._viewType === 'quantity') {
             // Single central node views - including statement and quantity views
-            console.log('[LAYOUT_DEBUG] Creating SingleNodeLayout');
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -804,7 +738,6 @@ export class GraphManager {
         } 
         else if (this._viewType === 'word') {
             // Word definition view
-            console.log('[LAYOUT_DEBUG] Creating WordDefinitionLayout');
             this.currentLayoutStrategy = new WordDefinitionLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -813,7 +746,6 @@ export class GraphManager {
         }
         else {
             // Default to SingleNodeLayout for any other view
-            console.log('[LAYOUT_DEBUG] Creating default SingleNodeLayout for unknown view type:', this._viewType);
             this.currentLayoutStrategy = new SingleNodeLayout(
                 COORDINATE_SPACE.WORLD.WIDTH,
                 COORDINATE_SPACE.WORLD.HEIGHT,
@@ -823,8 +755,6 @@ export class GraphManager {
         
         // Apply the selected strategy
         if (this.currentLayoutStrategy) {
-            console.log('[LAYOUT_DEBUG] Applying layout strategy:', this.currentLayoutStrategy.constructor.name);
-            
             // Get current nodes
             const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
             
@@ -844,15 +774,9 @@ export class GraphManager {
             
             // Call enforceFixedPositionsStrict to ensure fixed positions
             this.enforceFixedPositionsStrict();
-            
-            console.log('[LAYOUT_DEBUG] Layout strategy application complete');
         } else {
             console.error('[LAYOUT_DEBUG] Failed to create layout strategy for view type:', this._viewType);
         }
-        
-        // Add at the end to verify final layout type
-        console.log('[LAYOUT_DEBUG] Final layout strategy:', 
-                    this.currentLayoutStrategy ? this.currentLayoutStrategy.constructor.name : 'none');
     }
 
     /**
@@ -860,8 +784,6 @@ export class GraphManager {
      * This is critical for proper hierarchical comments
      */
     public configureDiscussionForces(): void {
-        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Configuring discussion-specific forces');
-        
         // Clear any existing tick handlers that might interfere
         this.simulation.on('tick.fixedPosition', null);
         
@@ -998,11 +920,6 @@ export class GraphManager {
         
         return nodes.map(node => {
             if (node.type === 'statement-answer-form') {
-                console.log('[GraphManager] Processing statement-answer-form node:', {
-                    id: node.id,
-                    type: node.type,
-                    group: node.group
-                });
             }
             // Check if we already have this node
             const existing = enhancedNodeCache.get(node.id);
@@ -1053,8 +970,6 @@ export class GraphManager {
                         
                     // Force update the radius
                     existing.radius = newRadius;
-                    
-                    console.log(`[GraphManager:transformNodes] Updated existing ${existing.type} node ${node.id} radius: ${existing.radius} (hidden: ${isHidden})`);
                 } 
                 // For other node types, handle normally
                 else {
@@ -1098,14 +1013,11 @@ export class GraphManager {
                 nodeRadius = isHidden ? 
                     COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2 : 
                     COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
-                    
-                console.log(`[GraphManager:transformNodes] Created new ${node.type} node ${node.id} with radius: ${nodeRadius} (hidden: ${isHidden})`);
             } else {
                 // For other node types, use normal mode handling
                 // IMPORTANT: Default central nodes to detail mode
                 if (node.group === 'central' && !node.mode) {
                     nodeMode = 'detail';
-                    console.log(`[GraphManager:transformNodes] Defaulting central node ${node.id} to detail mode`);
                 } else {
                     nodeMode = node.mode || undefined;
                 }
@@ -1181,13 +1093,6 @@ export class GraphManager {
                     unitCategoryId: validUnitCategoryId,
                     defaultUnitId: validDefaultUnitId
                 };
-                
-                console.log(`[GraphManager:transformNodes] Quantity node ${node.id} unit data:`, {
-                    originalCategoryId: rawUnitCategoryId,
-                    originalDefaultId: rawDefaultUnitId,
-                    validCategoryId: validUnitCategoryId,
-                    validDefaultId: validDefaultUnitId
-                });
             }
             
             const enhancedNode: EnhancedNode = {
@@ -1251,17 +1156,6 @@ export class GraphManager {
     }
 
     private transformLinks(links: GraphLink[]): EnhancedLink[] {
-        // Log incoming links for debugging comment hierarchy
-        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Transforming links:', 
-            links.map(link => ({
-                id: link.id,
-                source: typeof link.source === 'string' ? link.source : link.source.id,
-                target: typeof link.target === 'string' ? link.target : link.target.id,
-                type: link.type,
-                metadata: link.metadata
-            }))
-        );
-        
         return links.map(link => {
             // Ensure proper handling of source/target which might be objects or strings
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
@@ -1285,7 +1179,6 @@ export class GraphManager {
                 // Replies to parent comments - stronger to keep them close to parent
                 strength = 0.7;
                 relationshipType = 'direct';
-                console.log(`[COMMENT_HIERARCHY_GRAPHMANAGER] Processing reply link: ${sourceId} -> ${targetId}`);
             } else if (link.type === 'comment-form' || link.type === 'reply-form') {
                 // Form connections - strongest to keep forms right next to their targets
                 strength = 0.9;
@@ -1404,9 +1297,6 @@ export class GraphManager {
             nodeMap.set(node.id, node);
         });
         
-        // Log links for debugging
-        console.log('[COMMENT_HIERARCHY_GRAPHMANAGER] Creating renderable links from', links.length, 'links');
-        
         return links.map(link => {
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
             const targetId = typeof link.target === 'string' ? link.target : link.target.id;
@@ -1416,7 +1306,6 @@ export class GraphManager {
             const target = nodeMap.get(targetId);
             
             if (!source || !target) {
-                console.warn(`[COMMENT_HIERARCHY_GRAPHMANAGER] Missing node for link: ${sourceId} -> ${targetId}`);
                 return null;
             }
             

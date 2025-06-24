@@ -46,13 +46,11 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[STATEMENT-VIEW] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[STATEMENT-VIEW] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -66,7 +64,6 @@
             
             // Load statement data if needed
             if (!initialStatementData) {
-                console.log('[STATEMENT-VIEW] No initial statement data, loading from URL parameter');
                 const idParam = new URL(window.location.href).searchParams.get('id');
                 if (idParam) {
                     const loadedStatement = await getStatementData(idParam);
@@ -87,16 +84,12 @@
                     return;
                 }
             } else {
-                console.log('[STATEMENT-VIEW] Using initial statement data from page data');
                 statementStore.set(initialStatementData);
             }
-            
-            console.log('[STATEMENT-VIEW] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[STATEMENT-VIEW] Setting graph store view type to statement');
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }
@@ -187,7 +180,6 @@
 
     // Force update when statementStore changes
     $: if ($statementStore && isReady) {
-        console.log('[STATEMENT-VIEW] Statement store updated, rebuilding graph data');
         routeKey = `${viewType}-${Date.now()}`;
     }
 </script>

@@ -5,8 +5,6 @@ import type { GraphPageData } from '$lib/types/graph/enhanced';
 export const ssr = false;
 
 export const load = (async (): Promise<GraphPageData> => {
-    console.debug('[STATEMENT-NETWORK-ROUTE] Loading statement network view');
-
     return {
         view: 'statement-network',
         viewType: 'statement-network',

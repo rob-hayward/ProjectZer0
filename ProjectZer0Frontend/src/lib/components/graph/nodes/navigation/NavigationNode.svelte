@@ -72,7 +72,6 @@
             
             // Force immediate refresh
             if (graphStore.forceTick) {
-                console.log('[NAVIGATION] Forcing immediate graph update');
                 graphStore.forceTick(); // No arguments to avoid TS error
             }
         }
@@ -82,7 +81,6 @@
             // Force a small timeout to give store update time to propagate
             await new Promise(resolve => setTimeout(resolve, 10));
             handleNavigation(navigationData.id as NavigationOptionId);
-            console.log('[NAVIGATION] Navigation completed');
         } catch (e) {
             console.error('[NAVIGATION] Error during navigation:', e);
         }

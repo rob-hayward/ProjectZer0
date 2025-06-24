@@ -82,13 +82,11 @@
     
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[STATE_DEBUG] Starting data initialization...');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[STATE_DEBUG] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -110,7 +108,6 @@
             // For word nodes, we need to handle them differently
             if (nodeType === 'word') {
                 try {
-                    console.log('[STATE_DEBUG] Handling word node, fetching all words first');
                     // First get all words to find the one with matching ID
                     const allWords = await fetchWithAuth('/nodes/word/all');
                     console.log('[STATE_DEBUG] Fetched all words, count:', allWords?.length);
@@ -169,7 +166,6 @@
             }
             
             // Load visibility preferences
-            console.log('[STATE_DEBUG] Loading visibility preferences');
             await visibilityStore.loadPreferences();
             
             isLoading = false;
@@ -180,8 +176,6 @@
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }
-            
-            console.log('[STATE_DEBUG] Data initialization complete');
         } catch (err) {
             console.error('[STATE_DEBUG] Error initializing discussion view:', err);
             error = err instanceof Error ? err.message : 'An error occurred';
@@ -227,7 +221,6 @@
     }
     
     function handleAddRootComment() {
-        console.log('[STATE_DEBUG] Add root comment button clicked');
         isAddingRootComment = true;
     }
     
@@ -241,8 +234,6 @@
         
         // Check if this is the central node
         if (commentId === centralNode?.id) {
-            console.log('[STATE_DEBUG] This is a reply to the central node');
-            
             // Set flag to create a root comment form
             isAddingRootComment = true;
         } else {
@@ -251,13 +242,11 @@
         }
         
         // Force graph data update with new form
-        console.log('[STATE_DEBUG] Updating graph data for comment form');
         graphData = createGraphData();
         
         // Center on the new form after a short delay
         setTimeout(() => {
             if (!graphComponent) {
-                console.log('[STATE_DEBUG] No graphComponent available');
                 return;
             }
             
@@ -350,7 +339,6 @@
                 isAddingRootComment = false;
                 
                 // Force graph data update to show the new comment
-                console.log('[STATE_DEBUG] Forcing graph data update after comment creation');
                 graphData = createGraphData();
                 
                 // Center the view on the new comment after a short delay
@@ -575,7 +563,6 @@
         // CRITICAL FIX: Handle comment forms with proper parent ID tracking
         // We can only have one comment form at a time
         if (isAddingRootComment) {
-            console.log('[STATE_DEBUG] Creating root comment form');
             const formNode = createCommentFormNode(null);
             commentNodes.push(formNode);
             
@@ -643,7 +630,6 @@
     }
     
     function handleCommentCancel() {
-        console.log('[STATE_DEBUG] Comment cancelled');
         isAddingRootComment = false;
         discussionStore.cancelAddingComment();
     }
@@ -713,7 +699,6 @@
     // Create graph data reactively
     $: {
         if (isReady) {
-            console.log('[STATE_DEBUG] Creating new graph data reactively');
             lastGraphData = createGraphData();
             graphData = lastGraphData;
             console.log('[STATE_DEBUG] New graph data created reactively, node count:', graphData.nodes.length);
@@ -726,7 +711,6 @@
     
     // Initialize on mount
     onMount(() => {
-        console.log('[STATE_DEBUG] Component mounted');
         initializeData();
     });
     
@@ -741,13 +725,11 @@
     
     // Clean up on destroy
     onDestroy(() => {
-        console.log('[STATE_DEBUG] Component being destroyed, cleaning up');
         discussionStore.reset();
     });
     
     // Force update when discussion store changes
     $: if ($discussionStore && isReady) {
-        console.log('[STATE_DEBUG] Discussion store updated, triggering reactive update');
     }
 </script>
 

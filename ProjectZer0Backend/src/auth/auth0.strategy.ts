@@ -8,8 +8,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
   private readonly logger = new Logger(Auth0Strategy.name);
 
   constructor(configService: ConfigService) {
-    console.log('🔥 AUTH0 STRATEGY CONSTRUCTOR CALLED 🔥');
-
     const domain = configService.get<string>('AUTH0_DOMAIN');
     const clientID = configService.get<string>('AUTH0_CLIENT_ID');
     const clientSecret = configService.get<string>('AUTH0_CLIENT_SECRET');
@@ -17,7 +15,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     const audience = configService.get<string>('AUTH0_AUDIENCE');
 
     // Log configuration (without sensitive data)
-    console.log('=== AUTH0 STRATEGY CONFIGURATION ===');
     console.log('AUTH0_DOMAIN:', domain);
     console.log(
       'AUTH0_CLIENT_ID:',
@@ -29,8 +26,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     );
     console.log('AUTH0_CALLBACK_URL:', callbackURL);
     console.log('AUTH0_AUDIENCE:', audience);
-    console.log('====================================');
-
     if (!domain || !clientID || !clientSecret || !callbackURL) {
       const missing = [];
       if (!domain) missing.push('AUTH0_DOMAIN');
@@ -57,7 +52,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     });
 
     // Post-initialization logging
-    console.log('🔥 AUTH0 STRATEGY INITIALIZED SUCCESSFULLY 🔥');
     this.logger.log('Auth0Strategy initialized successfully');
   }
 
@@ -69,7 +63,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
     profile: any,
   ): Promise<any> {
     try {
-      console.log('=== AUTH0 STRATEGY VALIDATE CALLED ===');
       console.log('Request session ID:', req.sessionID);
       console.log(
         'Request session data:',
@@ -82,8 +75,6 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
       console.log('Profile emails:', profile.emails);
       console.log('Raw profile data:', JSON.stringify(profile, null, 2));
       console.log('Extra params:', JSON.stringify(extraParams, null, 2));
-      console.log('====================================');
-
       this.logger.log(
         `Auth0 validate called for user: ${profile.id || profile.sub}`,
       );
@@ -114,11 +105,7 @@ export class Auth0Strategy extends PassportStrategy(Strategy, 'auth0') {
         provider: profile.provider || 'auth0',
         ...profile._json, // Include the raw Auth0 profile data
       };
-
-      console.log('=== RETURNING NORMALIZED PROFILE ===');
       console.log(JSON.stringify(normalizedProfile, null, 2));
-      console.log('==================================');
-
       return normalizedProfile;
     } catch (error) {
       console.error('❌ AUTH0 STRATEGY VALIDATE ERROR:', error.message);

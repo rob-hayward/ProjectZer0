@@ -68,7 +68,6 @@
             
             // Update graph store to openquestion view type
             if (browser && graphStore && graphStore.setViewType) {
-                console.log('[OpenQuestionReview] Updating graph store to openquestion view');
                 graphStore.setViewType('openquestion');
                 
                 // Force immediate visual update if available

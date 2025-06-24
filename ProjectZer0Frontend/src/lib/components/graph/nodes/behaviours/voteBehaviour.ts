@@ -118,8 +118,6 @@ export function createVoteBehaviour(
     const pos = getNeo4jNumber(apiResponse.positiveVotes);
     const neg = getNeo4jNumber(apiResponse.negativeVotes);
     
-    console.log(`[VoteBehaviour] Updating vote counts for ${nodeId}:`, { pos, neg });
-    
     // Update internal stores
     positiveVotes.set(pos);
     negativeVotes.set(neg);
@@ -129,15 +127,9 @@ export function createVoteBehaviour(
       dataObject[dataProperties.positiveVotesKey] = pos;
       dataObject[dataProperties.negativeVotesKey] = neg;
       
-      console.log(`[VoteBehaviour] Updated data object for ${nodeId}:`, {
-        [dataProperties.positiveVotesKey]: dataObject[dataProperties.positiveVotesKey],
-        [dataProperties.negativeVotesKey]: dataObject[dataProperties.negativeVotesKey]
-      });
-      
       // Trigger reactivity callback if provided
       if (onDataUpdate && typeof onDataUpdate === 'function') {
         onDataUpdate();
-        console.log(`[VoteBehaviour] Triggered reactivity callback for ${nodeId}`);
       }
     }
     
@@ -146,10 +138,8 @@ export function createVoteBehaviour(
       // Only update if this is actually a statement network view or the statement exists in the store
       try {
         voteStore.updateVoteData(nodeId, pos, neg);
-        console.log(`[VoteBehaviour] Updated external store for ${nodeId}:`, { pos, neg });
       } catch (error) {
         // Silently ignore if the statement doesn't exist in this store
-        console.log(`[VoteBehaviour] Node ${nodeId} not in external store, skipping update`);
       }
     }
     
@@ -188,7 +178,6 @@ export function createVoteBehaviour(
       return result;
     } catch (err) {
       if (retryCount < MAX_RETRIES) {
-        console.log(`[VoteBehaviour] Retrying vote action (attempt ${retryCount + 1}/${MAX_RETRIES})`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         return performVoteAction(voteType, retryCount + 1);
       }
@@ -201,14 +190,11 @@ export function createVoteBehaviour(
     const RETRY_DELAY = 1000;
     
     try {
-      console.log(`[VoteBehaviour] Fetching vote status for ${nodeType}:`, apiIdentifier);
       const response = await fetchWithAuth(getVoteEndpoint(apiIdentifier));
       
       if (!response) {
         throw new Error('No response from vote status endpoint');
       }
-      
-      console.log(`[VoteBehaviour] Vote status response:`, response);
       
       userVoteStatus.set(response.status || 'none');
       
@@ -222,7 +208,6 @@ export function createVoteBehaviour(
       console.error(`[VoteBehaviour] Error fetching vote status:`, err);
       
       if (retryCount < MAX_RETRIES) {
-        console.log(`[VoteBehaviour] Retrying vote status fetch (attempt ${retryCount + 1}/${MAX_RETRIES})`);
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         await initializeVoteStatus(retryCount + 1);
       } else {
@@ -276,13 +261,11 @@ export function createVoteBehaviour(
     const currentIsVoting = get(isVoting);
     
     if (currentIsVoting) {
-      console.log('[VoteBehaviour] Vote already in progress');
       return false;
     }
 
     // Prevent duplicate votes of the same type
     if (voteType !== 'none' && currentVoteStatus === voteType) {
-      console.log('[VoteBehaviour] Already voted this way');
       return false;
     }
 
@@ -296,8 +279,6 @@ export function createVoteBehaviour(
     const originalNegativeVotes = get(negativeVotes);
 
     try {
-      console.log(`[VoteBehaviour] Processing vote: ${voteType} for ${apiIdentifier}`);
-      
       // Optimistic update
       userVoteStatus.set(voteType);
       
@@ -317,7 +298,6 @@ export function createVoteBehaviour(
         lastVoteType.set(null);
       }, 1000);
       
-      console.log(`[VoteBehaviour] Vote successful: ${voteType} for ${apiIdentifier}`);
       return true;
       
     } catch (err) {

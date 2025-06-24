@@ -34,13 +34,11 @@
 
     // Initialize data and authenticate user
     async function initializeData() {
-        console.log('[DASHBOARD] Starting data initialization');
         try {
             await auth0.handleAuthCallback();
             const fetchedUser = await auth0.getAuth0User();
             
             if (!fetchedUser) {
-                console.log('[DASHBOARD] No user found, redirecting to login');
                 auth0.login();
                 return;
             }
@@ -51,13 +49,10 @@
             authInitialized = true;
             userStore.set(fetchedUser);
             userActivity = await getUserActivity();
-            
-            console.log('[DASHBOARD] Data initialization complete');
             dataInitialized = true;
             
             // Set the correct view type in graph store and force update
             if (graphStore) {
-                console.log('[DASHBOARD] Setting graph store view type to dashboard');
                 graphStore.setViewType(viewType);
                 graphStore.forceTick();
             }

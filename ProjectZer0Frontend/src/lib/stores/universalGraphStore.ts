@@ -169,8 +169,6 @@ function createUniversalGraphStore() {
 
     // Load nodes from the API
     async function loadNodes(user: any) {
-        console.log('[UniversalGraphStore] loadNodes called with user:', user?.sub);
-        
         if (!user) {
             console.error('[UniversalGraphStore] No user provided');
             return;
@@ -183,15 +181,8 @@ function createUniversalGraphStore() {
             const params = buildQueryParams(state);
             const url = `/graph/universal/nodes?${params.toString()}`;
             
-            console.log('[UniversalGraphStore] Loading nodes with URL:', url);
-            console.log('[UniversalGraphStore] Query params:', params.toString());
-            
             // Use fetchWithAuth which handles JWT authentication properly
             const data = await fetchWithAuth(url);
-
-            console.log('[UniversalGraphStore] Raw response data:', data);
-            console.log('[UniversalGraphStore] Response data type:', typeof data);
-            console.log('[UniversalGraphStore] Response data keys:', data ? Object.keys(data) : 'null');
             
             // Validate response structure
             if (!data || typeof data !== 'object') {
@@ -203,19 +194,6 @@ function createUniversalGraphStore() {
             const relationships = data.relationships || [];
             const totalCount = data.total_count || nodes.length;
             const hasMore = data.has_more || false;
-            
-            console.log('[UniversalGraphStore] Parsed data:', {
-                nodeCount: nodes.length,
-                relationshipCount: relationships.length,
-                totalCount: totalCount,
-                hasMore: hasMore
-            });
-
-            // Log if we have nodes but no relationships
-            if (nodes.length > 0 && relationships.length === 0) {
-                console.warn('[UniversalGraphStore] Backend returned nodes but no relationships.');
-                console.log('[UniversalGraphStore] Sample nodes:', nodes.slice(0, 3));
-            }
 
             update(state => ({
                 ...state,

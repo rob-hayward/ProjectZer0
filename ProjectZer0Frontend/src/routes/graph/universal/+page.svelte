@@ -84,7 +84,6 @@
         if (relationships.length > 0) {
             console.log('[UNIVERSAL-GRAPH] Relationships updated in reactive statement:', relationships.length);
         } else {
-            console.log('[UNIVERSAL-GRAPH] No relationships loaded from store');
         }
     }
     
@@ -202,9 +201,6 @@
             console.error('[UNIVERSAL-GRAPH] No user store available');
             return;
         }
-        
-        console.log('[UNIVERSAL-GRAPH] Starting to load universal graph data...');
-        
         try {
             // Apply current filters to the store
             console.log('[UNIVERSAL-GRAPH] Setting filters:', {
@@ -228,10 +224,7 @@
             }
             
             // Load nodes from the API
-            console.log('[UNIVERSAL-GRAPH] Calling universalGraphStore.loadNodes...');
             await universalGraphStore.loadNodes($userStore);
-            
-            console.log('[UNIVERSAL-GRAPH] Nodes loaded successfully');
             console.log('[UNIVERSAL-GRAPH] Current store state:', {
                 nodes: nodes.length,
                 relationships: relationships.length
@@ -267,7 +260,6 @@
     
     // Update graph with universal data
     function updateGraphWithUniversalData() {
-        console.log('[UNIVERSAL-GRAPH] updateGraphWithUniversalData called');
         console.log('[UNIVERSAL-GRAPH] nodesLoaded:', nodesLoaded);
         console.log('[UNIVERSAL-GRAPH] nodes from store:', nodes);
         console.log('[UNIVERSAL-GRAPH] relationships from store:', relationships);
@@ -363,7 +355,6 @@
         
         // Update the graph
         if (graphStore) {
-            console.log('[UNIVERSAL-GRAPH] Setting data in graph store');
             graphStore.setData(graphData);
         } else {
             console.warn('[UNIVERSAL-GRAPH] Graph store not available');

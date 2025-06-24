@@ -173,7 +173,6 @@ async function createStatement(seed) {
 
 // Main execution function
 async function seedStatements() {
-    console.log('Starting batch statement creation process...');
     const createdStatements = [];
     
     // Create statements
@@ -189,26 +188,14 @@ async function seedStatements() {
             console.error(`Failed to process statement: ${error}`);
         }
     }
-    
-    console.log('\nBatch statement creation complete!');
-    console.log('Created statements:');
-    
     // Print in format suitable for Neo4j queries
-    console.log('\n==== Statement IDs and Vote Targets ====');
-    console.log('For use in Neo4j Aura:');
-    console.log('```cypher');
-    
     for (const statement of createdStatements) {
         console.log(`// "${statement.text.substring(0, 50)}..."`)
         console.log(`MATCH (s:Statement {id: "${statement.id}"})`)
         console.log(`SET s.positiveVotes = ${statement.targetVotes.positive}, s.negativeVotes = ${statement.targetVotes.negative};`)
         console.log();
     }
-    
-    console.log('```');
-    
     // Print keyword information for reference
-    console.log('\n==== Keyword Connections ====');
     for (const statement of createdStatements) {
         console.log(`Statement: "${statement.text.substring(0, 50)}..."`);
         console.log(`ID: ${statement.id}`);

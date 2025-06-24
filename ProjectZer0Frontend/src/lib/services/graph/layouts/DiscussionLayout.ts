@@ -80,8 +80,6 @@ export class DiscussionLayout extends BaseLayoutStrategy {
      * This ensures no forces affect node positions
      */
     private clearAllForces(): void {
-        console.debug('[DiscussionLayout] Clearing all forces');
-        
         // Get simulation instance
         const sim = this.simulation as any;
         
@@ -481,8 +479,6 @@ export class DiscussionLayout extends BaseLayoutStrategy {
      * Configure forces for this layout - USING NO FORCES APPROACH
      */
     configureForces(): void {
-        console.debug('[DiscussionLayout] Configuring forces (static positioning)');
-
         // Start with no forces at all
         this.clearAllForces();
 
@@ -1335,8 +1331,6 @@ public forceTick(ticks: number = 1): void {
  * Stops the layout strategy and clears all forces
  */
 public stop(): void {
-    console.debug('[DiscussionLayout] Stopping layout');
-    
     // Call parent stop
     super.stop();
     

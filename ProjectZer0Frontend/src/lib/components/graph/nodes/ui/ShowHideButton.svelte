@@ -35,16 +35,11 @@
         scale.set(isHovered ? 1.5 : 1);
     }
 
-    // Log the current state for debugging
-    $: console.log(`[ShowHideButton-${uniqueId}] Current state: ${isHidden ? 'hidden' : 'visible'}, Button shows "${isHidden ? 'show' : 'hide'}"`);
-
     function handleClick() {
         // When the button is clicked we want to toggle the visibility state
         // If isHidden is true (node is hidden), pressing "show" will set isHidden to false
         // If isHidden is false (node is visible), pressing "hide" will set isHidden to true
         const newIsHidden = !isHidden;
-        
-        console.log(`[ShowHideButton-${uniqueId}] Button clicked. Changing visibility from ${isHidden ? 'hidden' : 'visible'} to ${newIsHidden ? 'hidden' : 'visible'}`);
         
         // Dispatch event with the NEW state
         dispatch('click');

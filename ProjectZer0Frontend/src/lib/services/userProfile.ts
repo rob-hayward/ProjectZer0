@@ -4,7 +4,6 @@ import { fetchWithAuth } from './api';
 
 export async function updateUserProfile(userData: Partial<UserProfile>): Promise<UserProfile | null> {
   try {
-    console.log('Updating user profile...');
     const updatedUserData = await fetchWithAuth('/users/update-profile', {
       method: 'POST',
       body: JSON.stringify(userData)

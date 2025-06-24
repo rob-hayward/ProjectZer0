@@ -23,7 +23,6 @@ function testVoteBehaviour() {
 
   // Test methods
   voteBehaviour.initialize().then(() => {
-    console.log('Vote behaviour initialized');
   });
 
   return voteBehaviour;

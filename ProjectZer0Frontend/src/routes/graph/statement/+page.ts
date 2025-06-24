@@ -7,12 +7,9 @@ import { getStatementData } from '$lib/services/statement';
 export const ssr = false;
 
 export const load = (async ({ url }): Promise<GraphPageData> => {
-    console.debug('[STATEMENT-ROUTE] Loading statement view');
-
     // Get statement ID param from URL
     const idParam = url.searchParams.get('id');
     if (!idParam) {
-        console.debug('[STATEMENT-ROUTE] No statement ID parameter, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 
@@ -21,7 +18,6 @@ export const load = (async ({ url }): Promise<GraphPageData> => {
         const statementData = await getStatementData(idParam);
         
         if (!statementData) {
-            console.debug('[STATEMENT-ROUTE] Statement data not found, redirecting to dashboard');
             throw redirect(307, '/graph/dashboard');
         }
 

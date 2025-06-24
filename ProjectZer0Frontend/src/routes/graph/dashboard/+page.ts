@@ -5,8 +5,6 @@ import type { GraphPageData } from '$lib/types/graph/enhanced';
 export const ssr = false;
 
 export const load = (async (): Promise<GraphPageData> => {
-    console.debug('[DASHBOARD-ROUTE] Loading dashboard view');
-
     return {
         view: 'dashboard',
         viewType: 'dashboard',

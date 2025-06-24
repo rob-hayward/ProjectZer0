@@ -131,10 +131,8 @@
             }
             
             // Load word list for keyword filtering
-            console.log('[STATEMENT-NETWORK] Starting to load keywords for filtering');
             try {
                 // Force refresh to ensure we get fresh data
-                console.log('[STATEMENT-NETWORK] Forcing refresh of word list');
                 await wordListStore.loadAllWords(true);
                 
                 // Get all available words for suggestions
@@ -166,7 +164,6 @@
                     'security', 'capitalism', 'socialism', 'economy', 'education',
                     'health', 'environment', 'climate', 'technology', 'science'
                 ];
-                console.log('[STATEMENT-NETWORK] Using fallback keywords');
             }
             
             // Start with just navigation and control nodes

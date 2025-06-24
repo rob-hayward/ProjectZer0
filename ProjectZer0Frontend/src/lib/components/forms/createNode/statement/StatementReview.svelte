@@ -63,7 +63,6 @@
 
             // Update graph store to statement view type
             if (browser && graphStore && graphStore.setViewType) {
-                console.log('[StatementReview] Updating graph store to statement view');
                 graphStore.setViewType('statement');
                 
                 // Force immediate visual update if available

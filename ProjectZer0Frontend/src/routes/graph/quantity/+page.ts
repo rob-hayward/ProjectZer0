@@ -7,12 +7,9 @@ import { getQuantityData } from '$lib/services/quantity';
 export const ssr = false;
 
 export const load = (async ({ url }): Promise<GraphPageData> => {
-    console.debug('[QUANTITY-ROUTE] Loading quantity view');
-
     // Get quantity ID param from URL
     const idParam = url.searchParams.get('id');
     if (!idParam) {
-        console.debug('[QUANTITY-ROUTE] No quantity ID parameter, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 
@@ -21,7 +18,6 @@ export const load = (async ({ url }): Promise<GraphPageData> => {
         const quantityData = await getQuantityData(idParam);
         
         if (!quantityData) {
-            console.debug('[QUANTITY-ROUTE] Quantity data not found, redirecting to dashboard');
             throw redirect(307, '/graph/dashboard');
         }
 

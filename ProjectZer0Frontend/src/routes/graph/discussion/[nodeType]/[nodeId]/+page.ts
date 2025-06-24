@@ -6,13 +6,10 @@ import type { GraphPageData } from '$lib/types/graph/enhanced';
 export const ssr = false;
 
 export const load = (async ({ params }): Promise<GraphPageData> => {
-    console.debug('[DISCUSSION-ROUTE] Loading discussion view');
-
     // Extract node type and ID from params
     const { nodeType, nodeId } = params;
     
     if (!nodeType || !nodeId) {
-        console.debug('[DISCUSSION-ROUTE] Missing node type or ID, redirecting to dashboard');
         throw redirect(307, '/graph/dashboard');
     }
 

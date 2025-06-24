@@ -94,7 +94,6 @@ export const discussionService = {
                 requestBody.parentCommentId = parentCommentId;
                 console.log('✅ Including parentCommentId in request body:', requestBody.parentCommentId);
             } else {
-                console.log('ℹ️ Creating root comment (no valid parentCommentId provided)');
                 console.log('Received parentCommentId:', { value: parentCommentId, type: typeof parentCommentId });
             }
             
@@ -114,7 +113,6 @@ export const discussionService = {
             
             // CRITICAL: Detailed response analysis
             if (response && response.id) {
-                console.log('✅ Comment created successfully!');
                 console.log('📋 Response analysis:', {
                     id: response.id,
                     commentText: response.commentText?.substring(0, 50) + '...',

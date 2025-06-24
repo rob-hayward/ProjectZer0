@@ -35,38 +35,20 @@ function createWordListStore() {
                 
             // Skip if we already have words and cache is valid
             if (!forceRefresh && isCacheValid) {
-                console.log('[WordListStore] Using cached word list:', {
-                    wordCount: state.words.length,
-                    lastLoaded: state.lastLoaded ? new Date(state.lastLoaded).toLocaleString() : 'Never'
-                });
                 return state.words;
             }
             
             update(state => ({ ...state, isLoading: true, error: null }));
             
             try {
-                console.log('[WordListStore] Fetching all words from API...');
-                
                 // Fetch words from the backend
                 const response = await fetchWithAuth('/nodes/word/all');
-                
-                // Debug log to see what we're actually receiving
-                console.log('[WordListStore] Raw API response type:', typeof response);
-                if (typeof response === 'string') {
-                    console.log('[WordListStore] Raw API response (string):', response.substring(0, 100) + (response.length > 100 ? '...' : ''));
-                } else if (Array.isArray(response)) {
-                    console.log('[WordListStore] Raw API response (array):', response.length, 'items');
-                    console.log('[WordListStore] First few items:', response.slice(0, 3));
-                } else {
-                    console.log('[WordListStore] Raw API response:', response);
-                }
                 
                 let words: string[] = [];
                 
                 // Handle different response types
                 if (response === '' || response === null || response === undefined || 
                     (Array.isArray(response) && response.length === 0)) {
-                    console.warn('[WordListStore] Empty response from API, using mock data');
                     // Use sample words as fallback
                     words = [
                         'democracy', 'freedom', 'justice', 'equality', 'society', 
@@ -76,42 +58,24 @@ function createWordListStore() {
                     ];
                 }
                 else if (Array.isArray(response)) {
-                    console.log('[WordListStore] Received array of items, extracting words...');
-                    
-                    // Log some of the items to see their structure
-                    if (response.length > 0) {
-                        console.log('[WordListStore] First few items:', response.slice(0, 3));
-                    }
-                    
                     // Extract word strings from the response (which might be an array of objects)
                     words = response.map((item: any) => {
                         if (typeof item === 'string') return item;
                         if (item && typeof item === 'object' && 'word' in item) {
-                            console.log('[WordListStore] Found word property:', item.word);
                             return item.word;
                         }
                         return null;
                     }).filter(Boolean) as string[];
-                    
-                    console.log(`[WordListStore] Extracted ${words.length} words from array response`);
                 }
                 // Handle new response format with words property
                 else if (typeof response === 'object' && response !== null) {
-                    console.log('[WordListStore] Received object response, checking for words property...');
-                    
                     if ('words' in response && Array.isArray(response.words)) {
-                        console.log(`[WordListStore] Found words array with ${response.words.length} items`);
-                        
                         // Extract words from the response.words array
                         words = response.words.map((item: any) => {
                             if (typeof item === 'string') return item;
                             if (item && typeof item === 'object' && 'word' in item) return item.word;
                             return null;
                         }).filter(Boolean) as string[];
-                        
-                        console.log(`[WordListStore] Extracted ${words.length} word strings from response.words`);
-                    } else if ('success' in response && 'count' in response) {
-                        console.log(`[WordListStore] Found API response object with count: ${response.count}`);
                     }
                 }
                 else if (typeof response === 'string' && response.trim() !== '') {
@@ -119,7 +83,6 @@ function createWordListStore() {
                         // Try to parse JSON string
                         const parsed = JSON.parse(response);
                         if (Array.isArray(parsed)) {
-                            console.log('[WordListStore] Parsed JSON array from string response');
                             words = parsed.filter(Boolean);
                         }
                     } catch (e) {
@@ -134,8 +97,6 @@ function createWordListStore() {
                 
                 // Sort alphabetically and ensure uniqueness
                 words = [...new Set(words)].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
-                
-                console.log(`[WordListStore] Processed ${words.length} words from API`);
                 
                 // Update the store
                 update(state => ({
@@ -288,7 +249,6 @@ function createWordListStore() {
                     words,
                     timestamp: Date.now()
                 }));
-                console.log('[WordListStore] Saved word list to localStorage');
             } catch (e) {
                 console.warn('[WordListStore] Failed to save word list to localStorage', e);
             }
@@ -305,10 +265,6 @@ function createWordListStore() {
                 if (cachedData) {
                     const { words, timestamp } = JSON.parse(cachedData);
                     if (Array.isArray(words) && words.length > 0) {
-                        console.log('[WordListStore] Loaded word list from localStorage:', {
-                            wordCount: words.length,
-                            timestamp: timestamp ? new Date(timestamp).toLocaleString() : 'Unknown'
-                        });
                         return words;
                     }
                 }

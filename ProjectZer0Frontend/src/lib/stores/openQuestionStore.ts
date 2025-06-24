@@ -26,12 +26,10 @@ function createOpenQuestionStore() {
                 try {
                     const state = { questionId };
                     window.history.replaceState(state, '', newUrl);
-                    console.log('OpenQuestionStore: URL updated successfully via history API');
                 } catch (error) {
                     console.error('OpenQuestionStore: Error updating URL:', error);
                 }
             } else {
-                console.log('OpenQuestionStore: URL already correct');
             }
         }
     }
@@ -62,7 +60,6 @@ function createOpenQuestionStore() {
             }
         },
         reset: () => {
-            console.log('OpenQuestionStore: Resetting question data');
             currentQuestionId = null;
             baseSet(null);
         },

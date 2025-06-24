@@ -24,12 +24,10 @@ function createQuantityStore() {
                 try {
                     const state = { id };
                     window.history.replaceState(state, '', newUrl);
-                    console.log('QuantityStore: URL updated successfully via history API');
                 } catch (error) {
                     console.error('QuantityStore: Error updating URL:', error);
                 }
             } else {
-                console.log('QuantityStore: URL already correct');
             }
         }
     }
@@ -59,7 +57,6 @@ function createQuantityStore() {
             }
         },
         reset: () => {
-            console.log('QuantityStore: Resetting quantity data');
             currentQuantityId = null;
             baseSet(null);
         },

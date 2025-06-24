@@ -146,7 +146,6 @@
             // ENHANCEMENT: Center viewport on the form after a short delay
             setTimeout(() => {
                 if (!graphComponent) {
-                    console.log('[OpenQuestion Page] No graphComponent available');
                     return;
                 }
                 
@@ -179,8 +178,6 @@
             try {
                 const updatedQuestion = await getOpenQuestionData(questionData.id);
                 if (updatedQuestion) {
-                    console.log('[OpenQuestion Page] Updated question data received');
-                    
                     // Update stores
                     openQuestionStore.set(updatedQuestion);
                     openQuestionViewStore.setQuestionData(updatedQuestion);
@@ -199,8 +196,6 @@
                     
                     if (receivedStatementId === 'pending-find-newest') {
                         // Find the new answer by comparing with previous IDs
-                        console.log('[OpenQuestion Page] Finding new answer by comparing IDs...');
-                        
                         if (updatedQuestion.answers) {
                             for (const answer of updatedQuestion.answers) {
                                 if (!previousAnswerIds.has(answer.id)) {
@@ -267,19 +262,15 @@
         
         // Method 1: Try direct centerOnNodeById
         if (typeof graphComponent.centerOnNodeById === 'function') {
-            console.log('[OpenQuestion Page] Trying centerOnNodeById...');
             const success = graphComponent.centerOnNodeById(nodeId);
             if (success) {
-                console.log('[OpenQuestion Page] Successfully centered using centerOnNodeById');
                 return;
             } else {
-                console.log('[OpenQuestion Page] centerOnNodeById returned false');
             }
         }
         
         // Method 2: Try to get node state and center on coordinates
         if (typeof graphComponent.getInternalState === 'function') {
-            console.log('[OpenQuestion Page] Trying getInternalState method...');
             const state = graphComponent.getInternalState();
             if (state && state.nodes) {
                 console.log('[OpenQuestion Page] Graph state has', state.nodes.length, 'nodes');
@@ -292,17 +283,14 @@
                     });
                     if (typeof graphComponent.centerViewportOnCoordinates === 'function') {
                         graphComponent.centerViewportOnCoordinates(node.position.x, node.position.y);
-                        console.log('[OpenQuestion Page] Centered using coordinates');
                         return;
                     }
                 } else {
-                    console.log('[OpenQuestion Page] Node not found in state or has no position');
                 }
             }
         }
         
         // Method 3: Dispatch a custom event (like discussion view does)
-        console.log('[OpenQuestion Page] Falling back to custom event dispatch');
         window.dispatchEvent(new CustomEvent('center-on-node', { 
             detail: { 
                 nodeId: nodeId,
@@ -312,8 +300,6 @@
     }
 
     function handleStatementAnswerFormCancel() {
-        console.log('Statement answer form cancelled');
-        
         // Hide the form
         showStatementAnswerForm = false;
         statementAnswerFormNodeId = '';
@@ -397,7 +383,6 @@
         });
         
         if (!centralQuestionNode || !normalizedQuestionData) {
-            console.log('[OpenQuestion] Early return - no central node or question data');
             return { nodes: [], links: [] };
         }
 
@@ -610,7 +595,6 @@
     $: if ($openQuestionStore && isReady) {
         // Trigger reactivity by accessing the store value
         const currentQuestion = $openQuestionStore;
-        console.log('[OpenQuestion Page] Store updated, recreating graph data');
         // Force graph data recreation
         graphData = createGraphData();
     }

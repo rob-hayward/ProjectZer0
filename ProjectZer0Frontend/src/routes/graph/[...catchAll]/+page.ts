@@ -17,12 +17,10 @@ export const load = (({ params, url }: { params: Params; url: URL }) => {
     if (params.catchAll === 'create-alternative') {
         const wordParam = url.searchParams.get('word');
         if (wordParam) {
-            console.log('[CATCH-ALL] Redirecting legacy create-alternative to create-definition');
             throw redirect(307, `/graph/create-definition?word=${encodeURIComponent(wordParam)}`);
         }
     }
     
     // Handle any view that doesn't have a dedicated component
-    console.log('[CATCH-ALL] Redirecting to dashboard');
     throw redirect(307, '/graph/dashboard');
 }) satisfies PageLoad;

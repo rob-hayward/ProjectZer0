@@ -50,8 +50,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
      * This ensures no forces can affect node positions
      */
     private clearAllForces(): void {
-        console.debug('[WordDefinitionLayout] Clearing all forces');
-        
         // Get all force names
         const sim = this.simulation as any;
         
@@ -177,8 +175,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
      * Configure forces for this layout
      */
     configureForces(): void {
-        console.debug('[WordDefinitionLayout] Configuring forces');
-
         // CRITICAL: Start with no forces at all
         this.clearAllForces();
         
@@ -242,8 +238,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
             if (typeof centralNode.index === 'number') {
                 centralNode.index = 0;
             }
-            
-            console.debug('[WordDefinitionLayout] Enforced central node position at (0,0)');
         }
         
         // Also enforce navigation node positions
@@ -329,8 +323,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
 
         // For word nodes, we need to update all nodes
         if (node.type === 'word') {
-            console.debug('[WordDefinitionLayout] Word node mode changed, repositioning all nodes');
-            
             // First update navigation nodes to ensure they adapt to the word node's new size
             NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
@@ -343,7 +335,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         
         // If a definition changes mode, we need to adjust all definitions
         if (node.type === 'definition') {
-            console.debug('[WordDefinitionLayout] Definition node mode changed, repositioning all definitions');
             this.repositionDefinitions(nodes);
         }
         
@@ -427,8 +418,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
 
         // For word nodes, we need to update all nodes
         if (node.type === 'word') {
-            console.debug('[WordDefinitionLayout] Word node visibility changed, repositioning all nodes');
-            
             // First update navigation nodes to ensure they adapt to the word node's new size
             NavigationNodeLayout.positionNavigationNodes(
                 nodes, 
@@ -441,7 +430,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
         
         // If a definition changes visibility, we need to adjust all definitions
         if (node.type === 'definition') {
-            console.debug('[WordDefinitionLayout] Definition node visibility changed, repositioning all definitions');
             this.repositionDefinitions(nodes);
         }
         
@@ -810,8 +798,6 @@ export class WordDefinitionLayout extends BaseLayoutStrategy {
      * Stops the layout strategy and clears all forces
      */
     public stop(): void {
-        console.debug('[WordDefinitionLayout] Stopping layout');
-        
         // Call parent stop
         super.stop();
         

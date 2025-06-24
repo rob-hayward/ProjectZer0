@@ -103,10 +103,6 @@
     function handleModeChange() {
         const newMode = modeBehaviour?.handleModeChange();
         if (newMode) {
-            console.debug(`[QuantityNode] Mode change requested:`, { 
-                currentMode: node.mode, 
-                newMode
-            });
             dispatch('modeChange', { mode: newMode });
         }
     }
@@ -116,7 +112,6 @@
     }
     
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-        console.debug(`[QuantityNode] Visibility change requested:`, event.detail);
         dispatch('visibilityChange', event.detail);
     }
 
@@ -133,12 +128,6 @@
             displayDefaultUnitId === 'null' ||
             displayDefaultUnitId === null ||
             displayDefaultUnitId.trim() === '') {
-            
-            console.log('[QuantityNode] Skipping unit details - no valid unit data:', {
-                categoryId: displayUnitCategoryId,
-                defaultId: displayDefaultUnitId,
-                nodeId: node.id
-            });
             
             // Set fallback values instead of making API calls
             categoryName = 'No units configured';
@@ -157,17 +146,10 @@
         }
         
         try {
-            console.log('[QuantityNode] Loading unit details for valid IDs:', {
-                categoryId: displayUnitCategoryId,
-                defaultId: displayDefaultUnitId,
-                nodeId: node.id
-            });
-            
             // Get category details
             const category = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}`);
             if (category) {
                 categoryName = category.name;
-                console.log(`[QuantityNode] Loaded category: ${categoryName}`);
             } else {
                 categoryName = 'Unknown Category';
             }
@@ -176,16 +158,13 @@
             const units = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}/units`);
             if (units && Array.isArray(units)) {
                 availableUnits = units;
-                console.log(`[QuantityNode] Loaded ${units.length} units`);
                 
                 // Find default unit details
                 const defaultUnit = units.find(u => u.id === displayDefaultUnitId);
                 if (defaultUnit) {
                     defaultUnitName = defaultUnit.name;
                     defaultUnitSymbol = defaultUnit.symbol;
-                    console.log(`[QuantityNode] Found default unit: ${defaultUnitName} (${defaultUnitSymbol})`);
                 } else {
-                    console.warn(`[QuantityNode] Default unit ${displayDefaultUnitId} not found in available units`);
                     defaultUnitName = 'Unknown Unit';
                     defaultUnitSymbol = '';
                 }
@@ -197,18 +176,10 @@
                     displayUnitSymbol = defaultUnitSymbol;
                 }
             } else {
-                console.warn(`[QuantityNode] No units found for category ${displayUnitCategoryId}`);
                 availableUnits = [];
                 defaultUnitName = 'No units available';
                 defaultUnitSymbol = '';
             }
-            
-            console.log('[QuantityNode] Successfully loaded unit details:', {
-                categoryName,
-                defaultUnitName,
-                defaultUnitSymbol,
-                availableUnitsCount: availableUnits.length
-            });
             
         } catch (error) {
             console.error('[QuantityNode] Error loading unit details:', error);
@@ -248,8 +219,6 @@
                         displayUnitSymbol = unit.symbol;
                     }
                 }
-                
-                console.log(`[QuantityNode] Loaded unit preference for node ${node.id}: ${displayUnitId}`);
             } else {
                 displayUnitId = displayDefaultUnitId;
                 selectedUnitId = displayDefaultUnitId;
@@ -300,7 +269,6 @@
         try {
             await visibilityStore.initialize();
             const preference = visibilityStore.getPreference(node.id);
-            console.debug(`[QuantityNode] Loaded visibility preference for node ${node.id}:`, preference);
         } catch (error) {
             console.error('[QuantityNode] Error loading visibility preference:', error);
         }
@@ -310,7 +278,6 @@
         try {
             isLoadingResponses = true;
             statistics = await getStatistics(node.id);
-            console.log('[QuantityNode] Statistics loaded:', statistics);
             
             if (statistics?.responses && Array.isArray(statistics.responses)) {
                 if (availableUnits.length > 0) {
@@ -356,7 +323,6 @@
             }
             
             await unitPreferenceStore.setPreference(node.id, displayUnitId);
-            console.log(`[QuantityNode] Unit changed to ${displayUnitId}`);
         } catch (error) {
             console.error('[QuantityNode] Error changing unit:', error);
         }
@@ -467,15 +433,6 @@
     }, ['']);
 
     onMount(async () => {
-        console.debug('[QuantityNode] Mounting with quantity:', {
-            id: node.id,
-            question: displayQuestion,
-            unitCategoryId: displayUnitCategoryId,
-            defaultUnitId: displayDefaultUnitId,
-            mode: node.mode,
-            isHidden: node.isHidden
-        });
-        
         // Initialize behaviors
         const initPromises = [];
         if (dataBehaviour) initPromises.push(dataBehaviour.initialize());

@@ -98,8 +98,6 @@ function createVisibilityStore() {
             isLoaded: true,
             lastUpdated: Date.now()
           }));
-          
-          console.log('Initialized with cached preferences');
         }
       }
     },

@@ -39,23 +39,7 @@
         }
     }
 
-    onMount(() => {
-        console.log('[NODE_CENTRE_DEBUG] ExpandCollapseButton mounted with props:', {
-            mode,
-            nodeId,
-            nodeX,
-            nodeY
-        });
-    });
-
     function handleClick() {
-        console.log('[NODE_CENTRE_DEBUG] Button clicked:', {
-            mode,
-            nodeId,
-            nodeX,
-            nodeY
-        });
-        
         // Dispatch regular click event
         dispatch('click');
         
@@ -72,9 +56,6 @@
         // Include position data if available - always do this for accurate centering
         if (nodeX !== undefined && nodeY !== undefined) {
             eventData.position = { x: nodeX, y: nodeY };
-            console.log('[NODE_CENTRE_DEBUG] Including position data in event:', eventData.position);
-        } else {
-            console.log('[NODE_CENTRE_DEBUG] No position data available for centering');
         }
         
         // Include node ID if provided
@@ -83,7 +64,6 @@
         }
         
         // Dispatch enhanced mode change event
-        console.log('[NODE_CENTRE_DEBUG] Dispatching modeChange event:', eventData);
         dispatch('modeChange', eventData);
     }
 </script>

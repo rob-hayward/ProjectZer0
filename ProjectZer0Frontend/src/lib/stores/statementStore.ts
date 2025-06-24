@@ -24,12 +24,10 @@ function createStatementStore() {
                 try {
                     const state = { id };
                     window.history.replaceState(state, '', newUrl);
-                    console.log('StatementStore: URL updated successfully via history API');
                 } catch (error) {
                     console.error('StatementStore: Error updating URL:', error);
                 }
             } else {
-                console.log('StatementStore: URL already correct');
             }
         }
     }
@@ -59,7 +57,6 @@ function createStatementStore() {
             }
         },
         reset: () => {
-            console.log('StatementStore: Resetting statement data');
             currentStatementId = null;
             baseSet(null);
         },
