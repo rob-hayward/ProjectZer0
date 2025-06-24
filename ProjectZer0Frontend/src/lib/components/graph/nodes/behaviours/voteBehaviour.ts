@@ -23,16 +23,16 @@ export interface VoteBehaviourOptions {
   graphStore?: any;
   getVoteEndpoint?: (id: string) => string;
   getRemoveVoteEndpoint?: (id: string) => string;
-  // NEW: Custom identifier for API calls (e.g., word text instead of node ID)
+  // Custom identifier for API calls (e.g., word text instead of node ID)
   apiIdentifier?: string;
-  // NEW: Data object to update directly for reactivity
+  // Data object to update directly for reactivity
   dataObject?: any;
-  // NEW: Properties to update in data object
+  // Properties to update in data object
   dataProperties?: {
     positiveVotesKey?: string;
     negativeVotesKey?: string;
   };
-  // NEW: Callback to trigger reactivity in parent component
+  // Callback to trigger reactivity in parent component
   onDataUpdate?: () => void;
 }
 
@@ -70,7 +70,7 @@ export function createVoteBehaviour(
   // Extract options with defaults
   const voteStore = options.voteStore || null;
   const graphStore = options.graphStore || null;
-  const apiIdentifier = options.apiIdentifier || nodeId; // Use custom identifier if provided
+  const apiIdentifier = options.apiIdentifier || nodeId;
   const dataObject = options.dataObject || null;
   const dataProperties = options.dataProperties || {
     positiveVotesKey: 'positiveVotes',
@@ -122,7 +122,7 @@ export function createVoteBehaviour(
     positiveVotes.set(pos);
     negativeVotes.set(neg);
     
-    // Update data object directly for reactivity (NEW)
+    // Update data object directly for reactivity
     if (dataObject && dataProperties && dataProperties.positiveVotesKey && dataProperties.negativeVotesKey) {
       dataObject[dataProperties.positiveVotesKey] = pos;
       dataObject[dataProperties.negativeVotesKey] = neg;
@@ -133,14 +133,9 @@ export function createVoteBehaviour(
       }
     }
     
-    // Update external store if provided - but check if the node exists in the store first
+    // CLEAN: Update external store if provided - now each view uses its correct store
     if (voteStore && typeof voteStore.updateVoteData === 'function') {
-      // Only update if this is actually a statement network view or the statement exists in the store
-      try {
-        voteStore.updateVoteData(nodeId, pos, neg);
-      } catch (error) {
-        // Silently ignore if the statement doesn't exist in this store
-      }
+      voteStore.updateVoteData(nodeId, pos, neg);
     }
     
     // Update graph store visibility if provided
@@ -220,7 +215,7 @@ export function createVoteBehaviour(
   // Public methods
   async function initialize(initialData: Partial<VoteBehaviourState> = {}): Promise<void> {
     try {
-      // Initialize from external store if available
+      // CLEAN: Initialize from external store if available - now uses correct store
       if (voteStore && typeof voteStore.getVoteData === 'function') {
         const storeData = voteStore.getVoteData(nodeId);
         positiveVotes.set(storeData.positiveVotes || 0);

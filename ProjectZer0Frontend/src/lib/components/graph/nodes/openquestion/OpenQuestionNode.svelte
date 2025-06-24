@@ -1,7 +1,7 @@
 <!-- src/lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte -->
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
 	import type { OpenQuestionNode } from '$lib/types/domain/nodes';
 	import { isOpenQuestionData } from '$lib/types/graph/enhanced';
 	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
@@ -9,8 +9,12 @@
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
 	import { userStore } from '$lib/stores/userStore';
 	import { graphStore } from '$lib/stores/graphStore';
-	import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
 	import { getUserDetails } from '$lib/services/userLookup';
+	
+	// ENHANCED: Import all possible vote stores
+	import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
+	import { universalGraphStore } from '$lib/stores/universalGraphStore';
+	
 	import {
 		createVoteBehaviour,
 		createVisibilityBehaviour,
@@ -30,6 +34,10 @@
 	export let questionText: string = '';
 	export let nodeX: number | undefined = undefined;
 	export let nodeY: number | undefined = undefined;
+	
+	// ENHANCED: Optional props for explicit context control
+	export let viewType: ViewType | undefined = undefined;
+	export let voteStore: any = undefined; // Allow explicit store override
 
 	// Debug toggle - set to true to show ContentBox borders
 	const DEBUG_SHOW_BORDERS = false;
@@ -43,6 +51,85 @@
 	// Get the question text
 	$: displayQuestionText = questionText || questionData.questionText;
 
+	// ENHANCED: Context-aware store detection
+	$: detectedViewType = detectViewContext(viewType);
+	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
+
+	/**
+	 * ROBUST: Detect current view context using multiple methods
+	 */
+	function detectViewContext(explicitViewType?: ViewType): ViewType {
+		// Method 1: Use explicit viewType prop if provided
+		if (explicitViewType) {
+			return explicitViewType;
+		}
+
+		// Method 2: Detect from URL path
+		if (typeof window !== 'undefined') {
+			const pathname = window.location.pathname;
+			if (pathname.includes('/universal')) return 'universal';
+			if (pathname.includes('/openquestion')) return 'openquestion';
+			if (pathname.includes('/discussion')) return 'discussion';
+		}
+
+		// Method 3: Detect from graph store context
+		if (graphStore) {
+			const currentViewType = graphStore.getViewType?.();
+			if (currentViewType) return currentViewType;
+		}
+
+		// Method 4: Check if node exists in different stores to infer context
+		try {
+			// Check universal store first (most specific)
+			if (universalGraphStore.getVoteData && 
+				universalGraphStore.getVoteData(node.id).positiveVotes >= 0) {
+				return 'universal';
+			}
+		} catch (e) {
+			// Silent - not in universal store
+		}
+
+		try {
+			// Check openquestion view store
+			if (openQuestionViewStore.getVoteData && 
+				openQuestionViewStore.getVoteData(node.id).positiveVotes >= 0) {
+				return 'openquestion';
+			}
+		} catch (e) {
+			// Silent - not in openquestion store
+		}
+
+		// Default fallback
+		return 'openquestion';
+	}
+
+	/**
+	 * FLEXIBLE: Select appropriate vote store based on context
+	 */
+	function selectVoteStore(detectedViewType: ViewType, explicitStore?: any) {
+		// Method 1: Use explicit store override if provided
+		if (explicitStore) {
+			return explicitStore;
+		}
+
+		// Method 2: Select based on detected view type
+		switch (detectedViewType) {
+			case 'universal':
+				return universalGraphStore;
+			
+			case 'openquestion':
+				return openQuestionViewStore;
+			
+			case 'discussion':
+				// Discussion view might use openquestion store or its own
+				return openQuestionViewStore;
+			
+			default:
+				// Safe fallback
+				return openQuestionViewStore;
+		}
+	}
+
 	let voteBehaviour: any;
 	let visibilityBehaviour: any;
 	let modeBehaviour: any;
@@ -53,9 +140,11 @@
 		questionDataWrapper = { ...questionData };
 	}
 
-	$: if (node.id && !behavioursInitialized) {
+	// ENHANCED: Reactive behaviour initialization with context-aware store
+	$: if (node.id && contextVoteStore && !behavioursInitialized) {
+		
 		voteBehaviour = createVoteBehaviour(node.id, 'openquestion', {
-			voteStore: openQuestionViewStore,
+			voteStore: contextVoteStore,  // CONTEXT-AWARE STORE
 			graphStore,
 			apiIdentifier: node.id,
 			dataObject: questionData,
@@ -78,6 +167,15 @@
 		behavioursInitialized = true;
 	}
 
+	// ENHANCED: Reset behaviours if context changes
+	$: if (behavioursInitialized && contextVoteStore) {
+		// If the store context changes, reinitialize behaviours
+		const currentStore = voteBehaviour?.getCurrentState?.()?.store;
+		if (currentStore !== contextVoteStore) {
+			behavioursInitialized = false;
+		}
+	}
+
 	$: isDetail = node.mode === 'detail';
 	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
@@ -87,9 +185,10 @@
 
 	let questionDataWrapper = questionData;
 
+	// ENHANCED: Context-aware vote data retrieval
 	$: dataPositiveVotes = getNeo4jNumber(questionDataWrapper.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(questionDataWrapper.negativeVotes) || 0;
-	$: storeVoteData = openQuestionViewStore.getVoteData(node.id);
+	$: storeVoteData = contextVoteStore?.getVoteData?.(node.id) || { positiveVotes: 0, negativeVotes: 0 };
 
 	$: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
 	$: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
@@ -160,7 +259,6 @@
 		position?: { x: number; y: number };
 		nodeId?: string;
 	}>) {
-		console.log('[OpenQuestionNode] Mode change event:', event.detail);
 		
 		// Update the mode behaviour
 		const newMode = event.detail.mode;

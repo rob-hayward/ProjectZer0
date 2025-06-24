@@ -10,11 +10,14 @@
     import QuantityNode from '$lib/components/graph/nodes/quantity/QuantityNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
+    
+    // CLEAN: Only import universal graph store - no statement network dependencies
     import { universalGraphStore, type UniversalSortType, type UniversalSortDirection } from '$lib/stores/universalGraphStore';
     import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { wordListStore } from '$lib/stores/wordListStore';
+    
     import type { 
         GraphData, 
         GraphNode, 
@@ -68,7 +71,7 @@
     // Graph data
     let graphData: GraphData = { nodes: [], links: [] };
     
-    // Get data from the store
+    // Get data from the universal graph store
     $: nodes = $universalGraphStore?.nodes || [];
     $: relationships = $universalGraphStore?.relationships || [];
     $: isReady = authInitialized && dataInitialized;
@@ -83,7 +86,6 @@
     $: {
         if (relationships.length > 0) {
             console.log('[UNIVERSAL-GRAPH] Relationships updated in reactive statement:', relationships.length);
-        } else {
         }
     }
     
@@ -140,8 +142,6 @@
             }));
             
             // Initialize the graph filter store
-            // Note: graphFilterStore may expect a different type than ViewType
-            // Cast as any to bypass type mismatch if needed
             (graphFilterStore as any).setViewType('universal', true);
             
             // Initialize visibility preferences
@@ -456,19 +456,25 @@
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isStatementNode(node)}
+                <!-- ENHANCED: Pass viewType to ensure correct store usage -->
                 <StatementNode 
                     {node}
                     statementText={isStatementData(node.data) ? node.data.statement : ''}
+                    viewType="universal"
                 />
             {:else if isOpenQuestionNode(node)}
+                <!-- ENHANCED: Pass viewType to ensure correct store usage -->
                 <OpenQuestionNode
                     {node}
                     questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
+                    viewType="universal"
                 />
             {:else if isQuantityNode(node)}
+                <!-- ENHANCED: Pass viewType to ensure correct store usage -->
                 <QuantityNode
                     {node}
                     question={isQuantityData(node.data) ? node.data.question : ''}
+                    viewType="universal"
                 />
             {:else if isNavigationNode(node)}
                 <NavigationNode 

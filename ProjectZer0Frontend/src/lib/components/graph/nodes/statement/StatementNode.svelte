@@ -1,7 +1,8 @@
-<!-- src/lib/components/graph/nodes/statement/StatementNode.svelte -->
+<!-- Enhanced StatementNode.svelte - Flexible Context-Aware Version -->
+
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
 	import type { StatementNode } from '$lib/types/domain/nodes';
 	import { isStatementData } from '$lib/types/graph/enhanced';
 	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
@@ -9,8 +10,12 @@
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
 	import { userStore } from '$lib/stores/userStore';
 	import { graphStore } from '$lib/stores/graphStore';
-	import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 	import { getUserDetails } from '$lib/services/userLookup';
+
+	// ENHANCED: Import all possible vote stores
+	import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
+	import { universalGraphStore } from '$lib/stores/universalGraphStore';
+	// Add other stores as needed for future views
 
 	import {
 		createVoteBehaviour,
@@ -29,9 +34,13 @@
 
 	export let node: RenderableNode;
 	export let statementText: string = '';
+	
+	// ENHANCED: Optional props for explicit context control
+	export let viewType: ViewType | undefined = undefined;
+	export let voteStore: any = undefined; // Allow explicit store override
 
 	// Debug toggle - set to true to show ContentBox borders
-	const DEBUG_SHOW_BORDERS = true;
+	const DEBUG_SHOW_BORDERS = false;
 
 	if (!isStatementData(node.data)) {
 		throw new Error('Invalid node data type for StatementNode');
@@ -41,6 +50,86 @@
 
 	// Get the statement text
 	$: displayStatementText = statementText || statementData.statement;
+
+	// ENHANCED: Context-aware store detection
+	$: detectedViewType = detectViewContext(viewType);
+	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
+
+	/**
+	 * ROBUST: Detect current view context using multiple methods
+	 */
+	function detectViewContext(explicitViewType?: ViewType): ViewType {
+		// Method 1: Use explicit viewType prop if provided
+		if (explicitViewType) {
+			return explicitViewType;
+		}
+
+		// Method 2: Detect from URL path
+		if (typeof window !== 'undefined') {
+			const pathname = window.location.pathname;
+			if (pathname.includes('/universal')) return 'universal';
+			if (pathname.includes('/statement-network')) return 'statement-network';
+			if (pathname.includes('/discussion')) return 'discussion';
+		}
+
+		// Method 3: Detect from graph store context
+		if (graphStore) {
+			const currentViewType = graphStore.getViewType?.();
+			if (currentViewType) return currentViewType;
+		}
+
+		// Method 4: Check if node exists in different stores to infer context
+		try {
+			// Check universal store first (most specific)
+			if (universalGraphStore.getVoteData && 
+				universalGraphStore.getVoteData(node.id).positiveVotes >= 0) {
+				// If we can get vote data without errors, likely universal context
+				return 'universal';
+			}
+		} catch (e) {
+			// Silent - not in universal store
+		}
+
+		try {
+			// Check statement network store
+			if (statementNetworkStore.getVoteData && 
+				statementNetworkStore.getVoteData(node.id).positiveVotes >= 0) {
+				return 'statement-network';
+			}
+		} catch (e) {
+			// Silent - not in statement network store
+		}
+
+		// Default fallback
+		return 'statement-network';
+	}
+
+	/**
+	 * FLEXIBLE: Select appropriate vote store based on context
+	 */
+	function selectVoteStore(detectedViewType: ViewType, explicitStore?: any) {
+		// Method 1: Use explicit store override if provided
+		if (explicitStore) {
+			return explicitStore;
+		}
+
+		// Method 2: Select based on detected view type
+		switch (detectedViewType) {
+			case 'universal':
+				return universalGraphStore;
+			
+			case 'statement-network':
+				return statementNetworkStore;
+			
+			case 'discussion':
+				// Discussion view might use statement network store or its own
+				return statementNetworkStore;
+			
+			default:
+				// Safe fallback
+				return statementNetworkStore;
+		}
+	}
 
 	let voteBehaviour: any;
 	let visibilityBehaviour: any;
@@ -52,9 +141,11 @@
 		statementDataWrapper = { ...statementData };
 	}
 
-	$: if (node.id && !behavioursInitialized) {
+	// ENHANCED: Reactive behaviour initialization with context-aware store
+	$: if (node.id && contextVoteStore && !behavioursInitialized) {
+		
 		voteBehaviour = createVoteBehaviour(node.id, 'statement', {
-			voteStore: statementNetworkStore,
+			voteStore: contextVoteStore,  // ✅ CONTEXT-AWARE STORE!
 			graphStore,
 			apiIdentifier: node.id,
 			dataObject: statementData,
@@ -77,6 +168,15 @@
 		behavioursInitialized = true;
 	}
 
+	// ENHANCED: Reset behaviours if context changes
+	$: if (behavioursInitialized && contextVoteStore) {
+		// If the store context changes, reinitialize behaviours
+		const currentStore = voteBehaviour?.getCurrentState?.()?.store;
+		if (currentStore !== contextVoteStore) {
+			behavioursInitialized = false;
+		}
+	}
+
 	$: isDetail = node.mode === 'detail';
 	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
@@ -86,9 +186,10 @@
 
 	let statementDataWrapper = statementData;
 
+	// ENHANCED: Context-aware vote data retrieval
 	$: dataPositiveVotes = getNeo4jNumber(statementDataWrapper.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(statementDataWrapper.negativeVotes) || 0;
-	$: storeVoteData = statementNetworkStore.getVoteData(node.id);
+	$: storeVoteData = contextVoteStore?.getVoteData?.(node.id) || { positiveVotes: 0, negativeVotes: 0 };
 
 	$: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
 	$: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
@@ -183,11 +284,12 @@
 	});
 </script>
 
+<!-- Rest of the component template remains the same -->
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="default" let:radius>
 			<NodeHeader title="Statement" radius={radius} mode="detail" />
-			<ContentBox nodeType="statement" mode="detail" showBorder={false}>
+			<ContentBox nodeType="statement" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 					<!-- Main statement text -->
 					<foreignObject
@@ -263,7 +365,7 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={false}>
+	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title="Statement" radius={radius} size="small" mode="preview" />
 		</svelte:fragment>
