@@ -1,16 +1,24 @@
 // ProjectZer0Frontend/src/lib/constants/colors.ts
 export const COLORS = {
-    // Primary colors
+    // Primary colors - Updated with Newton's Color Wheel (bright versions)
     PRIMARY: {
-        BLUE: '#3498db',    // Vibrant blue
-        YELLOW: '#f1c40f',  // Sunflower yellow
-        PURPLE: '#9b59b6',  // Royal purple
-        GREEN: '#2ecc71',   // Emerald green
-        TURQUOISE: '#1abc9c', // Turquoise
-        ORANGE: '#e67e22',  // Carrot orange
-        RED: '#e74c3c',     // Coral red
-        FOREST: '#27ae60',  // Forest green
-        CYAN: '#00bcd4'     // Material Design Cyan
+        // Newton's Color Wheel - Content Node Colors (6 colors, avoiding red/green for voting)
+        INDIGO: '#4f46e5',      // Word nodes (240° - foundational content)
+        BLUE_VIOLET: '#7c3aed', // Definition nodes (270° - related to words)  
+        CYAN: '#06b6d4',        // OpenQuestion nodes (180° - questions, attention-getting)
+        YELLOW: '#f59e0b',      // Statement nodes (60° - bright, central statements)
+        ORANGE: '#ea580c',      // Quantity nodes (30° - data/metrics)
+        MAGENTA: '#ec4899',     // Comment nodes (300° - meta-content)
+        
+        // Voting Colors (preserved as specified)
+        GREEN: '#2ecc71',       // Positive vote buttons (120°)
+        RED: '#e74c3c',         // Negative vote buttons (0°)
+        
+        // Legacy colors (keeping for backward compatibility if needed)
+        BLUE: '#3498db',        // Vibrant blue (legacy)
+        PURPLE: '#9b59b6',      // Royal purple (legacy)
+        TURQUOISE: '#1abc9c',   // Turquoise (legacy)
+        FOREST: '#27ae60',      // Forest green (legacy)
     },
 
     // UI colors

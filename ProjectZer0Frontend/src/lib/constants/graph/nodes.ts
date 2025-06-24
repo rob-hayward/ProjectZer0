@@ -83,68 +83,42 @@ export const NODE_CONSTANTS = {
                 end: `${COLORS.PRIMARY.BLUE}33`
             }
         },
+        // UPDATED: Word nodes use Indigo from Newton's wheel
         WORD: {
-            background: `${COLORS.PRIMARY.BLUE}33`,
-            border: `${COLORS.PRIMARY.BLUE}FF`,
-            text: `${COLORS.PRIMARY.BLUE}FF`,
-            hover: `${COLORS.PRIMARY.BLUE}FF`,
+            background: `${COLORS.PRIMARY.INDIGO}33`,
+            border: `${COLORS.PRIMARY.INDIGO}FF`,
+            text: `${COLORS.PRIMARY.INDIGO}FF`,
+            hover: `${COLORS.PRIMARY.INDIGO}FF`,
             gradient: {
-                start: `${COLORS.PRIMARY.BLUE}66`,
-                end: `${COLORS.PRIMARY.BLUE}33`
+                start: `${COLORS.PRIMARY.INDIGO}66`,
+                end: `${COLORS.PRIMARY.INDIGO}33`
             }
         },
+        // UPDATED: Definition nodes use Blue-Violet from Newton's wheel
         DEFINITION: {
             live: {
-                background: `${COLORS.PRIMARY.BLUE}33`,
-                border: `${COLORS.PRIMARY.BLUE}FF`,
-                text: `${COLORS.PRIMARY.BLUE}FF`,
-                hover: `${COLORS.PRIMARY.BLUE}FF`,
+                background: `${COLORS.PRIMARY.BLUE_VIOLET}33`,
+                border: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
+                text: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
+                hover: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.BLUE}66`,
-                    end: `${COLORS.PRIMARY.BLUE}33`
+                    start: `${COLORS.PRIMARY.BLUE_VIOLET}66`,
+                    end: `${COLORS.PRIMARY.BLUE_VIOLET}33`
                 }
             },
             alternative: {
-                background: `${COLORS.PRIMARY.PURPLE}33`,
-                border: `${COLORS.PRIMARY.PURPLE}FF`,
-                text: `${COLORS.PRIMARY.PURPLE}FF`,
-                hover: `${COLORS.PRIMARY.PURPLE}FF`,
+                background: `${COLORS.PRIMARY.BLUE_VIOLET}33`,
+                border: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
+                text: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
+                hover: `${COLORS.PRIMARY.BLUE_VIOLET}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.PURPLE}66`,
-                    end: `${COLORS.PRIMARY.PURPLE}33`
+                    start: `${COLORS.PRIMARY.BLUE_VIOLET}66`,
+                    end: `${COLORS.PRIMARY.BLUE_VIOLET}33`
                 }
             }
         },
+        // UPDATED: Statement nodes use Yellow from Newton's wheel
         STATEMENT: {
-            background: `${COLORS.PRIMARY.GREEN}33`,
-            border: `${COLORS.PRIMARY.GREEN}FF`,
-            text: `${COLORS.PRIMARY.GREEN}FF`,
-            hover: `${COLORS.PRIMARY.GREEN}FF`,
-            gradient: {
-                start: `${COLORS.PRIMARY.GREEN}66`,
-                end: `${COLORS.PRIMARY.GREEN}33`
-            }
-        },
-          OPENQUESTION: {  // NEW: OpenQuestion colors (cyan to match the UI)
-            background: 'rgba(0, 188, 212, 0.2)',
-            border: 'rgba(0, 188, 212, 1)',
-            hover: 'rgba(0, 188, 212, 0.3)',
-            gradient: {
-                start: 'rgba(0, 188, 212, 0.4)',
-                end: 'rgba(0, 188, 212, 0.1)'
-            }
-        },
-        QUANTITY: {
-            background: `${COLORS.PRIMARY.TURQUOISE}33`,
-            border: `${COLORS.PRIMARY.TURQUOISE}FF`,
-            text: `${COLORS.PRIMARY.TURQUOISE}FF`,
-            hover: `${COLORS.PRIMARY.TURQUOISE}FF`,
-            gradient: {
-                start: `${COLORS.PRIMARY.TURQUOISE}66`,
-                end: `${COLORS.PRIMARY.TURQUOISE}33`
-            }
-        },
-        COMMENT: {
             background: `${COLORS.PRIMARY.YELLOW}33`,
             border: `${COLORS.PRIMARY.YELLOW}FF`,
             text: `${COLORS.PRIMARY.YELLOW}FF`,
@@ -152,6 +126,39 @@ export const NODE_CONSTANTS = {
             gradient: {
                 start: `${COLORS.PRIMARY.YELLOW}66`,
                 end: `${COLORS.PRIMARY.YELLOW}33`
+            }
+        },
+        // UPDATED: OpenQuestion nodes use Cyan from Newton's wheel
+        OPENQUESTION: {
+            background: `${COLORS.PRIMARY.CYAN}33`,
+            border: `${COLORS.PRIMARY.CYAN}FF`,
+            text: `${COLORS.PRIMARY.CYAN}FF`,
+            hover: `${COLORS.PRIMARY.CYAN}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.CYAN}66`,
+                end: `${COLORS.PRIMARY.CYAN}33`
+            }
+        },
+        // UPDATED: Quantity nodes use Orange from Newton's wheel
+        QUANTITY: {
+            background: `${COLORS.PRIMARY.ORANGE}33`,
+            border: `${COLORS.PRIMARY.ORANGE}FF`,
+            text: `${COLORS.PRIMARY.ORANGE}FF`,
+            hover: `${COLORS.PRIMARY.ORANGE}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.ORANGE}66`,
+                end: `${COLORS.PRIMARY.ORANGE}33`
+            }
+        },
+        // UPDATED: Comment nodes use Magenta from Newton's wheel
+        COMMENT: {
+            background: `${COLORS.PRIMARY.MAGENTA}33`,
+            border: `${COLORS.PRIMARY.MAGENTA}FF`,
+            text: `${COLORS.PRIMARY.MAGENTA}FF`,
+            hover: `${COLORS.PRIMARY.MAGENTA}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.MAGENTA}66`,
+                end: `${COLORS.PRIMARY.MAGENTA}33`
             }
         },
         EDIT_PROFILE: {

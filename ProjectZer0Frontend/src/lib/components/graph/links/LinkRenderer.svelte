@@ -21,6 +21,11 @@
     $: isReplyForm = link.type === 'reply-form';
     // ADD: Check for answer links
     $: isAnswerLink = link.type === 'answers' || (link.type === 'alternative' && link.sourceType === 'openquestion');
+    // NEW: Universal graph link types
+    $: isSharedKeywordLink = link.type === 'shared_keyword';
+    $: isUniversalAnswerLink = link.type === 'answers';
+    $: isRespondsToLink = link.type === 'responds_to';
+    $: isRelatedToLink = link.type === 'related_to';
     
     // ENHANCED: Get source and target colors based on node types
     $: sourceColor = getSourceColor(link);
@@ -67,7 +72,7 @@
     
     /**
      * Get the source color based on the source node type
-     * UPDATED to use NODE_CONSTANTS instead of direct color references
+     * UPDATED to handle universal graph node types
      */
     function getSourceColor(link: RenderableLink): string {
         if (isStatementRelation) {
@@ -85,7 +90,6 @@
             } else if (link.sourceType === 'quantity') {
                 return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
             } else if (link.sourceType === 'openquestion') {
-                // ADD: OpenQuestion support
                 return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
             }
         }
@@ -110,15 +114,25 @@
                 } else if (link.sourceType === 'quantity') {
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
                 } else if (link.sourceType === 'openquestion') {
-                    // ADD: OpenQuestion support
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
                 }
             }
         }
         
-        // ADD: Handle answer links from openquestion
+        // Handle answer links from openquestion
         if (isAnswerLink) {
             return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+        }
+        
+        // NEW: Universal graph link types - use source node color
+        if (isSharedKeywordLink || isUniversalAnswerLink || isRespondsToLink || isRelatedToLink) {
+            if (link.sourceType === 'statement') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            } else if (link.sourceType === 'openquestion') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+            } else if (link.sourceType === 'quantity') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+            }
         }
         
         // Default for word-definition links
@@ -127,7 +141,7 @@
 
     /**
      * Get the target color based on the target node type
-     * UPDATED to use NODE_CONSTANTS instead of direct color references
+     * UPDATED to handle universal graph node types
      */
     function getTargetColor(link: RenderableLink): string {
         if (isStatementRelation) {
@@ -144,11 +158,22 @@
             return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.COMMENT);
         }
         
-        // ADD: Handle answer links to statements
+        // Handle answer links to statements
         if (isAnswerLink) {
             // If target is statement-answer-form, use statement color
             if (link.targetType === 'statement-answer-form' || link.targetType === 'statement') {
                 return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            }
+        }
+        
+        // NEW: Universal graph link types - use target node color
+        if (isSharedKeywordLink || isUniversalAnswerLink || isRespondsToLink || isRelatedToLink) {
+            if (link.targetType === 'statement') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+            } else if (link.targetType === 'openquestion') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+            } else if (link.targetType === 'quantity') {
+                return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
             }
         }
         
@@ -186,9 +211,25 @@
             return 1.5;
         }
         
-        // ADD: Handle answer links
+        // Handle answer links
         if (isAnswerLink) {
             // Answer links - medium thickness
+            return 2.0;
+        }
+        
+        // NEW: Universal graph link styling
+        if (isSharedKeywordLink) {
+            // Shared keyword links - thinner to avoid visual clutter
+            return 1.5;
+        }
+        
+        if (isUniversalAnswerLink) {
+            // Answer relationships - prominent
+            return 2.5;
+        }
+        
+        if (isRespondsToLink || isRelatedToLink) {
+            // Other relationships - medium thickness
             return 2.0;
         }
         
@@ -220,9 +261,25 @@
             return position === 'start' ? 0.7 : 0.7;
         }
         
-        // ADD: Handle answer links
+        // Handle answer links
         if (isAnswerLink) {
             // Answer links - solid with good visibility
+            return position === 'start' ? 0.8 : 0.8;
+        }
+        
+        // NEW: Universal graph link opacities
+        if (isSharedKeywordLink) {
+            // Shared keyword links - moderate opacity to avoid visual noise
+            return position === 'start' ? 0.6 : 0.6;
+        }
+        
+        if (isUniversalAnswerLink) {
+            // Answer relationships - high visibility
+            return position === 'start' ? 0.9 : 0.9;
+        }
+        
+        if (isRespondsToLink || isRelatedToLink) {
+            // Other relationships - good visibility
             return position === 'start' ? 0.8 : 0.8;
         }
         
@@ -244,6 +301,7 @@
     $: dashArray = (isCommentForm || isReplyForm) ? '5,5' : 
                    (isAnswerLink && link.targetType === 'statement-answer-form') ? '5,5' : // Dashed for form links
                    (link.metadata?.isDashed || link.metadata?.linkStyle === 'form') ? '5,5' : // ENHANCED: Check metadata
+                   // All universal graph links are solid (no dashes)
                    'none';
 </script>
 
@@ -316,6 +374,17 @@
         <!-- Add tooltip for statement relations showing shared words -->
         {#if isStatementRelation && link.metadata?.sharedWords && link.metadata.sharedWords.length > 0}
             <title>{link.metadata.sharedWords.length} shared keywords: {link.metadata.sharedWords.join(', ')}</title>
+        {/if}
+        
+        <!-- NEW: Add tooltip for universal graph relationships -->
+        {#if isSharedKeywordLink && link.metadata?.keyword}
+            <title>Shared keyword: {link.metadata.keyword}</title>
+        {:else if isUniversalAnswerLink}
+            <title>Answer relationship</title>
+        {:else if isRespondsToLink}
+            <title>Response relationship</title>
+        {:else if isRelatedToLink}
+            <title>Related content</title>
         {/if}
     </g>
 {/if}

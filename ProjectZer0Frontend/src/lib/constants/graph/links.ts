@@ -53,13 +53,17 @@ export const LINK_CONSTANTS = {
         }
     },
     COLORS: {
-        WORD: COLORS.PRIMARY.BLUE,
-        WORD_ALT: COLORS.PRIMARY.PURPLE,
+        // UPDATED: Use Newton's color wheel colors
+        WORD: COLORS.PRIMARY.INDIGO,           // Indigo for word nodes
+        WORD_ALT: COLORS.PRIMARY.BLUE_VIOLET,  // Blue-violet for alternative definitions
         DEFINITION: {
-            LIVE: COLORS.PRIMARY.BLUE,
-            ALTERNATIVE: COLORS.PRIMARY.PURPLE
+            LIVE: COLORS.PRIMARY.BLUE_VIOLET,       // Blue-violet for live definitions
+            ALTERNATIVE: COLORS.PRIMARY.BLUE_VIOLET // Blue-violet for alternative definitions
         },
-        STATEMENT: COLORS.PRIMARY.GREEN
+        STATEMENT: COLORS.PRIMARY.YELLOW,      // Yellow for statement nodes
+        OPENQUESTION: COLORS.PRIMARY.CYAN,     // Cyan for open question nodes
+        QUANTITY: COLORS.PRIMARY.ORANGE,       // Orange for quantity nodes
+        COMMENT: COLORS.PRIMARY.MAGENTA        // Magenta for comment nodes
     },
     ANIMATION: {
         TRANSITION_DURATION: 300,

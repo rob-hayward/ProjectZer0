@@ -18,7 +18,8 @@ export interface ControlNodeData {
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal';
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
-export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers';
+// UPDATED: Added universal graph link types
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to';
 export type NodeMode = 'preview' | 'detail';
 
 // Metadata type for enhanced nodes
@@ -104,6 +105,7 @@ export type EnhancedLink = {
     metadata?: {
         sharedWords?: string[];
         relationCount?: number;
+        keyword?: string; // NEW: For shared_keyword links
         [key: string]: any;
     };
 };
@@ -124,6 +126,7 @@ export interface RenderableLink {
     metadata?: {
         sharedWords?: string[];
         relationCount?: number;
+        keyword?: string; // NEW: For shared_keyword links
         [key: string]: any;
     };
 }
@@ -136,6 +139,7 @@ export interface LayoutLink {
     metadata?: {
         sharedWords?: string[];
         relationCount?: number;
+        keyword?: string; // NEW: For shared_keyword links
         [key: string]: any;
     };
 }
@@ -318,3 +322,13 @@ export const isRelatedLink = (link: RenderableLink): boolean =>
 
 export const isAnswersLink = (link: RenderableLink): boolean =>
     link.type === 'answers';
+
+// NEW: Universal graph link type guards
+export const isSharedKeywordLink = (link: RenderableLink): boolean =>
+    link.type === 'shared_keyword';
+
+export const isRespondsToLink = (link: RenderableLink): boolean =>
+    link.type === 'responds_to';
+
+export const isRelatedToLink = (link: RenderableLink): boolean =>
+    link.type === 'related_to';
