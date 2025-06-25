@@ -5,7 +5,6 @@ import { fetchWithAuth } from '$lib/services/api';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import type { VoteStatus } from '$lib/types/domain/nodes';
 
-// Type definitions
 export interface VoteBehaviourState {
   userVoteStatus: VoteStatus;
   positiveVotes: number;
@@ -23,21 +22,16 @@ export interface VoteBehaviourOptions {
   graphStore?: any;
   getVoteEndpoint?: (id: string) => string;
   getRemoveVoteEndpoint?: (id: string) => string;
-  // Custom identifier for API calls (e.g., word text instead of node ID)
   apiIdentifier?: string;
-  // Data object to update directly for reactivity
   dataObject?: any;
-  // Properties to update in data object
   dataProperties?: {
     positiveVotesKey?: string;
     negativeVotesKey?: string;
   };
-  // Callback to trigger reactivity in parent component
   onDataUpdate?: () => void;
 }
 
 export interface VoteBehaviour {
-  // State (readable stores)
   userVoteStatus: Readable<VoteStatus>;
   positiveVotes: Readable<number>;
   negativeVotes: Readable<number>;
@@ -50,24 +44,20 @@ export interface VoteBehaviour {
   lastVoteType: Readable<VoteStatus | null>;
   error: Readable<string | null>;
   
-  // Methods
   initialize: (initialData?: Partial<VoteBehaviourState>) => Promise<void>;
   handleVote: (voteType: VoteStatus) => Promise<boolean>;
+  fetchUserVoteStatus: () => Promise<void>;
   updateFromExternalSource: (voteData: Partial<VoteBehaviourState>) => void;
   reset: () => void;
   getCurrentState: () => VoteBehaviourState;
 }
 
-/**
- * Creates standardised voting behaviour for node components
- */
 export function createVoteBehaviour(
   nodeId: string, 
   nodeType: string, 
   options: VoteBehaviourOptions = {}
 ): VoteBehaviour {
   
-  // Extract options with defaults
   const voteStore = options.voteStore || null;
   const graphStore = options.graphStore || null;
   const apiIdentifier = options.apiIdentifier || nodeId;
@@ -78,11 +68,9 @@ export function createVoteBehaviour(
   };
   const onDataUpdate = options.onDataUpdate || null;
   
-  // Default endpoint functions
   const getVoteEndpoint = options.getVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote`);
   const getRemoveVoteEndpoint = options.getRemoveVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote/remove`);
 
-  // Internal state stores
   const userVoteStatus: Writable<VoteStatus> = writable('none');
   const positiveVotes: Writable<number> = writable(0);
   const negativeVotes: Writable<number> = writable(0);
@@ -92,7 +80,6 @@ export function createVoteBehaviour(
   const error: Writable<string | null> = writable(null);
   const lastVoteTime: Writable<number> = writable(0);
 
-  // Derived state
   const netVotes = derived(
     [positiveVotes, negativeVotes],
     ([pos, neg]) => pos - neg
@@ -113,32 +100,26 @@ export function createVoteBehaviour(
     (net) => net > 0 ? 'agreed' : net < 0 ? 'disagreed' : 'undecided'
   );
 
-  // Private helper functions
   function updateVoteCounts(apiResponse: any): void {
     const pos = getNeo4jNumber(apiResponse.positiveVotes);
     const neg = getNeo4jNumber(apiResponse.negativeVotes);
     
-    // Update internal stores
     positiveVotes.set(pos);
     negativeVotes.set(neg);
     
-    // Update data object directly for reactivity
     if (dataObject && dataProperties && dataProperties.positiveVotesKey && dataProperties.negativeVotesKey) {
       dataObject[dataProperties.positiveVotesKey] = pos;
       dataObject[dataProperties.negativeVotesKey] = neg;
       
-      // Trigger reactivity callback if provided
       if (onDataUpdate && typeof onDataUpdate === 'function') {
         onDataUpdate();
       }
     }
     
-    // CLEAN: Update external store if provided - now each view uses its correct store
     if (voteStore && typeof voteStore.updateVoteData === 'function') {
       voteStore.updateVoteData(nodeId, pos, neg);
     }
     
-    // Update graph store visibility if provided
     if (graphStore && typeof graphStore.recalculateNodeVisibility === 'function') {
       graphStore.recalculateNodeVisibility(nodeId, pos, neg);
     }
@@ -152,12 +133,10 @@ export function createVoteBehaviour(
       let result;
       
       if (voteType === 'none') {
-        // Remove vote
         result = await fetchWithAuth(getRemoveVoteEndpoint(apiIdentifier), {
           method: 'POST'
         });
       } else {
-        // Cast vote
         result = await fetchWithAuth(getVoteEndpoint(apiIdentifier), {
           method: 'POST',
           body: JSON.stringify({
@@ -193,7 +172,6 @@ export function createVoteBehaviour(
       
       userVoteStatus.set(response.status || 'none');
       
-      // Update vote counts from API response
       if (response.positiveVotes !== undefined && response.negativeVotes !== undefined) {
         updateVoteCounts(response);
       }
@@ -212,22 +190,25 @@ export function createVoteBehaviour(
     }
   }
 
-  // Public methods
   async function initialize(initialData: Partial<VoteBehaviourState> = {}): Promise<void> {
     try {
-      // CLEAN: Initialize from external store if available - now uses correct store
+      let hasCompleteVoteData = false;
+      
       if (voteStore && typeof voteStore.getVoteData === 'function') {
         const storeData = voteStore.getVoteData(nodeId);
         positiveVotes.set(storeData.positiveVotes || 0);
         negativeVotes.set(storeData.negativeVotes || 0);
+        
+        if (storeData.positiveVotes >= 0 && storeData.negativeVotes >= 0) {
+          hasCompleteVoteData = true;
+        }
       }
 
-      // Initialize from initial data if provided
       if (initialData.positiveVotes !== undefined) {
         const pos = getNeo4jNumber(initialData.positiveVotes);
         positiveVotes.set(pos);
+        hasCompleteVoteData = true;
         
-        // Update data object as well
         if (dataObject && dataProperties && dataProperties.positiveVotesKey) {
           dataObject[dataProperties.positiveVotesKey] = pos;
         }
@@ -235,19 +216,37 @@ export function createVoteBehaviour(
       if (initialData.negativeVotes !== undefined) {
         const neg = getNeo4jNumber(initialData.negativeVotes);
         negativeVotes.set(neg);
+        hasCompleteVoteData = true;
         
-        // Update data object as well
         if (dataObject && dataProperties && dataProperties.negativeVotesKey) {
           dataObject[dataProperties.negativeVotesKey] = neg;
         }
       }
 
-      // Fetch user's vote status from API
-      await initializeVoteStatus();
+      if (!hasCompleteVoteData) {
+        await initializeVoteStatus();
+      } else {
+        if (initialData.userVoteStatus !== undefined) {
+          userVoteStatus.set(initialData.userVoteStatus);
+        } else {
+          userVoteStatus.set('none');
+        }
+        
+        error.set(null);
+      }
 
     } catch (err) {
       console.error(`[VoteBehaviour] Error initializing votes for ${nodeId}:`, err);
       error.set('Failed to load vote data');
+    }
+  }
+
+  async function fetchUserVoteStatus(): Promise<void> {
+    try {
+      await initializeVoteStatus();
+    } catch (err) {
+      console.error(`[VoteBehaviour] Error fetching user vote status for ${nodeId}:`, err);
+      error.set('Failed to load user vote status');
     }
   }
 
@@ -259,7 +258,6 @@ export function createVoteBehaviour(
       return false;
     }
 
-    // Prevent duplicate votes of the same type
     if (voteType !== 'none' && currentVoteStatus === voteType) {
       return false;
     }
@@ -268,25 +266,19 @@ export function createVoteBehaviour(
     error.set(null);
     lastVoteType.set(voteType);
     
-    // Store original values for potential rollback
     const originalVoteStatus = currentVoteStatus;
     const originalPositiveVotes = get(positiveVotes);
     const originalNegativeVotes = get(negativeVotes);
 
     try {
-      // Optimistic update
       userVoteStatus.set(voteType);
       
-      // Perform API call
       const result = await performVoteAction(voteType);
       
-      // Update vote counts from API response
       updateVoteCounts(result);
       
-      // Update last vote time for rate limiting
       lastVoteTime.set(Date.now());
       
-      // Trigger success animation
       voteSuccess.set(true);
       setTimeout(() => {
         voteSuccess.set(false);
@@ -298,13 +290,11 @@ export function createVoteBehaviour(
     } catch (err) {
       console.error(`[VoteBehaviour] Error voting on ${apiIdentifier}:`, err);
       
-      // Rollback optimistic update
       userVoteStatus.set(originalVoteStatus);
       positiveVotes.set(originalPositiveVotes);
       negativeVotes.set(originalNegativeVotes);
       lastVoteType.set(null);
       
-      // Rollback data object changes
       if (dataObject && dataProperties && dataProperties.positiveVotesKey && dataProperties.negativeVotesKey) {
         dataObject[dataProperties.positiveVotesKey] = originalPositiveVotes;
         dataObject[dataProperties.negativeVotesKey] = originalNegativeVotes;
@@ -363,9 +353,7 @@ export function createVoteBehaviour(
     };
   }
 
-  // Return public interface
   return {
-    // State (readable stores)
     userVoteStatus: { subscribe: userVoteStatus.subscribe },
     positiveVotes: { subscribe: positiveVotes.subscribe },
     negativeVotes: { subscribe: negativeVotes.subscribe },
@@ -378,9 +366,9 @@ export function createVoteBehaviour(
     lastVoteType: { subscribe: lastVoteType.subscribe },
     error: { subscribe: error.subscribe },
     
-    // Methods
     initialize,
     handleVote,
+    fetchUserVoteStatus,
     updateFromExternalSource,
     reset,
     getCurrentState

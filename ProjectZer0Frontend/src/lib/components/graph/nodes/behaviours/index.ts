@@ -12,3 +12,4 @@ export type { ModeBehaviour, ModeBehaviourOptions, ModeBehaviourState } from './
 
 export { createDataBehaviour } from './dataBehaviour';
 export type { DataBehaviour, DataBehaviourOptions, DataBehaviourState } from './dataBehaviour';
+

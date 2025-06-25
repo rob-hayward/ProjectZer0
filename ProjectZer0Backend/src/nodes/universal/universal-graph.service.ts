@@ -2,6 +2,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../../neo4j/neo4j.service';
+import { QuantityService } from '../quantity/quantity.service';
 import { int } from 'neo4j-driver';
 
 export interface UniversalNodeData {
@@ -26,13 +27,27 @@ export interface UniversalNodeData {
       net: number;
     };
 
-    // For quantity nodes
+    // Enhanced for quantity nodes - now includes user response and detailed stats
     responses?: {
       count: number;
       mean?: number;
       std_dev?: number;
       min?: number;
       max?: number;
+      // User-specific response data
+      userResponse?: {
+        value: number;
+        unitId: string;
+        unitSymbol?: string;
+      };
+      // Detailed statistics for visualization
+      distributionCurve?: [number, number][];
+      percentiles?: Record<string, number>;
+      communityResponses?: Array<{
+        value: number;
+        unitId: string;
+        unitSymbol?: string;
+      }>;
     };
 
     // For open questions
@@ -66,6 +81,8 @@ export interface UniversalGraphOptions {
   relationship_types?: Array<
     'shared_keyword' | 'answers' | 'responds_to' | 'related_to'
   >;
+  // User context for fetching user-specific data
+  requesting_user_id?: string;
 }
 
 export interface UniversalGraphResponse {
@@ -79,7 +96,10 @@ export interface UniversalGraphResponse {
 export class UniversalGraphService {
   private readonly logger = new Logger(UniversalGraphService.name);
 
-  constructor(private readonly neo4jService: Neo4jService) {}
+  constructor(
+    private readonly neo4jService: Neo4jService,
+    private readonly quantityService: QuantityService,
+  ) {}
 
   async getUniversalNodes(
     options: UniversalGraphOptions,
@@ -103,6 +123,7 @@ export class UniversalGraphService {
           'responds_to',
           'related_to',
         ],
+        requesting_user_id,
       } = options;
 
       this.logger.debug(
@@ -126,7 +147,15 @@ export class UniversalGraphService {
       const result = await this.neo4jService.read(query.query, query.params);
 
       // Process and transform the results
-      const nodes = this.transformResults(result.records);
+      let nodes = this.transformResults(result.records);
+
+      // Enhancement: For quantity nodes, fetch user-specific data and detailed statistics
+      if (requesting_user_id && node_types.includes('quantity')) {
+        nodes = await this.enhanceQuantityNodesWithUserData(
+          nodes,
+          requesting_user_id,
+        );
+      }
 
       // Get node IDs for relationship query
       const nodeIds = nodes.map((n) => n.id);
@@ -175,6 +204,113 @@ export class UniversalGraphService {
         error.stack,
       );
       throw new Error(`Failed to get universal nodes: ${error.message}`);
+    }
+  }
+
+  // Enhance quantity nodes with user-specific data using the same methods as individual quantity view
+  private async enhanceQuantityNodesWithUserData(
+    nodes: UniversalNodeData[],
+    userId: string,
+  ): Promise<UniversalNodeData[]> {
+    try {
+      const quantityNodes = nodes.filter((node) => node.type === 'quantity');
+
+      if (quantityNodes.length === 0) {
+        return nodes;
+      }
+
+      this.logger.debug(
+        `Enhancing ${quantityNodes.length} quantity nodes with user data for user ${userId}`,
+      );
+
+      // Fetch user responses and detailed statistics for all quantity nodes in parallel
+      const enhancementPromises = quantityNodes.map(async (node) => {
+        try {
+          // Use the same methods that work in individual quantity view
+          const [userResponse, detailedStats] = await Promise.all([
+            this.quantityService
+              .getUserResponse(userId, node.id)
+              .catch(() => null),
+            this.quantityService.getStatistics(node.id).catch(() => null),
+          ]);
+
+          // Enhance the node's metadata with the fetched data
+          if (node.metadata.responses) {
+            // Add user response if available
+            if (userResponse) {
+              node.metadata.responses.userResponse = {
+                value: userResponse.value,
+                unitId: userResponse.unitId,
+                unitSymbol: userResponse.unitSymbol,
+              };
+            }
+
+            // Add detailed statistics if available
+            if (detailedStats) {
+              // Add visualization data
+              if (detailedStats.distributionCurve) {
+                node.metadata.responses.distributionCurve =
+                  detailedStats.distributionCurve;
+              }
+
+              if (detailedStats.percentiles) {
+                node.metadata.responses.percentiles = detailedStats.percentiles;
+              }
+
+              // Include community responses (limited to prevent payload bloat)
+              if (
+                detailedStats.responses &&
+                Array.isArray(detailedStats.responses)
+              ) {
+                node.metadata.responses.communityResponses =
+                  detailedStats.responses.slice(0, 50);
+              }
+
+              // Update basic stats with fresh data from detailed stats
+              node.metadata.responses.count =
+                detailedStats.responseCount || node.metadata.responses.count;
+              node.metadata.responses.mean =
+                detailedStats.mean || node.metadata.responses.mean;
+              node.metadata.responses.std_dev =
+                detailedStats.standardDeviation ||
+                node.metadata.responses.std_dev;
+              node.metadata.responses.min =
+                detailedStats.min || node.metadata.responses.min;
+              node.metadata.responses.max =
+                detailedStats.max || node.metadata.responses.max;
+            }
+          }
+
+          return node;
+        } catch (error) {
+          this.logger.warn(
+            `Error enhancing quantity node ${node.id}: ${error.message}`,
+          );
+          return node; // Return original node if enhancement fails
+        }
+      });
+
+      // Wait for all enhancements to complete
+      const enhancedQuantityNodes = await Promise.all(enhancementPromises);
+
+      // Replace quantity nodes in the original array
+      const enhancedNodes = nodes.map((node) => {
+        if (node.type === 'quantity') {
+          const enhanced = enhancedQuantityNodes.find(
+            (eNode) => eNode.id === node.id,
+          );
+          return enhanced || node;
+        }
+        return node;
+      });
+
+      this.logger.debug(
+        `Successfully enhanced quantity nodes with user-specific data`,
+      );
+      return enhancedNodes;
+    } catch (error) {
+      this.logger.error(`Error enhancing quantity nodes: ${error.message}`);
+      return nodes; // Return original nodes if enhancement fails
     }
   }
 

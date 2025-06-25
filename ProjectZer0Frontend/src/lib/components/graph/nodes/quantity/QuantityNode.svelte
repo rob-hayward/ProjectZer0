@@ -1,7 +1,7 @@
 <!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
-    import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
+    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -15,9 +15,6 @@
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
     import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
-    
-    // ENHANCED: Import universal graph store for potential future voting support
-    import { universalGraphStore } from '$lib/stores/universalGraphStore';
     
     // Import the shared behaviors and UI components
     import {
@@ -38,9 +35,6 @@
     export let unitCategoryId: string = '';
     export let defaultUnitId: string = '';
     
-    // ENHANCED: Optional props for explicit context control
-    export let viewType: ViewType | undefined = undefined;
-    
     // Debug toggle - set to true to show ContentBox borders
     const DEBUG_SHOW_BORDERS = false;
     
@@ -56,36 +50,6 @@
     $: displayQuestion = question || quantityData.question;
     $: displayUnitCategoryId = unitCategoryId || quantityData.unitCategoryId;
     $: displayDefaultUnitId = defaultUnitId || quantityData.defaultUnitId;
-    
-    // ENHANCED: Context-aware detection (for future voting support)
-    $: detectedViewType = detectViewContext(viewType);
-
-    /**
-     * ROBUST: Detect current view context using multiple methods
-     */
-    function detectViewContext(explicitViewType?: ViewType): ViewType {
-        // Method 1: Use explicit viewType prop if provided
-        if (explicitViewType) {
-            return explicitViewType;
-        }
-
-        // Method 2: Detect from URL path
-        if (typeof window !== 'undefined') {
-            const pathname = window.location.pathname;
-            if (pathname.includes('/universal')) return 'universal';
-            if (pathname.includes('/quantity')) return 'quantity';
-            if (pathname.includes('/discussion')) return 'discussion';
-        }
-
-        // Method 3: Detect from graph store context
-        if (graphStore) {
-            const currentViewType = graphStore.getViewType?.();
-            if (currentViewType) return currentViewType;
-        }
-
-        // Default fallback
-        return 'quantity';
-    }
     
     // Behavior instances
     let voteBehaviour: any;
@@ -113,13 +77,8 @@
     
     // Initialize behaviors
     $: if (node.id && !behavioursInitialized) {
-        console.log(`[QuantityNode] Initializing for context: ${detectedViewType}`);
-        
         // Note: Quantity nodes don't typically have voting, but we can add it if needed
-        // Future: If voting support is added to quantity nodes:
-        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { 
-        //     voteStore: detectedViewType === 'universal' ? universalGraphStore : null 
-        // });
+        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { /* options */ });
         
         visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
         modeBehaviour = createModeBehaviour(node.mode);
@@ -255,6 +214,40 @@
                 selectedUnitId = preference.unitId;
                 
                 if (availableUnits.length > 0) {
+                    const unit = availableUnits.find(u => u.id === displayUnitId);
+                    if (unit) {
+                        displayUnitSymbol = unit.symbol;
+                    }
+                }
+            } else {
+                displayUnitId = displayDefaultUnitId;
+                selectedUnitId = displayDefaultUnitId;
+                displayUnitSymbol = defaultUnitSymbol;
+            }
+        } catch (error) {
+            console.error('[QuantityNode] Error loading unit preference:', error);
+            displayUnitId = displayDefaultUnitId;
+            selectedUnitId = displayDefaultUnitId;
+            displayUnitSymbol = defaultUnitSymbol;
+        } finally {
+            isLoadingUnitPreferences = false;
+        }
+    }
+
+    async function loadUserResponse() {
+        try {
+            userResponse = await getUserResponse(node.id);
+            
+            if (userResponse) {
+                responseValue = userResponse.value.toString();
+                
+                const preference = unitPreferenceStore.getPreference(node.id);
+                if (!preference) {
+                    displayUnitId = userResponse.unitId;
+                    selectedUnitId = userResponse.unitId;
+                }
+                
+                if (availableUnits.length > 0) {
                     const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
                     if (responseUnit) {
                         userResponse.unitSymbol = responseUnit.symbol;
@@ -332,37 +325,6 @@
             await unitPreferenceStore.setPreference(node.id, displayUnitId);
         } catch (error) {
             console.error('[QuantityNode] Error changing unit:', error);
-        }
-    }
-
-       async function loadUserResponse() {
-        try {
-            userResponse = await getUserResponse(node.id);
-            
-            if (userResponse) {
-                responseValue = userResponse.value.toString();
-                
-                const preference = unitPreferenceStore.getPreference(node.id);
-                if (!preference) {
-                    displayUnitId = userResponse.unitId;
-                    selectedUnitId = userResponse.unitId;
-                }
-                
-                if (availableUnits.length > 0) {
-                    const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
-                    if (responseUnit) {
-                        userResponse.unitSymbol = responseUnit.symbol;
-                        
-                        if (displayUnitId === userResponse.unitId) {
-                            displayUnitSymbol = responseUnit.symbol;
-                        }
-                    }
-                }
-            } else {
-                responseValue = '';
-            }
-        } catch (error) {
-            console.error('[QuantityNode] Error loading user response:', error);
         }
     }
 

@@ -7,6 +7,7 @@ import {
   UseGuards,
   Logger,
   BadRequestException,
+  Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import {
@@ -28,7 +29,7 @@ export class UniversalNodesQueryDto implements UniversalGraphOptions {
 }
 
 @Controller('graph/universal')
-@UseGuards(JwtAuthGuard) // Comment out for endpoint testing
+@UseGuards(JwtAuthGuard)
 export class UniversalGraphController {
   private readonly logger = new Logger(UniversalGraphController.name);
 
@@ -36,7 +37,8 @@ export class UniversalGraphController {
 
   @Get('nodes')
   async getUniversalNodes(
-    @Query() query: any, // Changed from UniversalNodesQueryDto to any for now
+    @Query() query: any,
+    @Request() req: any,
   ): Promise<UniversalGraphResponse> {
     try {
       this.logger.log(
@@ -88,6 +90,9 @@ export class UniversalGraphController {
       if (query.user_id) {
         parsedQuery.user_id = query.user_id;
       }
+
+      // Pass the requesting user's ID for user-specific data enhancement
+      parsedQuery.requesting_user_id = req.user?.sub;
 
       this.logger.log(`Parsed query params: ${JSON.stringify(parsedQuery)}`);
 
