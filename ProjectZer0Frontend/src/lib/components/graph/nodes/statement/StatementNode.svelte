@@ -1,9 +1,10 @@
-<!-- Enhanced StatementNode.svelte - Flexible Context-Aware Version -->
+<!-- Enhanced StatementNode.svelte - Batch Data Optimized Version -->
 
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
 	import type { StatementNode } from '$lib/types/domain/nodes';
+	import type { VoteStatus } from '$lib/types/domain/nodes'; // Add VoteStatus import
 	import { isStatementData } from '$lib/types/graph/enhanced';
 	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -15,6 +16,7 @@
 	// ENHANCED: Import all possible vote stores
 	import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 	import { universalGraphStore } from '$lib/stores/universalGraphStore';
+	import { get } from 'svelte/store';
 	// Add other stores as needed for future views
 
 	import {
@@ -54,6 +56,9 @@
 	// ENHANCED: Context-aware store detection
 	$: detectedViewType = detectViewContext(viewType);
 	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
+	
+	// ENHANCED: Track if we've used batch data to avoid duplicate API calls
+	let usedBatchVoteData = false;
 
 	/**
 	 * ROBUST: Detect current view context using multiple methods
@@ -76,28 +81,6 @@
 		if (graphStore) {
 			const currentViewType = graphStore.getViewType?.();
 			if (currentViewType) return currentViewType;
-		}
-
-		// Method 4: Check if node exists in different stores to infer context
-		try {
-			// Check universal store first (most specific)
-			if (universalGraphStore.getVoteData && 
-				universalGraphStore.getVoteData(node.id).positiveVotes >= 0) {
-				// If we can get vote data without errors, likely universal context
-				return 'universal';
-			}
-		} catch (e) {
-			// Silent - not in universal store
-		}
-
-		try {
-			// Check statement network store
-			if (statementNetworkStore.getVoteData && 
-				statementNetworkStore.getVoteData(node.id).positiveVotes >= 0) {
-				return 'statement-network';
-			}
-		} catch (e) {
-			// Silent - not in statement network store
 		}
 
 		// Default fallback
@@ -141,8 +124,27 @@
 		statementDataWrapper = { ...statementData };
 	}
 
-	// ENHANCED: Reactive behaviour initialization with context-aware store
+	// ENHANCED: Optimized vote behavior creation with batch data check
 	$: if (node.id && contextVoteStore && !behavioursInitialized) {
+		console.log(`[StatementNode] Initializing for context: ${detectedViewType} with store:`, contextVoteStore === universalGraphStore ? 'universal' : 'other');
+		
+		// ENHANCED: Check for batch vote data first in universal context
+		let initialVoteData = undefined; // Changed from null to undefined
+		if (detectedViewType === 'universal' && !usedBatchVoteData) {
+			const universalData = get(universalGraphStore);
+			if (universalData?.user_data?.votes?.[node.id]) {
+				const batchVote = universalData.user_data.votes[node.id];
+				console.log(`[StatementNode] Using batch vote data for ${node.id}:`, batchVote);
+				
+				initialVoteData = {
+					userVoteStatus: (batchVote.status || 'none') as VoteStatus, // Type assertion
+					positiveVotes: statementData.positiveVotes || 0,
+					negativeVotes: statementData.negativeVotes || 0,
+					votedAt: batchVote.votedAt
+				};
+				usedBatchVoteData = true;
+			}
+		}
 		
 		voteBehaviour = createVoteBehaviour(node.id, 'statement', {
 			voteStore: contextVoteStore,  // ✅ CONTEXT-AWARE STORE!
@@ -151,10 +153,15 @@
 			dataObject: statementData,
 			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
 			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote/remove`,
-			onDataUpdate: triggerDataUpdate
+			onDataUpdate: triggerDataUpdate,
+			// ENHANCED: Pass initial batch data to skip individual API call
+			initialVoteData: initialVoteData
 		});
 
-		visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
+		visibilityBehaviour = createVisibilityBehaviour(node.id, { 
+			graphStore,
+			viewType: detectedViewType  // ← ENHANCED: Add viewType to fix localStorage thrashing
+		});
 		modeBehaviour = createModeBehaviour(node.mode);
 		dataBehaviour = createDataBehaviour('statement', statementData, {
 			transformData: (rawData) => ({
@@ -186,7 +193,7 @@
 
 	let statementDataWrapper = statementData;
 
-	// ENHANCED: Context-aware vote data retrieval
+	// ENHANCED: Context-aware vote data retrieval with batch data priority
 	$: dataPositiveVotes = getNeo4jNumber(statementDataWrapper.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(statementDataWrapper.negativeVotes) || 0;
 	$: storeVoteData = contextVoteStore?.getVoteData?.(node.id) || { positiveVotes: 0, negativeVotes: 0 };
@@ -224,7 +231,18 @@
 		try {
 			const success = await voteBehaviour.handleVote(voteType);
 			syncVoteState();
-			if (success) triggerDataUpdate();
+			if (success) {
+				triggerDataUpdate();
+				
+				// ENHANCED: Update universal store if in universal context
+				if (detectedViewType === 'universal' && universalGraphStore.updateUserVoteStatus) {
+					universalGraphStore.updateUserVoteStatus(
+						node.id, 
+						voteType === 'none' ? null : voteType,
+						new Date().toISOString()
+					);
+				}
+			}
 			return success;
 		} catch (error) {
 			syncVoteState();
@@ -241,6 +259,10 @@
 		updateVoteState(event.detail.voteType);
 	}
 
+	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+		dispatch('visibilityChange', event.detail);
+	}
+
 	let statementCreatorDetails: any = null;
 
 	onMount(async () => {
@@ -249,12 +271,15 @@
 		const initPromises = [];
 		if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
 		if (voteBehaviour) {
-			initPromises.push(
-				voteBehaviour.initialize({
+			// ENHANCED: Initialize with batch data or regular data
+			const initData = usedBatchVoteData ? 
+				{ skipVoteStatusFetch: true } : // Skip API call if we have batch data
+				{
 					positiveVotes: statementData.positiveVotes,
 					negativeVotes: statementData.negativeVotes
-				})
-			);
+				};
+			
+			initPromises.push(voteBehaviour.initialize(initData));
 		}
 		if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(netVotes));
 		if (initPromises.length > 0) await Promise.all(initPromises);
@@ -286,7 +311,7 @@
 
 <!-- Rest of the component template remains the same -->
 {#if isDetail}
-	<BaseDetailNode {node} on:modeChange={handleModeChange}>
+	<BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
 		<svelte:fragment slot="default" let:radius>
 			<NodeHeader title="Statement" radius={radius} mode="detail" />
 			<ContentBox nodeType="statement" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
@@ -365,7 +390,7 @@
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
+	<BasePreviewNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title="Statement" radius={radius} size="small" mode="preview" />
 		</svelte:fragment>

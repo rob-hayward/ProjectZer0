@@ -3,6 +3,7 @@
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
 	import type { OpenQuestionNode } from '$lib/types/domain/nodes';
+	import type { VoteStatus } from '$lib/types/domain/nodes'; // Add VoteStatus import
 	import { isOpenQuestionData } from '$lib/types/graph/enhanced';
 	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -14,6 +15,7 @@
 	// ENHANCED: Import all possible vote stores
 	import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
 	import { universalGraphStore } from '$lib/stores/universalGraphStore';
+	import { get } from 'svelte/store';
 	
 	import {
 		createVoteBehaviour,
@@ -54,6 +56,9 @@
 	// ENHANCED: Context-aware store detection
 	$: detectedViewType = detectViewContext(viewType);
 	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
+	
+	// ENHANCED: Track if we've used batch data to avoid duplicate API calls
+	let usedBatchVoteData = false;
 
 	/**
 	 * ROBUST: Detect current view context using multiple methods
@@ -76,27 +81,6 @@
 		if (graphStore) {
 			const currentViewType = graphStore.getViewType?.();
 			if (currentViewType) return currentViewType;
-		}
-
-		// Method 4: Check if node exists in different stores to infer context
-		try {
-			// Check universal store first (most specific)
-			if (universalGraphStore.getVoteData && 
-				universalGraphStore.getVoteData(node.id).positiveVotes >= 0) {
-				return 'universal';
-			}
-		} catch (e) {
-			// Silent - not in universal store
-		}
-
-		try {
-			// Check openquestion view store
-			if (openQuestionViewStore.getVoteData && 
-				openQuestionViewStore.getVoteData(node.id).positiveVotes >= 0) {
-				return 'openquestion';
-			}
-		} catch (e) {
-			// Silent - not in openquestion store
 		}
 
 		// Default fallback
@@ -140,8 +124,27 @@
 		questionDataWrapper = { ...questionData };
 	}
 
-	// ENHANCED: Reactive behaviour initialization with context-aware store
+	// ENHANCED: Optimized vote behavior creation with batch data check
 	$: if (node.id && contextVoteStore && !behavioursInitialized) {
+		console.log(`[OpenQuestionNode] Initializing for context: ${detectedViewType} with store:`, contextVoteStore === universalGraphStore ? 'universal' : 'other');
+		
+		// ENHANCED: Check for batch vote data first in universal context
+		let initialVoteData = undefined; // Changed from null to undefined
+		if (detectedViewType === 'universal' && !usedBatchVoteData) {
+			const universalData = get(universalGraphStore);
+			if (universalData?.user_data?.votes?.[node.id]) {
+				const batchVote = universalData.user_data.votes[node.id];
+				console.log(`[OpenQuestionNode] Using batch vote data for ${node.id}:`, batchVote);
+				
+				initialVoteData = {
+					userVoteStatus: (batchVote.status || 'none') as VoteStatus, // Type assertion
+					positiveVotes: questionData.positiveVotes || 0,
+					negativeVotes: questionData.negativeVotes || 0,
+					votedAt: batchVote.votedAt
+				};
+				usedBatchVoteData = true;
+			}
+		}
 		
 		voteBehaviour = createVoteBehaviour(node.id, 'openquestion', {
 			voteStore: contextVoteStore,  // CONTEXT-AWARE STORE
@@ -150,10 +153,15 @@
 			dataObject: questionData,
 			getVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote`,
 			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote/remove`,
-			onDataUpdate: triggerDataUpdate
+			onDataUpdate: triggerDataUpdate,
+			// ENHANCED: Pass initial batch data to skip individual API call
+			initialVoteData: initialVoteData
 		});
 
-		visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
+		visibilityBehaviour = createVisibilityBehaviour(node.id, { 
+			graphStore,
+			viewType: detectedViewType  // ← ENHANCED: Add viewType to fix localStorage thrashing
+		});
 		modeBehaviour = createModeBehaviour(node.mode);
 		dataBehaviour = createDataBehaviour('openquestion', questionData, {
 			transformData: (rawData) => ({
@@ -185,7 +193,7 @@
 
 	let questionDataWrapper = questionData;
 
-	// ENHANCED: Context-aware vote data retrieval
+	// ENHANCED: Context-aware vote data retrieval with batch data priority
 	$: dataPositiveVotes = getNeo4jNumber(questionDataWrapper.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(questionDataWrapper.negativeVotes) || 0;
 	$: storeVoteData = contextVoteStore?.getVoteData?.(node.id) || { positiveVotes: 0, negativeVotes: 0 };
@@ -246,7 +254,18 @@
 		try {
 			const success = await voteBehaviour.handleVote(voteType);
 			syncVoteState();
-			if (success) triggerDataUpdate();
+			if (success) {
+				triggerDataUpdate();
+				
+				// ENHANCED: Update universal store if in universal context
+				if (detectedViewType === 'universal' && universalGraphStore.updateUserVoteStatus) {
+					universalGraphStore.updateUserVoteStatus(
+						node.id, 
+						voteType === 'none' ? null : voteType,
+						new Date().toISOString()
+					);
+				}
+			}
 			return success;
 		} catch (error) {
 			syncVoteState();
@@ -289,12 +308,15 @@
 		const initPromises = [];
 		if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
 		if (voteBehaviour) {
-			initPromises.push(
-				voteBehaviour.initialize({
+			// ENHANCED: Initialize with batch data or regular data
+			const initData = usedBatchVoteData ? 
+				{ skipVoteStatusFetch: true } : // Skip API call if we have batch data
+				{
 					positiveVotes: questionData.positiveVotes,
 					negativeVotes: questionData.negativeVotes
-				})
-			);
+				};
+			
+			initPromises.push(voteBehaviour.initialize(initData));
 		}
 		if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(netVotes));
 		if (initPromises.length > 0) await Promise.all(initPromises);

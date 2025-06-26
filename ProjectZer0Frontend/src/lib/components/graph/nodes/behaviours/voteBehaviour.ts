@@ -34,6 +34,13 @@ export interface VoteBehaviourOptions {
   };
   // Callback to trigger reactivity in parent component
   onDataUpdate?: () => void;
+  // ENHANCED: Support for pre-loaded batch data
+  initialVoteData?: {
+    userVoteStatus?: VoteStatus;
+    positiveVotes?: number;
+    negativeVotes?: number;
+    votedAt?: string;
+  };
 }
 
 export interface VoteBehaviour {
@@ -51,7 +58,7 @@ export interface VoteBehaviour {
   error: Readable<string | null>;
   
   // Methods
-  initialize: (initialData?: Partial<VoteBehaviourState>) => Promise<void>;
+  initialize: (initialData?: Partial<VoteBehaviourState> & { skipVoteStatusFetch?: boolean }) => Promise<void>;
   handleVote: (voteType: VoteStatus) => Promise<boolean>;
   updateFromExternalSource: (voteData: Partial<VoteBehaviourState>) => void;
   reset: () => void;
@@ -77,6 +84,7 @@ export function createVoteBehaviour(
     negativeVotesKey: 'negativeVotes'
   };
   const onDataUpdate = options.onDataUpdate || null;
+  const initialVoteData = options.initialVoteData || null; // ENHANCED: Extract initial vote data
   
   // Default endpoint functions
   const getVoteEndpoint = options.getVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote`);
@@ -213,8 +221,40 @@ export function createVoteBehaviour(
   }
 
   // Public methods
-  async function initialize(initialData: Partial<VoteBehaviourState> = {}): Promise<void> {
+  async function initialize(
+    initialData: Partial<VoteBehaviourState> & { skipVoteStatusFetch?: boolean } = {}
+  ): Promise<void> {
     try {
+      // ENHANCED: Check if we have pre-loaded initial vote data
+      if (initialVoteData) {
+        console.log(`[VoteBehaviour] Using pre-loaded vote data for ${nodeId}:`, initialVoteData);
+        
+        // Set user vote status from batch data
+        if (initialVoteData.userVoteStatus !== undefined) {
+          userVoteStatus.set(initialVoteData.userVoteStatus);
+        }
+        
+        // Set vote counts from batch data
+        if (initialVoteData.positiveVotes !== undefined && initialVoteData.negativeVotes !== undefined) {
+          positiveVotes.set(getNeo4jNumber(initialVoteData.positiveVotes));
+          negativeVotes.set(getNeo4jNumber(initialVoteData.negativeVotes));
+          
+          // Also update data object if provided
+          if (dataObject && dataProperties) {
+            if (dataProperties.positiveVotesKey) {
+              dataObject[dataProperties.positiveVotesKey] = getNeo4jNumber(initialVoteData.positiveVotes);
+            }
+            if (dataProperties.negativeVotesKey) {
+              dataObject[dataProperties.negativeVotesKey] = getNeo4jNumber(initialVoteData.negativeVotes);
+            }
+          }
+        }
+        
+        // Skip API call since we have batch data
+        error.set(null);
+        return;
+      }
+
       // CLEAN: Initialize from external store if available - now uses correct store
       if (voteStore && typeof voteStore.getVoteData === 'function') {
         const storeData = voteStore.getVoteData(nodeId);
@@ -242,8 +282,13 @@ export function createVoteBehaviour(
         }
       }
 
-      // Fetch user's vote status from API
-      await initializeVoteStatus();
+      // ENHANCED: Skip vote status fetch if we have batch data or explicit skip
+      if (!initialData.skipVoteStatusFetch) {
+        // Fetch user's vote status from API
+        await initializeVoteStatus();
+      } else {
+        console.log(`[VoteBehaviour] Skipping vote status fetch for ${nodeId} (using batch data)`);
+      }
 
     } catch (err) {
       console.error(`[VoteBehaviour] Error initializing votes for ${nodeId}:`, err);
