@@ -2,7 +2,6 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../../neo4j/neo4j.service';
-import { QuantityService } from '../quantity/quantity.service';
 import { int } from 'neo4j-driver';
 
 export interface UniversalNodeData {
@@ -27,27 +26,13 @@ export interface UniversalNodeData {
       net: number;
     };
 
-    // Enhanced for quantity nodes - now includes user response and detailed stats
+    // For quantity nodes
     responses?: {
       count: number;
       mean?: number;
       std_dev?: number;
       min?: number;
       max?: number;
-      // User-specific response data
-      userResponse?: {
-        value: number;
-        unitId: string;
-        unitSymbol?: string;
-      };
-      // Detailed statistics for visualization
-      distributionCurve?: [number, number][];
-      percentiles?: Record<string, number>;
-      communityResponses?: Array<{
-        value: number;
-        unitId: string;
-        unitSymbol?: string;
-      }>;
     };
 
     // For open questions
@@ -67,6 +52,34 @@ export interface UniversalRelationshipData {
   };
 }
 
+// NEW: User-specific data interfaces
+export interface UserVoteStatus {
+  nodeId: string;
+  status: 'agree' | 'disagree' | null;
+  votedAt?: string;
+}
+
+export interface UserQuantityResponse {
+  nodeId: string;
+  value: number;
+  unitId: string;
+  unitSymbol?: string;
+  submittedAt: string;
+}
+
+export interface UserVisibilityPreference {
+  nodeId: string;
+  isVisible: boolean;
+  source: 'user' | 'community';
+  timestamp: number;
+}
+
+export interface UserUnitPreference {
+  nodeId: string;
+  unitId: string;
+  lastUpdated: number;
+}
+
 export interface UniversalGraphOptions {
   node_types?: Array<'statement' | 'openquestion' | 'quantity'>;
   min_consensus?: number;
@@ -81,8 +94,9 @@ export interface UniversalGraphOptions {
   relationship_types?: Array<
     'shared_keyword' | 'answers' | 'responds_to' | 'related_to'
   >;
-  // User context for fetching user-specific data
-  requesting_user_id?: string;
+  // NEW: Option to include user-specific data
+  include_user_data?: boolean;
+  current_user_id?: string; // The authenticated user requesting the data
 }
 
 export interface UniversalGraphResponse {
@@ -90,19 +104,24 @@ export interface UniversalGraphResponse {
   relationships: UniversalRelationshipData[];
   total_count: number;
   has_more: boolean;
+  // NEW: User-specific data
+  user_data?: {
+    votes: { [nodeId: string]: UserVoteStatus };
+    quantity_responses: { [nodeId: string]: UserQuantityResponse };
+    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
+    unit_preferences: { [nodeId: string]: UserUnitPreference };
+  };
 }
 
 @Injectable()
 export class UniversalGraphService {
   private readonly logger = new Logger(UniversalGraphService.name);
 
-  constructor(
-    private readonly neo4jService: Neo4jService,
-    private readonly quantityService: QuantityService,
-  ) {}
+  constructor(private readonly neo4jService: Neo4jService) {}
 
   async getUniversalNodes(
     options: UniversalGraphOptions,
+    currentUserId?: string, // NEW: Current user for user-specific data
   ): Promise<UniversalGraphResponse> {
     try {
       // Set defaults
@@ -123,7 +142,7 @@ export class UniversalGraphService {
           'responds_to',
           'related_to',
         ],
-        requesting_user_id,
+        include_user_data = true, // NEW: Default to including user data
       } = options;
 
       this.logger.debug(
@@ -147,15 +166,7 @@ export class UniversalGraphService {
       const result = await this.neo4jService.read(query.query, query.params);
 
       // Process and transform the results
-      let nodes = this.transformResults(result.records);
-
-      // Enhancement: For quantity nodes, fetch user-specific data and detailed statistics
-      if (requesting_user_id && node_types.includes('quantity')) {
-        nodes = await this.enhanceQuantityNodesWithUserData(
-          nodes,
-          requesting_user_id,
-        );
-      }
+      const nodes = this.transformResults(result.records);
 
       // Get node IDs for relationship query
       const nodeIds = nodes.map((n) => n.id);
@@ -168,6 +179,19 @@ export class UniversalGraphService {
       this.logger.debug(
         `Found ${relationships.length} relationships for ${nodes.length} nodes`,
       );
+
+      // NEW: Fetch user-specific data if requested and user is provided
+      let userData = undefined;
+      if (include_user_data && currentUserId && nodeIds.length > 0) {
+        this.logger.debug(
+          `Fetching user-specific data for user ${currentUserId} and ${nodeIds.length} nodes`,
+        );
+        userData = await this.getUserSpecificData(
+          nodeIds,
+          currentUserId,
+          node_types,
+        );
+      }
 
       // Get total count for pagination
       const countResult = await this.neo4jService.read(
@@ -192,12 +216,19 @@ export class UniversalGraphService {
       );
       const has_more = offset + nodes.length < total_count;
 
-      return {
+      const response: UniversalGraphResponse = {
         nodes,
         relationships,
         total_count,
         has_more,
       };
+
+      // Add user data if available
+      if (userData) {
+        response.user_data = userData;
+      }
+
+      return response;
     } catch (error) {
       this.logger.error(
         `Error getting universal nodes: ${error.message}`,
@@ -207,110 +238,230 @@ export class UniversalGraphService {
     }
   }
 
-  // Enhance quantity nodes with user-specific data using the same methods as individual quantity view
-  private async enhanceQuantityNodesWithUserData(
-    nodes: UniversalNodeData[],
+  // NEW: Method to fetch all user-specific data in batch queries
+  private async getUserSpecificData(
+    nodeIds: string[],
     userId: string,
-  ): Promise<UniversalNodeData[]> {
+    nodeTypes: Array<'statement' | 'openquestion' | 'quantity'>,
+  ): Promise<{
+    votes: { [nodeId: string]: UserVoteStatus };
+    quantity_responses: { [nodeId: string]: UserQuantityResponse };
+    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
+    unit_preferences: { [nodeId: string]: UserUnitPreference };
+  }> {
+    const result = {
+      votes: {} as { [nodeId: string]: UserVoteStatus },
+      quantity_responses: {} as { [nodeId: string]: UserQuantityResponse },
+      visibility_preferences: {} as {
+        [nodeId: string]: UserVisibilityPreference;
+      },
+      unit_preferences: {} as { [nodeId: string]: UserUnitPreference },
+    };
+
+    // Batch fetch votes for statement and openquestion nodes
+    if (nodeTypes.includes('statement') || nodeTypes.includes('openquestion')) {
+      const votes = await this.getUserVotes(nodeIds, userId);
+      result.votes = votes;
+    }
+
+    // Batch fetch quantity responses for quantity nodes
+    if (nodeTypes.includes('quantity')) {
+      const responses = await this.getUserQuantityResponses(nodeIds, userId);
+      result.quantity_responses = responses;
+
+      // Also fetch unit preferences for quantity nodes
+      const unitPrefs = await this.getUserUnitPreferences(nodeIds, userId);
+      result.unit_preferences = unitPrefs;
+    }
+
+    // Batch fetch visibility preferences for all nodes
+    const visibilityPrefs = await this.getUserVisibilityPreferences(
+      nodeIds,
+      userId,
+    );
+    result.visibility_preferences = visibilityPrefs;
+
+    return result;
+  }
+
+  // NEW: Batch fetch user vote status
+  private async getUserVotes(
+    nodeIds: string[],
+    userId: string,
+  ): Promise<{ [nodeId: string]: UserVoteStatus }> {
+    if (nodeIds.length === 0) return {};
+
     try {
-      const quantityNodes = nodes.filter((node) => node.type === 'quantity');
+      const query = `
+        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(n)
+        WHERE n.id IN $nodeIds 
+        AND (n:StatementNode OR n:OpenQuestionNode)
+        RETURN n.id as nodeId, v.status as status, v.votedAt as votedAt
+      `;
 
-      if (quantityNodes.length === 0) {
-        return nodes;
-      }
+      const result = await this.neo4jService.read(query, { userId, nodeIds });
+      const votes: { [nodeId: string]: UserVoteStatus } = {};
 
-      this.logger.debug(
-        `Enhancing ${quantityNodes.length} quantity nodes with user data for user ${userId}`,
-      );
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        const status = record.get('status');
+        const votedAt = record.get('votedAt');
 
-      // Fetch user responses and detailed statistics for all quantity nodes in parallel
-      const enhancementPromises = quantityNodes.map(async (node) => {
-        try {
-          // Use the same methods that work in individual quantity view
-          const [userResponse, detailedStats] = await Promise.all([
-            this.quantityService
-              .getUserResponse(userId, node.id)
-              .catch(() => null),
-            this.quantityService.getStatistics(node.id).catch(() => null),
-          ]);
-
-          // Enhance the node's metadata with the fetched data
-          if (node.metadata.responses) {
-            // Add user response if available
-            if (userResponse) {
-              node.metadata.responses.userResponse = {
-                value: userResponse.value,
-                unitId: userResponse.unitId,
-                unitSymbol: userResponse.unitSymbol,
-              };
-            }
-
-            // Add detailed statistics if available
-            if (detailedStats) {
-              // Add visualization data
-              if (detailedStats.distributionCurve) {
-                node.metadata.responses.distributionCurve =
-                  detailedStats.distributionCurve;
-              }
-
-              if (detailedStats.percentiles) {
-                node.metadata.responses.percentiles = detailedStats.percentiles;
-              }
-
-              // Include community responses (limited to prevent payload bloat)
-              if (
-                detailedStats.responses &&
-                Array.isArray(detailedStats.responses)
-              ) {
-                node.metadata.responses.communityResponses =
-                  detailedStats.responses.slice(0, 50);
-              }
-
-              // Update basic stats with fresh data from detailed stats
-              node.metadata.responses.count =
-                detailedStats.responseCount || node.metadata.responses.count;
-              node.metadata.responses.mean =
-                detailedStats.mean || node.metadata.responses.mean;
-              node.metadata.responses.std_dev =
-                detailedStats.standardDeviation ||
-                node.metadata.responses.std_dev;
-              node.metadata.responses.min =
-                detailedStats.min || node.metadata.responses.min;
-              node.metadata.responses.max =
-                detailedStats.max || node.metadata.responses.max;
-            }
-          }
-
-          return node;
-        } catch (error) {
-          this.logger.warn(
-            `Error enhancing quantity node ${node.id}: ${error.message}`,
-          );
-          return node; // Return original node if enhancement fails
-        }
-      });
-
-      // Wait for all enhancements to complete
-      const enhancedQuantityNodes = await Promise.all(enhancementPromises);
-
-      // Replace quantity nodes in the original array
-      const enhancedNodes = nodes.map((node) => {
-        if (node.type === 'quantity') {
-          const enhanced = enhancedQuantityNodes.find(
-            (eNode) => eNode.id === node.id,
-          );
-          return enhanced || node;
-        }
-        return node;
+        votes[nodeId] = {
+          nodeId,
+          status:
+            status === 'agree'
+              ? 'agree'
+              : status === 'disagree'
+                ? 'disagree'
+                : null,
+          votedAt: votedAt ? votedAt.toString() : undefined,
+        };
       });
 
       this.logger.debug(
-        `Successfully enhanced quantity nodes with user-specific data`,
+        `Fetched ${Object.keys(votes).length} vote statuses for user ${userId}`,
       );
-      return enhancedNodes;
+      return votes;
     } catch (error) {
-      this.logger.error(`Error enhancing quantity nodes: ${error.message}`);
-      return nodes; // Return original nodes if enhancement fails
+      this.logger.error(`Error fetching user votes: ${error.message}`);
+      return {};
+    }
+  }
+
+  // NEW: Batch fetch user quantity responses
+  private async getUserQuantityResponses(
+    nodeIds: string[],
+    userId: string,
+  ): Promise<{ [nodeId: string]: UserQuantityResponse }> {
+    if (nodeIds.length === 0) return {};
+
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[r:RESPONDED_TO]->(n:QuantityNode)
+        WHERE n.id IN $nodeIds
+        OPTIONAL MATCH (unit:Unit {id: r.unitId})
+        RETURN n.id as nodeId, r.value as value, r.unitId as unitId, 
+               unit.symbol as unitSymbol, r.submittedAt as submittedAt
+      `;
+
+      const result = await this.neo4jService.read(query, { userId, nodeIds });
+      const responses: { [nodeId: string]: UserQuantityResponse } = {};
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        const value = this.toNumber(record.get('value'));
+        const unitId = record.get('unitId');
+        const unitSymbol = record.get('unitSymbol');
+        const submittedAt = record.get('submittedAt');
+
+        responses[nodeId] = {
+          nodeId,
+          value,
+          unitId,
+          unitSymbol: unitSymbol || undefined,
+          submittedAt: submittedAt
+            ? submittedAt.toString()
+            : new Date().toISOString(),
+        };
+      });
+
+      this.logger.debug(
+        `Fetched ${Object.keys(responses).length} quantity responses for user ${userId}`,
+      );
+      return responses;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching user quantity responses: ${error.message}`,
+      );
+      return {};
+    }
+  }
+
+  // NEW: Batch fetch user visibility preferences
+  private async getUserVisibilityPreferences(
+    nodeIds: string[],
+    userId: string,
+  ): Promise<{ [nodeId: string]: UserVisibilityPreference }> {
+    if (nodeIds.length === 0) return {};
+
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[p:HAS_VISIBILITY_PREFERENCE]->(n)
+        WHERE n.id IN $nodeIds
+        RETURN n.id as nodeId, p.isVisible as isVisible, 
+               p.source as source, p.timestamp as timestamp
+      `;
+
+      const result = await this.neo4jService.read(query, { userId, nodeIds });
+      const preferences: { [nodeId: string]: UserVisibilityPreference } = {};
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        const isVisible = record.get('isVisible');
+        const source = record.get('source') || 'user';
+        const timestamp = this.toNumber(record.get('timestamp') || Date.now());
+
+        preferences[nodeId] = {
+          nodeId,
+          isVisible: Boolean(isVisible),
+          source: source === 'community' ? 'community' : 'user',
+          timestamp,
+        };
+      });
+
+      this.logger.debug(
+        `Fetched ${Object.keys(preferences).length} visibility preferences for user ${userId}`,
+      );
+      return preferences;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching user visibility preferences: ${error.message}`,
+      );
+      return {};
+    }
+  }
+
+  // NEW: Batch fetch user unit preferences
+  private async getUserUnitPreferences(
+    nodeIds: string[],
+    userId: string,
+  ): Promise<{ [nodeId: string]: UserUnitPreference }> {
+    if (nodeIds.length === 0) return {};
+
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[p:HAS_UNIT_PREFERENCE]->(n:QuantityNode)
+        WHERE n.id IN $nodeIds
+        RETURN n.id as nodeId, p.unitId as unitId, p.lastUpdated as lastUpdated
+      `;
+
+      const result = await this.neo4jService.read(query, { userId, nodeIds });
+      const preferences: { [nodeId: string]: UserUnitPreference } = {};
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        const unitId = record.get('unitId');
+        const lastUpdated = this.toNumber(
+          record.get('lastUpdated') || Date.now(),
+        );
+
+        preferences[nodeId] = {
+          nodeId,
+          unitId,
+          lastUpdated,
+        };
+      });
+
+      this.logger.debug(
+        `Fetched ${Object.keys(preferences).length} unit preferences for user ${userId}`,
+      );
+      return preferences;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching user unit preferences: ${error.message}`,
+      );
+      return {};
     }
   }
 

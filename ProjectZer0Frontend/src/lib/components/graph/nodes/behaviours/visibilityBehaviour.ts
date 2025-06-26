@@ -2,6 +2,7 @@
 
 import { writable, derived, get, type Writable, type Readable } from 'svelte/store';
 import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
+import { universalGraphStore } from '$lib/stores/universalGraphStore';
 
 export interface VisibilityBehaviourState {
   isHidden: boolean;
@@ -13,6 +14,8 @@ export interface VisibilityBehaviourState {
 export interface VisibilityBehaviourOptions {
   communityThreshold?: number; // Net votes threshold for community hiding
   graphStore?: any; // For updating graph visibility
+  // ENHANCED: Add context for batch data usage
+  viewType?: string;
 }
 
 export interface VisibilityBehaviour {
@@ -45,7 +48,8 @@ export function createVisibilityBehaviour(
 ): VisibilityBehaviour {
   const {
     communityThreshold = 0, // Default: hide if net votes < 0
-    graphStore = null
+    graphStore = null,
+    viewType = undefined
   } = options;
 
   // Internal state
@@ -83,18 +87,57 @@ export function createVisibilityBehaviour(
     }
   }
 
+  // ENHANCED: Check for batch data first
+  function tryGetBatchVisibilityData(): boolean | undefined {
+    try {
+      // Check if we're in universal context and have batch data
+      if (viewType === 'universal') {
+        const storeData = get(universalGraphStore);
+        const batchPreference = storeData?.user_data?.visibility_preferences?.[nodeId];
+        
+        if (batchPreference !== undefined) {
+          console.log(`[VisibilityBehaviour] Using batch visibility data for ${nodeId}:`, batchPreference);
+          // Extract the isVisible boolean from the preference object
+          return typeof batchPreference === 'object' ? batchPreference.isVisible : batchPreference;
+        }
+      }
+    } catch (err) {
+      console.error(`[VisibilityBehaviour] Error accessing batch visibility data:`, err);
+    }
+    
+    return undefined;
+  }
+
   // Public methods
   async function initialize(netVotes: number = 0): Promise<void> {
     try {
-      // Initialize visibility store if needed
+      // ENHANCED: Try batch data first
+      const batchPreference = tryGetBatchVisibilityData();
+      
+      if (batchPreference !== undefined) {
+        // Use batch data - skip localStorage and API calls
+        userPreference.set(batchPreference);
+        updateCommunityVisibility(netVotes);
+        error.set(null);
+        return;
+      }
+      
+      // Fallback to individual loading
       await visibilityStore.initialize();
       
-      // Get user preference
+      // Get user preference (this will hit localStorage)
       const userPref = visibilityStore.getPreference(nodeId);
       userPreference.set(userPref);
       
       // Calculate community visibility
       updateCommunityVisibility(netVotes);
+      
+      // Load preferences from server if not already loaded
+      // Note: Using visibilityStore directly since isLoaded is internal
+      const storeState = get(visibilityStore);
+      if (!storeState || Object.keys(storeState).length === 0) {
+        await visibilityStore.loadPreferences();
+      }
       
       error.set(null);
     } catch (err) {

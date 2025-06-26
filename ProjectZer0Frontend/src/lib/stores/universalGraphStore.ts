@@ -54,11 +54,49 @@ export interface UniversalRelationshipData {
     };
 }
 
+// ENHANCED: User-specific data interfaces matching backend
+export interface UserVoteStatus {
+    nodeId: string;
+    status: 'agree' | 'disagree' | null;
+    votedAt?: string;
+}
+
+export interface UserQuantityResponse {
+    nodeId: string;
+    value: number;
+    unitId: string;
+    unitSymbol?: string;
+    submittedAt: string;
+}
+
+export interface UserVisibilityPreference {
+    nodeId: string;
+    isVisible: boolean;
+    source: 'user' | 'community';
+    timestamp: number;
+}
+
+export interface UserUnitPreference {
+    nodeId: string;
+    unitId: string;
+    lastUpdated: number;
+}
+
+// ENHANCED: User data structure matching backend response
+export interface UniversalUserData {
+    votes: { [nodeId: string]: UserVoteStatus };
+    quantity_responses: { [nodeId: string]: UserQuantityResponse };
+    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
+    unit_preferences: { [nodeId: string]: UserUnitPreference };
+}
+
 export interface UniversalGraphResponse {
     nodes: UniversalNodeData[];
     relationships: UniversalRelationshipData[];
     total_count: number;
     has_more: boolean;
+    // ENHANCED: Add user_data field
+    user_data?: UniversalUserData;
 }
 
 export type UniversalSortType = 'consensus' | 'chronological' | 'participants';
@@ -102,6 +140,9 @@ interface UniversalGraphState {
     
     // Filters
     filters: UniversalGraphFilters;
+    
+    // ENHANCED: Add user_data to store state
+    user_data?: UniversalUserData;
 }
 
 function createUniversalGraphStore() {
@@ -125,7 +166,10 @@ function createUniversalGraphStore() {
             keyword_operator: 'OR',
             consensus_min: 0,
             consensus_max: 1,
-        }
+        },
+        
+        // ENHANCED: Initialize user_data
+        user_data: undefined
     };
 
     const { subscribe, set, update }: Writable<UniversalGraphState> = writable(initialState);
@@ -254,6 +298,7 @@ function createUniversalGraphStore() {
             const relationships = data.relationships || [];
             const totalCount = data.total_count || nodes.length;
             const hasMore = data.has_more || false;
+            const userData = data.user_data || undefined; // ENHANCED: Extract user_data
 
             // ADDED: Clear vote cache when loading new data
             voteCache.clear();
@@ -261,12 +306,23 @@ function createUniversalGraphStore() {
             // ADDED: Process and cache vote data for all nodes
             processAndCacheVoteData(nodes);
 
+            // ENHANCED: Log user data for debugging
+            if (userData) {
+                console.log('[UniversalGraphStore] Received user data:', {
+                    votes: Object.keys(userData.votes || {}).length,
+                    quantity_responses: Object.keys(userData.quantity_responses || {}).length,
+                    visibility_preferences: Object.keys(userData.visibility_preferences || {}).length,
+                    unit_preferences: Object.keys(userData.unit_preferences || {}).length
+                });
+            }
+
             update(state => ({
                 ...state,
                 nodes: nodes,
                 relationships: relationships,
                 totalCount: totalCount,
                 hasMore: hasMore,
+                user_data: userData, // ENHANCED: Store user_data
                 loading: false
             }));
         } catch (error) {
@@ -291,7 +347,13 @@ function createUniversalGraphStore() {
     // Reset and reload
     async function reset(user: any) {
         voteCache.clear(); // ADDED: Clear vote cache on reset
-        update(s => ({ ...s, offset: 0, nodes: [], relationships: [] }));
+        update(s => ({ 
+            ...s, 
+            offset: 0, 
+            nodes: [], 
+            relationships: [], 
+            user_data: undefined // ENHANCED: Clear user_data on reset
+        }));
         await loadNodes(user);
     }
 
@@ -393,11 +455,76 @@ function createUniversalGraphStore() {
             // Cache the updated vote data
             cacheVoteData(nodeId, posVotes, negVotes);
             
+            // ENHANCED: Also update user_data if available
+            if (state.user_data?.votes?.[nodeId]) {
+                // Keep the existing vote status but update the cached data
+                // The user's personal vote status doesn't change from this update
+            }
+            
             // Trigger store update
             update(state => ({ ...state }));
         } else {
             console.warn(`[UniversalGraphStore] Attempted to update vote data for unknown node: ${nodeId}`);
         }
+    }
+
+    // ENHANCED: Update user's personal vote status
+    function updateUserVoteStatus(nodeId: string, status: 'agree' | 'disagree' | null, votedAt?: string): void {
+        update(state => {
+            if (!state.user_data) {
+                state.user_data = {
+                    votes: {},
+                    quantity_responses: {},
+                    visibility_preferences: {},
+                    unit_preferences: {}
+                };
+            }
+            
+            if (!state.user_data.votes) {
+                state.user_data.votes = {};
+            }
+            
+            state.user_data.votes[nodeId] = {
+                nodeId,
+                status,
+                votedAt: votedAt || new Date().toISOString()
+            };
+            
+            return { ...state };
+        });
+    }
+
+    // ENHANCED: Update user's quantity response
+    function updateUserQuantityResponse(nodeId: string, response: UserQuantityResponse): void {
+        update(state => {
+            if (!state.user_data) {
+                state.user_data = {
+                    votes: {},
+                    quantity_responses: {},
+                    visibility_preferences: {},
+                    unit_preferences: {}
+                };
+            }
+            
+            if (!state.user_data.quantity_responses) {
+                state.user_data.quantity_responses = {};
+            }
+            
+            state.user_data.quantity_responses[nodeId] = response;
+            
+            return { ...state };
+        });
+    }
+
+    // ENHANCED: Remove user's quantity response
+    function removeUserQuantityResponse(nodeId: string): void {
+        update(state => {
+            if (state.user_data?.quantity_responses?.[nodeId]) {
+                delete state.user_data.quantity_responses[nodeId];
+            }
+            
+            return { ...state };
+        });
     }
 
     // ADDED: Clear vote cache - matches other store interfaces
@@ -426,7 +553,12 @@ function createUniversalGraphStore() {
         // ADDED: Vote management methods - matching other store interfaces
         getVoteData,
         updateVoteData,
-        clearVoteCache
+        clearVoteCache,
+        
+        // ENHANCED: User-specific data management
+        updateUserVoteStatus,
+        updateUserQuantityResponse,
+        removeUserQuantityResponse
     };
 }
 

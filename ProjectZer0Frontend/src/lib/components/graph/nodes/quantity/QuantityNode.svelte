@@ -1,7 +1,7 @@
 <!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
-    import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -15,6 +15,10 @@
     import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
     import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
+    
+    // ENHANCED: Import universal graph store for batch data
+    import { universalGraphStore } from '$lib/stores/universalGraphStore';
+    import { get } from 'svelte/store';
     
     // Import the shared behaviors and UI components
     import {
@@ -35,6 +39,9 @@
     export let unitCategoryId: string = '';
     export let defaultUnitId: string = '';
     
+    // ENHANCED: Optional props for explicit context control
+    export let viewType: ViewType | undefined = undefined;
+    
     // Debug toggle - set to true to show ContentBox borders
     const DEBUG_SHOW_BORDERS = false;
     
@@ -50,6 +57,36 @@
     $: displayQuestion = question || quantityData.question;
     $: displayUnitCategoryId = unitCategoryId || quantityData.unitCategoryId;
     $: displayDefaultUnitId = defaultUnitId || quantityData.defaultUnitId;
+    
+    // ENHANCED: Context-aware detection
+    $: detectedViewType = detectViewContext(viewType);
+
+    /**
+     * ROBUST: Detect current view context using multiple methods
+     */
+    function detectViewContext(explicitViewType?: ViewType): ViewType {
+        // Method 1: Use explicit viewType prop if provided
+        if (explicitViewType) {
+            return explicitViewType;
+        }
+
+        // Method 2: Detect from URL path
+        if (typeof window !== 'undefined') {
+            const pathname = window.location.pathname;
+            if (pathname.includes('/universal')) return 'universal';
+            if (pathname.includes('/quantity')) return 'quantity';
+            if (pathname.includes('/discussion')) return 'discussion';
+        }
+
+        // Method 3: Detect from graph store context
+        if (graphStore) {
+            const currentViewType = graphStore.getViewType?.();
+            if (currentViewType) return currentViewType;
+        }
+
+        // Default fallback
+        return 'quantity';
+    }
     
     // Behavior instances
     let voteBehaviour: any;
@@ -75,12 +112,23 @@
     let isLoadingResponses = false;
     let isLoadingUnitPreferences = false;
     
+    // ENHANCED: Track if we've used batch data to avoid duplicate API calls
+    let usedBatchData = false;
+    
     // Initialize behaviors
     $: if (node.id && !behavioursInitialized) {
-        // Note: Quantity nodes don't typically have voting, but we can add it if needed
-        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { /* options */ });
+        console.log(`[QuantityNode] Initializing for context: ${detectedViewType}`);
         
-        visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
+        // Note: Quantity nodes don't typically have voting, but we can add it if needed
+        // Future: If voting support is added to quantity nodes:
+        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { 
+        //     voteStore: detectedViewType === 'universal' ? universalGraphStore : null 
+        // });
+        
+        visibilityBehaviour = createVisibilityBehaviour(node.id, { 
+            graphStore, 
+            viewType: detectedViewType 
+        });
         modeBehaviour = createModeBehaviour(node.mode);
         dataBehaviour = createDataBehaviour('quantity', quantityData, {
             transformData: (rawData) => ({
@@ -115,7 +163,131 @@
         dispatch('visibilityChange', event.detail);
     }
 
-    // Quantity-specific functions (preserved from original)
+    // ENHANCED: Try to load data from universal graph store first
+    async function loadUserResponseOptimized() {
+        // First, try to get user response from universal graph batch data
+        if (detectedViewType === 'universal' && !usedBatchData) {
+            const universalData = get(universalGraphStore);
+            if (universalData?.user_data?.quantity_responses?.[node.id]) {
+                const batchResponse = universalData.user_data.quantity_responses[node.id];
+                console.log(`[QuantityNode] Using batch user response for ${node.id}:`, batchResponse);
+                
+                userResponse = {
+                    id: batchResponse.nodeId,
+                    value: batchResponse.value,
+                    unitId: batchResponse.unitId,
+                    unitSymbol: batchResponse.unitSymbol,
+                    submittedAt: batchResponse.submittedAt
+                };
+                
+                responseValue = batchResponse.value.toString();
+                usedBatchData = true;
+                return; // Skip API call
+            }
+        }
+        
+        // Fallback: Make individual API call if batch data not available
+        try {
+            userResponse = await getUserResponse(node.id);
+            
+            if (userResponse) {
+                responseValue = userResponse.value.toString();
+                
+                const preference = unitPreferenceStore.getPreference(node.id);
+                if (!preference) {
+                    displayUnitId = userResponse.unitId;
+                    selectedUnitId = userResponse.unitId;
+                }
+                
+                if (availableUnits.length > 0) {
+                    const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
+                    if (responseUnit) {
+                        userResponse.unitSymbol = responseUnit.symbol;
+                        
+                        if (displayUnitId === userResponse.unitId) {
+                            displayUnitSymbol = responseUnit.symbol;
+                        }
+                    }
+                }
+            } else {
+                responseValue = '';
+            }
+        } catch (error) {
+            console.error('[QuantityNode] Error loading user response:', error);
+        }
+    }
+
+    // ENHANCED: Try to load unit preferences from batch data first
+    async function loadUnitPreferenceOptimized() {
+        try {
+            isLoadingUnitPreferences = true;
+            
+            // First, try to get unit preference from universal graph batch data
+            if (detectedViewType === 'universal' && !usedBatchData) {
+                const universalData = get(universalGraphStore);
+                if (universalData?.user_data?.unit_preferences?.[node.id]) {
+                    const batchPreference = universalData.user_data.unit_preferences[node.id];
+                    console.log(`[QuantityNode] Using batch unit preference for ${node.id}:`, batchPreference);
+                    
+                    displayUnitId = batchPreference.unitId;
+                    selectedUnitId = batchPreference.unitId;
+                    
+                    if (availableUnits.length > 0) {
+                        const unit = availableUnits.find(u => u.id === displayUnitId);
+                        if (unit) {
+                            displayUnitSymbol = unit.symbol;
+                        }
+                        
+                        // Update user response unit symbol if available
+                        if (userResponse && availableUnits.length > 0) {
+                            const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
+                            if (responseUnit) {
+                                userResponse.unitSymbol = responseUnit.symbol;
+                            }
+                        }
+                    }
+                    
+                    isLoadingUnitPreferences = false;
+                    return; // Skip API calls
+                }
+            }
+            
+            // Fallback: Use the existing unit preference store logic
+            if (!$unitPreferenceStore.isLoaded) {
+                await unitPreferenceStore.loadPreferences();
+            }
+            
+            const preference = unitPreferenceStore.getPreference(node.id);
+            
+            if (preference) {
+                displayUnitId = preference.unitId;
+                selectedUnitId = preference.unitId;
+                
+                if (availableUnits.length > 0) {
+                    const unit = availableUnits.find(u => u.id === displayUnitId);
+                    if (unit) {
+                        displayUnitSymbol = unit.symbol;
+                    }
+                    
+                    // Update user response unit symbol if available
+                    if (userResponse && availableUnits.length > 0) {
+                        const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
+                        if (responseUnit) {
+                            userResponse.unitSymbol = responseUnit.symbol;
+                        }
+                    }
+                }
+            } else {
+                responseValue = '';
+            }
+        } catch (error) {
+            console.error('[QuantityNode] Error loading unit preference:', error);
+        } finally {
+            isLoadingUnitPreferences = false;
+        }
+    }
+
+    // Quantity-specific functions (preserved from original but optimized)
     async function loadUnitDetails() {
         // CRITICAL FIX: Skip API calls if no valid unit data or if values are null/invalid
         if (!displayUnitCategoryId || 
@@ -199,84 +371,11 @@
         }
     }
 
-    async function loadUnitPreference() {
-        try {
-            isLoadingUnitPreferences = true;
-            
-            if (!$unitPreferenceStore.isLoaded) {
-                await unitPreferenceStore.loadPreferences();
-            }
-            
-            const preference = unitPreferenceStore.getPreference(node.id);
-            
-            if (preference) {
-                displayUnitId = preference.unitId;
-                selectedUnitId = preference.unitId;
-                
-                if (availableUnits.length > 0) {
-                    const unit = availableUnits.find(u => u.id === displayUnitId);
-                    if (unit) {
-                        displayUnitSymbol = unit.symbol;
-                    }
-                }
-            } else {
-                displayUnitId = displayDefaultUnitId;
-                selectedUnitId = displayDefaultUnitId;
-                displayUnitSymbol = defaultUnitSymbol;
-            }
-        } catch (error) {
-            console.error('[QuantityNode] Error loading unit preference:', error);
-            displayUnitId = displayDefaultUnitId;
-            selectedUnitId = displayDefaultUnitId;
-            displayUnitSymbol = defaultUnitSymbol;
-        } finally {
-            isLoadingUnitPreferences = false;
-        }
-    }
-
-    async function loadUserResponse() {
-        try {
-            userResponse = await getUserResponse(node.id);
-            
-            if (userResponse) {
-                responseValue = userResponse.value.toString();
-                
-                const preference = unitPreferenceStore.getPreference(node.id);
-                if (!preference) {
-                    displayUnitId = userResponse.unitId;
-                    selectedUnitId = userResponse.unitId;
-                }
-                
-                if (availableUnits.length > 0) {
-                    const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
-                    if (responseUnit) {
-                        userResponse.unitSymbol = responseUnit.symbol;
-                        
-                        if (displayUnitId === userResponse.unitId) {
-                            displayUnitSymbol = responseUnit.symbol;
-                        }
-                    }
-                }
-            } else {
-                responseValue = '';
-            }
-        } catch (error) {
-            console.error('[QuantityNode] Error loading user response:', error);
-        }
-    }
-    
-    async function loadVisibilityPreference() {
-        try {
-            await visibilityStore.initialize();
-            const preference = visibilityStore.getPreference(node.id);
-        } catch (error) {
-            console.error('[QuantityNode] Error loading visibility preference:', error);
-        }
-    }
-
     async function loadStatistics() {
         try {
             isLoadingResponses = true;
+            // NOTE: Keep using individual API call for statistics as this data changes frequently
+            // and we need fresh data when users submit responses
             statistics = await getStatistics(node.id);
             
             if (statistics?.responses && Array.isArray(statistics.responses)) {
@@ -322,6 +421,7 @@
                 }
             }
             
+            // ENHANCED: Still save to preference store for persistence
             await unitPreferenceStore.setPreference(node.id, displayUnitId);
         } catch (error) {
             console.error('[QuantityNode] Error changing unit:', error);
@@ -350,9 +450,18 @@
         errorMessage = null;
         
         try {
+            // ENHANCED: Make individual API call for user interaction
             await submitResponse(node.id, numValue, displayUnitId);
-            await loadUserResponse();
+            
+            // Reload data after submission
+            await loadUserResponseOptimized();
             await loadStatistics();
+            
+            // ENHANCED: If in universal view, update the store cache
+            if (detectedViewType === 'universal') {
+                // The individual API call above should trigger store updates automatically
+                // via the existing store mechanisms
+            }
         } catch (error) {
             console.error('[QuantityNode] Error submitting response:', error);
             errorMessage = 'Failed to submit response';
@@ -368,10 +477,16 @@
         isSubmitting = true;
         
         try {
+            // ENHANCED: Make individual API call for user interaction
             await deleteUserResponse(node.id);
             responseValue = '';
             userResponse = null;
             await loadStatistics();
+            
+            // ENHANCED: If in universal view, update the store cache
+            if (detectedViewType === 'universal') {
+                // The individual API call above should trigger store updates automatically
+            }
         } catch (error) {
             console.error('[QuantityNode] Error deleting response:', error);
             errorMessage = 'Failed to delete response';
@@ -439,13 +554,12 @@
         if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(0)); // No votes for quantity nodes
         if (initPromises.length > 0) await Promise.all(initPromises);
         
-        // Initialize quantity-specific data
+        // ENHANCED: Initialize with optimized data loading
         unitPreferenceStore.initialize();
         await loadUnitDetails();
-        await loadUnitPreference();
-        await loadUserResponse();
+        await loadUnitPreferenceOptimized();
+        await loadUserResponseOptimized();
         await loadStatistics();
-        await loadVisibilityPreference();
     });
 
     onDestroy(() => {
