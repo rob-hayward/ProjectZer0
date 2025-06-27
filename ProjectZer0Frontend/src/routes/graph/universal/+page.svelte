@@ -5,9 +5,8 @@
     import Graph from '$lib/components/graph/Graph.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
-    // import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
+    import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte'; // ADDED
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
-    // import QuantityNode from '$lib/components/graph/nodes/quantity/QuantityNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     
@@ -32,13 +31,11 @@
         LinkType
     } from '$lib/types/graph/enhanced';
     import { 
-        // isStatementNode,
+        isStatementNode, // ADDED
         isOpenQuestionNode,
-        // isQuantityNode,
         isNavigationNode,
-        // isStatementData,
+        isStatementData, // ADDED
         isOpenQuestionData,
-        // isQuantityData
     } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
 
@@ -55,16 +52,15 @@
     let nodesLoaded = false;
     let visibilityPreferencesLoaded = false;
     
-    // Control settings with default values - UPDATED: Only OpenQuestion types
-    let sortType: UniversalSortType = 'netVotes'; // Changed from 'consensus' to 'netVotes'
+    // Control settings with default values - UPDATED: Support both node types
+    let sortType: UniversalSortType = 'netVotes';
     let sortDirection: UniversalSortDirection = 'desc';
     let filterKeywords: string[] = [];
     let keywordOperator: FilterOperator = 'OR';
     let showOnlyMyItems = false;
     let availableKeywords: string[] = [];
-    // UPDATED: Only support openquestion for now
-    let selectedNodeTypes: Set<'openquestion'> = new Set(['openquestion']);
-    // REMOVED: Consensus filters since we're using netVotes now
+    // UPDATED: Support both openquestion and statement
+    let selectedNodeTypes: Set<'openquestion' | 'statement'> = new Set(['openquestion', 'statement']);
     let minNetVotes = -50; // Allow negative votes
     let maxNetVotes = 50;   // Reasonable upper limit
     
@@ -79,10 +75,20 @@
     $: relationships = $universalGraphStore?.relationships || [];
     $: isReady = authInitialized && dataInitialized;
     
+    // Typed helper functions for node filtering
+    $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
+    $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
+    
     // Debug reactive updates
     $: {
         if (nodes.length > 0) {
-            console.log('[UNIVERSAL-GRAPH] Nodes updated in reactive statement:', nodes.length);
+            console.log('[UNIVERSAL-GRAPH] Nodes updated in reactive statement:', {
+                total: nodes.length,
+                byType: nodes.reduce((acc: Record<string, number>, node: any) => {
+                    acc[node.type] = (acc[node.type] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>)
+            });
         }
     }
     
@@ -129,7 +135,7 @@
             console.log('=== DEBUGGING BACKEND RESPONSE ===');
             
             // Make direct API call to see raw response
-            const data = await fetchWithAuth('/graph/universal/nodes?node_types=openquestion&limit=5');
+            const data = await fetchWithAuth('/graph/universal/nodes?node_types=openquestion&node_types=statement&limit=5');
             
             console.log('Raw backend response:', JSON.stringify(data, null, 2));
             
@@ -150,6 +156,10 @@
             
             console.log('Response summary:', {
                 totalNodes: data.nodes?.length || 0,
+                nodeTypes: data.nodes?.reduce((acc: any, node: any) => {
+                    acc[node.type] = (acc[node.type] || 0) + 1;
+                    return acc;
+                }, {}),
                 totalRelationships: data.relationships?.length || 0,
                 hasMore: data.has_more,
                 totalCount: data.total_count
@@ -262,7 +272,6 @@
             universalGraphStore.setSortDirection(sortDirection);
             universalGraphStore.setNodeTypeFilter(Array.from(selectedNodeTypes));
             universalGraphStore.setKeywordFilter(filterKeywords, keywordOperator);
-            // UPDATED: Use net votes filter instead of consensus
             universalGraphStore.setNetVotesFilter(minNetVotes, maxNetVotes);
             
             if (showOnlyMyItems) {
@@ -306,6 +315,15 @@
         }
     }
     
+    // FIXED: Helper function to safely get Neo4j numbers
+    function getNeo4jNumber(value: any): number {
+        if (value === null || value === undefined) return 0;
+        if (typeof value === 'object' && value !== null && 'low' in value) {
+            return Number(value.low);
+        }
+        return Number(value || 0);
+    }
+    
     // Update graph with universal data
     function updateGraphWithUniversalData() {
         console.log('[UNIVERSAL-GRAPH] nodesLoaded:', nodesLoaded);
@@ -317,32 +335,77 @@
             return;
         }
         
-        // Transform universal nodes to graph nodes - ONLY OpenQuestion nodes
-        const universalGraphNodes: GraphNode[] = nodes.map((node: any) => {
-            // Build the base node data structure that matches the expected types
-            let nodeData: any = {
+        // CRITICAL FIX: Deduplicate nodes by ID before processing
+        const deduplicatedNodes = nodes.reduce((acc: any[], node: any) => {
+            const existingIndex = acc.findIndex(existing => existing.id === node.id);
+            if (existingIndex === -1) {
+                // Node doesn't exist, add it
+                acc.push(node);
+            } else {
+                // Node exists, keep the one with more complete data or newer timestamp
+                const existing = acc[existingIndex];
+                const nodeVotes = node.metadata?.votes;
+                const existingVotes = existing.metadata?.votes;
+                
+                // Prefer node with vote data, or newer created_at
+                if ((!existingVotes && nodeVotes) || 
+                    (new Date(node.created_at) > new Date(existing.created_at))) {
+                    acc[existingIndex] = node;
+                    console.log(`[UNIVERSAL-GRAPH] Replaced duplicate node ${node.id} with better data`);
+                } else {
+                    console.log(`[UNIVERSAL-GRAPH] Kept existing node ${node.id}, skipped duplicate`);
+                }
+            }
+            return acc;
+        }, []);
+        
+        console.log(`[UNIVERSAL-GRAPH] Deduplicated ${nodes.length} nodes to ${deduplicatedNodes.length} unique nodes`);
+        
+        // FIXED: Transform universal nodes to graph nodes with proper data structures
+        const universalGraphNodes: GraphNode[] = deduplicatedNodes.map((node: any) => {
+            
+            // Extract common properties
+            const commonProperties = {
                 id: node.id,
-                // Add raw data for the layout to access
                 participant_count: node.participant_count,
                 created_at: node.created_at,
                 created_by: node.created_by,
                 public_credit: node.public_credit,
-                keywords: node.metadata.keywords
+                keywords: node.metadata.keywords || [],
+                // Add vote data using the same extraction logic as OpenQuestionNode
+                positiveVotes: getNeo4jNumber(node.metadata.votes?.positive) || 0,
+                negativeVotes: getNeo4jNumber(node.metadata.votes?.negative) || 0,
+                netVotes: getNeo4jNumber(node.metadata.votes?.net) || 0,
+                // Add user-specific data
+                userVoteStatus: node.metadata.userVoteStatus?.status || 'none',
+                userVisibilityPreference: node.metadata.userVisibilityPreference
             };
             
-            // ONLY handle openquestion type
+            // Build type-specific node data
+            let nodeData: any;
+            
             if (node.type === 'openquestion') {
                 nodeData = {
-                    ...nodeData,
+                    ...commonProperties,
                     questionText: node.content, // Map content to questionText
-                    answerCount: node.metadata.answer_count || 0,
-                    // Add vote data
-                    positiveVotes: node.metadata.votes?.positive || 0,
-                    negativeVotes: node.metadata.votes?.negative || 0,
-                    netVotes: node.metadata.votes?.net || 0,
-                    // Add user-specific data if available
-                    userVoteStatus: node.metadata.userVoteStatus?.status || 'none',
-                    userVisibilityPreference: node.metadata.userVisibilityPreference
+                    answerCount: getNeo4jNumber(node.metadata.answer_count) || 0
+                };
+            } else if (node.type === 'statement') {
+                // FIXED: Use the same data structure as StatementNode expects
+                nodeData = {
+                    ...commonProperties,
+                    statement: node.content, // Map content to statement
+                    // Add statement-specific properties from metadata
+                    relatedStatements: node.metadata.relatedStatements || [],
+                    parentQuestion: node.metadata.parentQuestion,
+                    discussionId: node.metadata.discussionId,
+                    initialComment: node.metadata.initialComment || ''
+                };
+            } else {
+                // Fallback for unknown types
+                nodeData = {
+                    ...commonProperties,
+                    content: node.content
                 };
             }
             
@@ -357,7 +420,10 @@
                     participant_count: node.participant_count,
                     net_votes: node.metadata.votes?.net,
                     createdAt: node.created_at,
-                    // FIXED: Store user-specific data in metadata properly
+                    // FIXED: Add answer_count and related_statements_count to metadata for components
+                    answer_count: node.type === 'openquestion' ? getNeo4jNumber(node.metadata.answer_count) || 0 : undefined,
+                    related_statements_count: node.type === 'statement' ? (node.metadata.relatedStatements?.length || 0) : undefined,
+                    // Store user-specific data in metadata properly
                     userVoteStatus: node.metadata.userVoteStatus,
                     userVisibilityPreference: node.metadata.userVisibilityPreference
                 }
@@ -387,6 +453,10 @@
             navigationNodes: navigationNodes.length,
             controlNodes: 1,
             universalNodes: universalGraphNodes.length,
+            nodesByType: universalGraphNodes.reduce((acc: Record<string, number>, node: GraphNode) => {
+                acc[node.type] = (acc[node.type] || 0) + 1;
+                return acc;
+            }, {} as Record<string, number>),
             links: graphData.links.length
         });
         
@@ -447,7 +517,17 @@
         }
     }
 
-    // REMOVED: toggleNodeType function since we only support openquestion
+    // UPDATED: Toggle node type function - now supports both types
+    function toggleNodeType(nodeType: 'openquestion' | 'statement') {
+        if (selectedNodeTypes.has(nodeType)) {
+            selectedNodeTypes.delete(nodeType);
+        } else {
+            selectedNodeTypes.add(nodeType);
+        }
+        // Trigger reactive update
+        selectedNodeTypes = new Set(selectedNodeTypes);
+        handleControlChange();
+    }
 
     // Initialize on mount
     onMount(() => {
@@ -483,29 +563,20 @@
         on:visibilitychange={handleVisibilityChange}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
-            <!-- COMMENTED OUT: Statement nodes
             {#if isStatementNode(node)}
+                <!-- ADDED: Statement nodes -->
                 <StatementNode 
                     {node}
                     statementText={isStatementData(node.data) ? node.data.statement : ''}
                     viewType="universal"
                 />
-            {:else -->
-            {#if isOpenQuestionNode(node)}
+            {:else if isOpenQuestionNode(node)}
                 <!-- ENHANCED: Pass viewType to ensure correct store usage -->
                 <OpenQuestionNode
                     {node}
                     questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
                     viewType="universal"
                 />
-            <!-- COMMENTED OUT: Quantity nodes
-            {:else if isQuantityNode(node)}
-                <QuantityNode
-                    {node}
-                    question={isQuantityData(node.data) ? node.data.question : ''}
-                    viewType="universal"
-                />
-            -->
             {:else if isNavigationNode(node)}
                 <NavigationNode 
                     {node}
@@ -514,11 +585,11 @@
                 <ControlNode 
                     {node}
                 >
-                    <!-- Universal Graph Controls - UPDATED for OpenQuestion only -->
+                    <!-- Universal Graph Controls - UPDATED for both OpenQuestion and Statement -->
                     <div class="control-content">
                         <h3>Universal Graph Controls</h3>
                         
-                        <!-- Node Type Filter - SIMPLIFIED for OpenQuestion only -->
+                        <!-- Node Type Filter - UPDATED for both types -->
                         <div class="control-section">
                             <h4>Node Types</h4>
                             <div class="checkbox-group">
@@ -526,11 +597,10 @@
                                     <input 
                                         type="checkbox" 
                                         checked={selectedNodeTypes.has('openquestion')}
-                                        disabled
+                                        on:change={() => toggleNodeType('openquestion')}
                                     />
-                                    Questions (OpenQuestion only for now)
+                                    Questions
                                 </label>
-                                <!-- COMMENTED OUT: Other node types
                                 <label>
                                     <input 
                                         type="checkbox" 
@@ -539,19 +609,10 @@
                                     />
                                     Statements
                                 </label>
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('quantity')}
-                                        on:change={() => toggleNodeType('quantity')}
-                                    />
-                                    Quantities
-                                </label>
-                                -->
                             </div>
                         </div>
                         
-                        <!-- Sort Options - UPDATED for OpenQuestion -->
+                        <!-- Sort Options - UPDATED for both types -->
                         <div class="control-section">
                             <h4>Sort By</h4>
                             <select bind:value={sortType} on:change={handleControlChange}>
@@ -566,7 +627,7 @@
                             </select>
                         </div>
                         
-                        <!-- Net Votes Filter - REPLACED consensus filter -->
+                        <!-- Net Votes Filter -->
                         <div class="control-section">
                             <h4>Net Votes Range</h4>
                             <div class="range-inputs">
@@ -609,12 +670,12 @@
                                     bind:checked={showOnlyMyItems}
                                     on:change={handleControlChange}
                                 />
-                                Show only my questions
+                                Show only my content
                             </label>
                         </div>
                         
                         {#if nodesLoading}
-                            <div class="loading-indicator">Loading questions...</div>
+                            <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
                         <!-- DEBUG INFO -->
@@ -622,6 +683,8 @@
                             <h4>Debug Info</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Nodes: {nodes.length} | 
+                                Questions: {questionNodes.length} |
+                                Statements: {statementNodes.length} |
                                 Relationships: {relationships.length} |
                                 Check console for detailed debug output
                             </p>

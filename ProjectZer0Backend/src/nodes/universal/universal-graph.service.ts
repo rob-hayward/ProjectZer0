@@ -8,7 +8,7 @@ import { int } from 'neo4j-driver';
 
 export interface UniversalNodeData {
   id: string;
-  type: 'openquestion'; // | 'statement' | 'quantity';
+  type: 'openquestion' | 'statement'; // | 'quantity';
   content: string;
   participant_count: number;
   created_at: string;
@@ -20,7 +20,7 @@ export interface UniversalNodeData {
   metadata: {
     keywords: Array<{ word: string; frequency: number }>;
 
-    // For binary voting nodes (openquestion)
+    // For binary voting nodes (openquestion, statement)
     votes: {
       positive: number;
       negative: number;
@@ -39,7 +39,7 @@ export interface UniversalNodeData {
     };
 
     // For open questions
-    answer_count: number;
+    answer_count?: number;
     answers?: Array<{
       id: string;
       statement: string;
@@ -60,8 +60,24 @@ export interface UniversalNodeData {
       relationshipType: 'shared_keyword' | 'direct';
     }>;
 
+    // For statements - related statements and parent question
+    relatedStatements?: Array<{
+      nodeId: string;
+      statement: string;
+      sharedWord?: string;
+      strength?: number;
+      relationshipType: 'shared_keyword' | 'direct';
+    }>;
+
+    parentQuestion?: {
+      nodeId: string;
+      questionText: string;
+      relationshipType: 'answers';
+    };
+
     // Discussion data
     discussionId?: string;
+    initialComment?: string;
   };
 }
 
@@ -69,7 +85,7 @@ export interface UniversalRelationshipData {
   id: string;
   source: string; // source node id
   target: string; // target node id
-  type: 'shared_keyword' | 'related_to'; // | 'answers' | 'responds_to';
+  type: 'shared_keyword' | 'related_to' | 'answers'; // | 'responds_to';
   metadata?: {
     keyword?: string; // for shared_keyword type
     strength?: number; // relationship strength (0-1)
@@ -78,7 +94,7 @@ export interface UniversalRelationshipData {
 }
 
 export interface UniversalGraphOptions {
-  node_types?: Array<'openquestion'>; // | 'statement' | 'quantity'>;
+  node_types?: Array<'openquestion' | 'statement'>; // | 'quantity'>;
   limit?: number;
   offset?: number;
   sort_by?: 'netVotes' | 'chronological' | 'participants';
@@ -86,7 +102,7 @@ export interface UniversalGraphOptions {
   keywords?: string[];
   user_id?: string;
   include_relationships?: boolean;
-  relationship_types?: Array<'shared_keyword' | 'related_to'>; // | 'answers' | 'responds_to'>;
+  relationship_types?: Array<'shared_keyword' | 'related_to' | 'answers'>; // | 'responds_to'>;
   // User context for fetching user-specific data
   requesting_user_id?: string;
 }
@@ -112,9 +128,9 @@ export class UniversalGraphService {
     options: UniversalGraphOptions,
   ): Promise<UniversalGraphResponse> {
     try {
-      // Set defaults - only supporting openquestion for now
+      // Set defaults - now supporting both openquestion and statement
       const {
-        node_types = ['openquestion'],
+        node_types = ['openquestion', 'statement'],
         limit = 200,
         offset = 0,
         sort_by = 'netVotes',
@@ -122,71 +138,87 @@ export class UniversalGraphService {
         keywords = [],
         user_id,
         include_relationships = true,
-        relationship_types = ['shared_keyword', 'related_to'],
+        relationship_types = ['shared_keyword', 'related_to', 'answers'],
         requesting_user_id,
       } = options;
-
-      // Validate that only openquestion is requested for now
-      if (node_types.some((type) => type !== 'openquestion')) {
-        throw new Error('Only openquestion node type is currently supported');
-      }
 
       this.logger.debug(
         `Getting universal nodes with options: ${JSON.stringify(options)}`,
       );
 
-      // Build the main query for OpenQuestion nodes only
-      const query = this.buildOpenQuestionQuery({
-        keywords,
-        user_id,
-        sort_by,
-        sort_direction,
-        limit,
-        offset,
-      });
+      // Build and execute queries for each node type
+      const allNodes: UniversalNodeData[] = [];
 
-      // Execute the query
-      const result = await this.neo4jService.read(query.query, query.params);
+      // Get OpenQuestion nodes if requested
+      if (node_types.includes('openquestion')) {
+        const openQuestionNodes = await this.getOpenQuestionNodes({
+          keywords,
+          user_id,
+          sort_by,
+          sort_direction,
+          limit,
+          offset,
+        });
+        allNodes.push(...openQuestionNodes);
+      }
 
-      // Process and transform the results
-      let nodes = this.transformOpenQuestionResults(result.records);
+      // Get Statement nodes if requested
+      if (node_types.includes('statement')) {
+        const statementNodes = await this.getStatementNodes({
+          keywords,
+          user_id,
+          sort_by,
+          sort_direction,
+          limit,
+          offset,
+        });
+        allNodes.push(...statementNodes);
+      }
+
+      // Sort combined results if we have multiple node types
+      if (node_types.length > 1) {
+        this.sortCombinedNodes(allNodes, sort_by, sort_direction);
+
+        // Apply pagination to combined results
+        const paginatedNodes = allNodes.slice(offset, offset + limit);
+        allNodes.length = 0;
+        allNodes.push(...paginatedNodes);
+      }
 
       // Enhancement: Fetch user-specific data (vote status and visibility preferences)
-      if (requesting_user_id && nodes.length > 0) {
-        nodes = await this.enhanceNodesWithUserData(nodes, requesting_user_id);
+      let enhancedNodes = allNodes;
+      if (requesting_user_id && allNodes.length > 0) {
+        enhancedNodes = await this.enhanceNodesWithUserData(
+          allNodes,
+          requesting_user_id,
+        );
       }
 
       // Get node IDs for relationship query
-      const nodeIds = nodes.map((n) => n.id);
+      const nodeIds = enhancedNodes.map((n) => n.id);
 
       // Fetch relationships if requested
       const relationships = include_relationships
-        ? await this.getOpenQuestionRelationships(nodeIds, relationship_types)
+        ? await this.getUniversalRelationships(
+            nodeIds,
+            relationship_types,
+            node_types,
+          )
         : [];
 
       this.logger.debug(
-        `Found ${relationships.length} relationships for ${nodes.length} nodes`,
+        `Found ${relationships.length} relationships for ${enhancedNodes.length} nodes`,
       );
 
       // Get total count for pagination
-      const countResult = await this.neo4jService.read(
-        this.buildOpenQuestionCountQuery({
-          keywords,
-          user_id,
-        }),
-        {
-          keywords,
-          user_id,
-        },
-      );
-
-      const total_count = this.toNumber(
-        countResult.records[0]?.get('total') || 0,
-      );
-      const has_more = offset + nodes.length < total_count;
+      const total_count = await this.getTotalCount(node_types, {
+        keywords,
+        user_id,
+      });
+      const has_more = offset + enhancedNodes.length < total_count;
 
       return {
-        nodes,
+        nodes: enhancedNodes,
         relationships,
         total_count,
         has_more,
@@ -200,7 +232,268 @@ export class UniversalGraphService {
     }
   }
 
-  // Enhanced method to fetch user-specific data for all nodes
+  private async getOpenQuestionNodes(
+    params: any,
+  ): Promise<UniversalNodeData[]> {
+    const query = this.buildOpenQuestionQuery(params);
+    const result = await this.neo4jService.read(query.query, query.params);
+    return this.transformOpenQuestionResults(result.records);
+  }
+
+  private async getStatementNodes(params: any): Promise<UniversalNodeData[]> {
+    const query = this.buildStatementQuery(params);
+    const result = await this.neo4jService.read(query.query, query.params);
+    return this.transformStatementResults(result.records);
+  }
+
+  // Fixed Statement Query in universal-graph.service.ts
+
+  private buildStatementQuery(params: any): { query: string; params: any } {
+    const { keywords, user_id, sort_by, sort_direction, limit, offset } =
+      params;
+
+    let query = `
+      MATCH (s:StatementNode)
+      WHERE (s.visibilityStatus <> false OR s.visibilityStatus IS NULL)
+    `;
+
+    // Add keyword filter if specified
+    if (keywords && keywords.length > 0) {
+      query += `
+        AND EXISTS {
+          MATCH (s)-[:TAGGED]->(w:WordNode)
+          WHERE w.word IN $keywords
+        }
+      `;
+    }
+
+    // Add user filter if specified
+    if (user_id) {
+      query += `
+        AND s.createdBy = $user_id
+      `;
+    }
+
+    // FIXED: Restructured query to prevent duplicates
+    query += `
+      // Get basic statement data first
+      WITH s
+      
+      // Get keywords
+      OPTIONAL MATCH (s)-[t:TAGGED]->(w:WordNode)
+      WITH s, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
+      
+      // Get vote counts
+      OPTIONAL MATCH (s)<-[pv:VOTED_ON {status: 'agree'}]-()
+      WITH s, keywords, count(DISTINCT pv) as positiveVotes
+      
+      OPTIONAL MATCH (s)<-[nv:VOTED_ON {status: 'disagree'}]-()
+      WITH s, keywords, positiveVotes, count(DISTINCT nv) as negativeVotes
+      
+      // Get parent question (if statement answers a question)
+      OPTIONAL MATCH (s)-[:ANSWERS]->(oq:OpenQuestionNode)
+      WITH s, keywords, positiveVotes, negativeVotes, 
+           CASE WHEN oq IS NOT NULL THEN {
+             nodeId: oq.id,
+             questionText: oq.questionText,
+             relationshipType: 'answers'
+           } ELSE null END as parentQuestion,
+           positiveVotes + negativeVotes as participantCount
+      
+      // Get related statements via shared keywords (separate query to avoid cartesian product)
+      OPTIONAL MATCH (s)-[st:SHARED_TAG]->(related:StatementNode)
+      WHERE related.visibilityStatus <> false OR related.visibilityStatus IS NULL
+      WITH s, keywords, positiveVotes, negativeVotes, parentQuestion, participantCount,
+           collect(DISTINCT CASE WHEN related IS NOT NULL THEN {
+             nodeId: related.id,
+             statement: related.statement,
+             sharedWord: st.word,
+             strength: st.strength,
+             relationshipType: 'shared_keyword'
+           } ELSE null END) as sharedRelated
+      
+      // Get directly related statements (separate aggregation)
+      OPTIONAL MATCH (s)-[:RELATED_TO]-(directRelated:StatementNode)
+      WHERE directRelated.visibilityStatus <> false OR directRelated.visibilityStatus IS NULL
+      WITH s, keywords, positiveVotes, negativeVotes, parentQuestion, participantCount, sharedRelated,
+           collect(DISTINCT CASE WHEN directRelated IS NOT NULL THEN {
+             nodeId: directRelated.id,
+             statement: directRelated.statement,
+             relationshipType: 'direct'
+           } ELSE null END) as directlyRelated
+      
+      // Get discussion ID
+      OPTIONAL MATCH (s)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+      WITH s, keywords, positiveVotes, negativeVotes, parentQuestion, participantCount,
+           sharedRelated, directlyRelated, d.id as discussionId
+    `;
+
+    // Add sorting
+    if (sort_by === 'netVotes') {
+      query += ` ORDER BY (positiveVotes - negativeVotes) ${sort_direction.toUpperCase()}`;
+    } else if (sort_by === 'chronological') {
+      query += ` ORDER BY s.createdAt ${sort_direction.toUpperCase()}`;
+    } else if (sort_by === 'participants') {
+      query += ` ORDER BY participantCount ${sort_direction.toUpperCase()}`;
+    }
+
+    // Add pagination
+    query += `
+      SKIP toInteger($offset)
+      LIMIT toInteger($limit)
+    `;
+
+    // FIXED: Clean return statement with proper null filtering
+    query += `
+      RETURN {
+        id: s.id,
+        type: 'statement',
+        content: s.statement,
+        participant_count: participantCount,
+        created_at: toString(s.createdAt),
+        updated_at: toString(s.updatedAt),
+        created_by: s.createdBy,
+        public_credit: s.publicCredit,
+        keywords: keywords,
+        positive_votes: positiveVotes,
+        negative_votes: negativeVotes,
+        initial_comment: s.initialComment,
+        parent_question: parentQuestion,
+        related_statements: [rel in (sharedRelated + directlyRelated) WHERE rel IS NOT NULL],
+        discussion_id: discussionId
+      } as nodeData
+    `;
+
+    return {
+      query,
+      params: {
+        keywords,
+        user_id,
+        offset: int(offset).toNumber(),
+        limit: int(limit).toNumber(),
+      },
+    };
+  }
+
+  private transformStatementResults(records: any[]): UniversalNodeData[] {
+    return records.map((record) => {
+      const data = record.get('nodeData');
+
+      // Build the metadata object
+      const metadata: any = {
+        keywords: data.keywords || [],
+        votes: {
+          positive: this.toNumber(data.positive_votes || 0),
+          negative: this.toNumber(data.negative_votes || 0),
+          net:
+            this.toNumber(data.positive_votes || 0) -
+            this.toNumber(data.negative_votes || 0),
+        },
+        relatedStatements: data.related_statements || [],
+        discussionId: data.discussion_id,
+        initialComment: data.initial_comment,
+      };
+
+      // Add parent question if exists
+      if (data.parent_question) {
+        metadata.parentQuestion = data.parent_question;
+      }
+
+      return {
+        id: data.id,
+        type: 'statement',
+        content: data.content,
+        participant_count: this.toNumber(data.participant_count || 0),
+        created_at: data.created_at,
+        updated_at: data.updated_at,
+        created_by: data.created_by,
+        public_credit: data.public_credit,
+        metadata,
+      };
+    });
+  }
+
+  private sortCombinedNodes(
+    nodes: UniversalNodeData[],
+    sort_by: string,
+    sort_direction: string,
+  ): void {
+    nodes.sort((a, b) => {
+      let aValue: any, bValue: any;
+
+      switch (sort_by) {
+        case 'netVotes':
+          aValue = a.metadata.votes.net;
+          bValue = b.metadata.votes.net;
+          break;
+        case 'chronological':
+          aValue = new Date(a.created_at).getTime();
+          bValue = new Date(b.created_at).getTime();
+          break;
+        case 'participants':
+          aValue = a.participant_count;
+          bValue = b.participant_count;
+          break;
+        default:
+          return 0;
+      }
+
+      if (sort_direction === 'desc') {
+        return bValue - aValue;
+      } else {
+        return aValue - bValue;
+      }
+    });
+  }
+
+  private async getTotalCount(
+    node_types: Array<'openquestion' | 'statement'>,
+    filters: any,
+  ): Promise<number> {
+    let total = 0;
+
+    if (node_types.includes('openquestion')) {
+      const openQuestionQuery = this.buildOpenQuestionCountQuery(filters);
+      const result = await this.neo4jService.read(openQuestionQuery, filters);
+      total += this.toNumber(result.records[0]?.get('total') || 0);
+    }
+
+    if (node_types.includes('statement')) {
+      const statementQuery = this.buildStatementCountQuery(filters);
+      const result = await this.neo4jService.read(statementQuery, filters);
+      total += this.toNumber(result.records[0]?.get('total') || 0);
+    }
+
+    return total;
+  }
+
+  private buildStatementCountQuery(filters: any): string {
+    const { keywords, user_id } = filters;
+
+    let query = `
+      MATCH (s:StatementNode)
+      WHERE (s.visibilityStatus <> false OR s.visibilityStatus IS NULL)
+    `;
+
+    if (keywords && keywords.length > 0) {
+      query += `
+        AND EXISTS {
+          MATCH (s)-[:TAGGED]->(w:WordNode)
+          WHERE w.word IN $keywords
+        }
+      `;
+    }
+
+    if (user_id) {
+      query += ` AND s.createdBy = $user_id`;
+    }
+
+    query += ` RETURN count(s) as total`;
+
+    return query;
+  }
+
+  // Enhanced method to fetch user-specific data for all nodes (both types)
   private async enhanceNodesWithUserData(
     nodes: UniversalNodeData[],
     userId: string,
@@ -212,8 +505,12 @@ export class UniversalGraphService {
 
       const nodeIds = nodes.map((node) => node.id);
 
-      // Batch fetch vote statuses for all nodes
-      const voteStatuses = await this.batchGetVoteStatuses(nodeIds, userId);
+      // Batch fetch vote statuses for all nodes (both OpenQuestion and Statement)
+      const voteStatuses = await this.batchGetVoteStatuses(
+        nodeIds,
+        userId,
+        nodes,
+      );
 
       // Batch fetch visibility preferences for all nodes
       const visibilityPreferences = await this.batchGetVisibilityPreferences(
@@ -252,29 +549,64 @@ export class UniversalGraphService {
     }
   }
 
-  // Batch fetch vote statuses for multiple nodes
+  // Updated batch fetch vote statuses for multiple node types
   private async batchGetVoteStatuses(
     nodeIds: string[],
     userId: string,
+    nodes: UniversalNodeData[],
   ): Promise<Record<string, 'agree' | 'disagree' | null>> {
     try {
       if (nodeIds.length === 0) return {};
 
-      const query = `
-        MATCH (oq:OpenQuestionNode)
-        WHERE oq.id IN $nodeIds
-        OPTIONAL MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(oq)
-        RETURN oq.id as nodeId, v.status as voteStatus
-      `;
-
-      const result = await this.neo4jService.read(query, { nodeIds, userId });
+      // Group nodes by type
+      const nodesByType = new Map<string, string[]>();
+      nodes.forEach((node) => {
+        const typeNodes = nodesByType.get(node.type) || [];
+        typeNodes.push(node.id);
+        nodesByType.set(node.type, typeNodes);
+      });
 
       const voteStatuses: Record<string, 'agree' | 'disagree' | null> = {};
-      result.records.forEach((record) => {
-        const nodeId = record.get('nodeId');
-        const voteStatus = record.get('voteStatus');
-        voteStatuses[nodeId] = voteStatus as 'agree' | 'disagree' | null;
-      });
+
+      // Fetch vote statuses for OpenQuestion nodes
+      if (nodesByType.has('openquestion')) {
+        const openQuestionIds = nodesByType.get('openquestion')!;
+        const query = `
+          MATCH (oq:OpenQuestionNode)
+          WHERE oq.id IN $nodeIds
+          OPTIONAL MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(oq)
+          RETURN oq.id as nodeId, v.status as voteStatus
+        `;
+        const result = await this.neo4jService.read(query, {
+          nodeIds: openQuestionIds,
+          userId,
+        });
+        result.records.forEach((record) => {
+          const nodeId = record.get('nodeId');
+          const voteStatus = record.get('voteStatus');
+          voteStatuses[nodeId] = voteStatus as 'agree' | 'disagree' | null;
+        });
+      }
+
+      // Fetch vote statuses for Statement nodes
+      if (nodesByType.has('statement')) {
+        const statementIds = nodesByType.get('statement')!;
+        const query = `
+          MATCH (s:StatementNode)
+          WHERE s.id IN $nodeIds
+          OPTIONAL MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(s)
+          RETURN s.id as nodeId, v.status as voteStatus
+        `;
+        const result = await this.neo4jService.read(query, {
+          nodeIds: statementIds,
+          userId,
+        });
+        result.records.forEach((record) => {
+          const nodeId = record.get('nodeId');
+          const voteStatus = record.get('voteStatus');
+          voteStatuses[nodeId] = voteStatus as 'agree' | 'disagree' | null;
+        });
+      }
 
       this.logger.debug(
         `Fetched vote statuses for ${Object.keys(voteStatuses).length} nodes`,
@@ -286,7 +618,7 @@ export class UniversalGraphService {
     }
   }
 
-  // Batch fetch visibility preferences for multiple nodes
+  // Batch fetch visibility preferences for multiple nodes (same as before)
   private async batchGetVisibilityPreferences(
     nodeIds: string[],
     userId: string,
@@ -324,9 +656,10 @@ export class UniversalGraphService {
     }
   }
 
-  private async getOpenQuestionRelationships(
+  private async getUniversalRelationships(
     nodeIds: string[],
-    relationshipTypes: Array<'shared_keyword' | 'related_to'>,
+    relationshipTypes: Array<'shared_keyword' | 'related_to' | 'answers'>,
+    nodeTypes: Array<'openquestion' | 'statement'>,
   ): Promise<UniversalRelationshipData[]> {
     if (nodeIds.length === 0) return [];
 
@@ -335,96 +668,21 @@ export class UniversalGraphService {
 
       // Fetch shared keyword relationships if requested
       if (relationshipTypes.includes('shared_keyword')) {
-        const sharedKeywordQuery = `
-          MATCH (oq1:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(oq2:OpenQuestionNode)
-          WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds AND oq1.id < oq2.id
-          RETURN DISTINCT {
-            source: oq1.id,
-            target: oq2.id,
-            keyword: w.word,
-            type: 'shared_keyword'
-          } as rel
-        `;
-
-        const sharedKeywordResult = await this.neo4jService.read(
-          sharedKeywordQuery,
-          { nodeIds },
+        await this.addSharedKeywordRelationships(
+          relationships,
+          nodeIds,
+          nodeTypes,
         );
-
-        // Process shared keyword relationships
-        const keywordRels = sharedKeywordResult.records.map((record) => {
-          const rel = record.get('rel');
-          return {
-            source: rel.source,
-            target: rel.target,
-            keyword: rel.keyword,
-            type: 'shared_keyword' as const,
-          };
-        });
-
-        // Group by node pairs and combine keywords
-        const keywordMap = new Map<string, any>();
-        keywordRels.forEach((rel) => {
-          const key = `${rel.source}-${rel.target}`;
-          if (keywordMap.has(key)) {
-            keywordMap.get(key).keywords.push(rel.keyword);
-          } else {
-            keywordMap.set(key, {
-              source: rel.source,
-              target: rel.target,
-              keywords: [rel.keyword],
-              type: 'shared_keyword',
-            });
-          }
-        });
-
-        // Convert to relationships
-        keywordMap.forEach((value, key) => {
-          relationships.push({
-            id: `shared-keyword-${key}`,
-            source: value.source,
-            target: value.target,
-            type: 'shared_keyword',
-            metadata: {
-              keyword: value.keywords.join(', '),
-              strength: Math.min(1.0, 0.3 + value.keywords.length * 0.1),
-            },
-          });
-        });
       }
 
       // Fetch direct relationships if requested
       if (relationshipTypes.includes('related_to')) {
-        const directRelQuery = `
-          MATCH (oq1:OpenQuestionNode)-[r:RELATED_TO]-(oq2:OpenQuestionNode)
-          WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds
-          AND id(oq1) < id(oq2)
-          RETURN DISTINCT {
-            source: oq1.id,
-            target: oq2.id,
-            type: 'related_to',
-            created_at: CASE WHEN r.createdAt IS NOT NULL THEN toString(r.createdAt) ELSE null END
-          } as rel
-        `;
+        await this.addDirectRelationships(relationships, nodeIds, nodeTypes);
+      }
 
-        const directRelResult = await this.neo4jService.read(directRelQuery, {
-          nodeIds,
-        });
-
-        // Process direct relationships
-        directRelResult.records.forEach((record) => {
-          const rel = record.get('rel');
-          relationships.push({
-            id: `related-to-${rel.source}-${rel.target}`,
-            source: rel.source,
-            target: rel.target,
-            type: 'related_to',
-            metadata: {
-              strength: 1.0,
-              created_at: rel.created_at,
-            },
-          });
-        });
+      // Fetch answer relationships if requested
+      if (relationshipTypes.includes('answers')) {
+        await this.addAnswerRelationships(relationships, nodeIds, nodeTypes);
       }
 
       return relationships;
@@ -435,6 +693,209 @@ export class UniversalGraphService {
       );
       return [];
     }
+  }
+
+  private async addSharedKeywordRelationships(
+    relationships: UniversalRelationshipData[],
+    nodeIds: string[],
+    nodeTypes: Array<'openquestion' | 'statement'>,
+  ): Promise<void> {
+    // OpenQuestion to OpenQuestion shared keywords
+    if (nodeTypes.includes('openquestion')) {
+      const oqSharedQuery = `
+        MATCH (oq1:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(oq2:OpenQuestionNode)
+        WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds AND oq1.id < oq2.id
+        RETURN DISTINCT {
+          source: oq1.id,
+          target: oq2.id,
+          keyword: w.word,
+          type: 'shared_keyword'
+        } as rel
+      `;
+
+      const oqResult = await this.neo4jService.read(oqSharedQuery, { nodeIds });
+      this.processSharedKeywordResults(oqResult.records, relationships);
+    }
+
+    // Statement to Statement shared keywords
+    if (nodeTypes.includes('statement')) {
+      const stSharedQuery = `
+        MATCH (s1:StatementNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(s2:StatementNode)
+        WHERE s1.id IN $nodeIds AND s2.id IN $nodeIds AND s1.id < s2.id
+        RETURN DISTINCT {
+          source: s1.id,
+          target: s2.id,
+          keyword: w.word,
+          type: 'shared_keyword'
+        } as rel
+      `;
+
+      const stResult = await this.neo4jService.read(stSharedQuery, { nodeIds });
+      this.processSharedKeywordResults(stResult.records, relationships);
+    }
+
+    // OpenQuestion to Statement shared keywords (cross-type)
+    if (nodeTypes.includes('openquestion') && nodeTypes.includes('statement')) {
+      const crossSharedQuery = `
+        MATCH (oq:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(s:StatementNode)
+        WHERE oq.id IN $nodeIds AND s.id IN $nodeIds
+        RETURN DISTINCT {
+          source: oq.id,
+          target: s.id,
+          keyword: w.word,
+          type: 'shared_keyword'
+        } as rel
+      `;
+
+      const crossResult = await this.neo4jService.read(crossSharedQuery, {
+        nodeIds,
+      });
+      this.processSharedKeywordResults(crossResult.records, relationships);
+    }
+  }
+
+  private async addDirectRelationships(
+    relationships: UniversalRelationshipData[],
+    nodeIds: string[],
+    nodeTypes: Array<'openquestion' | 'statement'>,
+  ): Promise<void> {
+    // OpenQuestion to OpenQuestion direct relationships
+    if (nodeTypes.includes('openquestion')) {
+      const oqDirectQuery = `
+        MATCH (oq1:OpenQuestionNode)-[r:RELATED_TO]-(oq2:OpenQuestionNode)
+        WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds
+        AND id(oq1) < id(oq2)
+        RETURN DISTINCT {
+          source: oq1.id,
+          target: oq2.id,
+          type: 'related_to',
+          created_at: CASE WHEN r.createdAt IS NOT NULL THEN toString(r.createdAt) ELSE null END
+        } as rel
+      `;
+
+      const oqResult = await this.neo4jService.read(oqDirectQuery, { nodeIds });
+      this.processDirectRelationshipResults(oqResult.records, relationships);
+    }
+
+    // Statement to Statement direct relationships
+    if (nodeTypes.includes('statement')) {
+      const stDirectQuery = `
+        MATCH (s1:StatementNode)-[r:RELATED_TO]-(s2:StatementNode)
+        WHERE s1.id IN $nodeIds AND s2.id IN $nodeIds
+        AND id(s1) < id(s2)
+        RETURN DISTINCT {
+          source: s1.id,
+          target: s2.id,
+          type: 'related_to',
+          created_at: CASE WHEN r.createdAt IS NOT NULL THEN toString(r.createdAt) ELSE null END
+        } as rel
+      `;
+
+      const stResult = await this.neo4jService.read(stDirectQuery, { nodeIds });
+      this.processDirectRelationshipResults(stResult.records, relationships);
+    }
+  }
+
+  private async addAnswerRelationships(
+    relationships: UniversalRelationshipData[],
+    nodeIds: string[],
+    nodeTypes: Array<'openquestion' | 'statement'>,
+  ): Promise<void> {
+    // Only process if we have both openquestion and statement types
+    if (nodeTypes.includes('openquestion') && nodeTypes.includes('statement')) {
+      const answerQuery = `
+        MATCH (s:StatementNode)-[r:ANSWERS]->(oq:OpenQuestionNode)
+        WHERE s.id IN $nodeIds AND oq.id IN $nodeIds
+        RETURN DISTINCT {
+          source: s.id,
+          target: oq.id,
+          type: 'answers',
+          created_at: CASE WHEN s.createdAt IS NOT NULL THEN toString(s.createdAt) ELSE null END
+        } as rel
+      `;
+
+      const answerResult = await this.neo4jService.read(answerQuery, {
+        nodeIds,
+      });
+
+      answerResult.records.forEach((record) => {
+        const rel = record.get('rel');
+        relationships.push({
+          id: `answers-${rel.source}-${rel.target}`,
+          source: rel.source,
+          target: rel.target,
+          type: 'answers',
+          metadata: {
+            strength: 1.0,
+            created_at: rel.created_at,
+          },
+        });
+      });
+    }
+  }
+
+  private processSharedKeywordResults(
+    records: any[],
+    relationships: UniversalRelationshipData[],
+  ): void {
+    const keywordRels = records.map((record) => {
+      const rel = record.get('rel');
+      return {
+        source: rel.source,
+        target: rel.target,
+        keyword: rel.keyword,
+        type: 'shared_keyword' as const,
+      };
+    });
+
+    // Group by node pairs and combine keywords
+    const keywordMap = new Map<string, any>();
+    keywordRels.forEach((rel) => {
+      const key = `${rel.source}-${rel.target}`;
+      if (keywordMap.has(key)) {
+        keywordMap.get(key).keywords.push(rel.keyword);
+      } else {
+        keywordMap.set(key, {
+          source: rel.source,
+          target: rel.target,
+          keywords: [rel.keyword],
+          type: 'shared_keyword',
+        });
+      }
+    });
+
+    // Convert to relationships
+    keywordMap.forEach((value, key) => {
+      relationships.push({
+        id: `shared-keyword-${key}`,
+        source: value.source,
+        target: value.target,
+        type: 'shared_keyword',
+        metadata: {
+          keyword: value.keywords.join(', '),
+          strength: Math.min(1.0, 0.3 + value.keywords.length * 0.1),
+        },
+      });
+    });
+  }
+
+  private processDirectRelationshipResults(
+    records: any[],
+    relationships: UniversalRelationshipData[],
+  ): void {
+    records.forEach((record) => {
+      const rel = record.get('rel');
+      relationships.push({
+        id: `related-to-${rel.source}-${rel.target}`,
+        source: rel.source,
+        target: rel.target,
+        type: 'related_to',
+        metadata: {
+          strength: 1.0,
+          created_at: rel.created_at,
+        },
+      });
+    });
   }
 
   private buildOpenQuestionQuery(params: any): { query: string; params: any } {

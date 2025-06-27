@@ -17,7 +17,7 @@ import {
 } from './universal-graph.service';
 
 export class UniversalNodesQueryDto implements UniversalGraphOptions {
-  node_types?: Array<'openquestion'>; // | 'statement' | 'quantity'>;
+  node_types?: Array<'openquestion' | 'statement'>; // | 'quantity'>;
   limit?: number;
   offset?: number;
   sort_by?: 'netVotes' | 'chronological' | 'participants';
@@ -25,7 +25,7 @@ export class UniversalNodesQueryDto implements UniversalGraphOptions {
   keywords?: string[];
   user_id?: string;
   include_relationships?: boolean;
-  relationship_types?: Array<'shared_keyword' | 'related_to'>; // | 'answers' | 'responds_to'>;
+  relationship_types?: Array<'shared_keyword' | 'related_to' | 'answers'>; // | 'responds_to'>;
 }
 
 @Controller('graph/universal')
@@ -48,26 +48,29 @@ export class UniversalGraphController {
       // Parse query parameters properly
       const parsedQuery: UniversalGraphOptions = {};
 
-      // Handle node_types as array - only allow 'openquestion' for now
+      // Handle node_types as array - now supports both openquestion and statement
       if (query.node_types) {
         const nodeTypes = Array.isArray(query.node_types)
           ? query.node_types
           : [query.node_types];
 
-        // Validate that only openquestion is requested
+        // Validate that only supported types are requested
+        const validTypes = ['openquestion', 'statement'];
         const invalidTypes = nodeTypes.filter(
-          (type) => type !== 'openquestion',
+          (type) => !validTypes.includes(type),
         );
         if (invalidTypes.length > 0) {
           throw new BadRequestException(
-            `Invalid node types: ${invalidTypes.join(', ')}. Only 'openquestion' is currently supported.`,
+            `Invalid node types: ${invalidTypes.join(', ')}. Supported types are: ${validTypes.join(', ')}.`,
           );
         }
 
-        parsedQuery.node_types = nodeTypes as Array<'openquestion'>;
+        parsedQuery.node_types = nodeTypes as Array<
+          'openquestion' | 'statement'
+        >;
       } else {
-        // Default to openquestion only
-        parsedQuery.node_types = ['openquestion'];
+        // Default to both openquestion and statement
+        parsedQuery.node_types = ['openquestion', 'statement'];
       }
 
       // Handle keywords as array
@@ -85,8 +88,8 @@ export class UniversalGraphController {
           ? query.relationship_types
           : [query.relationship_types];
 
-        // Validate relationship types for OpenQuestion
-        const validRelTypes = ['shared_keyword', 'related_to'];
+        // Validate relationship types - now includes 'answers'
+        const validRelTypes = ['shared_keyword', 'related_to', 'answers'];
         const invalidRelTypes = relTypes.filter(
           (type) => !validRelTypes.includes(type),
         );
@@ -97,7 +100,7 @@ export class UniversalGraphController {
         }
 
         parsedQuery.relationship_types = relTypes as Array<
-          'shared_keyword' | 'related_to'
+          'shared_keyword' | 'related_to' | 'answers'
         >;
       }
 
@@ -165,7 +168,7 @@ export class UniversalGraphController {
       }
     }
 
-    // Validate sort_by for OpenQuestion nodes
+    // Validate sort_by for both node types
     if (query.sort_by) {
       const validSortOptions = ['netVotes', 'chronological', 'participants'];
       if (!validSortOptions.includes(query.sort_by)) {
@@ -185,23 +188,24 @@ export class UniversalGraphController {
       );
     }
 
-    // Validate node_types (should only be openquestion for now)
+    // Validate node_types
     if (query.node_types) {
+      const validTypes = ['openquestion', 'statement'];
       const types = Array.isArray(query.node_types)
         ? query.node_types
         : [query.node_types];
 
-      const invalidTypes = types.filter((type) => type !== 'openquestion');
+      const invalidTypes = types.filter((type) => !validTypes.includes(type));
       if (invalidTypes.length > 0) {
         throw new BadRequestException(
-          `Invalid node types: ${invalidTypes.join(', ')}. Only 'openquestion' is currently supported.`,
+          `Invalid node types: ${invalidTypes.join(', ')}. Supported types are: ${validTypes.join(', ')}.`,
         );
       }
     }
 
     // Validate relationship_types
     if (query.relationship_types) {
-      const validRelTypes = ['shared_keyword', 'related_to'];
+      const validRelTypes = ['shared_keyword', 'related_to', 'answers'];
       const types = Array.isArray(query.relationship_types)
         ? query.relationship_types
         : [query.relationship_types];
@@ -245,7 +249,7 @@ export class UniversalGraphController {
 
     return {
       status: 'healthy',
-      supportedTypes: ['openquestion'],
+      supportedTypes: ['openquestion', 'statement'],
     };
   }
 
@@ -263,7 +267,7 @@ export class UniversalGraphController {
     return {
       sortBy: ['netVotes', 'chronological', 'participants'],
       sortDirection: ['asc', 'desc'],
-      relationshipTypes: ['shared_keyword', 'related_to'],
+      relationshipTypes: ['shared_keyword', 'related_to', 'answers'],
     };
   }
 }

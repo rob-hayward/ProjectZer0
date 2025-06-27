@@ -133,8 +133,26 @@
 	// CRITICAL: User vote status from metadata ONLY - no API calls
 	$: userVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
 
-	// Get answer count from node metadata (where backend sends it)
-	$: answerCount = (node.metadata as any)?.answer_count || questionData.answers?.length || 0;
+	// FIXED: Get answer count from multiple sources with proper fallback
+	$: answerCount = (() => {
+		// Priority 1: From node metadata (universal graph)
+		if (node.metadata?.answer_count !== undefined) {
+			return node.metadata.answer_count;
+		}
+		
+		// Priority 2: From questionData.answerCount (direct API data)
+		if (questionData.answerCount !== undefined) {
+			return getNeo4jNumber(questionData.answerCount);
+		}
+		
+		// Priority 3: From questionData.answers array length
+		if (questionData.answers && Array.isArray(questionData.answers)) {
+			return questionData.answers.length;
+		}
+		
+		// Default fallback
+		return 0;
+	})();
 
 	// CRITICAL: Visibility determination - community-based with user override
 	$: communityHidden = netVotes < 0; // Community default: hide if net votes < 0
@@ -326,6 +344,7 @@
 			positiveVotes,
 			negativeVotes,
 			netVotes,
+			answerCount, // ADDED: Debug answer count
 			isHidden: isNodeHidden,
 			hasUserVisibilityOverride: userVisibilityOverride !== undefined
 		});
@@ -381,8 +400,8 @@
 						</foreignObject>
 					{/if}
 
-					<!-- Answer Count Display -->
-					{#if questionData.answerCount > 0}
+					<!-- Answer Count Display - FIXED: Use computed answerCount -->
+					{#if answerCount > 0}
 						<foreignObject
 							x={x}
 							y={y + height - 140}
@@ -390,7 +409,7 @@
 							height="30"
 						>
 							<div class="answer-count">
-								{questionData.answerCount} answer{questionData.answerCount !== 1 ? 's' : ''}
+								{answerCount} answer{answerCount !== 1 ? 's' : ''}
 							</div>
 						</foreignObject>
 					{/if}

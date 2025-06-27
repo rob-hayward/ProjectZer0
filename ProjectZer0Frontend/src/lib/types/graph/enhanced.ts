@@ -16,7 +16,9 @@ export interface ControlNodeData {
 
 // View and group types
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal';
+// FIXED: Added 'statement' to NodeType
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
+// FIXED: Added 'statement' to NodeGroup
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
 // UPDATED: Added universal graph link types
 export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to';
@@ -51,6 +53,10 @@ export interface NodeMetadata {
         source: string;
         timestamp: number;
     };
+
+    // ADDED: Statement-specific metadata
+    answer_count?: number; // For OpenQuestion nodes
+    related_statements_count?: number; // For Statement nodes
 }
 
 // Core node interface for initial data
@@ -299,6 +305,7 @@ export const isDefinitionNode = (node: RenderableNode): node is RenderableNode &
 export const isNavigationNode = (node: RenderableNode): node is RenderableNode & { data: NavigationOption } =>
     node.type === 'navigation' && isNavigationData(node.data);
 
+// FIXED: Statement node type guard
 export const isStatementNode = (node: RenderableNode): node is RenderableNode & { data: StatementNode } =>
     node.type === 'statement' && isStatementData(node.data);
 

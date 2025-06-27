@@ -148,12 +148,6 @@ export class StatementSchema {
                positiveVotes, negativeVotes
           ORDER BY s.createdAt ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
         `;
-      } else if (sortBy === 'consensus') {
-        query += `
-          WITH s, keywords, relatedStatements, directlyRelatedStatements, 
-               positiveVotes, negativeVotes
-          ORDER BY s.consensus_ratio ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
-        `;
       }
 
       // Add pagination if specified
@@ -164,7 +158,7 @@ export class StatementSchema {
         `;
       }
 
-      // Return statement with all its data
+      // Return statement with all its data (removed consensus_ratio)
       query += `
         RETURN {
           id: s.id,
@@ -177,7 +171,6 @@ export class StatementSchema {
           positiveVotes: positiveVotes,
           negativeVotes: negativeVotes,
           netVotes: positiveVotes - negativeVotes,
-          consensus_ratio: s.consensus_ratio,
           keywords: keywords,
           relatedStatements: CASE 
             WHEN size(relatedStatements) > 0 THEN relatedStatements
@@ -240,10 +233,6 @@ export class StatementSchema {
             statement[prop] = this.toNumber(statement[prop]);
           }
         });
-        // Ensure consensus_ratio is a number
-        if (statement.consensus_ratio !== undefined) {
-          statement.consensus_ratio = Number(statement.consensus_ratio);
-        }
       });
 
       return statements;
@@ -287,7 +276,7 @@ export class StatementSchema {
       this.logger.log(`Creating statement with ID: ${statementData.id}`);
       this.logger.debug(`Statement data: ${JSON.stringify(statementData)}`);
 
-      // Build the base query
+      // Build the base query (removed consensus_ratio)
       let query = `
     // Create the statement node
     CREATE (s:StatementNode {
@@ -300,8 +289,7 @@ export class StatementSchema {
       updatedAt: datetime(),
       positiveVotes: 0,
       negativeVotes: 0,
-      netVotes: 0,
-      consensus_ratio: 0.0
+      netVotes: 0
     })
   `;
 
@@ -541,9 +529,6 @@ export class StatementSchema {
       }
       if (statement.netVotes !== undefined) {
         statement.netVotes = this.toNumber(statement.netVotes);
-      }
-      if (statement.consensus_ratio !== undefined) {
-        statement.consensus_ratio = Number(statement.consensus_ratio);
       }
 
       this.logger.debug(`Retrieved statement with ID: ${id}`);
@@ -862,8 +847,7 @@ export class StatementSchema {
         isPositive,
       );
 
-      // Calculate and update consensus ratio
-      await this.updateConsensusRatio(id);
+      // No longer updating consensus ratio - it's been removed
 
       return result;
     } catch (error) {
@@ -927,8 +911,7 @@ export class StatementSchema {
         sub,
       );
 
-      // Recalculate consensus ratio after removing vote
-      await this.updateConsensusRatio(id);
+      // No longer recalculating consensus ratio after removing vote - it's been removed
 
       return result;
     } catch (error) {
@@ -983,40 +966,6 @@ export class StatementSchema {
       }
 
       throw new Error(`Failed to get statement votes: ${error.message}`);
-    }
-  }
-
-  /**
-   * Update consensus ratio for a statement
-   */
-  private async updateConsensusRatio(id: string): Promise<void> {
-    try {
-      const result = await this.neo4jService.write(
-        `
-        MATCH (s:StatementNode {id: $id})
-        WITH s, 
-             s.positiveVotes + s.negativeVotes as totalVotes,
-             abs(s.positiveVotes - s.negativeVotes) as netVotes
-        SET s.consensus_ratio = CASE 
-          WHEN totalVotes = 0 THEN 0.0 
-          ELSE toFloat(netVotes) / toFloat(totalVotes)
-        END
-        RETURN s.consensus_ratio as consensusRatio
-        `,
-        { id },
-      );
-
-      if (result.records.length > 0) {
-        const consensusRatio = result.records[0].get('consensusRatio');
-        this.logger.debug(
-          `Updated consensus ratio for statement ${id}: ${consensusRatio}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Error updating consensus ratio for statement ${id}: ${error.message}`,
-      );
-      // Don't throw - this is a non-critical update
     }
   }
 
