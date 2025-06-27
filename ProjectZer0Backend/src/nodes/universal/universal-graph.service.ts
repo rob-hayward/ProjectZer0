@@ -2,13 +2,14 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../../neo4j/neo4j.service';
+import { VoteSchema } from '../../neo4j/schemas/vote.schema';
+import { VisibilityService } from '../../users/visibility/visibility.service';
 import { int } from 'neo4j-driver';
 
 export interface UniversalNodeData {
   id: string;
-  type: 'statement' | 'openquestion' | 'quantity';
+  type: 'openquestion'; // | 'statement' | 'quantity';
   content: string;
-  consensus_ratio: number;
   participant_count: number;
   created_at: string;
   updated_at?: string;
@@ -19,24 +20,48 @@ export interface UniversalNodeData {
   metadata: {
     keywords: Array<{ word: string; frequency: number }>;
 
-    // For binary voting nodes (statement, openquestion)
-    votes?: {
+    // For binary voting nodes (openquestion)
+    votes: {
       positive: number;
       negative: number;
       net: number;
     };
 
-    // For quantity nodes
-    responses?: {
-      count: number;
-      mean?: number;
-      std_dev?: number;
-      min?: number;
-      max?: number;
+    // User-specific data
+    userVoteStatus?: {
+      status: 'agree' | 'disagree' | null;
+    };
+
+    userVisibilityPreference?: {
+      isVisible: boolean;
+      source: string;
+      timestamp: number;
     };
 
     // For open questions
-    answer_count?: number;
+    answer_count: number;
+    answers?: Array<{
+      id: string;
+      statement: string;
+      createdBy: string;
+      createdAt: string;
+      publicCredit: boolean;
+      positiveVotes: number;
+      negativeVotes: number;
+      netVotes: number;
+    }>;
+
+    // Enhanced relationship data
+    relatedQuestions?: Array<{
+      nodeId: string;
+      questionText: string;
+      sharedWord?: string;
+      strength?: number;
+      relationshipType: 'shared_keyword' | 'direct';
+    }>;
+
+    // Discussion data
+    discussionId?: string;
   };
 }
 
@@ -44,7 +69,7 @@ export interface UniversalRelationshipData {
   id: string;
   source: string; // source node id
   target: string; // target node id
-  type: 'shared_keyword' | 'answers' | 'responds_to' | 'related_to';
+  type: 'shared_keyword' | 'related_to'; // | 'answers' | 'responds_to';
   metadata?: {
     keyword?: string; // for shared_keyword type
     strength?: number; // relationship strength (0-1)
@@ -52,51 +77,18 @@ export interface UniversalRelationshipData {
   };
 }
 
-// NEW: User-specific data interfaces
-export interface UserVoteStatus {
-  nodeId: string;
-  status: 'agree' | 'disagree' | null;
-  votedAt?: string;
-}
-
-export interface UserQuantityResponse {
-  nodeId: string;
-  value: number;
-  unitId: string;
-  unitSymbol?: string;
-  submittedAt: string;
-}
-
-export interface UserVisibilityPreference {
-  nodeId: string;
-  isVisible: boolean;
-  source: 'user' | 'community';
-  timestamp: number;
-}
-
-export interface UserUnitPreference {
-  nodeId: string;
-  unitId: string;
-  lastUpdated: number;
-}
-
 export interface UniversalGraphOptions {
-  node_types?: Array<'statement' | 'openquestion' | 'quantity'>;
-  min_consensus?: number;
-  max_consensus?: number;
+  node_types?: Array<'openquestion'>; // | 'statement' | 'quantity'>;
   limit?: number;
   offset?: number;
-  sort_by?: 'consensus' | 'chronological' | 'participants';
+  sort_by?: 'netVotes' | 'chronological' | 'participants';
   sort_direction?: 'asc' | 'desc';
   keywords?: string[];
   user_id?: string;
   include_relationships?: boolean;
-  relationship_types?: Array<
-    'shared_keyword' | 'answers' | 'responds_to' | 'related_to'
-  >;
-  // NEW: Option to include user-specific data
-  include_user_data?: boolean;
-  current_user_id?: string; // The authenticated user requesting the data
+  relationship_types?: Array<'shared_keyword' | 'related_to'>; // | 'answers' | 'responds_to'>;
+  // User context for fetching user-specific data
+  requesting_user_id?: string;
 }
 
 export interface UniversalGraphResponse {
@@ -104,56 +96,47 @@ export interface UniversalGraphResponse {
   relationships: UniversalRelationshipData[];
   total_count: number;
   has_more: boolean;
-  // NEW: User-specific data
-  user_data?: {
-    votes: { [nodeId: string]: UserVoteStatus };
-    quantity_responses: { [nodeId: string]: UserQuantityResponse };
-    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
-    unit_preferences: { [nodeId: string]: UserUnitPreference };
-  };
 }
 
 @Injectable()
 export class UniversalGraphService {
   private readonly logger = new Logger(UniversalGraphService.name);
 
-  constructor(private readonly neo4jService: Neo4jService) {}
+  constructor(
+    private readonly neo4jService: Neo4jService,
+    private readonly voteSchema: VoteSchema,
+    private readonly visibilityService: VisibilityService,
+  ) {}
 
   async getUniversalNodes(
     options: UniversalGraphOptions,
-    currentUserId?: string, // NEW: Current user for user-specific data
   ): Promise<UniversalGraphResponse> {
     try {
-      // Set defaults
+      // Set defaults - only supporting openquestion for now
       const {
-        node_types = ['statement', 'openquestion', 'quantity'],
-        min_consensus = 0,
-        max_consensus = 1,
+        node_types = ['openquestion'],
         limit = 200,
         offset = 0,
-        sort_by = 'consensus',
+        sort_by = 'netVotes',
         sort_direction = 'desc',
         keywords = [],
         user_id,
         include_relationships = true,
-        relationship_types = [
-          'shared_keyword',
-          'answers',
-          'responds_to',
-          'related_to',
-        ],
-        include_user_data = true, // NEW: Default to including user data
+        relationship_types = ['shared_keyword', 'related_to'],
+        requesting_user_id,
       } = options;
+
+      // Validate that only openquestion is requested for now
+      if (node_types.some((type) => type !== 'openquestion')) {
+        throw new Error('Only openquestion node type is currently supported');
+      }
 
       this.logger.debug(
         `Getting universal nodes with options: ${JSON.stringify(options)}`,
       );
 
-      // Build the main query
-      const query = this.buildUniversalQuery({
-        node_types,
-        min_consensus,
-        max_consensus,
+      // Build the main query for OpenQuestion nodes only
+      const query = this.buildOpenQuestionQuery({
         keywords,
         user_id,
         sort_by,
@@ -166,46 +149,32 @@ export class UniversalGraphService {
       const result = await this.neo4jService.read(query.query, query.params);
 
       // Process and transform the results
-      const nodes = this.transformResults(result.records);
+      let nodes = this.transformOpenQuestionResults(result.records);
+
+      // Enhancement: Fetch user-specific data (vote status and visibility preferences)
+      if (requesting_user_id && nodes.length > 0) {
+        nodes = await this.enhanceNodesWithUserData(nodes, requesting_user_id);
+      }
 
       // Get node IDs for relationship query
       const nodeIds = nodes.map((n) => n.id);
 
       // Fetch relationships if requested
       const relationships = include_relationships
-        ? await this.getRelationships(nodeIds, relationship_types)
+        ? await this.getOpenQuestionRelationships(nodeIds, relationship_types)
         : [];
 
       this.logger.debug(
         `Found ${relationships.length} relationships for ${nodes.length} nodes`,
       );
 
-      // NEW: Fetch user-specific data if requested and user is provided
-      let userData = undefined;
-      if (include_user_data && currentUserId && nodeIds.length > 0) {
-        this.logger.debug(
-          `Fetching user-specific data for user ${currentUserId} and ${nodeIds.length} nodes`,
-        );
-        userData = await this.getUserSpecificData(
-          nodeIds,
-          currentUserId,
-          node_types,
-        );
-      }
-
       // Get total count for pagination
       const countResult = await this.neo4jService.read(
-        this.buildCountQuery({
-          node_types,
-          min_consensus,
-          max_consensus,
+        this.buildOpenQuestionCountQuery({
           keywords,
           user_id,
         }),
         {
-          node_types,
-          min_consensus,
-          max_consensus,
           keywords,
           user_id,
         },
@@ -216,19 +185,12 @@ export class UniversalGraphService {
       );
       const has_more = offset + nodes.length < total_count;
 
-      const response: UniversalGraphResponse = {
+      return {
         nodes,
         relationships,
         total_count,
         has_more,
       };
-
-      // Add user data if available
-      if (userData) {
-        response.user_data = userData;
-      }
-
-      return response;
     } catch (error) {
       this.logger.error(
         `Error getting universal nodes: ${error.message}`,
@@ -238,238 +200,133 @@ export class UniversalGraphService {
     }
   }
 
-  // NEW: Method to fetch all user-specific data in batch queries
-  private async getUserSpecificData(
-    nodeIds: string[],
+  // Enhanced method to fetch user-specific data for all nodes
+  private async enhanceNodesWithUserData(
+    nodes: UniversalNodeData[],
     userId: string,
-    nodeTypes: Array<'statement' | 'openquestion' | 'quantity'>,
-  ): Promise<{
-    votes: { [nodeId: string]: UserVoteStatus };
-    quantity_responses: { [nodeId: string]: UserQuantityResponse };
-    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
-    unit_preferences: { [nodeId: string]: UserUnitPreference };
-  }> {
-    const result = {
-      votes: {} as { [nodeId: string]: UserVoteStatus },
-      quantity_responses: {} as { [nodeId: string]: UserQuantityResponse },
-      visibility_preferences: {} as {
-        [nodeId: string]: UserVisibilityPreference;
-      },
-      unit_preferences: {} as { [nodeId: string]: UserUnitPreference },
-    };
-
-    // Batch fetch votes for statement and openquestion nodes
-    if (nodeTypes.includes('statement') || nodeTypes.includes('openquestion')) {
-      const votes = await this.getUserVotes(nodeIds, userId);
-      result.votes = votes;
-    }
-
-    // Batch fetch quantity responses for quantity nodes
-    if (nodeTypes.includes('quantity')) {
-      const responses = await this.getUserQuantityResponses(nodeIds, userId);
-      result.quantity_responses = responses;
-
-      // Also fetch unit preferences for quantity nodes
-      const unitPrefs = await this.getUserUnitPreferences(nodeIds, userId);
-      result.unit_preferences = unitPrefs;
-    }
-
-    // Batch fetch visibility preferences for all nodes
-    const visibilityPrefs = await this.getUserVisibilityPreferences(
-      nodeIds,
-      userId,
-    );
-    result.visibility_preferences = visibilityPrefs;
-
-    return result;
-  }
-
-  // NEW: Batch fetch user vote status
-  private async getUserVotes(
-    nodeIds: string[],
-    userId: string,
-  ): Promise<{ [nodeId: string]: UserVoteStatus }> {
-    if (nodeIds.length === 0) return {};
-
+  ): Promise<UniversalNodeData[]> {
     try {
-      const query = `
-        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(n)
-        WHERE n.id IN $nodeIds 
-        AND (n:StatementNode OR n:OpenQuestionNode)
-        RETURN n.id as nodeId, v.status as status, v.votedAt as votedAt
-      `;
+      this.logger.debug(
+        `Enhancing ${nodes.length} nodes with user data for user ${userId}`,
+      );
 
-      const result = await this.neo4jService.read(query, { userId, nodeIds });
-      const votes: { [nodeId: string]: UserVoteStatus } = {};
+      const nodeIds = nodes.map((node) => node.id);
 
-      result.records.forEach((record) => {
-        const nodeId = record.get('nodeId');
-        const status = record.get('status');
-        const votedAt = record.get('votedAt');
+      // Batch fetch vote statuses for all nodes
+      const voteStatuses = await this.batchGetVoteStatuses(nodeIds, userId);
 
-        votes[nodeId] = {
-          nodeId,
-          status:
-            status === 'agree'
-              ? 'agree'
-              : status === 'disagree'
-                ? 'disagree'
-                : null,
-          votedAt: votedAt ? votedAt.toString() : undefined,
-        };
+      // Batch fetch visibility preferences for all nodes
+      const visibilityPreferences = await this.batchGetVisibilityPreferences(
+        nodeIds,
+        userId,
+      );
+
+      // Enhance each node with user-specific data
+      const enhancedNodes = nodes.map((node) => {
+        const enhanced = { ...node };
+
+        // Add user vote status if available
+        const userVoteStatus = voteStatuses[node.id];
+        if (userVoteStatus !== undefined) {
+          enhanced.metadata.userVoteStatus = {
+            status: userVoteStatus,
+          };
+        }
+
+        // Add user visibility preference if available
+        const visibilityPreference = visibilityPreferences[node.id];
+        if (visibilityPreference !== undefined) {
+          enhanced.metadata.userVisibilityPreference = visibilityPreference;
+        }
+
+        return enhanced;
       });
 
-      this.logger.debug(
-        `Fetched ${Object.keys(votes).length} vote statuses for user ${userId}`,
-      );
-      return votes;
-    } catch (error) {
-      this.logger.error(`Error fetching user votes: ${error.message}`);
-      return {};
-    }
-  }
-
-  // NEW: Batch fetch user quantity responses
-  private async getUserQuantityResponses(
-    nodeIds: string[],
-    userId: string,
-  ): Promise<{ [nodeId: string]: UserQuantityResponse }> {
-    if (nodeIds.length === 0) return {};
-
-    try {
-      const query = `
-        MATCH (u:User {sub: $userId})-[r:RESPONDED_TO]->(n:QuantityNode)
-        WHERE n.id IN $nodeIds
-        OPTIONAL MATCH (unit:Unit {id: r.unitId})
-        RETURN n.id as nodeId, r.value as value, r.unitId as unitId, 
-               unit.symbol as unitSymbol, r.submittedAt as submittedAt
-      `;
-
-      const result = await this.neo4jService.read(query, { userId, nodeIds });
-      const responses: { [nodeId: string]: UserQuantityResponse } = {};
-
-      result.records.forEach((record) => {
-        const nodeId = record.get('nodeId');
-        const value = this.toNumber(record.get('value'));
-        const unitId = record.get('unitId');
-        const unitSymbol = record.get('unitSymbol');
-        const submittedAt = record.get('submittedAt');
-
-        responses[nodeId] = {
-          nodeId,
-          value,
-          unitId,
-          unitSymbol: unitSymbol || undefined,
-          submittedAt: submittedAt
-            ? submittedAt.toString()
-            : new Date().toISOString(),
-        };
-      });
-
-      this.logger.debug(
-        `Fetched ${Object.keys(responses).length} quantity responses for user ${userId}`,
-      );
-      return responses;
+      this.logger.debug(`Successfully enhanced nodes with user-specific data`);
+      return enhancedNodes;
     } catch (error) {
       this.logger.error(
-        `Error fetching user quantity responses: ${error.message}`,
+        `Error enhancing nodes with user data: ${error.message}`,
       );
-      return {};
+      return nodes; // Return original nodes if enhancement fails
     }
   }
 
-  // NEW: Batch fetch user visibility preferences
-  private async getUserVisibilityPreferences(
+  // Batch fetch vote statuses for multiple nodes
+  private async batchGetVoteStatuses(
     nodeIds: string[],
     userId: string,
-  ): Promise<{ [nodeId: string]: UserVisibilityPreference }> {
-    if (nodeIds.length === 0) return {};
-
+  ): Promise<Record<string, 'agree' | 'disagree' | null>> {
     try {
+      if (nodeIds.length === 0) return {};
+
       const query = `
-        MATCH (u:User {sub: $userId})-[p:HAS_VISIBILITY_PREFERENCE]->(n)
-        WHERE n.id IN $nodeIds
-        RETURN n.id as nodeId, p.isVisible as isVisible, 
-               p.source as source, p.timestamp as timestamp
+        MATCH (oq:OpenQuestionNode)
+        WHERE oq.id IN $nodeIds
+        OPTIONAL MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(oq)
+        RETURN oq.id as nodeId, v.status as voteStatus
       `;
 
-      const result = await this.neo4jService.read(query, { userId, nodeIds });
-      const preferences: { [nodeId: string]: UserVisibilityPreference } = {};
+      const result = await this.neo4jService.read(query, { nodeIds, userId });
 
+      const voteStatuses: Record<string, 'agree' | 'disagree' | null> = {};
       result.records.forEach((record) => {
         const nodeId = record.get('nodeId');
-        const isVisible = record.get('isVisible');
-        const source = record.get('source') || 'user';
-        const timestamp = this.toNumber(record.get('timestamp') || Date.now());
-
-        preferences[nodeId] = {
-          nodeId,
-          isVisible: Boolean(isVisible),
-          source: source === 'community' ? 'community' : 'user',
-          timestamp,
-        };
+        const voteStatus = record.get('voteStatus');
+        voteStatuses[nodeId] = voteStatus as 'agree' | 'disagree' | null;
       });
 
       this.logger.debug(
-        `Fetched ${Object.keys(preferences).length} visibility preferences for user ${userId}`,
+        `Fetched vote statuses for ${Object.keys(voteStatuses).length} nodes`,
       );
-      return preferences;
+      return voteStatuses;
     } catch (error) {
-      this.logger.error(
-        `Error fetching user visibility preferences: ${error.message}`,
-      );
+      this.logger.error(`Error batch fetching vote statuses: ${error.message}`);
       return {};
     }
   }
 
-  // NEW: Batch fetch user unit preferences
-  private async getUserUnitPreferences(
+  // Batch fetch visibility preferences for multiple nodes
+  private async batchGetVisibilityPreferences(
     nodeIds: string[],
     userId: string,
-  ): Promise<{ [nodeId: string]: UserUnitPreference }> {
-    if (nodeIds.length === 0) return {};
-
+  ): Promise<Record<string, any>> {
     try {
-      const query = `
-        MATCH (u:User {sub: $userId})-[p:HAS_UNIT_PREFERENCE]->(n:QuantityNode)
-        WHERE n.id IN $nodeIds
-        RETURN n.id as nodeId, p.unitId as unitId, p.lastUpdated as lastUpdated
-      `;
+      if (nodeIds.length === 0) return {};
 
-      const result = await this.neo4jService.read(query, { userId, nodeIds });
-      const preferences: { [nodeId: string]: UserUnitPreference } = {};
+      // Use the visibility service to get all preferences for the user
+      const allPreferences =
+        await this.visibilityService.getUserVisibilityPreferences(userId);
 
-      result.records.forEach((record) => {
-        const nodeId = record.get('nodeId');
-        const unitId = record.get('unitId');
-        const lastUpdated = this.toNumber(
-          record.get('lastUpdated') || Date.now(),
-        );
-
-        preferences[nodeId] = {
-          nodeId,
-          unitId,
-          lastUpdated,
-        };
+      // Filter to only include preferences for the requested nodes
+      // IMPORTANT: Only include nodes that have explicit user overrides
+      const relevantPreferences: Record<string, any> = {};
+      nodeIds.forEach((nodeId) => {
+        if (allPreferences[nodeId] !== undefined) {
+          // Only include if user has explicitly set a preference (not community default)
+          relevantPreferences[nodeId] = {
+            isVisible: allPreferences[nodeId],
+            source: 'user',
+            timestamp: Date.now(), // We could store this in the backend if needed
+          };
+        }
       });
 
       this.logger.debug(
-        `Fetched ${Object.keys(preferences).length} unit preferences for user ${userId}`,
+        `Fetched visibility preferences for ${Object.keys(relevantPreferences).length} nodes with user overrides`,
       );
-      return preferences;
+      return relevantPreferences;
     } catch (error) {
       this.logger.error(
-        `Error fetching user unit preferences: ${error.message}`,
+        `Error batch fetching visibility preferences: ${error.message}`,
       );
       return {};
     }
   }
 
-  private async getRelationships(
+  private async getOpenQuestionRelationships(
     nodeIds: string[],
-    relationshipTypes: Array<
-      'shared_keyword' | 'answers' | 'responds_to' | 'related_to'
-    >,
+    relationshipTypes: Array<'shared_keyword' | 'related_to'>,
   ): Promise<UniversalRelationshipData[]> {
     if (nodeIds.length === 0) return [];
 
@@ -479,13 +336,11 @@ export class UniversalGraphService {
       // Fetch shared keyword relationships if requested
       if (relationshipTypes.includes('shared_keyword')) {
         const sharedKeywordQuery = `
-          MATCH (n1)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(n2)
-          WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds AND n1.id < n2.id
-          AND (n1:StatementNode OR n1:OpenQuestionNode OR n1:QuantityNode)
-          AND (n2:StatementNode OR n2:OpenQuestionNode OR n2:QuantityNode)
+          MATCH (oq1:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(oq2:OpenQuestionNode)
+          WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds AND oq1.id < oq2.id
           RETURN DISTINCT {
-            source: n1.id,
-            target: n2.id,
+            source: oq1.id,
+            target: oq2.id,
             keyword: w.word,
             type: 'shared_keyword'
           } as rel
@@ -539,48 +394,31 @@ export class UniversalGraphService {
       }
 
       // Fetch direct relationships if requested
-      const directRelTypes = relationshipTypes.filter(
-        (t) => t !== 'shared_keyword',
-      );
-      if (directRelTypes.length > 0) {
+      if (relationshipTypes.includes('related_to')) {
         const directRelQuery = `
-          MATCH (n1)-[r]-(n2)
-          WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds
-          AND (n1:StatementNode OR n1:OpenQuestionNode OR n1:QuantityNode)
-          AND (n2:StatementNode OR n2:OpenQuestionNode OR n2:QuantityNode)
-          AND type(r) IN $relTypes
-          WITH n1, n2, r, type(r) as relType
+          MATCH (oq1:OpenQuestionNode)-[r:RELATED_TO]-(oq2:OpenQuestionNode)
+          WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds
+          AND id(oq1) < id(oq2)
           RETURN DISTINCT {
-            source: CASE 
-              WHEN relType = 'ANSWERS' AND n1:StatementNode THEN n1.id
-              WHEN relType = 'RESPONDS_TO' AND n1:StatementNode THEN n1.id
-              WHEN id(n1) < id(n2) THEN n1.id
-              ELSE n2.id
-            END,
-            target: CASE 
-              WHEN relType = 'ANSWERS' AND n1:StatementNode THEN n2.id
-              WHEN relType = 'RESPONDS_TO' AND n1:StatementNode THEN n2.id
-              WHEN id(n1) < id(n2) THEN n2.id
-              ELSE n1.id
-            END,
-            type: toLower(relType),
+            source: oq1.id,
+            target: oq2.id,
+            type: 'related_to',
             created_at: CASE WHEN r.createdAt IS NOT NULL THEN toString(r.createdAt) ELSE null END
           } as rel
         `;
 
         const directRelResult = await this.neo4jService.read(directRelQuery, {
           nodeIds,
-          relTypes: directRelTypes.map((t) => t.toUpperCase()),
         });
 
         // Process direct relationships
         directRelResult.records.forEach((record) => {
           const rel = record.get('rel');
           relationships.push({
-            id: `${rel.type}-${rel.source}-${rel.target}`,
+            id: `related-to-${rel.source}-${rel.target}`,
             source: rel.source,
             target: rel.target,
-            type: rel.type as any,
+            type: 'related_to',
             metadata: {
               strength: 1.0,
               created_at: rel.created_at,
@@ -599,49 +437,20 @@ export class UniversalGraphService {
     }
   }
 
-  private buildUniversalQuery(params: any): { query: string; params: any } {
-    const {
-      node_types,
-      min_consensus,
-      max_consensus,
-      keywords,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    // Build node type conditions
-    const nodeTypeConditions = node_types
-      .map((type) => {
-        switch (type) {
-          case 'statement':
-            return 'n:StatementNode';
-          case 'openquestion':
-            return 'n:OpenQuestionNode';
-          case 'quantity':
-            return 'n:QuantityNode';
-          default:
-            return null;
-        }
-      })
-      .filter(Boolean)
-      .join(' OR ');
+  private buildOpenQuestionQuery(params: any): { query: string; params: any } {
+    const { keywords, user_id, sort_by, sort_direction, limit, offset } =
+      params;
 
     let query = `
-      MATCH (n)
-      WHERE (${nodeTypeConditions})
-        AND n.consensus_ratio >= $min_consensus
-        AND n.consensus_ratio <= $max_consensus
-        AND (n.visibilityStatus <> false OR n.visibilityStatus IS NULL)
+      MATCH (oq:OpenQuestionNode)
+      WHERE (oq.visibilityStatus <> false OR oq.visibilityStatus IS NULL)
     `;
 
     // Add keyword filter if specified
     if (keywords && keywords.length > 0) {
       query += `
         AND EXISTS {
-          MATCH (n)-[:TAGGED]->(w:WordNode)
+          MATCH (oq)-[:TAGGED]->(w:WordNode)
           WHERE w.word IN $keywords
         }
       `;
@@ -650,52 +459,61 @@ export class UniversalGraphService {
     // Add user filter if specified
     if (user_id) {
       query += `
-        AND n.createdBy = $user_id
+        AND oq.createdBy = $user_id
       `;
     }
 
-    // Get keywords for each node
+    // Get keywords for each question
     query += `
-      OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)
-      WITH n, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
+      OPTIONAL MATCH (oq)-[t:TAGGED]->(w:WordNode)
+      WITH oq, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
     `;
 
-    // Get type-specific data
+    // Get vote data and related questions
     query += `
-      // For statements and questions, get vote data
-      OPTIONAL MATCH (n)<-[pv:VOTED_ON {status: 'agree'}]-() WHERE n:StatementNode OR n:OpenQuestionNode
-      WITH n, keywords, count(DISTINCT pv) as positiveVotes
+      // Get vote counts
+      OPTIONAL MATCH (oq)<-[pv:VOTED_ON {status: 'agree'}]-()
+      WITH oq, keywords, count(DISTINCT pv) as positiveVotes
       
-      OPTIONAL MATCH (n)<-[nv:VOTED_ON {status: 'disagree'}]-() WHERE n:StatementNode OR n:OpenQuestionNode
-      WITH n, keywords, positiveVotes, count(DISTINCT nv) as negativeVotes
+      OPTIONAL MATCH (oq)<-[nv:VOTED_ON {status: 'disagree'}]-()
+      WITH oq, keywords, positiveVotes, count(DISTINCT nv) as negativeVotes
       
-      // For open questions, get answer count
-      OPTIONAL MATCH (s:StatementNode)-[:ANSWERS]->(n:OpenQuestionNode)
-      WITH n, keywords, positiveVotes, negativeVotes, count(DISTINCT s) as answerCount
+      // Get answer count
+      OPTIONAL MATCH (s:StatementNode)-[:ANSWERS]->(oq)
+      WITH oq, keywords, positiveVotes, negativeVotes, count(DISTINCT s) as answerCount
       
-      // Prepare the return data
-      WITH n, keywords, positiveVotes, negativeVotes, answerCount,
-           CASE
-             WHEN n:StatementNode THEN 'statement'
-             WHEN n:OpenQuestionNode THEN 'openquestion'
-             WHEN n:QuantityNode THEN 'quantity'
-           END as nodeType,
-           CASE
-             WHEN n:StatementNode THEN n.statement
-             WHEN n:OpenQuestionNode THEN n.questionText
-             WHEN n:QuantityNode THEN n.question
-           END as content,
-           CASE
-             WHEN n:StatementNode OR n:OpenQuestionNode THEN positiveVotes + negativeVotes
-             WHEN n:QuantityNode THEN n.responseCount
-           END as participantCount
+      // Get related questions data
+      OPTIONAL MATCH (oq)-[st:SHARED_TAG]->(related:OpenQuestionNode)
+      WHERE related.visibilityStatus <> false OR related.visibilityStatus IS NULL
+      OPTIONAL MATCH (oq)-[:RELATED_TO]-(directRelated:OpenQuestionNode)
+      WHERE directRelated.visibilityStatus <> false OR directRelated.visibilityStatus IS NULL
+      
+      WITH oq, keywords, positiveVotes, negativeVotes, answerCount,
+           collect(DISTINCT {
+             nodeId: related.id,
+             questionText: related.questionText,
+             sharedWord: st.word,
+             strength: st.strength,
+             relationshipType: 'shared_keyword'
+           }) as sharedRelated,
+           collect(DISTINCT {
+             nodeId: directRelated.id,
+             questionText: directRelated.questionText,
+             relationshipType: 'direct'
+           }) as directlyRelated
+      
+      // Get discussion ID
+      OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+      WITH oq, keywords, positiveVotes, negativeVotes, answerCount, 
+           sharedRelated, directlyRelated, d.id as discussionId,
+           positiveVotes + negativeVotes as participantCount
     `;
 
     // Add sorting
-    if (sort_by === 'consensus') {
-      query += ` ORDER BY n.consensus_ratio ${sort_direction.toUpperCase()}`;
+    if (sort_by === 'netVotes') {
+      query += ` ORDER BY (positiveVotes - negativeVotes) ${sort_direction.toUpperCase()}`;
     } else if (sort_by === 'chronological') {
-      query += ` ORDER BY n.createdAt ${sort_direction.toUpperCase()}`;
+      query += ` ORDER BY oq.createdAt ${sort_direction.toUpperCase()}`;
     } else if (sort_by === 'participants') {
       query += ` ORDER BY participantCount ${sort_direction.toUpperCase()}`;
     }
@@ -709,33 +527,26 @@ export class UniversalGraphService {
     // Return the constructed data with datetime conversions
     query += `
       RETURN {
-        id: n.id,
-        type: nodeType,
-        content: content,
-        consensus_ratio: n.consensus_ratio,
+        id: oq.id,
+        type: 'openquestion',
+        content: oq.questionText,
         participant_count: participantCount,
-        created_at: toString(n.createdAt),
-        updated_at: toString(n.updatedAt),
-        created_by: n.createdBy,
-        public_credit: n.publicCredit,
+        created_at: toString(oq.createdAt),
+        updated_at: toString(oq.updatedAt),
+        created_by: oq.createdBy,
+        public_credit: oq.publicCredit,
         keywords: keywords,
         positive_votes: positiveVotes,
         negative_votes: negativeVotes,
         answer_count: answerCount,
-        response_count: CASE WHEN n:QuantityNode THEN n.responseCount ELSE null END,
-        mean: CASE WHEN n:QuantityNode THEN n.mean ELSE null END,
-        std_dev: CASE WHEN n:QuantityNode THEN n.standardDeviation ELSE null END,
-        min: CASE WHEN n:QuantityNode THEN n.min ELSE null END,
-        max: CASE WHEN n:QuantityNode THEN n.max ELSE null END
+        related_questions: sharedRelated + directlyRelated,
+        discussion_id: discussionId
       } as nodeData
     `;
 
     return {
       query,
       params: {
-        node_types,
-        min_consensus,
-        max_consensus,
         keywords,
         user_id,
         offset: int(offset).toNumber(),
@@ -744,91 +555,55 @@ export class UniversalGraphService {
     };
   }
 
-  private buildCountQuery(filters: any): string {
-    const { node_types, keywords, user_id } = filters;
-
-    // Build node type conditions
-    const nodeTypeConditions = node_types
-      .map((type) => {
-        switch (type) {
-          case 'statement':
-            return 'n:StatementNode';
-          case 'openquestion':
-            return 'n:OpenQuestionNode';
-          case 'quantity':
-            return 'n:QuantityNode';
-          default:
-            return null;
-        }
-      })
-      .filter(Boolean)
-      .join(' OR ');
+  private buildOpenQuestionCountQuery(filters: any): string {
+    const { keywords, user_id } = filters;
 
     let query = `
-      MATCH (n)
-      WHERE (${nodeTypeConditions})
-        AND n.consensus_ratio >= $min_consensus
-        AND n.consensus_ratio <= $max_consensus
-        AND (n.visibilityStatus <> false OR n.visibilityStatus IS NULL)
+      MATCH (oq:OpenQuestionNode)
+      WHERE (oq.visibilityStatus <> false OR oq.visibilityStatus IS NULL)
     `;
 
     if (keywords && keywords.length > 0) {
       query += `
         AND EXISTS {
-          MATCH (n)-[:TAGGED]->(w:WordNode)
+          MATCH (oq)-[:TAGGED]->(w:WordNode)
           WHERE w.word IN $keywords
         }
       `;
     }
 
     if (user_id) {
-      query += ` AND n.createdBy = $user_id`;
+      query += ` AND oq.createdBy = $user_id`;
     }
 
-    query += ` RETURN count(n) as total`;
+    query += ` RETURN count(oq) as total`;
 
     return query;
   }
 
-  private transformResults(records: any[]): UniversalNodeData[] {
+  private transformOpenQuestionResults(records: any[]): UniversalNodeData[] {
     return records.map((record) => {
       const data = record.get('nodeData');
 
       // Build the metadata object
       const metadata: any = {
         keywords: data.keywords || [],
-      };
-
-      // Add type-specific metadata
-      if (data.type === 'statement' || data.type === 'openquestion') {
-        metadata.votes = {
+        votes: {
           positive: this.toNumber(data.positive_votes || 0),
           negative: this.toNumber(data.negative_votes || 0),
           net:
             this.toNumber(data.positive_votes || 0) -
             this.toNumber(data.negative_votes || 0),
-        };
-      }
-
-      if (data.type === 'quantity') {
-        metadata.responses = {
-          count: this.toNumber(data.response_count || 0),
-          mean: data.mean ? Number(data.mean) : undefined,
-          std_dev: data.std_dev ? Number(data.std_dev) : undefined,
-          min: data.min ? Number(data.min) : undefined,
-          max: data.max ? Number(data.max) : undefined,
-        };
-      }
-
-      if (data.type === 'openquestion') {
-        metadata.answer_count = this.toNumber(data.answer_count || 0);
-      }
+        },
+        answer_count: this.toNumber(data.answer_count || 0),
+        relatedQuestions: data.related_questions || [],
+        discussionId: data.discussion_id,
+      };
 
       return {
         id: data.id,
-        type: data.type,
+        type: 'openquestion',
         content: data.content,
-        consensus_ratio: Number(data.consensus_ratio || 0),
         participant_count: this.toNumber(data.participant_count || 0),
         created_at: data.created_at,
         updated_at: data.updated_at,

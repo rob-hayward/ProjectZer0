@@ -2,7 +2,6 @@
 
 import { writable, derived, get, type Writable, type Readable } from 'svelte/store';
 import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
-import { universalGraphStore } from '$lib/stores/universalGraphStore';
 
 export interface VisibilityBehaviourState {
   isHidden: boolean;
@@ -14,8 +13,6 @@ export interface VisibilityBehaviourState {
 export interface VisibilityBehaviourOptions {
   communityThreshold?: number; // Net votes threshold for community hiding
   graphStore?: any; // For updating graph visibility
-  // ENHANCED: Add context for batch data usage
-  viewType?: string;
 }
 
 export interface VisibilityBehaviour {
@@ -48,8 +45,7 @@ export function createVisibilityBehaviour(
 ): VisibilityBehaviour {
   const {
     communityThreshold = 0, // Default: hide if net votes < 0
-    graphStore = null,
-    viewType = undefined
+    graphStore = null
   } = options;
 
   // Internal state
@@ -87,57 +83,53 @@ export function createVisibilityBehaviour(
     }
   }
 
-  // ENHANCED: Check for batch data first
-  function tryGetBatchVisibilityData(): boolean | undefined {
-    try {
-      // Check if we're in universal context and have batch data
-      if (viewType === 'universal') {
-        const storeData = get(universalGraphStore);
-        const batchPreference = storeData?.user_data?.visibility_preferences?.[nodeId];
-        
-        if (batchPreference !== undefined) {
-          console.log(`[VisibilityBehaviour] Using batch visibility data for ${nodeId}:`, batchPreference);
-          // Extract the isVisible boolean from the preference object
-          return typeof batchPreference === 'object' ? batchPreference.isVisible : batchPreference;
-        }
-      }
-    } catch (err) {
-      console.error(`[VisibilityBehaviour] Error accessing batch visibility data:`, err);
-    }
-    
-    return undefined;
+  // FIXED: Safe way to check for user_data property
+  function hasUserDataStore(store: any): boolean {
+    return store && 
+           typeof store === 'object' && 
+           'user_data' in store && 
+           store.user_data && 
+           typeof store.user_data.subscribe === 'function';
   }
 
   // Public methods
   async function initialize(netVotes: number = 0): Promise<void> {
     try {
-      // ENHANCED: Try batch data first
-      const batchPreference = tryGetBatchVisibilityData();
-      
-      if (batchPreference !== undefined) {
-        // Use batch data - skip localStorage and API calls
-        userPreference.set(batchPreference);
-        updateCommunityVisibility(netVotes);
-        error.set(null);
-        return;
-      }
-      
-      // Fallback to individual loading
+      // Initialize visibility store if needed
       await visibilityStore.initialize();
       
-      // Get user preference (this will hit localStorage)
+      // Get user preference from visibilityStore (global preferences)
       const userPref = visibilityStore.getPreference(nodeId);
       userPreference.set(userPref);
       
+      // ENHANCED: Try to get user preference from graph store if available
+      if (graphStore) {
+        try {
+          // Check if the store has user_data (like universalGraphStore)
+          if (hasUserDataStore(graphStore)) {
+            // Subscribe to user_data to get user-specific preferences
+            graphStore.user_data.subscribe((userData: any) => {
+              if (userData && userData[nodeId] && userData[nodeId].userVisibilityPreference) {
+                const storePreference = userData[nodeId].userVisibilityPreference.isVisible;
+                userPreference.set(storePreference);
+              }
+            });
+          }
+          // Check if the store has getUserData method
+          else if (typeof graphStore.getUserData === 'function') {
+            const userData = graphStore.getUserData(nodeId);
+            if (userData && userData.userVisibilityPreference) {
+              userPreference.set(userData.userVisibilityPreference.isVisible);
+            }
+          }
+        } catch (err) {
+          console.debug('[VisibilityBehaviour] Store does not have user data methods:', err);
+          // This is not an error, just means this store doesn't have user-specific data
+        }
+      }
+      
       // Calculate community visibility
       updateCommunityVisibility(netVotes);
-      
-      // Load preferences from server if not already loaded
-      // Note: Using visibilityStore directly since isLoaded is internal
-      const storeState = get(visibilityStore);
-      if (!storeState || Object.keys(storeState).length === 0) {
-        await visibilityStore.loadPreferences();
-      }
       
       error.set(null);
     } catch (err) {
@@ -189,8 +181,13 @@ export function createVisibilityBehaviour(
       // Update local state
       userPreference.set(isVisible);
       
-      // Save to store and backend
+      // Save to global visibility store
       visibilityStore.setPreference(nodeId, isVisible);
+      
+      // ENHANCED: Update graph store if it supports user preferences
+      if (graphStore && typeof graphStore.updateUserVisibilityPreference === 'function') {
+        graphStore.updateUserVisibilityPreference(nodeId, isVisible, 'user');
+      }
       
       error.set(null);
     } catch (err) {

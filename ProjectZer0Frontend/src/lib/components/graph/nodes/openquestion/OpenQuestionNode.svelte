@@ -2,8 +2,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
-	import type { OpenQuestionNode } from '$lib/types/domain/nodes';
-	import type { VoteStatus } from '$lib/types/domain/nodes'; // Add VoteStatus import
+	import type { OpenQuestionNode, VoteStatus } from '$lib/types/domain/nodes';
 	import { isOpenQuestionData } from '$lib/types/graph/enhanced';
 	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -15,22 +14,13 @@
 	// ENHANCED: Import all possible vote stores
 	import { openQuestionViewStore } from '$lib/stores/openQuestionViewStore';
 	import { universalGraphStore } from '$lib/stores/universalGraphStore';
-	import { get } from 'svelte/store';
 	
-	import {
-		createVoteBehaviour,
-		createVisibilityBehaviour,
-		createModeBehaviour,
-		createDataBehaviour
-	} from '../behaviours';
-
 	// Import the shared UI components
 	import VoteButtons from '../ui/VoteButtons.svelte';
 	import VoteStats from '../ui/VoteStats.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
 	import ContentBox from '../ui/ContentBox.svelte';
-	import { wrapTextForWidth } from '../utils/textUtils';
 
 	export let node: RenderableNode;
 	export let questionText: string = '';
@@ -56,9 +46,6 @@
 	// ENHANCED: Context-aware store detection
 	$: detectedViewType = detectViewContext(viewType);
 	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
-	
-	// ENHANCED: Track if we've used batch data to avoid duplicate API calls
-	let usedBatchVoteData = false;
 
 	/**
 	 * ROBUST: Detect current view context using multiple methods
@@ -114,75 +101,11 @@
 		}
 	}
 
-	let voteBehaviour: any;
-	let visibilityBehaviour: any;
-	let modeBehaviour: any;
-	let dataBehaviour: any;
-	let behavioursInitialized = false;
-
-	function triggerDataUpdate() {
-		questionDataWrapper = { ...questionData };
-	}
-
-	// ENHANCED: Optimized vote behavior creation with batch data check
-	$: if (node.id && contextVoteStore && !behavioursInitialized) {
-		console.log(`[OpenQuestionNode] Initializing for context: ${detectedViewType} with store:`, contextVoteStore === universalGraphStore ? 'universal' : 'other');
-		
-		// ENHANCED: Check for batch vote data first in universal context
-		let initialVoteData = undefined; // Changed from null to undefined
-		if (detectedViewType === 'universal' && !usedBatchVoteData) {
-			const universalData = get(universalGraphStore);
-			if (universalData?.user_data?.votes?.[node.id]) {
-				const batchVote = universalData.user_data.votes[node.id];
-				console.log(`[OpenQuestionNode] Using batch vote data for ${node.id}:`, batchVote);
-				
-				initialVoteData = {
-					userVoteStatus: (batchVote.status || 'none') as VoteStatus, // Type assertion
-					positiveVotes: questionData.positiveVotes || 0,
-					negativeVotes: questionData.negativeVotes || 0,
-					votedAt: batchVote.votedAt
-				};
-				usedBatchVoteData = true;
-			}
-		}
-		
-		voteBehaviour = createVoteBehaviour(node.id, 'openquestion', {
-			voteStore: contextVoteStore,  // CONTEXT-AWARE STORE
-			graphStore,
-			apiIdentifier: node.id,
-			dataObject: questionData,
-			getVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote`,
-			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote/remove`,
-			onDataUpdate: triggerDataUpdate,
-			// ENHANCED: Pass initial batch data to skip individual API call
-			initialVoteData: initialVoteData
-		});
-
-		visibilityBehaviour = createVisibilityBehaviour(node.id, { 
-			graphStore,
-			viewType: detectedViewType  // ← ENHANCED: Add viewType to fix localStorage thrashing
-		});
-		modeBehaviour = createModeBehaviour(node.mode);
-		dataBehaviour = createDataBehaviour('openquestion', questionData, {
-			transformData: (rawData) => ({
-				...rawData,
-				formattedDate: rawData.createdAt
-					? new Date(rawData.createdAt).toLocaleDateString()
-					: ''
-			})
-		});
-
-		behavioursInitialized = true;
-	}
-
-	// ENHANCED: Reset behaviours if context changes
-	$: if (behavioursInitialized && contextVoteStore) {
-		// If the store context changes, reinitialize behaviours
-		const currentStore = voteBehaviour?.getCurrentState?.()?.store;
-		if (currentStore !== contextVoteStore) {
-			behavioursInitialized = false;
-		}
-	}
+	// CRITICAL: NO vote behavior creation for universal view - use data-only approach
+	let voteBehaviour: any = null;
+	let visibilityBehaviour: any = null;
+	let modeBehaviour: any = null;
+	let dataBehaviour: any = null;
 
 	$: isDetail = node.mode === 'detail';
 	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
@@ -191,25 +114,39 @@
 		return value && typeof value === 'object' && 'low' in value ? Number(value.low) : Number(value || 0);
 	}
 
-	let questionDataWrapper = questionData;
+	// OPTIMIZED: Get all data from node metadata and data - NO API CALLS
+	$: dataPositiveVotes = getNeo4jNumber(questionData.positiveVotes) || 0;
+	$: dataNegativeVotes = getNeo4jNumber(questionData.negativeVotes) || 0;
 
-	// ENHANCED: Context-aware vote data retrieval with batch data priority
-	$: dataPositiveVotes = getNeo4jNumber(questionDataWrapper.positiveVotes) || 0;
-	$: dataNegativeVotes = getNeo4jNumber(questionDataWrapper.negativeVotes) || 0;
-	$: storeVoteData = contextVoteStore?.getVoteData?.(node.id) || { positiveVotes: 0, negativeVotes: 0 };
+	// Extract vote data from node metadata if available (universal view)
+	$: metadataVotes = node.metadata?.net_votes !== undefined ? {
+		positive: dataPositiveVotes,
+		negative: dataNegativeVotes,
+		net: node.metadata.net_votes
+	} : null;
 
-	$: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
-	$: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
-	$: netVotes = positiveVotes - negativeVotes;
+	// Use metadata votes if available, otherwise use data votes
+	$: positiveVotes = metadataVotes?.positive ?? dataPositiveVotes;
+	$: negativeVotes = metadataVotes?.negative ?? dataNegativeVotes;
+	$: netVotes = metadataVotes?.net ?? (positiveVotes - negativeVotes);
 
-	$: behaviorState = voteBehaviour?.getCurrentState() || {};
-	$: userVoteStatus = behaviorState.userVoteStatus || 'none';
-	$: isVoting = behaviorState.isVoting || false;
-	$: voteSuccess = behaviorState.voteSuccess || false;
-	$: lastVoteType = behaviorState.lastVoteType || null;
+	// CRITICAL: User vote status from metadata ONLY - no API calls
+	$: userVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+
+	// Get answer count from node metadata (where backend sends it)
+	$: answerCount = (node.metadata as any)?.answer_count || questionData.answers?.length || 0;
+
+	// CRITICAL: Visibility determination - community-based with user override
+	$: communityHidden = netVotes < 0; // Community default: hide if net votes < 0
+	$: userVisibilityOverride = node.metadata?.userVisibilityPreference?.isVisible;
+	$: isNodeHidden = userVisibilityOverride !== undefined ? !userVisibilityOverride : communityHidden;
+
+	// Voting state - only for active interactions
+	let isVoting = false;
+	let voteSuccess = false;
+	let lastVoteType: VoteStatus | null = null;
 
 	// FIXED: Consistent cyan styling (not vote-based)
-	// Update node style with cyan highlight color
 	$: {
 		if (node.style) {
 			node.style.highlightColor = NODE_CONSTANTS.COLORS.OPENQUESTION.border;
@@ -236,39 +173,113 @@
 		visibilityChange: { isHidden: boolean };
 	}>();
 
-	function syncVoteState() {
-		if (voteBehaviour) {
-			const state = voteBehaviour.getCurrentState();
-			userVoteStatus = state.userVoteStatus;
-			isVoting = state.isVoting;
-			voteSuccess = state.voteSuccess;
-			lastVoteType = state.lastVoteType;
+	/**
+	 * OPTIMIZED: Handle vote - only makes API call when user actually votes
+	 */
+	async function updateVoteState(voteType: VoteStatus) {
+		// Prevent multiple simultaneous votes
+		if (isVoting) return false;
+		
+		isVoting = true;
+		lastVoteType = voteType;
+		
+		try {
+			// Make API call to vote
+			const endpoint = voteType === 'none' 
+				? `/nodes/openquestion/${node.id}/vote/remove`
+				: `/nodes/openquestion/${node.id}/vote`;
+				
+			const method = 'POST';
+			const body = voteType !== 'none' ? JSON.stringify({
+				isPositive: voteType === 'agree'
+			}) : undefined;
+			
+			// Import fetchWithAuth dynamically to avoid circular dependencies
+			const { fetchWithAuth } = await import('$lib/services/api');
+			
+			const result = await fetchWithAuth(endpoint, {
+				method,
+				body
+			});
+			
+			if (result) {
+				// Update vote counts from API response
+				const newPositiveVotes = getNeo4jNumber(result.positiveVotes);
+				const newNegativeVotes = getNeo4jNumber(result.negativeVotes);
+				
+				// Update local state
+				positiveVotes = newPositiveVotes;
+				negativeVotes = newNegativeVotes;
+				netVotes = newPositiveVotes - newNegativeVotes;
+				userVoteStatus = (result.status || 'none') as VoteStatus;
+				
+				// Update store if available
+				if (contextVoteStore?.updateVoteData) {
+					contextVoteStore.updateVoteData(node.id, newPositiveVotes, newNegativeVotes);
+				}
+				
+				// Convert VoteStatus to the format expected by store
+				const storeVoteStatus = userVoteStatus === 'none' ? null : userVoteStatus;
+				if (contextVoteStore?.updateUserVoteStatus) {
+					contextVoteStore.updateUserVoteStatus(node.id, storeVoteStatus);
+				}
+				
+				// Update graph store visibility if needed
+				if (graphStore) {
+					graphStore.recalculateNodeVisibility(node.id, newPositiveVotes, newNegativeVotes);
+				}
+				
+				// Show success animation
+				voteSuccess = true;
+				setTimeout(() => {
+					voteSuccess = false;
+					lastVoteType = null;
+				}, 1000);
+				
+				return true;
+			}
+			
+			return false;
+		} catch (error) {
+			console.error('[OpenQuestionNode] Error voting:', error);
+			return false;
+		} finally {
+			isVoting = false;
 		}
 	}
 
-	async function updateVoteState(voteType: 'agree' | 'disagree' | 'none') {
-		if (!voteBehaviour) return false;
-		userVoteStatus = voteType;
-		isVoting = true;
-
+	/**
+	 * Handle visibility change - only makes API call when user changes preference
+	 */
+	async function updateVisibilityPreference(isVisible: boolean) {
 		try {
-			const success = await voteBehaviour.handleVote(voteType);
-			syncVoteState();
-			if (success) {
-				triggerDataUpdate();
-				
-				// ENHANCED: Update universal store if in universal context
-				if (detectedViewType === 'universal' && universalGraphStore.updateUserVoteStatus) {
-					universalGraphStore.updateUserVoteStatus(
-						node.id, 
-						voteType === 'none' ? null : voteType,
-						new Date().toISOString()
-					);
-				}
+			// Update visibility preference via API
+			const { fetchWithAuth } = await import('$lib/services/api');
+			
+			await fetchWithAuth(`/users/visibility-preferences`, {
+				method: 'POST',
+				body: JSON.stringify({
+					[node.id]: {
+						isVisible,
+						source: 'user',
+						timestamp: Date.now()
+					}
+				})
+			});
+			
+			// Update store if available
+			if (contextVoteStore?.updateUserVisibilityPreference) {
+				contextVoteStore.updateUserVisibilityPreference(node.id, isVisible, 'user');
 			}
-			return success;
+			
+			// Update graph store
+			if (graphStore) {
+				graphStore.updateNodeVisibility(node.id, !isVisible, 'user');
+			}
+			
+			return true;
 		} catch (error) {
-			syncVoteState();
+			console.error('[OpenQuestionNode] Error updating visibility preference:', error);
 			return false;
 		}
 	}
@@ -278,16 +289,9 @@
 		position?: { x: number; y: number };
 		nodeId?: string;
 	}>) {
-		
-		// Update the mode behaviour
-		const newMode = event.detail.mode;
-		if (modeBehaviour) {
-			modeBehaviour.setMode(newMode);
-		}
-		
 		// Forward the event with position data
 		dispatch('modeChange', {
-			mode: newMode,
+			mode: event.detail.mode,
 			position: event.detail.position
 		});
 	}
@@ -297,41 +301,17 @@
 	}
 
 	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+		// Update user preference when visibility is manually changed
+		updateVisibilityPreference(!event.detail.isHidden);
 		dispatch('visibilityChange', event.detail);
 	}
 
 	let questionCreatorDetails: any = null;
 
 	onMount(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 0));
-
-		const initPromises = [];
-		if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
-		if (voteBehaviour) {
-			// ENHANCED: Initialize with batch data or regular data
-			const initData = usedBatchVoteData ? 
-				{ skipVoteStatusFetch: true } : // Skip API call if we have batch data
-				{
-					positiveVotes: questionData.positiveVotes,
-					negativeVotes: questionData.negativeVotes
-				};
-			
-			initPromises.push(voteBehaviour.initialize(initData));
-		}
-		if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(netVotes));
-		if (initPromises.length > 0) await Promise.all(initPromises);
-
-		syncVoteState();
-
-		// Recalculate visibility after initialization
-		if (graphStore) {
-			graphStore.recalculateNodeVisibility(
-				node.id,
-				positiveVotes,
-				negativeVotes
-			);
-		}
-
+		// NO behavior initialization - we use data-only approach
+		
+		// Only fetch creator details if needed
 		if (questionData.createdBy) {
 			try {
 				questionCreatorDetails = await getUserDetails(questionData.createdBy);
@@ -339,10 +319,20 @@
 				console.error('[OpenQuestionNode] Error fetching creator details:', e);
 			}
 		}
+		
+		console.log('[OpenQuestionNode] Initialized with data-only approach:', {
+			nodeId: node.id,
+			userVoteStatus: userVoteStatus as string,
+			positiveVotes,
+			negativeVotes,
+			netVotes,
+			isHidden: isNodeHidden,
+			hasUserVisibilityOverride: userVisibilityOverride !== undefined
+		});
 	});
 
 	onDestroy(() => {
-		if (dataBehaviour?.destroy) dataBehaviour.destroy();
+		// No cleanup needed since we don't create behaviors
 	});
 </script>
 
@@ -391,14 +381,17 @@
 						</foreignObject>
 					{/if}
 
-					<!-- Answers Display (if any) -->
-					{#if questionData.answers && questionData.answers.length > 0}
+					<!-- Answer Count Display -->
+					{#if questionData.answerCount > 0}
 						<foreignObject
 							x={x}
 							y={y + height - 140}
 							width={width}
-							height="100"
+							height="30"
 						>
+							<div class="answer-count">
+								{questionData.answerCount} answer{questionData.answerCount !== 1 ? 's' : ''}
+							</div>
 						</foreignObject>
 					{/if}
 				</svelte:fragment>
@@ -559,5 +552,18 @@
 	.keyword-chip.user-keyword {
 		background: rgba(0, 188, 212, 0.2);  /* CYAN for user keywords */
 		border: 1px solid rgba(0, 188, 212, 0.3);
+	}
+	
+	.answer-count {
+		font-family: Inter;
+		font-size: 11px;
+		font-weight: 400;
+		color: rgba(0, 188, 212, 0.8);  /* CYAN for answer count */
+		text-align: center;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
 	}
 </style>

@@ -7,7 +7,7 @@ import {
   UseGuards,
   Logger,
   BadRequestException,
-  Request, // NEW: Add Request for user data
+  Request,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import {
@@ -17,19 +17,19 @@ import {
 } from './universal-graph.service';
 
 export class UniversalNodesQueryDto implements UniversalGraphOptions {
-  node_types?: Array<'statement' | 'openquestion' | 'quantity'>;
-  min_consensus?: number;
-  max_consensus?: number;
+  node_types?: Array<'openquestion'>; // | 'statement' | 'quantity'>;
   limit?: number;
   offset?: number;
-  sort_by?: 'consensus' | 'chronological' | 'participants';
+  sort_by?: 'netVotes' | 'chronological' | 'participants';
   sort_direction?: 'asc' | 'desc';
   keywords?: string[];
   user_id?: string;
+  include_relationships?: boolean;
+  relationship_types?: Array<'shared_keyword' | 'related_to'>; // | 'answers' | 'responds_to'>;
 }
 
 @Controller('graph/universal')
-@UseGuards(JwtAuthGuard) // Comment out for endpoint testing
+@UseGuards(JwtAuthGuard)
 export class UniversalGraphController {
   private readonly logger = new Logger(UniversalGraphController.name);
 
@@ -37,24 +37,37 @@ export class UniversalGraphController {
 
   @Get('nodes')
   async getUniversalNodes(
-    @Query() query: any, // Changed from UniversalNodesQueryDto to any for now
-    @Request() req: any, // NEW: Add request to get authenticated user
+    @Query() query: any,
+    @Request() req: any,
   ): Promise<UniversalGraphResponse> {
     try {
       this.logger.log(
         `Received request for universal nodes with params: ${JSON.stringify(query)}`,
       );
 
-      // Parse query parameters properly with robust integer conversion
+      // Parse query parameters properly
       const parsedQuery: UniversalGraphOptions = {};
 
-      // Handle node_types as array
+      // Handle node_types as array - only allow 'openquestion' for now
       if (query.node_types) {
-        if (Array.isArray(query.node_types)) {
-          parsedQuery.node_types = query.node_types;
-        } else {
-          parsedQuery.node_types = [query.node_types];
+        const nodeTypes = Array.isArray(query.node_types)
+          ? query.node_types
+          : [query.node_types];
+
+        // Validate that only openquestion is requested
+        const invalidTypes = nodeTypes.filter(
+          (type) => type !== 'openquestion',
+        );
+        if (invalidTypes.length > 0) {
+          throw new BadRequestException(
+            `Invalid node types: ${invalidTypes.join(', ')}. Only 'openquestion' is currently supported.`,
+          );
         }
+
+        parsedQuery.node_types = nodeTypes as Array<'openquestion'>;
+      } else {
+        // Default to openquestion only
+        parsedQuery.node_types = ['openquestion'];
       }
 
       // Handle keywords as array
@@ -66,24 +79,41 @@ export class UniversalGraphController {
         }
       }
 
-      // Parse numeric values with safe integer conversion
-      if (query.min_consensus !== undefined) {
-        const value = this.parseFloat(query.min_consensus, 'min_consensus');
-        parsedQuery.min_consensus = value;
-      }
-      if (query.max_consensus !== undefined) {
-        const value = this.parseFloat(query.max_consensus, 'max_consensus');
-        parsedQuery.max_consensus = value;
+      // Handle relationship_types as array
+      if (query.relationship_types) {
+        const relTypes = Array.isArray(query.relationship_types)
+          ? query.relationship_types
+          : [query.relationship_types];
+
+        // Validate relationship types for OpenQuestion
+        const validRelTypes = ['shared_keyword', 'related_to'];
+        const invalidRelTypes = relTypes.filter(
+          (type) => !validRelTypes.includes(type),
+        );
+        if (invalidRelTypes.length > 0) {
+          throw new BadRequestException(
+            `Invalid relationship types: ${invalidRelTypes.join(', ')}. Valid types are: ${validRelTypes.join(', ')}`,
+          );
+        }
+
+        parsedQuery.relationship_types = relTypes as Array<
+          'shared_keyword' | 'related_to'
+        >;
       }
 
-      // CRITICAL: Use parseInt for integer values to prevent .0 floats
+      // Parse numeric values
       if (query.limit !== undefined) {
-        const value = this.parseInt(query.limit, 'limit');
-        parsedQuery.limit = value;
+        parsedQuery.limit = Number(query.limit);
       }
       if (query.offset !== undefined) {
-        const value = this.parseInt(query.offset, 'offset');
-        parsedQuery.offset = value;
+        parsedQuery.offset = Number(query.offset);
+      }
+
+      // Parse boolean values
+      if (query.include_relationships !== undefined) {
+        parsedQuery.include_relationships =
+          query.include_relationships === 'true' ||
+          query.include_relationships === true;
       }
 
       // Copy string values
@@ -97,25 +127,15 @@ export class UniversalGraphController {
         parsedQuery.user_id = query.user_id;
       }
 
+      // Pass the requesting user's ID for user-specific data enhancement
+      parsedQuery.requesting_user_id = req.user?.sub;
+
       this.logger.log(`Parsed query params: ${JSON.stringify(parsedQuery)}`);
 
       // Validate query parameters
       this.validateQueryParams(parsedQuery);
 
-      // NEW: Get current user ID from JWT token
-      const currentUserId = req.user?.sub;
-
-      if (currentUserId) {
-        this.logger.debug(
-          `Fetching universal nodes for authenticated user: ${currentUserId}`,
-        );
-      }
-
-      // NEW: Pass current user ID to service for user-specific data
-      return await this.universalGraphService.getUniversalNodes(
-        parsedQuery,
-        currentUserId, // Pass the authenticated user ID
-      );
+      return await this.universalGraphService.getUniversalNodes(parsedQuery);
     } catch (error) {
       this.logger.error(
         `Error in getUniversalNodes: ${error.message}`,
@@ -128,110 +148,31 @@ export class UniversalGraphController {
     }
   }
 
-  /**
-   * Safely parse integer values, ensuring they are whole numbers
-   */
-  private parseInt(value: any, paramName: string): number {
-    if (value === null || value === undefined || value === '') {
-      throw new BadRequestException(`${paramName} cannot be empty`);
-    }
-
-    // Convert to string first to handle various input types
-    const stringValue = String(value).trim();
-
-    // Check for decimal points - reject floats for integer parameters
-    if (stringValue.includes('.')) {
-      throw new BadRequestException(
-        `${paramName} must be a whole number, got: ${stringValue}`,
-      );
-    }
-
-    const parsed = parseInt(stringValue, 10);
-
-    if (isNaN(parsed)) {
-      throw new BadRequestException(
-        `${paramName} must be a valid integer, got: ${stringValue}`,
-      );
-    }
-
-    return parsed;
-  }
-
-  /**
-   * Safely parse float values for consensus ratios
-   */
-  private parseFloat(value: any, paramName: string): number {
-    if (value === null || value === undefined || value === '') {
-      throw new BadRequestException(`${paramName} cannot be empty`);
-    }
-
-    const parsed = parseFloat(String(value));
-
-    if (isNaN(parsed)) {
-      throw new BadRequestException(
-        `${paramName} must be a valid number, got: ${value}`,
-      );
-    }
-
-    return parsed;
-  }
-
   private validateQueryParams(query: UniversalGraphOptions): void {
-    // Validate consensus range
-    if (query.min_consensus !== undefined) {
-      if (query.min_consensus < 0 || query.min_consensus > 1) {
-        throw new BadRequestException('min_consensus must be between 0 and 1');
-      }
-    }
-
-    if (query.max_consensus !== undefined) {
-      if (query.max_consensus < 0 || query.max_consensus > 1) {
-        throw new BadRequestException('max_consensus must be between 0 and 1');
-      }
-    }
-
-    // Validate consensus range relationship
-    if (
-      query.min_consensus !== undefined &&
-      query.max_consensus !== undefined
-    ) {
-      if (query.min_consensus > query.max_consensus) {
-        throw new BadRequestException(
-          'min_consensus cannot be greater than max_consensus',
-        );
-      }
-    }
-
-    // Validate limit - ensure it's a positive integer
+    // Validate limit
     if (query.limit !== undefined) {
-      if (query.limit < 1 || query.limit > 1000) {
+      const limit = Number(query.limit);
+      if (isNaN(limit) || limit < 1 || limit > 1000) {
         throw new BadRequestException('limit must be between 1 and 1000');
       }
-      // Double-check it's actually an integer (should be caught by parseInt but extra safety)
-      if (!Number.isInteger(query.limit)) {
-        throw new BadRequestException('limit must be a whole number');
-      }
     }
 
-    // Validate offset - ensure it's a non-negative integer
+    // Validate offset
     if (query.offset !== undefined) {
-      if (query.offset < 0) {
+      const offset = Number(query.offset);
+      if (isNaN(offset) || offset < 0) {
         throw new BadRequestException('offset must be non-negative');
       }
-      // Double-check it's actually an integer
-      if (!Number.isInteger(query.offset)) {
-        throw new BadRequestException('offset must be a whole number');
-      }
     }
 
-    // Validate sort_by
-    if (
-      query.sort_by &&
-      !['consensus', 'chronological', 'participants'].includes(query.sort_by)
-    ) {
-      throw new BadRequestException(
-        'sort_by must be one of: consensus, chronological, participants',
-      );
+    // Validate sort_by for OpenQuestion nodes
+    if (query.sort_by) {
+      const validSortOptions = ['netVotes', 'chronological', 'participants'];
+      if (!validSortOptions.includes(query.sort_by)) {
+        throw new BadRequestException(
+          `sort_by must be one of: ${validSortOptions.join(', ')}`,
+        );
+      }
     }
 
     // Validate sort_direction
@@ -244,41 +185,85 @@ export class UniversalGraphController {
       );
     }
 
-    // Validate node_types
+    // Validate node_types (should only be openquestion for now)
     if (query.node_types) {
-      const validTypes = ['statement', 'openquestion', 'quantity'];
       const types = Array.isArray(query.node_types)
         ? query.node_types
         : [query.node_types];
 
-      for (const type of types) {
-        if (!validTypes.includes(type)) {
-          throw new BadRequestException(
-            `Invalid node type: ${type}. Must be one of: ${validTypes.join(', ')}`,
-          );
-        }
+      const invalidTypes = types.filter((type) => type !== 'openquestion');
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException(
+          `Invalid node types: ${invalidTypes.join(', ')}. Only 'openquestion' is currently supported.`,
+        );
+      }
+    }
+
+    // Validate relationship_types
+    if (query.relationship_types) {
+      const validRelTypes = ['shared_keyword', 'related_to'];
+      const types = Array.isArray(query.relationship_types)
+        ? query.relationship_types
+        : [query.relationship_types];
+
+      const invalidTypes = types.filter(
+        (type) => !validRelTypes.includes(type),
+      );
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException(
+          `Invalid relationship types: ${invalidTypes.join(', ')}. Valid types are: ${validRelTypes.join(', ')}`,
+        );
       }
     }
 
     // Validate keywords array
-    if (query.keywords) {
-      if (!Array.isArray(query.keywords)) {
-        throw new BadRequestException('keywords must be an array');
-      }
-
-      // Check each keyword is a valid string
-      for (const keyword of query.keywords) {
-        if (typeof keyword !== 'string' || keyword.trim() === '') {
-          throw new BadRequestException(
-            'each keyword must be a non-empty string',
-          );
-        }
+    if (query.keywords && Array.isArray(query.keywords)) {
+      if (
+        query.keywords.some(
+          (keyword) => typeof keyword !== 'string' || keyword.trim() === '',
+        )
+      ) {
+        throw new BadRequestException('All keywords must be non-empty strings');
       }
     }
 
-    // Validate user_id format if provided
+    // Validate user_id format (basic check)
     if (query.user_id && typeof query.user_id !== 'string') {
       throw new BadRequestException('user_id must be a string');
     }
+  }
+
+  /**
+   * Health check endpoint for the universal graph
+   */
+  @Get('health')
+  async getHealthStatus(): Promise<{
+    status: string;
+    supportedTypes: string[];
+  }> {
+    this.logger.debug('Health check requested for universal graph');
+
+    return {
+      status: 'healthy',
+      supportedTypes: ['openquestion'],
+    };
+  }
+
+  /**
+   * Get available sort options for the current configuration
+   */
+  @Get('sort-options')
+  async getSortOptions(): Promise<{
+    sortBy: string[];
+    sortDirection: string[];
+    relationshipTypes: string[];
+  }> {
+    this.logger.debug('Sort options requested');
+
+    return {
+      sortBy: ['netVotes', 'chronological', 'participants'],
+      sortDirection: ['asc', 'desc'],
+      relationshipTypes: ['shared_keyword', 'related_to'],
+    };
   }
 }

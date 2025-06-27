@@ -77,6 +77,7 @@ export interface AnswerStatement {
 }
 
 export interface OpenQuestionNode {
+	answerCount: number;
     id: string;
     questionText: string;
     createdBy: string;

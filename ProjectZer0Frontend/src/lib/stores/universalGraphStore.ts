@@ -5,12 +5,11 @@ import type { Writable, Readable } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 
-// Types for universal graph data
+// Types for universal graph data - UPDATED: OpenQuestion only
 export interface UniversalNodeData {
     id: string;
-    type: 'statement' | 'openquestion' | 'quantity';
+    type: 'openquestion'; // | 'statement' | 'quantity'; // COMMENTED OUT: Other types
     content: string;
-    consensus_ratio: number;
     participant_count: number;
     created_at: string;
     updated_at?: string;
@@ -21,24 +20,35 @@ export interface UniversalNodeData {
     metadata: {
         keywords: Array<{ word: string; frequency: number }>;
         
-        // For binary voting nodes (statement, openquestion)
-        votes?: {
+        // For binary voting nodes (openquestion)
+        votes: {
             positive: number;
             negative: number;
             net: number;
         };
         
-        // For quantity nodes
-        responses?: {
-            count: number;
-            mean?: number;
-            std_dev?: number;
-            min?: number;
-            max?: number;
+        // User-specific data from backend
+        userVoteStatus?: {
+            status: 'agree' | 'disagree' | null;
         };
         
+        userVisibilityPreference?: {
+            isVisible: boolean;
+            source: string;
+            timestamp: number;
+        };
+        
+        // COMMENTED OUT: Quantity node responses
+        // responses?: {
+        //     count: number;
+        //     mean?: number;
+        //     std_dev?: number;
+        //     min?: number;
+        //     max?: number;
+        // };
+        
         // For open questions
-        answer_count?: number;
+        answer_count: number;
     };
 }
 
@@ -46,7 +56,7 @@ export interface UniversalRelationshipData {
     id: string;
     source: string;
     target: string;
-    type: 'shared_keyword' | 'answers' | 'responds_to' | 'related_to';
+    type: 'shared_keyword' | 'related_to'; // | 'answers' | 'responds_to'; // COMMENTED OUT: Other types
     metadata?: {
         keyword?: string;
         strength?: number;
@@ -54,52 +64,14 @@ export interface UniversalRelationshipData {
     };
 }
 
-// ENHANCED: User-specific data interfaces matching backend
-export interface UserVoteStatus {
-    nodeId: string;
-    status: 'agree' | 'disagree' | null;
-    votedAt?: string;
-}
-
-export interface UserQuantityResponse {
-    nodeId: string;
-    value: number;
-    unitId: string;
-    unitSymbol?: string;
-    submittedAt: string;
-}
-
-export interface UserVisibilityPreference {
-    nodeId: string;
-    isVisible: boolean;
-    source: 'user' | 'community';
-    timestamp: number;
-}
-
-export interface UserUnitPreference {
-    nodeId: string;
-    unitId: string;
-    lastUpdated: number;
-}
-
-// ENHANCED: User data structure matching backend response
-export interface UniversalUserData {
-    votes: { [nodeId: string]: UserVoteStatus };
-    quantity_responses: { [nodeId: string]: UserQuantityResponse };
-    visibility_preferences: { [nodeId: string]: UserVisibilityPreference };
-    unit_preferences: { [nodeId: string]: UserUnitPreference };
-}
-
 export interface UniversalGraphResponse {
     nodes: UniversalNodeData[];
     relationships: UniversalRelationshipData[];
     total_count: number;
     has_more: boolean;
-    // ENHANCED: Add user_data field
-    user_data?: UniversalUserData;
 }
 
-export type UniversalSortType = 'consensus' | 'chronological' | 'participants';
+export type UniversalSortType = 'netVotes' | 'chronological' | 'participants'; // REMOVED: 'consensus'
 export type UniversalSortDirection = 'asc' | 'desc';
 export type FilterOperator = 'AND' | 'OR';
 
@@ -112,12 +84,12 @@ export interface VoteData {
 }
 
 interface UniversalGraphFilters {
-    node_types: Array<'statement' | 'openquestion' | 'quantity'>;
+    node_types: Array<'openquestion'>; // COMMENTED OUT: | 'statement' | 'quantity'>;
     keywords: string[];
     keyword_operator: FilterOperator;
     user_id?: string;
-    consensus_min: number;
-    consensus_max: number;
+    net_votes_min: number; // CHANGED: from consensus_min to net_votes_min
+    net_votes_max: number; // CHANGED: from consensus_max to net_votes_max
     date_from?: string;
     date_to?: string;
 }
@@ -140,12 +112,33 @@ interface UniversalGraphState {
     
     // Filters
     filters: UniversalGraphFilters;
-    
-    // ENHANCED: Add user_data to store state
-    user_data?: UniversalUserData;
 }
 
-function createUniversalGraphStore() {
+// ADDED: Extended interface for the store that includes user_data
+interface UniversalGraphStore {
+    subscribe: (run: any, invalidate?: any) => any;
+    user_data: { subscribe: any };
+    loadNodes: (user: any) => Promise<void>;
+    loadMore: (user: any) => Promise<void>;
+    reset: (user: any) => Promise<void>;
+    setNodeTypeFilter: (types: Array<'openquestion'>) => void;
+    setKeywordFilter: (keywords: string[], operator?: FilterOperator) => void;
+    setUserFilter: (userId?: string) => void;
+    setNetVotesFilter: (min: number, max: number) => void;
+    setConsensusFilter: (min: number, max: number) => void;
+    setDateFilter: (from?: string, to?: string) => void;
+    setSortType: (sortBy: UniversalSortType) => void;
+    setSortDirection: (direction: UniversalSortDirection) => void;
+    setLimit: (limit: number) => void;
+    getVoteData: (nodeId: string) => VoteData;
+    updateVoteData: (nodeId: string, positiveVotes: number, negativeVotes: number) => void;
+    clearVoteCache: (nodeId?: string) => void;
+    getUserData: (nodeId: string) => any;
+    updateUserVoteStatus: (nodeId: string, voteStatus: 'agree' | 'disagree' | null) => void;
+    updateUserVisibilityPreference: (nodeId: string, isVisible: boolean, source?: string) => void;
+}
+
+function createUniversalGraphStore(): UniversalGraphStore {
     const initialState: UniversalGraphState = {
         nodes: [],
         relationships: [],
@@ -157,22 +150,35 @@ function createUniversalGraphStore() {
         limit: 200,
         offset: 0,
         
-        sortBy: 'consensus',
+        sortBy: 'netVotes', // CHANGED: from 'consensus' to 'netVotes'
         sortDirection: 'desc',
         
         filters: {
-            node_types: ['statement', 'openquestion', 'quantity'],
+            node_types: ['openquestion'], // CHANGED: only openquestion
             keywords: [],
             keyword_operator: 'OR',
-            consensus_min: 0,
-            consensus_max: 1,
-        },
-        
-        // ENHANCED: Initialize user_data
-        user_data: undefined
+            net_votes_min: -50, // CHANGED: from consensus_min to net_votes_min
+            net_votes_max: 50,  // CHANGED: from consensus_max to net_votes_max
+        }
     };
 
     const { subscribe, set, update }: Writable<UniversalGraphState> = writable(initialState);
+
+    // ADDED: Derived store for user_data to match expected interface from other stores
+    const user_data = derived({ subscribe }, (state) => {
+        const userData: Record<string, any> = {};
+        
+        state.nodes.forEach(node => {
+            if (node.metadata.userVoteStatus || node.metadata.userVisibilityPreference) {
+                userData[node.id] = {
+                    userVoteStatus: node.metadata.userVoteStatus,
+                    userVisibilityPreference: node.metadata.userVisibilityPreference
+                };
+            }
+        });
+        
+        return userData;
+    });
 
     // ADDED: Vote cache for universal graph - independent of other stores
     const voteCache = new Map<string, VoteData>();
@@ -202,18 +208,25 @@ function createUniversalGraphStore() {
         let positiveVotes = 0;
         let negativeVotes = 0;
 
-        // Extract votes based on node type
-        if (node.type === 'statement' || node.type === 'openquestion') {
+        // Extract votes based on node type - ONLY openquestion for now
+        if (node.type === 'openquestion') {
             if (node.metadata.votes) {
                 positiveVotes = getNeo4jNumber(node.metadata.votes.positive);
                 negativeVotes = getNeo4jNumber(node.metadata.votes.negative);
             }
-        } else if (node.type === 'quantity') {
-            // Quantity nodes don't have traditional voting, but may have response data
-            // For now, we'll treat them as having 0 votes
-            positiveVotes = 0;
-            negativeVotes = 0;
         }
+        // COMMENTED OUT: Other node types
+        // else if (node.type === 'statement') {
+        //     if (node.metadata.votes) {
+        //         positiveVotes = getNeo4jNumber(node.metadata.votes.positive);
+        //         negativeVotes = getNeo4jNumber(node.metadata.votes.negative);
+        //     }
+        // } else if (node.type === 'quantity') {
+        //     // Quantity nodes don't have traditional voting, but may have response data
+        //     // For now, we'll treat them as having 0 votes
+        //     positiveVotes = 0;
+        //     negativeVotes = 0;
+        // }
 
         return cacheVoteData(node.id, positiveVotes, negativeVotes);
     }
@@ -237,14 +250,14 @@ function createUniversalGraphStore() {
         params.append('sort_by', state.sortBy);
         params.append('sort_direction', state.sortDirection);
         
-        // Node type filters
+        // Node type filters - ONLY openquestion
         state.filters.node_types.forEach(type => {
             params.append('node_types', type);
         });
         
-        // Consensus filter
-        params.append('min_consensus', state.filters.consensus_min.toString());
-        params.append('max_consensus', state.filters.consensus_max.toString());
+        // Net votes filter - CHANGED: from consensus to net_votes
+        params.append('min_net_votes', state.filters.net_votes_min.toString());
+        params.append('max_net_votes', state.filters.net_votes_max.toString());
         
         // Keywords filter
         if (state.filters.keywords.length > 0) {
@@ -285,6 +298,8 @@ function createUniversalGraphStore() {
             const params = buildQueryParams(state);
             const url = `/graph/universal/nodes?${params.toString()}`;
             
+            console.log('[UniversalGraphStore] Loading nodes from:', url);
+            
             // Use fetchWithAuth which handles JWT authentication properly
             const data = await fetchWithAuth(url);
             
@@ -298,7 +313,13 @@ function createUniversalGraphStore() {
             const relationships = data.relationships || [];
             const totalCount = data.total_count || nodes.length;
             const hasMore = data.has_more || false;
-            const userData = data.user_data || undefined; // ENHANCED: Extract user_data
+
+            console.log('[UniversalGraphStore] Received data:', {
+                nodes: nodes.length,
+                relationships: relationships.length,
+                totalCount,
+                hasMore
+            });
 
             // ADDED: Clear vote cache when loading new data
             voteCache.clear();
@@ -306,23 +327,12 @@ function createUniversalGraphStore() {
             // ADDED: Process and cache vote data for all nodes
             processAndCacheVoteData(nodes);
 
-            // ENHANCED: Log user data for debugging
-            if (userData) {
-                console.log('[UniversalGraphStore] Received user data:', {
-                    votes: Object.keys(userData.votes || {}).length,
-                    quantity_responses: Object.keys(userData.quantity_responses || {}).length,
-                    visibility_preferences: Object.keys(userData.visibility_preferences || {}).length,
-                    unit_preferences: Object.keys(userData.unit_preferences || {}).length
-                });
-            }
-
             update(state => ({
                 ...state,
                 nodes: nodes,
                 relationships: relationships,
                 totalCount: totalCount,
                 hasMore: hasMore,
-                user_data: userData, // ENHANCED: Store user_data
                 loading: false
             }));
         } catch (error) {
@@ -347,18 +357,12 @@ function createUniversalGraphStore() {
     // Reset and reload
     async function reset(user: any) {
         voteCache.clear(); // ADDED: Clear vote cache on reset
-        update(s => ({ 
-            ...s, 
-            offset: 0, 
-            nodes: [], 
-            relationships: [], 
-            user_data: undefined // ENHANCED: Clear user_data on reset
-        }));
+        update(s => ({ ...s, offset: 0, nodes: [], relationships: [] }));
         await loadNodes(user);
     }
 
-    // Filter setters
-    function setNodeTypeFilter(types: Array<'statement' | 'openquestion' | 'quantity'>) {
+    // Filter setters - UPDATED: Only support openquestion
+    function setNodeTypeFilter(types: Array<'openquestion'>) {
         update(s => ({ ...s, filters: { ...s.filters, node_types: types } }));
     }
 
@@ -377,15 +381,25 @@ function createUniversalGraphStore() {
         update(s => ({ ...s, filters: { ...s.filters, user_id: userId } }));
     }
 
-    function setConsensusFilter(min: number, max: number) {
+    // CHANGED: Net votes filter instead of consensus
+    function setNetVotesFilter(min: number, max: number) {
         update(s => ({ 
             ...s, 
             filters: { 
                 ...s.filters, 
-                consensus_min: Math.max(0, Math.min(1, min)),
-                consensus_max: Math.max(0, Math.min(1, max))
+                net_votes_min: Math.max(-100, Math.min(100, min)),
+                net_votes_max: Math.max(-100, Math.min(100, max))
             } 
         }));
+    }
+
+    // DEPRECATED: Keep for backward compatibility but log warning
+    function setConsensusFilter(min: number, max: number) {
+        console.warn('[UniversalGraphStore] setConsensusFilter is deprecated. Use setNetVotesFilter instead.');
+        // Convert consensus ratio (0-1) to reasonable net votes range
+        const minNetVotes = Math.floor((min - 0.5) * 100);
+        const maxNetVotes = Math.floor((max - 0.5) * 100);
+        setNetVotesFilter(minNetVotes, maxNetVotes);
     }
 
     function setDateFilter(from?: string, to?: string) {
@@ -442,8 +456,8 @@ function createUniversalGraphStore() {
             const posVotes = getNeo4jNumber(positiveVotes);
             const negVotes = getNeo4jNumber(negativeVotes);
             
-            // Update the node's vote data based on type
-            if (node.type === 'statement' || node.type === 'openquestion') {
+            // Update the node's vote data - ONLY for openquestion
+            if (node.type === 'openquestion') {
                 if (!node.metadata.votes) {
                     node.metadata.votes = { positive: 0, negative: 0, net: 0 };
                 }
@@ -451,80 +465,24 @@ function createUniversalGraphStore() {
                 node.metadata.votes.negative = negVotes;
                 node.metadata.votes.net = posVotes - negVotes;
             }
+            // COMMENTED OUT: Other node types
+            // else if (node.type === 'statement') {
+            //     if (!node.metadata.votes) {
+            //         node.metadata.votes = { positive: 0, negative: 0, net: 0 };
+            //     }
+            //     node.metadata.votes.positive = posVotes;
+            //     node.metadata.votes.negative = negVotes;
+            //     node.metadata.votes.net = posVotes - negVotes;
+            // }
             
             // Cache the updated vote data
             cacheVoteData(nodeId, posVotes, negVotes);
-            
-            // ENHANCED: Also update user_data if available
-            if (state.user_data?.votes?.[nodeId]) {
-                // Keep the existing vote status but update the cached data
-                // The user's personal vote status doesn't change from this update
-            }
             
             // Trigger store update
             update(state => ({ ...state }));
         } else {
             console.warn(`[UniversalGraphStore] Attempted to update vote data for unknown node: ${nodeId}`);
         }
-    }
-
-    // ENHANCED: Update user's personal vote status
-    function updateUserVoteStatus(nodeId: string, status: 'agree' | 'disagree' | null, votedAt?: string): void {
-        update(state => {
-            if (!state.user_data) {
-                state.user_data = {
-                    votes: {},
-                    quantity_responses: {},
-                    visibility_preferences: {},
-                    unit_preferences: {}
-                };
-            }
-            
-            if (!state.user_data.votes) {
-                state.user_data.votes = {};
-            }
-            
-            state.user_data.votes[nodeId] = {
-                nodeId,
-                status,
-                votedAt: votedAt || new Date().toISOString()
-            };
-            
-            return { ...state };
-        });
-    }
-
-    // ENHANCED: Update user's quantity response
-    function updateUserQuantityResponse(nodeId: string, response: UserQuantityResponse): void {
-        update(state => {
-            if (!state.user_data) {
-                state.user_data = {
-                    votes: {},
-                    quantity_responses: {},
-                    visibility_preferences: {},
-                    unit_preferences: {}
-                };
-            }
-            
-            if (!state.user_data.quantity_responses) {
-                state.user_data.quantity_responses = {};
-            }
-            
-            state.user_data.quantity_responses[nodeId] = response;
-            
-            return { ...state };
-        });
-    }
-
-    // ENHANCED: Remove user's quantity response
-    function removeUserQuantityResponse(nodeId: string): void {
-        update(state => {
-            if (state.user_data?.quantity_responses?.[nodeId]) {
-                delete state.user_data.quantity_responses[nodeId];
-            }
-            
-            return { ...state };
-        });
     }
 
     // ADDED: Clear vote cache - matches other store interfaces
@@ -536,15 +494,95 @@ function createUniversalGraphStore() {
         }
     }
 
+    // ADDED: Get user data (vote status and visibility preferences) for a node
+    function getUserData(nodeId: string): {
+        userVoteStatus?: { status: 'agree' | 'disagree' | null };
+        userVisibilityPreference?: { isVisible: boolean; source: string; timestamp: number };
+    } {
+        const state = get({ subscribe });
+        const node = state.nodes.find(n => n.id === nodeId);
+        
+        if (node) {
+            return {
+                userVoteStatus: node.metadata.userVoteStatus,
+                userVisibilityPreference: node.metadata.userVisibilityPreference
+            };
+        }
+        
+        return {};
+    }
+
+    // ADDED: Update user vote status for a node
+    function updateUserVoteStatus(nodeId: string, voteStatus: 'agree' | 'disagree' | null): void {
+        const state = get({ subscribe });
+        const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
+        
+        if (nodeIndex >= 0) {
+            const updatedNodes = [...state.nodes];
+            const node = { ...updatedNodes[nodeIndex] };
+            
+            // Update the user vote status in metadata
+            node.metadata = {
+                ...node.metadata,
+                userVoteStatus: {
+                    status: voteStatus
+                }
+            };
+            
+            updatedNodes[nodeIndex] = node;
+            
+            // Update the store
+            update(state => ({
+                ...state,
+                nodes: updatedNodes
+            }));
+        }
+    }
+
+    // ADDED: Update user visibility preference for a node
+    function updateUserVisibilityPreference(
+        nodeId: string, 
+        isVisible: boolean, 
+        source: string = 'user'
+    ): void {
+        const state = get({ subscribe });
+        const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
+        
+        if (nodeIndex >= 0) {
+            const updatedNodes = [...state.nodes];
+            const node = { ...updatedNodes[nodeIndex] };
+            
+            // Update the user visibility preference in metadata
+            node.metadata = {
+                ...node.metadata,
+                userVisibilityPreference: {
+                    isVisible,
+                    source,
+                    timestamp: Date.now()
+                }
+            };
+            
+            updatedNodes[nodeIndex] = node;
+            
+            // Update the store
+            update(state => ({
+                ...state,
+                nodes: updatedNodes
+            }));
+        }
+    }
+
     return {
         subscribe,
+        user_data, // ADDED: Derived store for user data
         loadNodes,
         loadMore,
         reset,
         setNodeTypeFilter,
         setKeywordFilter,
         setUserFilter,
-        setConsensusFilter,
+        setNetVotesFilter,    // NEW: For net votes filtering
+        setConsensusFilter,   // DEPRECATED: But kept for backward compatibility
         setDateFilter,
         setSortType,
         setSortDirection,
@@ -555,10 +593,10 @@ function createUniversalGraphStore() {
         updateVoteData,
         clearVoteCache,
         
-        // ENHANCED: User-specific data management
+        // ADDED: User data management methods
+        getUserData,
         updateUserVoteStatus,
-        updateUserQuantityResponse,
-        removeUserQuantityResponse
+        updateUserVisibilityPreference
     };
 }
 

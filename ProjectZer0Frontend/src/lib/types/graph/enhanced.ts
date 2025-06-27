@@ -22,7 +22,7 @@ export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 
 export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to';
 export type NodeMode = 'preview' | 'detail';
 
-// Metadata type for enhanced nodes
+// UPDATED: Metadata type for enhanced nodes - now includes user-specific data
 export interface NodeMetadata {
     centralRadius?: number;
     group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'openquestion' | 'quantity'| 'comment' | 'comment-form' | 'control';
@@ -38,9 +38,19 @@ export interface NodeMetadata {
     isExpanded?: boolean; // Added for expanded comments
     
     // NEW: Universal graph properties
-    consensus_ratio?: number;  // Consensus ratio (0.0 to 1.0)
+    consensus_ratio?: number;  // Consensus ratio (0.0 to 1.0) - DEPRECATED but kept for compatibility
     participant_count?: number; // Number of participants
     net_votes?: number; // Net positive/negative votes
+    
+    // NEW: User-specific data from backend
+    userVoteStatus?: {
+        status: 'agree' | 'disagree' | null;
+    };
+    userVisibilityPreference?: {
+        isVisible: boolean;
+        source: string;
+        timestamp: number;
+    };
 }
 
 // Core node interface for initial data
@@ -88,7 +98,7 @@ export interface EnhancedNode {
     fx?: number | null;
     fy?: number | null;
 
-    // Layout metadata
+    // Layout metadata - UPDATED to include user-specific data
     metadata: NodeMetadata;
 }
 
@@ -163,7 +173,7 @@ export interface RenderableNode {
     radius: number;
     position: NodePosition;
     style: NodeStyle;
-    metadata: NodeMetadata; // Added for consistent access
+    metadata: NodeMetadata; // UPDATED: Now includes user-specific data
 }
 
 export interface LayoutNode {
