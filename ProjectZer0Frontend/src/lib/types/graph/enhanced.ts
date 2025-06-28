@@ -1,4 +1,5 @@
-// src/lib/types/graph/enhanced.ts
+// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships
+
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
@@ -16,13 +17,21 @@ export interface ControlNodeData {
 
 // View and group types
 export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal';
-// FIXED: Added 'statement' to NodeType
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
-// FIXED: Added 'statement' to NodeGroup
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
-// UPDATED: Added universal graph link types
+// ENHANCED: Updated link types with consolidated support
 export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to';
 export type NodeMode = 'preview' | 'detail';
+
+// NEW: Consolidated keyword metadata interface
+export interface ConsolidatedKeywordMetadata {
+    sharedWords: string[];
+    totalStrength: number;
+    relationCount: number;
+    primaryKeyword: string;
+    strengthsByKeyword: { [keyword: string]: number };
+    averageStrength: number;
+}
 
 // UPDATED: Metadata type for enhanced nodes - now includes user-specific data
 export interface NodeMetadata {
@@ -108,8 +117,7 @@ export interface EnhancedNode {
     metadata: NodeMetadata;
 }
 
-// Enhanced link for D3 simulation
-// We use a type assertion to make it compatible with D3
+// ENHANCED: Enhanced link for D3 simulation with consolidated support
 export type EnhancedLink = {
     id: string;
     source: string | EnhancedNode;
@@ -119,14 +127,20 @@ export type EnhancedLink = {
     index?: number;
     relationshipType?: 'direct' | 'keyword';
     metadata?: {
+        // Backward compatibility fields
         sharedWords?: string[];
         relationCount?: number;
-        keyword?: string; // NEW: For shared_keyword links
+        keyword?: string; // Will be primaryKeyword for consolidated relationships
+        
+        // NEW: Consolidated keyword metadata for optimized relationships
+        consolidatedKeywords?: ConsolidatedKeywordMetadata;
+        
+        // Other metadata
         [key: string]: any;
     };
 };
 
-// Ready-to-render link with pre-calculated path
+// ENHANCED: Ready-to-render link with consolidated relationship support
 export interface RenderableLink {
     id: string;
     type: LinkType;
@@ -139,10 +153,22 @@ export interface RenderableLink {
     targetPosition: NodePosition;
     strength?: number; 
     relationshipType?: 'direct' | 'keyword';
+    
+    // ENHANCED: Metadata with consolidated support
     metadata?: {
+        // Legacy fields (maintained for backward compatibility)
         sharedWords?: string[];
         relationCount?: number;
-        keyword?: string; // NEW: For shared_keyword links
+        keyword?: string; // Primary keyword for consolidated relationships
+        
+        // NEW: Rich consolidated metadata
+        consolidatedKeywords?: ConsolidatedKeywordMetadata;
+        
+        // Performance tracking
+        isConsolidated?: boolean; // Quick check for rendering optimizations
+        originalRelationshipCount?: number; // How many relationships this represents
+        
+        // Other metadata
         [key: string]: any;
     };
 }
@@ -155,7 +181,8 @@ export interface LayoutLink {
     metadata?: {
         sharedWords?: string[];
         relationCount?: number;
-        keyword?: string; // NEW: For shared_keyword links
+        keyword?: string;
+        consolidatedKeywords?: ConsolidatedKeywordMetadata; // NEW
         [key: string]: any;
     };
 }
@@ -244,6 +271,141 @@ export interface GraphPageData {
     _routeKey?: string; // Added for forcing re-renders on navigation
 }
 
+// NEW: Utility class for working with consolidated relationships
+export class ConsolidatedRelationshipUtils {
+    /**
+     * Check if a relationship is consolidated (has multiple keywords)
+     */
+    static isConsolidated(link: RenderableLink | EnhancedLink): boolean {
+        return Boolean(
+            link.type === 'shared_keyword' &&
+            link.metadata?.consolidatedKeywords &&
+            link.metadata.consolidatedKeywords.relationCount > 1
+        );
+    }
+
+    /**
+     * Get the primary display keyword for a relationship
+     */
+    static getPrimaryKeyword(link: RenderableLink | EnhancedLink): string {
+        if (link.metadata?.consolidatedKeywords) {
+            return link.metadata.consolidatedKeywords.primaryKeyword;
+        }
+        return link.metadata?.keyword || '';
+    }
+
+    /**
+     * Get all keywords for a relationship (for tooltips, detailed views)
+     */
+    static getAllKeywords(link: RenderableLink | EnhancedLink): string[] {
+        if (link.metadata?.consolidatedKeywords) {
+            return link.metadata.consolidatedKeywords.sharedWords;
+        }
+        // Fallback to legacy sharedWords or single keyword
+        if (link.metadata?.sharedWords) {
+            return link.metadata.sharedWords;
+        }
+        return link.metadata?.keyword ? [link.metadata.keyword] : [];
+    }
+
+    /**
+     * Get the effective strength for visual rendering (stroke width, etc.)
+     */
+    static getEffectiveStrength(link: RenderableLink | EnhancedLink): number {
+        if (link.metadata?.consolidatedKeywords) {
+            const consolidated = link.metadata.consolidatedKeywords;
+            // Use total strength but cap it for visual consistency
+            return Math.min(1.0, consolidated.totalStrength);
+        }
+        
+        // Fallback to legacy relationCount-based calculation
+        if (link.metadata?.relationCount && link.metadata.relationCount > 1) {
+            return Math.min(1.0, 0.3 + (link.metadata.relationCount - 1) * 0.1);
+        }
+        
+        return link.strength || link.metadata?.strength || 0.3;
+    }
+
+    /**
+     * Get relationship count (how many original relationships this represents)
+     */
+    static getRelationshipCount(link: RenderableLink | EnhancedLink): number {
+        if (link.metadata?.consolidatedKeywords) {
+            return link.metadata.consolidatedKeywords.relationCount;
+        }
+        return link.metadata?.relationCount || 1;
+    }
+
+    /**
+     * Get tooltip text for consolidated relationships
+     */
+    static getTooltipText(link: RenderableLink | EnhancedLink): string {
+        if (this.isConsolidated(link)) {
+            const consolidated = link.metadata!.consolidatedKeywords!;
+            const keywordList = consolidated.sharedWords.slice(0, 5).join(', ');
+            const remaining = Math.max(0, consolidated.sharedWords.length - 5);
+            
+            let text = `Shared keywords: ${keywordList}`;
+            if (remaining > 0) {
+                text += ` (and ${remaining} more)`;
+            }
+            text += `\nRelations: ${consolidated.relationCount}`;
+            text += `\nTotal strength: ${consolidated.totalStrength.toFixed(2)}`;
+            
+            return text;
+        } else {
+            // Handle legacy relationships
+            const keywords = this.getAllKeywords(link);
+            const strength = this.getEffectiveStrength(link);
+            
+            if (keywords.length > 1) {
+                return `${keywords.length} shared keywords: ${keywords.join(', ')}\nStrength: ${strength.toFixed(2)}`;
+            } else if (keywords.length === 1) {
+                return `Shared keyword: ${keywords[0]}\nStrength: ${strength.toFixed(2)}`;
+            } else {
+                return `Relationship strength: ${strength.toFixed(2)}`;
+            }
+        }
+    }
+
+    /**
+     * Calculate visual properties for rendering
+     */
+    static getVisualProperties(link: RenderableLink | EnhancedLink): {
+        strokeWidth: number;
+        opacity: number;
+        dashArray: string;
+        glowIntensity: number;
+    } {
+        const isConsolidated = this.isConsolidated(link);
+        const effectiveStrength = this.getEffectiveStrength(link);
+        const relationCount = this.getRelationshipCount(link);
+        
+        // Calculate stroke width based on effective strength
+        const baseStrokeWidth = link.type === 'shared_keyword' ? 1.0 : 1.5;
+        const strokeWidth = Math.min(3.0, baseStrokeWidth + effectiveStrength * 1.5);
+        
+        // Calculate opacity - consolidated relationships get slight boost
+        const baseOpacity = 0.6;
+        const strengthBonus = effectiveStrength * 0.3;
+        const consolidationBonus = isConsolidated ? 0.1 : 0;
+        const opacity = Math.min(0.95, baseOpacity + strengthBonus + consolidationBonus);
+        
+        // Dash pattern for consolidated relationships
+        const dashArray = isConsolidated ? '3,2' : 'none';
+        
+        // Glow intensity based on relationship count
+        const glowIntensity = Math.min(8, 2 + (relationCount - 1) * 0.5);
+        
+        return {
+            strokeWidth,
+            opacity,
+            dashArray,
+            glowIntensity
+        };
+    }
+}
+
 // Utility functions for type compatibility with D3
 export function asD3Nodes(nodes: EnhancedNode[]): SimulationNodeDatum[] {
     // This cast tells TypeScript to treat our nodes as compatible with D3
@@ -305,7 +467,6 @@ export const isDefinitionNode = (node: RenderableNode): node is RenderableNode &
 export const isNavigationNode = (node: RenderableNode): node is RenderableNode & { data: NavigationOption } =>
     node.type === 'navigation' && isNavigationData(node.data);
 
-// FIXED: Statement node type guard
 export const isStatementNode = (node: RenderableNode): node is RenderableNode & { data: StatementNode } =>
     node.type === 'statement' && isStatementData(node.data);
 
@@ -340,9 +501,12 @@ export const isRelatedLink = (link: RenderableLink): boolean =>
 export const isAnswersLink = (link: RenderableLink): boolean =>
     link.type === 'answers';
 
-// NEW: Universal graph link type guards
+// ENHANCED: Universal graph link type guards with consolidated support
 export const isSharedKeywordLink = (link: RenderableLink): boolean =>
     link.type === 'shared_keyword';
+
+export const isConsolidatedSharedKeywordLink = (link: RenderableLink): boolean =>
+    link.type === 'shared_keyword' && ConsolidatedRelationshipUtils.isConsolidated(link);
 
 export const isRespondsToLink = (link: RenderableLink): boolean =>
     link.type === 'responds_to';

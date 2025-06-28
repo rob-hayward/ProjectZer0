@@ -1,14 +1,15 @@
-// src/lib/stores/universalGraphStore.ts
+// src/lib/stores/universalGraphStore.ts - ENHANCED for consolidated relationships
 
 import { writable, derived, get } from 'svelte/store';
 import type { Writable, Readable } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+import type { ConsolidatedKeywordMetadata } from '$lib/types/graph/enhanced';
 
-// Types for universal graph data - UPDATED: Include both OpenQuestion and Statement
+// ENHANCED: Types for universal graph data with consolidated relationship support
 export interface UniversalNodeData {
     id: string;
-    type: 'openquestion' | 'statement'; // UPDATED: Added statement support
+    type: 'openquestion' | 'statement';
     content: string;
     participant_count: number;
     created_at: string;
@@ -41,7 +42,7 @@ export interface UniversalNodeData {
         // For open questions
         answer_count?: number;
         
-        // FIXED: For statements - using the correct field names from backend
+        // For statements
         relatedStatements?: Array<{
             nodeId: string;
             statement: string;
@@ -61,17 +62,24 @@ export interface UniversalNodeData {
     };
 }
 
+// ENHANCED: Consolidated relationship data interface
 export interface UniversalRelationshipData {
     id: string;
     source: string;
     target: string;
-    type: 'shared_keyword' | 'related_to' | 'answers'; // UPDATED: Added answers relationship
+    type: 'shared_keyword' | 'related_to' | 'answers';
     metadata?: {
+        // Backward compatibility fields
         keyword?: string;
         strength?: number;
         created_at?: string;
-        sharedWords?: string[]; // ADDED: For statement relationships
-        relationCount?: number; // ADDED: For statement relationships
+        
+        // ENHANCED: Consolidated keyword metadata for optimized relationships
+        consolidatedKeywords?: ConsolidatedKeywordMetadata;
+        
+        // Performance tracking
+        isConsolidated?: boolean;
+        originalRelationshipCount?: number;
     };
 }
 
@@ -80,6 +88,13 @@ export interface UniversalGraphResponse {
     relationships: UniversalRelationshipData[];
     total_count: number;
     has_more: boolean;
+    // ENHANCED: Performance metrics from backend
+    performance_metrics?: {
+        node_count: number;
+        relationship_count: number;
+        relationship_density: number;
+        consolidation_ratio: number;
+    };
 }
 
 export type UniversalSortType = 'netVotes' | 'chronological' | 'participants';
@@ -95,7 +110,7 @@ export interface VoteData {
 }
 
 interface UniversalGraphFilters {
-    node_types: Array<'openquestion' | 'statement'>; // UPDATED: Added statement support
+    node_types: Array<'openquestion' | 'statement'>;
     keywords: string[];
     keyword_operator: FilterOperator;
     user_id?: string;
@@ -123,6 +138,15 @@ interface UniversalGraphState {
     
     // Filters
     filters: UniversalGraphFilters;
+    
+    // ENHANCED: Performance tracking
+    performanceMetrics?: {
+        node_count: number;
+        relationship_count: number;
+        relationship_density: number;
+        consolidation_ratio: number;
+        lastUpdateTime: number;
+    };
 }
 
 // Extended interface for the store that includes user_data
@@ -132,7 +156,7 @@ interface UniversalGraphStore {
     loadNodes: (user: any) => Promise<void>;
     loadMore: (user: any) => Promise<void>;
     reset: (user: any) => Promise<void>;
-    setNodeTypeFilter: (types: Array<'openquestion' | 'statement'>) => void; // UPDATED
+    setNodeTypeFilter: (types: Array<'openquestion' | 'statement'>) => void;
     setKeywordFilter: (keywords: string[], operator?: FilterOperator) => void;
     setUserFilter: (userId?: string) => void;
     setNetVotesFilter: (min: number, max: number) => void;
@@ -147,6 +171,8 @@ interface UniversalGraphStore {
     getUserData: (nodeId: string) => any;
     updateUserVoteStatus: (nodeId: string, voteStatus: 'agree' | 'disagree' | null) => void;
     updateUserVisibilityPreference: (nodeId: string, isVisible: boolean, source?: string) => void;
+    // ENHANCED: Performance metrics access
+    getPerformanceMetrics: () => any;
 }
 
 function createUniversalGraphStore(): UniversalGraphStore {
@@ -165,7 +191,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         sortDirection: 'desc',
         
         filters: {
-            node_types: ['openquestion', 'statement'], // UPDATED: Default to both types
+            node_types: ['openquestion', 'statement'],
             keywords: [],
             keyword_operator: 'OR',
             net_votes_min: -50,
@@ -283,7 +309,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         return params;
     }
 
-    // Load nodes from the API
+    // ENHANCED: Load nodes from the API with consolidated relationship support
     async function loadNodes(user: any) {
         if (!user) {
             console.error('[UniversalGraphStore] No user provided');
@@ -312,14 +338,21 @@ function createUniversalGraphStore(): UniversalGraphStore {
             const relationships = data.relationships || [];
             const totalCount = data.total_count || nodes.length;
             const hasMore = data.has_more || false;
+            const performanceMetrics = data.performance_metrics;
 
             console.log('[UniversalGraphStore] Received data:', {
                 nodes: nodes.length,
                 relationships: relationships.length,
                 totalCount,
                 hasMore,
-                nodeTypes: nodes.map((n: any) => n.type)
+                nodeTypes: nodes.map((n: any) => n.type),
+                // ENHANCED: Log consolidation metrics
+                consolidationRatio: performanceMetrics?.consolidation_ratio || 1.0,
+                relationshipDensity: performanceMetrics?.relationship_density || 0
             });
+
+            // ENHANCED: Process consolidated relationships
+            const processedRelationships = processConsolidatedRelationships(relationships);
 
             // Clear vote cache when loading new data
             voteCache.clear();
@@ -330,10 +363,15 @@ function createUniversalGraphStore(): UniversalGraphStore {
             update(state => ({
                 ...state,
                 nodes: nodes,
-                relationships: relationships,
+                relationships: processedRelationships,
                 totalCount: totalCount,
                 hasMore: hasMore,
-                loading: false
+                loading: false,
+                // ENHANCED: Store performance metrics
+                performanceMetrics: performanceMetrics ? {
+                    ...performanceMetrics,
+                    lastUpdateTime: Date.now()
+                } : undefined
             }));
         } catch (error) {
             console.error('[UniversalGraphStore] Error loading nodes:', error);
@@ -343,6 +381,42 @@ function createUniversalGraphStore(): UniversalGraphStore {
                 error: error instanceof Error ? error.message : 'Unknown error occurred'
             }));
         }
+    }
+
+    /**
+     * ENHANCED: Process consolidated relationships to ensure frontend compatibility
+     */
+    function processConsolidatedRelationships(relationships: any[]): UniversalRelationshipData[] {
+        return relationships.map(rel => {
+            const processedRel: UniversalRelationshipData = {
+                id: rel.id,
+                source: rel.source,
+                target: rel.target,
+                type: rel.type,
+                metadata: {
+                    ...rel.metadata
+                }
+            };
+
+            // ENHANCED: Handle consolidated shared keyword relationships
+            if (rel.type === 'shared_keyword' && rel.metadata?.consolidatedKeywords) {
+                // Mark as consolidated for frontend processing
+                processedRel.metadata!.isConsolidated = true;
+                processedRel.metadata!.originalRelationshipCount = rel.metadata.consolidatedKeywords.relationCount;
+                
+                // Ensure backward compatibility by setting legacy fields
+                processedRel.metadata!.keyword = rel.metadata.consolidatedKeywords.primaryKeyword;
+                processedRel.metadata!.strength = rel.metadata.consolidatedKeywords.totalStrength;
+                
+                console.log(`[UniversalGraphStore] Processed consolidated relationship: ${rel.metadata.consolidatedKeywords.relationCount} keywords consolidated into 1 link`);
+            } else {
+                // Mark as non-consolidated
+                processedRel.metadata!.isConsolidated = false;
+                processedRel.metadata!.originalRelationshipCount = 1;
+            }
+
+            return processedRel;
+        });
     }
 
     // Load more nodes (pagination)
@@ -361,7 +435,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         await loadNodes(user);
     }
 
-    // UPDATED: Filter setters - now support both openquestion and statement
+    // Filter setters - now support both openquestion and statement
     function setNodeTypeFilter(types: Array<'openquestion' | 'statement'>) {
         update(s => ({ ...s, filters: { ...s.filters, node_types: types } }));
     }
@@ -446,7 +520,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         return { positiveVotes: 0, negativeVotes: 0, netVotes: 0, shouldBeHidden: false };
     }
 
-    // UPDATED: Update vote data for a universal graph node - supports both types
+    // Update vote data for a universal graph node - supports both types
     function updateVoteData(nodeId: string, positiveVotes: number, negativeVotes: number): void {
         const state = get({ subscribe });
         const node = state.nodes.find(n => n.id === nodeId);
@@ -563,6 +637,12 @@ function createUniversalGraphStore(): UniversalGraphStore {
         }
     }
 
+    // ENHANCED: Get performance metrics
+    function getPerformanceMetrics() {
+        const state = get({ subscribe });
+        return state.performanceMetrics || null;
+    }
+
     return {
         subscribe,
         user_data,
@@ -587,7 +667,10 @@ function createUniversalGraphStore(): UniversalGraphStore {
         // User data management methods
         getUserData,
         updateUserVoteStatus,
-        updateUserVisibilityPreference
+        updateUserVisibilityPreference,
+        
+        // ENHANCED: Performance metrics access
+        getPerformanceMetrics
     };
 }
 

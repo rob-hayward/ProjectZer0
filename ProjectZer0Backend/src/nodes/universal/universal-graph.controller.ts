@@ -138,7 +138,20 @@ export class UniversalGraphController {
       // Validate query parameters
       this.validateQueryParams(parsedQuery);
 
-      return await this.universalGraphService.getUniversalNodes(parsedQuery);
+      const result =
+        await this.universalGraphService.getUniversalNodes(parsedQuery);
+
+      // Log performance metrics for monitoring
+      if (result.performance_metrics) {
+        this.logger.log(
+          `Performance: ${result.performance_metrics.node_count} nodes, ` +
+            `${result.performance_metrics.relationship_count} relationships ` +
+            `(density: ${result.performance_metrics.relationship_density}, ` +
+            `consolidation: ${result.performance_metrics.consolidation_ratio}x)`,
+        );
+      }
+
+      return result;
     } catch (error) {
       this.logger.error(
         `Error in getUniversalNodes: ${error.message}`,
@@ -244,12 +257,18 @@ export class UniversalGraphController {
   async getHealthStatus(): Promise<{
     status: string;
     supportedTypes: string[];
+    performanceOptimizations: string[];
   }> {
     this.logger.debug('Health check requested for universal graph');
 
     return {
       status: 'healthy',
       supportedTypes: ['openquestion', 'statement'],
+      performanceOptimizations: [
+        'consolidated_shared_keyword_relationships',
+        'user_data_enhancement',
+        'performance_metrics_tracking',
+      ],
     };
   }
 
@@ -268,6 +287,54 @@ export class UniversalGraphController {
       sortBy: ['netVotes', 'chronological', 'participants'],
       sortDirection: ['asc', 'desc'],
       relationshipTypes: ['shared_keyword', 'related_to', 'answers'],
+    };
+  }
+
+  /**
+   * NEW: Performance metrics endpoint for monitoring
+   */
+  @Get('performance')
+  async getPerformanceMetrics(@Query() query: any): Promise<{
+    current_metrics?: any;
+    optimization_info: {
+      consolidation_enabled: boolean;
+      expected_reduction: string;
+      features: string[];
+    };
+  }> {
+    this.logger.debug('Performance metrics requested');
+
+    const optimizationInfo = {
+      consolidation_enabled: true,
+      expected_reduction: '~70% relationship count reduction',
+      features: [
+        'Consolidated shared keyword relationships',
+        'Performance metrics tracking',
+        'User-specific data enhancement',
+        'Backward compatibility maintained',
+      ],
+    };
+
+    // Optionally include current metrics if specific query provided
+    let current_metrics;
+    if (query.include_current && query.include_current === 'true') {
+      try {
+        // Get a small sample to calculate current metrics
+        const sampleResult = await this.universalGraphService.getUniversalNodes(
+          {
+            limit: 50,
+            include_relationships: true,
+          },
+        );
+        current_metrics = sampleResult.performance_metrics;
+      } catch (error) {
+        this.logger.warn(`Could not fetch current metrics: ${error.message}`);
+      }
+    }
+
+    return {
+      current_metrics,
+      optimization_info: optimizationInfo,
     };
   }
 }

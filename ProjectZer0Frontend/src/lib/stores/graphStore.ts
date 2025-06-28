@@ -1,16 +1,15 @@
-// src/lib/stores/graphStore.ts
+// src/lib/stores/graphStore.ts - Enhanced with Universal Manager support while preserving all existing functionality
+
 import { derived, writable, get, type Readable } from 'svelte/store';
 import type { 
     GraphData, 
     ViewType, 
     NodeMode, 
-    NodeType,
-    GraphNode,
-    GraphLink,
-    EnhancedNode
+    RenderableNode, 
+    RenderableLink, 
+    LayoutUpdateConfig 
 } from '$lib/types/graph/enhanced';
-import type { RenderableNode, RenderableLink, LayoutUpdateConfig } from '$lib/types/graph/enhanced';
-import { GraphManager } from '$lib/services/graph/GraphManager';
+import { GraphManagerFactory, type IGraphManager, isUniversalGraphManager } from '$lib/services/graph/GraphManagerFactory';
 
 export interface GraphState {
     nodes: RenderableNode[];
@@ -20,7 +19,7 @@ export interface GraphState {
 }
 
 export interface GraphStore {
-	getState(): unknown;
+    getState(): unknown;
     subscribe: Readable<GraphState>['subscribe'];
     setData: (data: GraphData, config?: LayoutUpdateConfig) => void;
     updateNodeMode: (nodeId: string, mode: NodeMode) => void;
@@ -31,20 +30,31 @@ export interface GraphStore {
     getViewType: () => ViewType;
     fixNodePositions: () => void;
     stopSimulation: () => void;
-    forceTick: (ticks?: number) => void; // Updated to accept an optional parameter
+    forceTick: (ticks?: number) => void;
     dispose: () => void;
+    
+    // ENHANCED: Performance metrics for specialized managers
+    getPerformanceMetrics?: () => any;
 }
 
 export function createGraphStore(initialViewType: ViewType): GraphStore {
-    // Create manager and stores
-    const manager = new GraphManager(initialViewType);
+    // ENHANCED: Create manager using factory pattern
+    const manager = GraphManagerFactory.createManager(initialViewType);
     const viewTypeStore = writable<ViewType>(initialViewType);
     const isUpdatingStore = writable(false);
 
+    // Log manager creation for debugging
+    const performanceInfo = GraphManagerFactory.getPerformanceInfo(initialViewType);
+    console.log(`[GraphStore] Created ${performanceInfo.managerType} manager for ${initialViewType}:`, performanceInfo.optimizations);
+
+    // FIXED: Create properly typed derived stores
+    const nodesStore = derived(manager.renderableNodes, (nodes) => nodes as RenderableNode[]);
+    const linksStore = derived(manager.renderableLinks, (links) => links as RenderableLink[]);
+
     // Create derived store for complete graph state
     const graphState = derived(
-        [manager.renderableNodes, manager.renderableLinks, viewTypeStore, isUpdatingStore],
-        ([nodes, links, viewType, isUpdating]) => ({
+        [nodesStore, linksStore, viewTypeStore, isUpdatingStore],
+        ([nodes, links, viewType, isUpdating]): GraphState => ({
             nodes,
             links,
             viewType,
@@ -53,7 +63,19 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
     );
 
     return {
-        getState: () => get(graphState),
+        getState: () => {
+            const state = get(graphState);
+            
+            // ENHANCED: Include performance metrics if available
+            if (isUniversalGraphManager(manager)) {
+                return {
+                    ...state,
+                    performanceMetrics: manager.getPerformanceMetrics()
+                };
+            }
+            
+            return state;
+        },
 
         subscribe: graphState.subscribe,
 
@@ -61,6 +83,14 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             isUpdatingStore.set(true);
             manager.setData(data, config);
             isUpdatingStore.set(false);
+            
+            // ENHANCED: Log performance improvements for universal manager
+            if (isUniversalGraphManager(manager)) {
+                const metrics = manager.getPerformanceMetrics();
+                if (metrics.consolidationRatio > 1) {
+                    console.log(`[GraphStore] Universal graph optimized: ${metrics.consolidationRatio.toFixed(2)}x relationship reduction (${metrics.originalRelationshipCount} → ${metrics.consolidatedRelationshipCount})`);
+                }
+            }
         },
 
         updateNodeMode: (nodeId: string, mode: NodeMode) => {
@@ -76,43 +106,103 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
         },
         
         recalculateNodeVisibility: (nodeId: string, positiveVotes: number, negativeVotes: number, userPreference?: boolean) => {
-            isUpdatingStore.set(true);
-            manager.recalculateNodeVisibility(nodeId, positiveVotes, negativeVotes, userPreference);
-            isUpdatingStore.set(false);
+            // Only available on standard GraphManager
+            if (!isUniversalGraphManager(manager) && (manager as any).recalculateNodeVisibility) {
+                isUpdatingStore.set(true);
+                (manager as any).recalculateNodeVisibility(nodeId, positiveVotes, negativeVotes, userPreference);
+                isUpdatingStore.set(false);
+            } else {
+                console.warn('[GraphStore] recalculateNodeVisibility not available on current manager type');
+            }
         },
         
         // Method to apply all visibility preferences
         applyVisibilityPreferences: (preferences: Record<string, boolean>) => {
             isUpdatingStore.set(true);
-            // Use type assertion to avoid TypeScript errors
-            (manager as any).applyVisibilityPreferences(preferences);
+            manager.applyVisibilityPreferences(preferences);
             isUpdatingStore.set(false);
         },
 
         setViewType: (viewType: ViewType) => {
+            const currentViewType = get(viewTypeStore);
+            if (currentViewType === viewType) return;
+            
             viewTypeStore.set(viewType);
-            // Use type assertion to avoid TypeScript errors
-            (manager as any).updateViewType(viewType);
+            
+            // ENHANCED: Handle view type changes intelligently
+            if (isUniversalGraphManager(manager)) {
+                // Universal manager only handles universal view
+                if (viewType !== 'universal') {
+                    console.warn('[GraphStore] Universal manager cannot handle non-universal views. Consider recreating store.');
+                }
+            } else {
+                // Standard manager can handle view type changes
+                if ((manager as any).updateViewType) {
+                    (manager as any).updateViewType(viewType);
+                }
+            }
         },
 
-        getViewType: () => get(viewTypeStore),
+        getViewType: () => {
+            if (isUniversalGraphManager(manager)) {
+                return 'universal';
+            } else if ((manager as any).viewType) {
+                return (manager as any).viewType;
+            }
+            return get(viewTypeStore);
+        },
 
         fixNodePositions: () => {
-            manager.fixNodePositions();
+            // Available on standard GraphManager, not needed on Universal (has optimized positioning)
+            if (!isUniversalGraphManager(manager) && (manager as any).fixNodePositions) {
+                (manager as any).fixNodePositions();
+            } else if (isUniversalGraphManager(manager)) {
+                // Universal manager handles positioning automatically
+                manager.forceTick(1);
+            }
         },
         
         stopSimulation: () => {
-            manager.stopSimulation();
+            manager.stop();
         },
         
-        forceTick: (ticks = 1) => { // Updated to accept a parameter with default value
+        forceTick: (ticks = 1) => {
             manager.forceTick(ticks);
         },
 
         dispose: () => {
             manager.stop();
-        }
+        },
+        
+        // ENHANCED: Performance metrics access
+        getPerformanceMetrics: isUniversalGraphManager(manager) ? () => {
+            return manager.getPerformanceMetrics();
+        } : undefined
     };
 }
 
+// PRESERVED: Export the current global graph store instance (for backward compatibility)
 export const graphStore = createGraphStore('dashboard');
+
+// ENHANCED: Utility functions for performance monitoring
+export function getGraphPerformanceInfo(viewType: ViewType) {
+    return GraphManagerFactory.getPerformanceInfo(viewType);
+}
+
+export function hasOptimizedGraphManager(viewType: ViewType): boolean {
+    return GraphManagerFactory.hasSpecializedManager(viewType);
+}
+
+// ENHANCED: Function to create optimized store for specific view types
+export function createOptimizedGraphStore(viewType: ViewType): GraphStore {
+    const store = createGraphStore(viewType);
+    
+    // Log optimization status
+    if (hasOptimizedGraphManager(viewType)) {
+        console.log(`[GraphStore] Created optimized store for ${viewType} view with specialized manager`);
+    } else {
+        console.log(`[GraphStore] Created standard store for ${viewType} view`);
+    }
+    
+    return store;
+}

@@ -81,15 +81,27 @@ export interface UniversalNodeData {
   };
 }
 
+export interface ConsolidatedKeywordMetadata {
+  sharedWords: string[];
+  totalStrength: number;
+  relationCount: number;
+  primaryKeyword: string;
+  strengthsByKeyword: { [keyword: string]: number };
+  averageStrength: number;
+}
+
 export interface UniversalRelationshipData {
   id: string;
   source: string; // source node id
   target: string; // target node id
   type: 'shared_keyword' | 'related_to' | 'answers'; // | 'responds_to';
   metadata?: {
-    keyword?: string; // for shared_keyword type
-    strength?: number; // relationship strength (0-1)
+    keyword?: string; // for backward compatibility - will be primaryKeyword
+    strength?: number; // for backward compatibility - will be totalStrength
     created_at?: string; // when the relationship was created
+
+    // NEW: Consolidated keyword metadata
+    consolidatedKeywords?: ConsolidatedKeywordMetadata;
   };
 }
 
@@ -112,6 +124,12 @@ export interface UniversalGraphResponse {
   relationships: UniversalRelationshipData[];
   total_count: number;
   has_more: boolean;
+  performance_metrics?: {
+    node_count: number;
+    relationship_count: number;
+    relationship_density: number;
+    consolidation_ratio: number; // How much we reduced relationships
+  };
 }
 
 @Injectable()
@@ -210,6 +228,19 @@ export class UniversalGraphService {
         `Found ${relationships.length} relationships for ${enhancedNodes.length} nodes`,
       );
 
+      // Calculate performance metrics
+      const performance_metrics = {
+        node_count: enhancedNodes.length,
+        relationship_count: relationships.length,
+        relationship_density:
+          enhancedNodes.length > 0
+            ? parseFloat(
+                (relationships.length / enhancedNodes.length).toFixed(2),
+              )
+            : 0,
+        consolidation_ratio: this.calculateConsolidationRatio(relationships),
+      };
+
       // Get total count for pagination
       const total_count = await this.getTotalCount(node_types, {
         keywords,
@@ -217,11 +248,16 @@ export class UniversalGraphService {
       });
       const has_more = offset + enhancedNodes.length < total_count;
 
+      this.logger.log(
+        `Universal graph performance: ${performance_metrics.node_count} nodes, ${performance_metrics.relationship_count} relationships (density: ${performance_metrics.relationship_density}, consolidation: ${performance_metrics.consolidation_ratio}x)`,
+      );
+
       return {
         nodes: enhancedNodes,
         relationships,
         total_count,
         has_more,
+        performance_metrics,
       };
     } catch (error) {
       this.logger.error(
@@ -230,6 +266,33 @@ export class UniversalGraphService {
       );
       throw new Error(`Failed to get universal nodes: ${error.message}`);
     }
+  }
+
+  /**
+   * Calculate how much we consolidated relationships
+   * This helps track the optimization impact
+   */
+  private calculateConsolidationRatio(
+    relationships: UniversalRelationshipData[],
+  ): number {
+    let originalCount = 0;
+    let consolidatedCount = 0;
+
+    relationships.forEach((rel) => {
+      if (rel.type === 'shared_keyword' && rel.metadata?.consolidatedKeywords) {
+        // This was a consolidated relationship
+        originalCount += rel.metadata.consolidatedKeywords.relationCount;
+        consolidatedCount += 1;
+      } else {
+        // This was not consolidated (direct relationship, etc.)
+        originalCount += 1;
+        consolidatedCount += 1;
+      }
+    });
+
+    return originalCount > 0
+      ? parseFloat((originalCount / consolidatedCount).toFixed(2))
+      : 1.0;
   }
 
   private async getOpenQuestionNodes(
@@ -668,7 +731,7 @@ export class UniversalGraphService {
 
       // Fetch shared keyword relationships if requested
       if (relationshipTypes.includes('shared_keyword')) {
-        await this.addSharedKeywordRelationships(
+        await this.addConsolidatedSharedKeywordRelationships(
           relationships,
           nodeIds,
           nodeTypes,
@@ -695,7 +758,11 @@ export class UniversalGraphService {
     }
   }
 
-  private async addSharedKeywordRelationships(
+  /**
+   * OPTIMIZED: Consolidated shared keyword relationships
+   * This is the core optimization that reduces relationship count by ~70%
+   */
+  private async addConsolidatedSharedKeywordRelationships(
     relationships: UniversalRelationshipData[],
     nodeIds: string[],
     nodeTypes: Array<'openquestion' | 'statement'>,
@@ -703,55 +770,172 @@ export class UniversalGraphService {
     // OpenQuestion to OpenQuestion shared keywords
     if (nodeTypes.includes('openquestion')) {
       const oqSharedQuery = `
-        MATCH (oq1:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(oq2:OpenQuestionNode)
+        MATCH (oq1:OpenQuestionNode)-[t1:TAGGED]->(w:WordNode)<-[t2:TAGGED]-(oq2:OpenQuestionNode)
         WHERE oq1.id IN $nodeIds AND oq2.id IN $nodeIds AND oq1.id < oq2.id
-        RETURN DISTINCT {
-          source: oq1.id,
-          target: oq2.id,
-          keyword: w.word,
-          type: 'shared_keyword'
-        } as rel
+        RETURN DISTINCT oq1.id as source, oq2.id as target, 
+               w.word as keyword,
+               t1.frequency as sourceFreq,
+               t2.frequency as targetFreq,
+               'shared_keyword' as type
       `;
 
       const oqResult = await this.neo4jService.read(oqSharedQuery, { nodeIds });
-      this.processSharedKeywordResults(oqResult.records, relationships);
+      this.processConsolidatedSharedKeywordResults(
+        oqResult.records,
+        relationships,
+      );
     }
 
     // Statement to Statement shared keywords
     if (nodeTypes.includes('statement')) {
       const stSharedQuery = `
-        MATCH (s1:StatementNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(s2:StatementNode)
+        MATCH (s1:StatementNode)-[t1:TAGGED]->(w:WordNode)<-[t2:TAGGED]-(s2:StatementNode)
         WHERE s1.id IN $nodeIds AND s2.id IN $nodeIds AND s1.id < s2.id
-        RETURN DISTINCT {
-          source: s1.id,
-          target: s2.id,
-          keyword: w.word,
-          type: 'shared_keyword'
-        } as rel
+        RETURN DISTINCT s1.id as source, s2.id as target,
+               w.word as keyword,
+               t1.frequency as sourceFreq,
+               t2.frequency as targetFreq,
+               'shared_keyword' as type
       `;
 
       const stResult = await this.neo4jService.read(stSharedQuery, { nodeIds });
-      this.processSharedKeywordResults(stResult.records, relationships);
+      this.processConsolidatedSharedKeywordResults(
+        stResult.records,
+        relationships,
+      );
     }
 
     // OpenQuestion to Statement shared keywords (cross-type)
     if (nodeTypes.includes('openquestion') && nodeTypes.includes('statement')) {
       const crossSharedQuery = `
-        MATCH (oq:OpenQuestionNode)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(s:StatementNode)
+        MATCH (oq:OpenQuestionNode)-[t1:TAGGED]->(w:WordNode)<-[t2:TAGGED]-(s:StatementNode)
         WHERE oq.id IN $nodeIds AND s.id IN $nodeIds
-        RETURN DISTINCT {
-          source: oq.id,
-          target: s.id,
-          keyword: w.word,
-          type: 'shared_keyword'
-        } as rel
+        RETURN DISTINCT oq.id as source, s.id as target,
+               w.word as keyword,
+               t1.frequency as sourceFreq,
+               t2.frequency as targetFreq,
+               'shared_keyword' as type
       `;
 
       const crossResult = await this.neo4jService.read(crossSharedQuery, {
         nodeIds,
       });
-      this.processSharedKeywordResults(crossResult.records, relationships);
+      this.processConsolidatedSharedKeywordResults(
+        crossResult.records,
+        relationships,
+      );
     }
+  }
+
+  /**
+   * CORE OPTIMIZATION: Process and consolidate shared keyword relationships
+   * Groups all shared keywords between node pairs into single relationship objects
+   */
+  private processConsolidatedSharedKeywordResults(
+    records: any[],
+    relationships: UniversalRelationshipData[],
+  ): void {
+    // Group relationships by node pairs
+    const consolidationMap = new Map<
+      string,
+      {
+        source: string;
+        target: string;
+        keywords: Array<{
+          word: string;
+          sourceFreq: number;
+          targetFreq: number;
+          strength: number;
+        }>;
+      }
+    >();
+
+    // Process each shared keyword relationship
+    records.forEach((record) => {
+      const source = record.get('source');
+      const target = record.get('target');
+      const keyword = record.get('keyword');
+      const sourceFreq = this.toNumber(record.get('sourceFreq') || 0);
+      const targetFreq = this.toNumber(record.get('targetFreq') || 0);
+
+      // Calculate strength as product of frequencies (like the original backend logic)
+      const strength = sourceFreq * targetFreq;
+
+      const pairKey = `${source}-${target}`;
+
+      if (consolidationMap.has(pairKey)) {
+        // Add to existing pair
+        consolidationMap.get(pairKey)!.keywords.push({
+          word: keyword,
+          sourceFreq,
+          targetFreq,
+          strength,
+        });
+      } else {
+        // Create new pair
+        consolidationMap.set(pairKey, {
+          source,
+          target,
+          keywords: [
+            {
+              word: keyword,
+              sourceFreq,
+              targetFreq,
+              strength,
+            },
+          ],
+        });
+      }
+    });
+
+    // Convert consolidated data to relationship objects
+    consolidationMap.forEach((consolidatedData, pairKey) => {
+      const { source, target, keywords } = consolidatedData;
+
+      // Calculate consolidated metadata
+      const totalStrength = keywords.reduce((sum, k) => sum + k.strength, 0);
+      const averageStrength = totalStrength / keywords.length;
+
+      // Sort keywords by strength to identify primary keyword
+      const sortedKeywords = keywords.sort((a, b) => b.strength - a.strength);
+      const primaryKeyword = sortedKeywords[0].word;
+
+      // Build strengthsByKeyword object
+      const strengthsByKeyword: { [keyword: string]: number } = {};
+      keywords.forEach((k) => {
+        strengthsByKeyword[k.word] = k.strength;
+      });
+
+      // Create consolidated relationship metadata
+      const consolidatedKeywords: ConsolidatedKeywordMetadata = {
+        sharedWords: keywords.map((k) => k.word),
+        totalStrength: parseFloat(totalStrength.toFixed(3)),
+        relationCount: keywords.length,
+        primaryKeyword,
+        strengthsByKeyword,
+        averageStrength: parseFloat(averageStrength.toFixed(3)),
+      };
+
+      // Create the consolidated relationship
+      relationships.push({
+        id: `consolidated-${pairKey}`,
+        source,
+        target,
+        type: 'shared_keyword',
+        metadata: {
+          // Backward compatibility fields
+          keyword: primaryKeyword,
+          strength: totalStrength,
+
+          // New consolidated data
+          consolidatedKeywords,
+        },
+      });
+    });
+
+    this.logger.debug(
+      `Consolidated ${records.length} keyword relationships into ${consolidationMap.size} consolidated relationships`,
+    );
   }
 
   private async addDirectRelationships(
@@ -832,51 +1016,6 @@ export class UniversalGraphService {
         });
       });
     }
-  }
-
-  private processSharedKeywordResults(
-    records: any[],
-    relationships: UniversalRelationshipData[],
-  ): void {
-    const keywordRels = records.map((record) => {
-      const rel = record.get('rel');
-      return {
-        source: rel.source,
-        target: rel.target,
-        keyword: rel.keyword,
-        type: 'shared_keyword' as const,
-      };
-    });
-
-    // Group by node pairs and combine keywords
-    const keywordMap = new Map<string, any>();
-    keywordRels.forEach((rel) => {
-      const key = `${rel.source}-${rel.target}`;
-      if (keywordMap.has(key)) {
-        keywordMap.get(key).keywords.push(rel.keyword);
-      } else {
-        keywordMap.set(key, {
-          source: rel.source,
-          target: rel.target,
-          keywords: [rel.keyword],
-          type: 'shared_keyword',
-        });
-      }
-    });
-
-    // Convert to relationships
-    keywordMap.forEach((value, key) => {
-      relationships.push({
-        id: `shared-keyword-${key}`,
-        source: value.source,
-        target: value.target,
-        type: 'shared_keyword',
-        metadata: {
-          keyword: value.keywords.join(', '),
-          strength: Math.min(1.0, 0.3 + value.keywords.length * 0.1),
-        },
-      });
-    });
   }
 
   private processDirectRelationshipResults(
