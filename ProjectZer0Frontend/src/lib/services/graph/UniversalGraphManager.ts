@@ -25,6 +25,7 @@ import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { RadialBatchRenderer, type UniversalNodeData, type NodePosition } from './RadialBatchRenderer';
 import { SequentialBatchManager, type BatchData, type BatchRenderState } from './SequentialBatchManager';
+import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 
 /**
  * PHASE 2: UniversalGraphManager - Enhanced with multi-batch rendering capabilities
@@ -43,7 +44,7 @@ export class UniversalGraphManager {
     private isBatchRenderingEnabled = false;
     private isSequentialRenderingEnabled = false;
     private allNodeData: GraphData | null = null;
-    private maxBatchesToRender = 2; // PHASE 2: Default to 2 batches
+    private maxBatchesToRender = BATCH_RENDERING.MAX_BATCHES;
     
     // Performance-optimized caches
     private nodeRadiusCache = new Map<string, number>();
@@ -61,8 +62,8 @@ export class UniversalGraphManager {
         renderedNodeCount: 0,
         totalNodeCount: 0,
         currentBatch: 0,
-        maxBatches: 2,
-        batchSize: 10,
+        maxBatches: BATCH_RENDERING.MAX_BATCHES,
+        batchSize: BATCH_RENDERING.BATCH_SIZE,
         ringPositions: {} as Record<number, number> // Ring number -> node count
     };
 
@@ -96,7 +97,7 @@ export class UniversalGraphManager {
     /**
      * PHASE 2.1: Enable sequential batch rendering mode
      */
-    public enableBatchRendering(enable: boolean = true, maxBatches: number = 2, sequential: boolean = true): void {
+    public enableBatchRendering(enable: boolean = true, maxBatches: number = BATCH_RENDERING.MAX_BATCHES, sequential: boolean = true): void {
         this.isBatchRenderingEnabled = enable;
         this.isSequentialRenderingEnabled = enable && sequential;
         this.maxBatchesToRender = maxBatches;

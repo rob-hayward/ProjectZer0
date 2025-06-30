@@ -1,6 +1,7 @@
 // src/lib/services/graph/RadialBatchRenderer.ts
 // PHASE 2: Enhanced batch renderer for multi-ring universal graph layout
 
+import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 import type { GraphNode } from '$lib/types/graph/enhanced';
 
 export interface NodePosition {
@@ -32,10 +33,10 @@ export class RadialBatchRenderer {
     
     constructor(config: Partial<BatchRenderConfig> = {}) {
         this.config = {
-            batchSize: 10,
+            batchSize: BATCH_RENDERING.BATCH_SIZE,
             ringSpacing: 180,
             centerNodeSize: 300,
-            maxBatches: 2,  // PHASE 2: Default to 2 batches
+            maxBatches: BATCH_RENDERING.MAX_BATCHES, 
             ...config
         };
     }

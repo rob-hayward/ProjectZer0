@@ -38,6 +38,7 @@
         isOpenQuestionData,
     } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
+	import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 
     // Define view type
     const viewType: ViewType = 'universal';
@@ -49,7 +50,7 @@
     // PHASE 2.1: Sequential batch rendering settings
     let enableBatchRendering = true; // Enable by default
     let enableSequentialRendering = true; // NEW: Enable sequential rendering
-    const maxBatchesToRender = 2; // HARDCODED: Render 2 batches of 10 nodes each
+    const maxBatchesToRender = BATCH_RENDERING.MAX_BATCHES;
     const batchSize = 10; // Nodes per batch
     let batchRenderingStatus = {
         enabled: true,

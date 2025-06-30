@@ -1,6 +1,7 @@
 // src/lib/services/graph/SequentialBatchManager.ts
 // Progressive batch rendering manager for performance optimization
 
+import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 import type { GraphNode, GraphLink } from '$lib/types/graph/enhanced';
 import { RadialBatchRenderer, type UniversalNodeData, type NodePosition } from './RadialBatchRenderer';
 
@@ -55,8 +56,8 @@ export class SequentialBatchManager {
 
     constructor(config: Partial<BatchRenderConfig> = {}) {
         this.config = {
-            maxBatches: 2,
-            batchSize: 10,
+            maxBatches: BATCH_RENDERING.MAX_BATCHES,
+            batchSize: BATCH_RENDERING.BATCH_SIZE,
             delayBetweenBatches: 500, // ms
             stabilityCheckInterval: 100, // ms
             maxStabilityWaitTime: 2000, // ms max wait for stability
