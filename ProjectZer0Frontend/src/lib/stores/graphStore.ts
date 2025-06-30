@@ -1,4 +1,4 @@
-// src/lib/stores/graphStore.ts - Enhanced with Universal Manager support while preserving all existing functionality
+// src/lib/stores/graphStore.ts - Enhanced with Universal Manager support and Batch Rendering interface
 
 import { derived, writable, get, type Readable } from 'svelte/store';
 import type { 
@@ -35,6 +35,10 @@ export interface GraphStore {
     
     // ENHANCED: Performance metrics for specialized managers
     getPerformanceMetrics?: () => any;
+    
+    // NEW: Batch rendering methods (optional - only available on UniversalGraphManager)
+    enableBatchRendering?: (enable: boolean) => void;
+    getBatchDebugInfo?: () => any;
 }
 
 export function createGraphStore(initialViewType: ViewType): GraphStore {
@@ -62,7 +66,8 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
         })
     );
 
-    return {
+    // Base store implementation
+    const baseStore: GraphStore = {
         getState: () => {
             const state = get(graphState);
             
@@ -179,6 +184,19 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             return manager.getPerformanceMetrics();
         } : undefined
     };
+
+    // NEW: Add batch rendering methods if this is a universal manager
+    if (isUniversalGraphManager(manager)) {
+        baseStore.enableBatchRendering = (enable: boolean) => {
+            manager.enableBatchRendering(enable);
+        };
+
+        baseStore.getBatchDebugInfo = () => {
+            return manager.getBatchDebugInfo();
+        };
+    }
+
+    return baseStore;
 }
 
 // PRESERVED: Export the current global graph store instance (for backward compatibility)

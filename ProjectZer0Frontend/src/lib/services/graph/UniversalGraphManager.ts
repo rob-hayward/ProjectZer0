@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts
-// Dedicated graph manager optimized for universal graph view with consolidated relationships
+// src/lib/services/graph/UniversalGraphManager.ts - ENHANCED with Batch Rendering
+// Specialized graph manager optimized for universal graph view with batch rendering support
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -23,10 +23,10 @@ import { COLORS } from '$lib/constants/colors';
 import { UniversalGraphLayout } from './layouts/UniversalGraphLayout';
 import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+import { RadialBatchRenderer, type UniversalNodeData, type NodePosition } from './RadialBatchRenderer';
 
 /**
- * UniversalGraphManager - Specialized manager for universal graph view
- * Optimized for consolidated relationships and high-performance rendering
+ * UniversalGraphManager - Enhanced with batch rendering capabilities
  */
 export class UniversalGraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -35,6 +35,11 @@ export class UniversalGraphManager {
     private managerId: string;
     private simulationActive = false;
     private layoutStrategy: UniversalGraphLayout | null = null;
+    
+    // NEW: Batch rendering components
+    private batchRenderer: RadialBatchRenderer;
+    private isBatchRenderingEnabled = false;
+    private allNodeData: GraphData | null = null;
     
     // Performance-optimized caches
     private nodeRadiusCache = new Map<string, number>();
@@ -46,7 +51,12 @@ export class UniversalGraphManager {
         consolidatedRelationshipCount: 0,
         consolidationRatio: 1.0,
         lastUpdateTime: 0,
-        renderTime: 0
+        renderTime: 0,
+        // NEW: Batch rendering metrics
+        batchRenderingEnabled: false,
+        renderedNodeCount: 0,
+        totalNodeCount: 0,
+        currentBatch: 0
     };
 
     // Public derived stores for renderable data
@@ -56,6 +66,7 @@ export class UniversalGraphManager {
     constructor() {
         this.managerId = `universal-${Math.random().toString(36).substring(2, 9)}`;
         this.simulation = this.initializeSimulation();
+        this.batchRenderer = new RadialBatchRenderer();
     
         // Create optimized derived stores
         this.renderableNodes = derived(this.nodesStore, (nodes) => 
@@ -69,18 +80,131 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Get performance metrics for monitoring consolidation effectiveness
+     * NEW: Enable batch rendering mode
      */
-    public getPerformanceMetrics() {
-        return { ...this.performanceMetrics };
+    public enableBatchRendering(enable: boolean = true): void {
+        console.log(`[UniversalGraphManager] ${enable ? 'Enabling' : 'Disabling'} batch rendering`);
+        this.isBatchRenderingEnabled = enable;
+        this.performanceMetrics.batchRenderingEnabled = enable;
     }
 
     /**
-     * Set graph data with consolidated relationship optimization
+     * NEW: Set data with batch rendering support
      */
     public setData(data: GraphData, config?: LayoutUpdateConfig): void {
         const startTime = performance.now();
         
+        console.log(`[UniversalGraphManager] setData called with ${data.nodes.length} nodes, batch rendering: ${this.isBatchRenderingEnabled}`);
+        
+        // Store complete data for batch rendering
+        this.allNodeData = data;
+        this.performanceMetrics.totalNodeCount = data.nodes.length;
+        
+        if (this.isBatchRenderingEnabled) {
+            this.setupBatchRendering(data, config);
+        } else {
+            this.setDataStandard(data, config);
+        }
+        
+        this.performanceMetrics.renderTime = performance.now() - startTime;
+    }
+
+    /**
+     * NEW: Setup batch rendering with first 10 nodes
+     */
+    private setupBatchRendering(data: GraphData, config?: LayoutUpdateConfig): void {
+        console.log('[UniversalGraphManager] Setting up batch rendering');
+        
+        // Stop any running simulation
+        this.stopSimulation();
+        this.clearCaches();
+        
+        // Separate content nodes from navigation/control nodes
+        const contentNodes = data.nodes.filter(node => 
+            node.type === 'statement' || node.type === 'openquestion'
+        );
+        const systemNodes = data.nodes.filter(node => 
+            node.type === 'navigation' || node.type === 'dashboard' || node.type === 'control'
+        );
+        
+        console.log(`[UniversalGraphManager] Content nodes: ${contentNodes.length}, System nodes: ${systemNodes.length}`);
+        
+        // CRITICAL FIX: Only proceed if we have content nodes
+        if (contentNodes.length === 0) {
+            console.warn('[UniversalGraphManager] No content nodes found, falling back to standard rendering');
+            this.setDataStandard(data, config);
+            return;
+        }
+        
+        // Initialize batch renderer with content nodes
+        this.batchRenderer.initialize(contentNodes as UniversalNodeData[]);
+        
+        // Get first batch (limited to 10 nodes)
+        const firstBatch = this.batchRenderer.getFirstBatch();
+        console.log(`[UniversalGraphManager] First batch contains ${firstBatch.nodes.length} nodes out of ${contentNodes.length} total content nodes`);
+        
+        // CRITICAL FIX: Use ONLY the first batch nodes, not all content nodes
+        const batchNodes = [...systemNodes, ...firstBatch.nodes];
+        const enhancedNodes = this.transformNodes(batchNodes);
+        
+        console.log(`[UniversalGraphManager] Processing ${enhancedNodes.length} total nodes (${systemNodes.length} system + ${firstBatch.nodes.length} content)`);
+        
+        // Apply radial positions to content nodes
+        enhancedNodes.forEach(node => {
+            if (firstBatch.positions.has(node.id)) {
+                const position = firstBatch.positions.get(node.id)!;
+                node.x = position.x;
+                node.y = position.y;
+                node.fx = position.x; // Fix position
+                node.fy = position.y;
+                console.log(`[UniversalGraphManager] Fixed position for ${node.id}: (${position.x}, ${position.y}) ring ${position.ring}`);
+            }
+        });
+        
+        // Get relationships only for rendered nodes (IMPORTANT: Only first batch nodes)
+        const renderedNodeIds = new Set(batchNodes.map(n => n.id));
+        const visibleLinks = (data.links || []).filter(link => {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            return renderedNodeIds.has(sourceId) && renderedNodeIds.has(targetId);
+        });
+        
+        console.log(`[UniversalGraphManager] Visible links: ${visibleLinks.length} out of ${data.links?.length || 0} total`);
+        
+        const enhancedLinks = this.transformLinks(visibleLinks);
+        
+        // Update performance metrics
+        this.updatePerformanceMetrics(data.links || []);
+        this.performanceMetrics.renderedNodeCount = batchNodes.length;
+        this.performanceMetrics.currentBatch = 1;
+        
+        console.log(`[UniversalGraphManager] Batch rendering metrics:`, {
+            totalContentNodes: contentNodes.length,
+            renderedContentNodes: firstBatch.nodes.length,
+            totalNodes: batchNodes.length,
+            totalLinks: enhancedLinks.length
+        });
+        
+        // Update stores
+        this.nodesStore.set(enhancedNodes);
+        this.linksStore.set(enhancedLinks);
+        
+        // Configure simulation with fixed positions
+        this.configureSimulation(enhancedNodes, enhancedLinks);
+        
+        // Start simulation with lower alpha for stability
+        if (!config?.skipAnimation) {
+            this.simulation.alpha(0.3).restart();
+            this.simulationActive = true;
+        }
+        
+        console.log(`[UniversalGraphManager] Batch rendering setup complete. Rendered ${enhancedNodes.length} nodes, ${enhancedLinks.length} links`);
+    }
+
+    /**
+     * Standard setData method (non-batch)
+     */
+    private setDataStandard(data: GraphData, config?: LayoutUpdateConfig): void {
         // Stop any running simulation
         this.stopSimulation();
         
@@ -108,20 +232,27 @@ export class UniversalGraphManager {
         if (!config?.skipAnimation) {
             this.startSimulation();
         }
-        
-        // Track render time
-        this.performanceMetrics.renderTime = performance.now() - startTime;
-        
-        // Log performance improvement
-        if (this.performanceMetrics.consolidationRatio > 1) {
-            console.log(`[UniversalGraphManager] Optimization complete:`, {
-                originalLinks: this.performanceMetrics.originalRelationshipCount,
-                consolidatedLinks: this.performanceMetrics.consolidatedRelationshipCount,
-                reductionRatio: `${this.performanceMetrics.consolidationRatio.toFixed(2)}x`,
-                renderTime: `${this.performanceMetrics.renderTime.toFixed(2)}ms`,
-                nodeCount: enhancedNodes.length
-            });
+    }
+
+    /**
+     * NEW: Get batch renderer debug info
+     */
+    public getBatchDebugInfo(): any {
+        if (!this.isBatchRenderingEnabled) {
+            return { message: 'Batch rendering not enabled' };
         }
+        
+        return {
+            ...this.batchRenderer.getDebugInfo(),
+            performanceMetrics: this.getPerformanceMetrics()
+        };
+    }
+
+    /**
+     * Get performance metrics for monitoring consolidation effectiveness
+     */
+    public getPerformanceMetrics() {
+        return { ...this.performanceMetrics };
     }
 
     /**
@@ -308,7 +439,7 @@ export class UniversalGraphManager {
         this.nodesStore.set([...nodes]);
     }
 
-    // Private methods
+    // Private methods (keeping all existing methods)
 
     private initializeSimulation(): d3.Simulation<any, any> {
         const simulation = d3.forceSimulation()
@@ -337,6 +468,12 @@ export class UniversalGraphManager {
                     this.centerNode(node);
                 } else if (node.type === 'navigation') {
                     this.enforceNavigationPosition(node);
+                } else if (this.isBatchRenderingEnabled && node.fx !== null && node.fy !== null) {
+                    // For batch rendering, enforce fixed positions
+                    node.x = node.fx;
+                    node.y = node.fy;
+                    node.vx = 0;
+                    node.vy = 0;
                 }
             });
             
@@ -357,6 +494,11 @@ export class UniversalGraphManager {
     }
 
     private applyUniversalLayout(): void {
+        if (this.isBatchRenderingEnabled) {
+            console.log('[UniversalGraphManager] Skipping universal layout - using batch positioning');
+            return;
+        }
+        
         if (this.layoutStrategy) {
             this.layoutStrategy.stop();
         }
@@ -399,6 +541,13 @@ export class UniversalGraphManager {
         this.simulationActive = false;
     }
 
+    // Include all other existing private methods unchanged...
+    // (updatePerformanceMetrics, transformNodes, transformLinks, createRenderableNodes, 
+    //  createRenderableLinks, getLinkStrength, centerNode, enforceNavigationPosition, 
+    //  calculateLinkPath, getNodeRadius, getLayoutGroup, getNodeVotes, getNodeColor, 
+    //  extractBaseColorFromStyle, getNodeBackground, getNodeBorder, getNodeHover, 
+    //  getNodeGradientStart, getNodeGradientEnd, clearCaches, clearNodeRadiusCache)
+
     private updatePerformanceMetrics(links: GraphLink[]): void {
         let originalCount = 0;
         let consolidatedCount = 0;
@@ -414,6 +563,7 @@ export class UniversalGraphManager {
         });
         
         this.performanceMetrics = {
+            ...this.performanceMetrics,
             originalRelationshipCount: originalCount,
             consolidatedRelationshipCount: consolidatedCount,
             consolidationRatio: originalCount > 0 ? originalCount / consolidatedCount : 1.0,
