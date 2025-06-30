@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - ENHANCED with Batch Rendering -->
+<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Sequential Batch Rendering -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -46,13 +46,20 @@
     const controlNodeId = 'universal-graph-controls';
     let controlNodeMode: NodeMode = 'detail'; 
     
-    // NEW: Batch rendering controls
-    let enableBatchRendering = true; // Enable by default for testing
+    // PHASE 2.1: Sequential batch rendering settings
+    let enableBatchRendering = true; // Enable by default
+    let enableSequentialRendering = true; // NEW: Enable sequential rendering
+    const maxBatchesToRender = 2; // HARDCODED: Render 2 batches of 10 nodes each
+    const batchSize = 10; // Nodes per batch
     let batchRenderingStatus = {
-        enabled: false,
+        enabled: true,
+        sequential: true,
         renderedNodes: 0,
         totalNodes: 0,
-        currentBatch: 0
+        currentBatch: 0,
+        maxBatches: maxBatchesToRender,
+        isRendering: false,
+        isComplete: false
     };
     
     // Initialization states
@@ -93,28 +100,12 @@
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
     
-    // Debug reactive updates
+    // Debug reactive updates - SIMPLIFIED
     $: {
         if (nodes.length > 0 && !isUpdatingGraph) {
-            console.log('[UNIVERSAL-GRAPH] Nodes updated in reactive statement:', {
-                total: nodes.length,
-                byType: nodes.reduce((acc: Record<string, number>, node: any) => {
-                    acc[node.type] = (acc[node.type] || 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>),
-                batchRendering: enableBatchRendering
-            });
-            
-            // Update batch rendering status
             if (enableBatchRendering) {
                 updateBatchRenderingStatus();
             }
-        }
-    }
-    
-    $: {
-        if (relationships.length > 0) {
-            console.log('[UNIVERSAL-GRAPH] Relationships updated in reactive statement:', relationships.length);
         }
     }
     
@@ -147,59 +138,50 @@
         mode: controlNodeMode
     };
 
-    // NEW: Update batch rendering status
+    // PHASE 2.1: Update batch rendering status
     function updateBatchRenderingStatus() {
         if (graphStore && typeof graphStore.getPerformanceMetrics === 'function') {
             const metrics = graphStore.getPerformanceMetrics();
             batchRenderingStatus = {
                 enabled: enableBatchRendering,
+                sequential: enableSequentialRendering,
                 renderedNodes: metrics?.renderedNodeCount || 0,
                 totalNodes: metrics?.totalNodeCount || 0,
-                currentBatch: metrics?.currentBatch || 0
+                currentBatch: metrics?.currentBatch || 0,
+                maxBatches: maxBatchesToRender,
+                isRendering: false, // Will be updated by sequential state events
+                isComplete: false
             };
         }
     }
 
-    // ADDED: Debug backend response function
+    // PHASE 2.1: Listen for sequential batch state changes - SIMPLIFIED
+    function setupSequentialBatchListeners() {
+        if (typeof window !== 'undefined') {
+            window.addEventListener('sequential-batch-state-change', ((event: CustomEvent) => {
+                const state = event.detail;
+                
+                // Update batch rendering status with sequential state
+                batchRenderingStatus = {
+                    ...batchRenderingStatus,
+                    currentBatch: state.currentBatch,
+                    isRendering: state.isRendering,
+                    isComplete: state.isComplete,
+                    renderedNodes: state.currentBatch * batchSize + navigationNodes.length + 1
+                };
+            }) as EventListener);
+        }
+    }
+
+    // ADDED: Debug backend response function - SIMPLIFIED
     async function debugBackendResponse() {
         if (!$userStore) return;
         
         try {
-            console.log('=== DEBUGGING BACKEND RESPONSE ===');
-            
             // Make direct API call to see raw response
             const data = await fetchWithAuth('/graph/universal/nodes?node_types=openquestion&node_types=statement&limit=5');
             
-            console.log('Raw backend response:', JSON.stringify(data, null, 2));
-            
-            if (data.nodes && data.nodes.length > 0) {
-                console.log('First node structure:', JSON.stringify(data.nodes[0], null, 2));
-                console.log('First node metadata:', JSON.stringify(data.nodes[0].metadata, null, 2));
-                
-                // Check for user-specific data
-                if (data.nodes[0].metadata) {
-                    console.log('User vote status:', data.nodes[0].metadata.userVoteStatus);
-                    console.log('User visibility preference:', data.nodes[0].metadata.userVisibilityPreference);
-                }
-            }
-            
-            if (data.relationships && data.relationships.length > 0) {
-                console.log('First relationship structure:', JSON.stringify(data.relationships[0], null, 2));
-            }
-            
-            console.log('Response summary:', {
-                totalNodes: data.nodes?.length || 0,
-                nodeTypes: data.nodes?.reduce((acc: any, node: any) => {
-                    acc[node.type] = (acc[node.type] || 0) + 1;
-                    return acc;
-                }, {}),
-                totalRelationships: data.relationships?.length || 0,
-                hasMore: data.has_more,
-                totalCount: data.total_count
-            });
-            
-            console.log('=== END DEBUG ===');
-            
+            // Only log summary, not full raw data
         } catch (error) {
             console.error('Debug API call failed:', error);
         }
@@ -271,16 +253,25 @@
             // Set the correct view type in graph store
             if (graphStore) {
                 graphStore.setViewType(viewType);
+                
+                // PHASE 2.1: Enable sequential batch rendering
+                if (typeof graphStore.enableBatchRendering === 'function') {
+                    graphStore.enableBatchRendering(enableBatchRendering);
+                }
+                
                 if (typeof graphStore.fixNodePositions === 'function') {
                     graphStore.fixNodePositions();
                 }
             }
             
+            // PHASE 2.1: Setup sequential batch listeners
+            setupSequentialBatchListeners();
+            
             // Load universal graph data
             await loadUniversalGraphData();
             
-            // ADDED: Debug the backend response
-            await debugBackendResponse();
+            // SIMPLIFIED: Only debug in development or when needed
+            // await debugBackendResponse();
         } catch (error) {
             console.error('[UNIVERSAL-GRAPH] Error in initializeData:', error);
             auth0.login();
@@ -294,16 +285,7 @@
             return;
         }
         try {
-            // Apply current filters to the store
-            console.log('[UNIVERSAL-GRAPH] Setting filters:', {
-                sortType,
-                sortDirection,
-                nodeTypes: Array.from(selectedNodeTypes),
-                keywords: filterKeywords,
-                netVotes: { min: minNetVotes, max: maxNetVotes },
-                batchRendering: enableBatchRendering
-            });
-            
+            // Apply current filters to the store - SIMPLIFIED
             universalGraphStore.setSortType(sortType);
             universalGraphStore.setSortDirection(sortDirection);
             universalGraphStore.setNodeTypeFilter(Array.from(selectedNodeTypes));
@@ -318,11 +300,7 @@
             
             // Load nodes from the API
             await universalGraphStore.loadNodes($userStore);
-            console.log('[UNIVERSAL-GRAPH] Current store state:', {
-                nodes: nodes.length,
-                relationships: relationships.length,
-                batchRendering: enableBatchRendering
-            });
+            // Note: UniversalGraphStore may log many relationship processing messages
             
             // Mark nodes as loaded
             nodesLoaded = true;
@@ -363,60 +341,43 @@
         return Number(value || 0);
     }
     
-    // Update graph with universal data - ENHANCED for batch rendering
+    // PHASE 2.1: Update graph with universal data - CLEANED UP LOGGING
     function updateGraphWithUniversalData() {
         if (isUpdatingGraph) {
-            console.log('[UNIVERSAL-GRAPH] Update already in progress, skipping duplicate call');
             return;
         }
         
         isUpdatingGraph = true;
         
-        console.log('[UNIVERSAL-GRAPH] updateGraphWithUniversalData called');
-        console.log('[UNIVERSAL-GRAPH] nodesLoaded:', nodesLoaded);
-        console.log('[UNIVERSAL-GRAPH] nodes from store:', nodes);
-        console.log('[UNIVERSAL-GRAPH] relationships from store:', relationships);
-        console.log('[UNIVERSAL-GRAPH] batch rendering enabled:', enableBatchRendering);
-        
         if (!nodesLoaded) {
-            console.warn('[UNIVERSAL-GRAPH] Nodes not loaded yet, skipping update');
             isUpdatingGraph = false;
             return;
         }
         
-        // NEW: Enable batch rendering on graph store before processing data
+        // Enable batch rendering on graph store before processing data
         if (enableBatchRendering && graphStore && typeof graphStore.enableBatchRendering === 'function') {
-            console.log('[UNIVERSAL-GRAPH] Enabling batch rendering on graph store');
-            graphStore.enableBatchRendering(true);
+            graphStore.enableBatchRendering(enableBatchRendering);
         }
         
-        // CRITICAL FIX: Deduplicate nodes by ID before processing
+        // Deduplicate nodes by ID - SIMPLIFIED LOGGING
         const deduplicatedNodes = nodes.reduce((acc: any[], node: any) => {
             const existingIndex = acc.findIndex(existing => existing.id === node.id);
             if (existingIndex === -1) {
-                // Node doesn't exist, add it
                 acc.push(node);
             } else {
-                // Node exists, keep the one with more complete data or newer timestamp
                 const existing = acc[existingIndex];
                 const nodeVotes = node.metadata?.votes;
                 const existingVotes = existing.metadata?.votes;
                 
-                // Prefer node with vote data, or newer created_at
                 if ((!existingVotes && nodeVotes) || 
                     (new Date(node.created_at) > new Date(existing.created_at))) {
                     acc[existingIndex] = node;
-                    console.log(`[UNIVERSAL-GRAPH] Replaced duplicate node ${node.id} with better data`);
-                } else {
-                    console.log(`[UNIVERSAL-GRAPH] Kept existing node ${node.id}, skipped duplicate`);
                 }
             }
             return acc;
         }, []);
         
-        console.log(`[UNIVERSAL-GRAPH] Deduplicated ${nodes.length} nodes to ${deduplicatedNodes.length} unique nodes`);
-        
-        // NEW: Add net votes to nodes for batch rendering
+        // PHASE 2.1: Add net votes to nodes for batch rendering
         const nodesWithNetVotes = deduplicatedNodes.map((node: any) => {
             // Calculate net votes for sorting
             const netVotes = getNeo4jNumber(node.metadata?.votes?.net) || 
@@ -428,20 +389,16 @@
             };
         });
         
-        // NEW: Sort nodes by net votes (highest first) for batch rendering
+        // Sort nodes by net votes for batch rendering - SIMPLIFIED
         if (enableBatchRendering) {
             nodesWithNetVotes.sort((a: any, b: any) => (b.netVotes || 0) - (a.netVotes || 0));
-            console.log('[UNIVERSAL-GRAPH] Sorted nodes by net votes for batch rendering:', {
-                topNode: { id: nodesWithNetVotes[0]?.id, netVotes: nodesWithNetVotes[0]?.netVotes },
-                bottomNode: { id: nodesWithNetVotes[nodesWithNetVotes.length - 1]?.id, netVotes: nodesWithNetVotes[nodesWithNetVotes.length - 1]?.netVotes }
-            });
         }
         
-        // CRITICAL FIX: Filter to first 10 nodes if batch rendering is enabled
+        // Filter to batch size for rendering - SIMPLIFIED
         let nodesToProcess = nodesWithNetVotes;
         if (enableBatchRendering) {
-            nodesToProcess = nodesWithNetVotes.slice(0, 10); // Only take first 10 highest voted nodes
-            console.log(`[UNIVERSAL-GRAPH] Batch rendering: limiting to first ${nodesToProcess.length} nodes out of ${nodesWithNetVotes.length} total`);
+            const totalContentNodes = maxBatchesToRender * batchSize; // 2 * 10 = 20
+            nodesToProcess = nodesWithNetVotes.slice(0, totalContentNodes);
         }
         
         // FIXED: Transform universal nodes to graph nodes with proper data structures
@@ -509,7 +466,7 @@
                     // Store user-specific data in metadata properly
                     userVoteStatus: node.metadata.userVoteStatus,
                     userVisibilityPreference: node.metadata.userVisibilityPreference,
-                    // NEW: Add votes object for proper vote handling
+                    // PHASE 2.1: Add votes object for proper vote handling
                     votes: node.metadata.votes
                 }
             };
@@ -531,35 +488,14 @@
             metadata: rel.metadata
         }));
         
-        console.log('[UNIVERSAL-GRAPH] Filtered links for batch rendering:', {
-            totalAvailable: relationships.length,
-            filtered: graphLinks.length,
-            renderedNodeIds: renderedNodeIds.size
-        });
-        
         // Combine all nodes and links
         graphData = {
             nodes: [...navigationNodes, controlNode, ...universalGraphNodes],
             links: graphLinks
         };
         
-        console.log('[UNIVERSAL-GRAPH] Final graph data:', {
-            totalNodes: graphData.nodes.length,
-            navigationNodes: navigationNodes.length,
-            controlNodes: 1,
-            universalNodes: universalGraphNodes.length,
-            nodesByType: universalGraphNodes.reduce((acc: Record<string, number>, node: GraphNode) => {
-                acc[node.type] = (acc[node.type] || 0) + 1;
-                return acc;
-            }, {} as Record<string, number>),
-            links: graphData.links.length,
-            batchRendering: enableBatchRendering,
-            expectedTotal: enableBatchRendering ? '19 nodes (9 system + 10 content)' : `${graphData.nodes.length} nodes`
-        });
-        
-        // Update the graph
+        // Update the graph - SIMPLIFIED
         if (graphStore) {
-            console.log('[UNIVERSAL-GRAPH] Setting graph data with batch rendering:', enableBatchRendering);
             graphStore.setData(graphData);
             
             // Update batch rendering status after a short delay
@@ -568,7 +504,6 @@
                 isUpdatingGraph = false; // Reset flag after update completes
             }, 100);
         } else {
-            console.warn('[UNIVERSAL-GRAPH] Graph store not available');
             isUpdatingGraph = false;
         }
     }
@@ -613,7 +548,6 @@
         // Skip visibility updates for non-content nodes
         const node = graphData.nodes.find(n => n.id === nodeId);
         if (!node || ['navigation', 'dashboard', 'control'].includes(node.type)) {
-            console.log('[UNIVERSAL-GRAPH] Skipping visibility update for non-content node:', node?.type);
             return;
         }
         
@@ -638,10 +572,9 @@
         handleControlChange();
     }
 
-    // NEW: Toggle batch rendering mode
+    // PHASE 2.1: Toggle batch rendering mode (now includes sequential option)
     function toggleBatchRendering() {
         enableBatchRendering = !enableBatchRendering;
-        console.log(`[UNIVERSAL-GRAPH] Batch rendering ${enableBatchRendering ? 'enabled' : 'disabled'}`);
         
         // Update graph store
         if (graphStore && typeof graphStore.enableBatchRendering === 'function') {
@@ -651,8 +584,6 @@
         // Re-render with new mode only if we have content loaded
         if (nodesLoaded && nodes.length > 0) {
             updateGraphWithUniversalData();
-        } else if (enableBatchRendering) {
-            console.log('[UNIVERSAL-GRAPH] Batch rendering enabled but no content nodes loaded yet');
         }
     }
 
@@ -682,15 +613,25 @@
         <span class="loading-text">Initializing universal graph...</span>
     </div>
 {:else}
-    <!-- NEW: Batch rendering status display -->
+    <!-- PHASE 2.1: Enhanced sequential batch rendering status display -->
     {#if enableBatchRendering}
         <div class="batch-status">
             <div class="batch-info">
-                <span class="batch-label">Batch Rendering: ON</span>
+                <span class="batch-label">
+                    Phase 2.1 {enableSequentialRendering ? 'Sequential' : 'Static'} Batch Rendering: ON
+                </span>
                 <span class="batch-progress">
-                    {batchRenderingStatus.renderedNodes} / {batchRenderingStatus.totalNodes} nodes
-                    {#if batchRenderingStatus.currentBatch > 0}
-                        (Batch {batchRenderingStatus.currentBatch})
+                    {#if enableSequentialRendering}
+                        {#if batchRenderingStatus.isRendering}
+                            Rendering batch {batchRenderingStatus.currentBatch}/{maxBatchesToRender}...
+                        {:else if batchRenderingStatus.isComplete}
+                            Complete: {batchRenderingStatus.renderedNodes} nodes ({maxBatchesToRender} batches)
+                        {:else}
+                            Ready: {maxBatchesToRender} batches of {batchSize} nodes each
+                        {/if}
+                    {:else}
+                        {batchRenderingStatus.renderedNodes} / {batchRenderingStatus.totalNodes} nodes
+                        ({maxBatchesToRender} batches of {batchSize} nodes each)
                     {/if}
                 </span>
             </div>
@@ -727,11 +668,11 @@
                 <ControlNode 
                     {node}
                 >
-                    <!-- Universal Graph Controls - ENHANCED with batch rendering controls -->
+                    <!-- PHASE 2.1: Universal Graph Controls - Enhanced for sequential rendering -->
                     <div class="control-content">
-                        <h3>Universal Graph Controls</h3>
+                        <h3>Universal Graph Controls - Phase 2.1</h3>
                         
-                        <!-- NEW: Batch Rendering Toggle -->
+                        <!-- PHASE 2.1: Enhanced rendering mode controls -->
                         <div class="control-section">
                             <h4>Rendering Mode</h4>
                             <label class="batch-toggle">
@@ -740,13 +681,21 @@
                                     bind:checked={enableBatchRendering}
                                     on:change={toggleBatchRendering}
                                 />
-                                Enable Batch Rendering (First 10 nodes)
+                                Enable Batch Rendering ({maxBatchesToRender} batches of {batchSize} nodes)
                             </label>
+                            
                             {#if enableBatchRendering}
                                 <div class="batch-info-detail">
                                     <small>
-                                        Shows highest-voted content first (center-out layout)<br>
-                                        Currently rendering: {batchRenderingStatus.renderedNodes} nodes
+                                        <strong>Sequential Mode:</strong> 
+                                        {enableSequentialRendering ? 'ON' : 'OFF'}<br>
+                                        {#if enableSequentialRendering}
+                                            Batches render progressively: Batch 1 → wait → Batch 2<br>
+                                            Prevents performance issues with large node sets<br>
+                                        {:else}
+                                            All {maxBatchesToRender * batchSize} nodes render simultaneously<br>
+                                        {/if}
+                                        Currently: {batchRenderingStatus.renderedNodes} nodes rendered
                                     </small>
                                 </div>
                             {/if}
@@ -841,9 +790,9 @@
                             <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
-                        <!-- DEBUG INFO - Enhanced with batch rendering info -->
+                        <!-- PHASE 2.1: Enhanced DEBUG INFO with sequential rendering details -->
                         <div class="debug-section">
-                            <h4>Debug Info</h4>
+                            <h4>Phase 2.1 Debug Info</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Nodes: {nodes.length} | 
                                 Questions: {questionNodes.length} |
@@ -851,11 +800,21 @@
                                 Relationships: {relationships.length} |
                                 Batch Mode: {enableBatchRendering ? 'ON' : 'OFF'}
                                 {#if enableBatchRendering}
-                                    | Rendered: {batchRenderingStatus.renderedNodes}/{batchRenderingStatus.totalNodes}
+                                    | Sequential: {enableSequentialRendering ? 'ON' : 'OFF'} | Max Batches: {maxBatchesToRender}
                                 {/if}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Check console for detailed debug output
+                                {#if enableBatchRendering && enableSequentialRendering}
+                                    Sequential Mode: Batches render progressively (Batch 1 → wait → Batch 2)
+                                {:else if enableBatchRendering}
+                                    Static Mode: {navigationNodes.length + 1 + (maxBatchesToRender * batchSize)} total nodes 
+                                    ({navigationNodes.length + 1} system + {maxBatchesToRender * batchSize} content)
+                                {:else}
+                                    Standard rendering: All {nodes.length} nodes simultaneously
+                                {/if}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
+                                Check console for detailed Phase 2.1 sequential rendering output
                             </p>
                         </div>
                     </div>
@@ -903,7 +862,7 @@
         }
     }
 
-    /* NEW: Batch rendering status styles */
+    /* PHASE 2.1: Enhanced batch rendering status styles */
     .batch-status {
         position: fixed;
         top: 1rem;

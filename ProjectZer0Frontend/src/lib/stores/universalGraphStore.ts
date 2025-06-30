@@ -323,8 +323,6 @@ function createUniversalGraphStore(): UniversalGraphStore {
             const params = buildQueryParams(state);
             const url = `/graph/universal/nodes?${params.toString()}`;
             
-            console.log('[UniversalGraphStore] Loading nodes from:', url);
-            
             // Use fetchWithAuth which handles JWT authentication properly
             const data = await fetchWithAuth(url);
             
@@ -339,17 +337,6 @@ function createUniversalGraphStore(): UniversalGraphStore {
             const totalCount = data.total_count || nodes.length;
             const hasMore = data.has_more || false;
             const performanceMetrics = data.performance_metrics;
-
-            console.log('[UniversalGraphStore] Received data:', {
-                nodes: nodes.length,
-                relationships: relationships.length,
-                totalCount,
-                hasMore,
-                nodeTypes: nodes.map((n: any) => n.type),
-                // ENHANCED: Log consolidation metrics
-                consolidationRatio: performanceMetrics?.consolidation_ratio || 1.0,
-                relationshipDensity: performanceMetrics?.relationship_density || 0
-            });
 
             // ENHANCED: Process consolidated relationships
             const processedRelationships = processConsolidatedRelationships(relationships);
@@ -407,8 +394,6 @@ function createUniversalGraphStore(): UniversalGraphStore {
                 // Ensure backward compatibility by setting legacy fields
                 processedRel.metadata!.keyword = rel.metadata.consolidatedKeywords.primaryKeyword;
                 processedRel.metadata!.strength = rel.metadata.consolidatedKeywords.totalStrength;
-                
-                console.log(`[UniversalGraphStore] Processed consolidated relationship: ${rel.metadata.consolidatedKeywords.relationCount} keywords consolidated into 1 link`);
             } else {
                 // Mark as non-consolidated
                 processedRel.metadata!.isConsolidated = false;

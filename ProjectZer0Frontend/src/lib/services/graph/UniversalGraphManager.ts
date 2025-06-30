@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts - ENHANCED with Batch Rendering
-// Specialized graph manager optimized for universal graph view with batch rendering support
+// src/lib/services/graph/UniversalGraphManager.ts - PHASE 2: Enhanced Multi-Batch Rendering
+// Specialized graph manager optimized for universal graph view with enhanced batch rendering
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -24,9 +24,10 @@ import { UniversalGraphLayout } from './layouts/UniversalGraphLayout';
 import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { RadialBatchRenderer, type UniversalNodeData, type NodePosition } from './RadialBatchRenderer';
+import { SequentialBatchManager, type BatchData, type BatchRenderState } from './SequentialBatchManager';
 
 /**
- * UniversalGraphManager - Enhanced with batch rendering capabilities
+ * PHASE 2: UniversalGraphManager - Enhanced with multi-batch rendering capabilities
  */
 export class UniversalGraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -36,27 +37,33 @@ export class UniversalGraphManager {
     private simulationActive = false;
     private layoutStrategy: UniversalGraphLayout | null = null;
     
-    // NEW: Batch rendering components
+    // PHASE 2.1: Sequential batch rendering components
     private batchRenderer: RadialBatchRenderer;
+    private sequentialBatchManager: SequentialBatchManager | null = null;
     private isBatchRenderingEnabled = false;
+    private isSequentialRenderingEnabled = false;
     private allNodeData: GraphData | null = null;
+    private maxBatchesToRender = 2; // PHASE 2: Default to 2 batches
     
     // Performance-optimized caches
     private nodeRadiusCache = new Map<string, number>();
     private linkPathCache = new Map<string, { path: string; metadata: any }>();
     
-    // Performance metrics for consolidated relationships
+    // PHASE 2: Enhanced performance metrics
     private performanceMetrics = {
         originalRelationshipCount: 0,
         consolidatedRelationshipCount: 0,
         consolidationRatio: 1.0,
         lastUpdateTime: 0,
         renderTime: 0,
-        // NEW: Batch rendering metrics
+        // PHASE 2: Enhanced batch rendering metrics
         batchRenderingEnabled: false,
         renderedNodeCount: 0,
         totalNodeCount: 0,
-        currentBatch: 0
+        currentBatch: 0,
+        maxBatches: 2,
+        batchSize: 10,
+        ringPositions: {} as Record<number, number> // Ring number -> node count
     };
 
     // Public derived stores for renderable data
@@ -64,9 +71,16 @@ export class UniversalGraphManager {
     public readonly renderableLinks: Readable<RenderableLink[]>;
 
     constructor() {
-        this.managerId = `universal-${Math.random().toString(36).substring(2, 9)}`;
+        this.managerId = `universal-phase2-${Math.random().toString(36).substring(2, 9)}`;
         this.simulation = this.initializeSimulation();
-        this.batchRenderer = new RadialBatchRenderer();
+        
+        // PHASE 2.1: Initialize batch renderer and sequential manager
+        this.batchRenderer = new RadialBatchRenderer({
+            batchSize: 10,
+            ringSpacing: 180,
+            centerNodeSize: 300,
+            maxBatches: this.maxBatchesToRender
+        });
     
         // Create optimized derived stores
         this.renderableNodes = derived(this.nodesStore, (nodes) => 
@@ -80,28 +94,56 @@ export class UniversalGraphManager {
     }
 
     /**
-     * NEW: Enable batch rendering mode
+     * PHASE 2.1: Enable sequential batch rendering mode
      */
-    public enableBatchRendering(enable: boolean = true): void {
-        console.log(`[UniversalGraphManager] ${enable ? 'Enabling' : 'Disabling'} batch rendering`);
+    public enableBatchRendering(enable: boolean = true, maxBatches: number = 2, sequential: boolean = true): void {
         this.isBatchRenderingEnabled = enable;
+        this.isSequentialRenderingEnabled = enable && sequential;
+        this.maxBatchesToRender = maxBatches;
+        
+        // Update performance metrics
         this.performanceMetrics.batchRenderingEnabled = enable;
+        this.performanceMetrics.maxBatches = maxBatches;
+        
+        // Update batch renderer configuration
+        this.batchRenderer.updateConfig({ maxBatches });
+        
+        // Initialize sequential batch manager if needed
+        if (this.isSequentialRenderingEnabled && !this.sequentialBatchManager) {
+            this.sequentialBatchManager = new SequentialBatchManager({
+                maxBatches,
+                batchSize: 10,
+                delayBetweenBatches: 500,
+                stabilityCheckInterval: 100,
+                maxStabilityWaitTime: 2000
+            });
+            
+            // Set up callbacks for sequential rendering
+            this.sequentialBatchManager.setCallbacks({
+                onBatchRender: this.handleSequentialBatchRender.bind(this),
+                onBatchComplete: this.handleSequentialBatchComplete.bind(this),
+                onAllBatchesComplete: this.handleAllBatchesComplete.bind(this),
+                onStateChange: this.handleSequentialStateChange.bind(this)
+            });
+        }
     }
 
     /**
-     * NEW: Set data with batch rendering support
+     * PHASE 2: Set data with enhanced multi-batch rendering support
      */
     public setData(data: GraphData, config?: LayoutUpdateConfig): void {
         const startTime = performance.now();
-        
-        console.log(`[UniversalGraphManager] setData called with ${data.nodes.length} nodes, batch rendering: ${this.isBatchRenderingEnabled}`);
         
         // Store complete data for batch rendering
         this.allNodeData = data;
         this.performanceMetrics.totalNodeCount = data.nodes.length;
         
         if (this.isBatchRenderingEnabled) {
-            this.setupBatchRendering(data, config);
+            if (this.isSequentialRenderingEnabled) {
+                this.setupSequentialBatchRendering(data, config);
+            } else {
+                this.setupEnhancedBatchRendering(data, config);
+            }
         } else {
             this.setDataStandard(data, config);
         }
@@ -110,11 +152,9 @@ export class UniversalGraphManager {
     }
 
     /**
-     * NEW: Setup batch rendering with first 10 nodes
+     * PHASE 2.1: Setup sequential batch rendering with progressive loading
      */
-    private setupBatchRendering(data: GraphData, config?: LayoutUpdateConfig): void {
-        console.log('[UniversalGraphManager] Setting up batch rendering');
-        
+    private async setupSequentialBatchRendering(data: GraphData, config?: LayoutUpdateConfig): Promise<void> {
         // Stop any running simulation
         this.stopSimulation();
         this.clearCaches();
@@ -127,11 +167,122 @@ export class UniversalGraphManager {
             node.type === 'navigation' || node.type === 'dashboard' || node.type === 'control'
         );
         
-        console.log(`[UniversalGraphManager] Content nodes: ${contentNodes.length}, System nodes: ${systemNodes.length}`);
+        if (contentNodes.length === 0) {
+            console.warn('[UniversalGraphManager] No content nodes found, falling back to standard rendering');
+            this.setDataStandard(data, config);
+            return;
+        }
+        
+        // Start sequential rendering if manager is available
+        if (this.sequentialBatchManager) {
+            await this.sequentialBatchManager.startSequentialRendering(
+                contentNodes as UniversalNodeData[],
+                systemNodes,
+                data.links || []
+            );
+        } else {
+            console.error('[UniversalGraphManager] Sequential batch manager not initialized');
+            this.setupEnhancedBatchRendering(data, config);
+        }
+    }
+
+    /**
+     * PHASE 2.1: Handle rendering of a single batch
+     */
+    private async handleSequentialBatchRender(batchData: BatchData): Promise<void> {
+        // Combine system nodes (only in first batch) with batch content nodes
+        const allBatchNodes = [...batchData.systemNodes, ...batchData.nodes];
+        const enhancedNodes = this.transformNodes(allBatchNodes);
+        
+        // Apply positions from sequential batch manager
+        enhancedNodes.forEach(node => {
+            if (batchData.positions.has(node.id)) {
+                const position = batchData.positions.get(node.id)!;
+                node.x = position.x;
+                node.y = position.y;
+                node.fx = position.x; // Fix position
+                node.fy = position.y;
+            }
+        });
+        
+        // Transform and filter links
+        const enhancedLinks = this.transformLinks(batchData.links);
+        
+        // Update stores with current batch data
+        this.nodesStore.set(enhancedNodes);
+        this.linksStore.set(enhancedLinks);
+        
+        // Configure simulation with fixed positions
+        this.configureSimulation(enhancedNodes, enhancedLinks);
+        
+        // Force immediate positioning without animation
+        this.forceTick(3);
+        
+        // Very gentle restart to settle any minor adjustments
+        this.simulation.alpha(0.1).restart();
+        this.simulationActive = true;
+        
+        // Wait a moment for the simulation to settle
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    /**
+     * PHASE 2.1: Handle completion of a single batch
+     */
+    private handleSequentialBatchComplete(batchNumber: number): void {
+        // Update performance metrics
+        this.performanceMetrics.currentBatch = batchNumber;
+        this.performanceMetrics.renderedNodeCount = (batchNumber * 10) + 9; // 9 system nodes + batches * 10
+    }
+
+    /**
+     * PHASE 2.1: Handle completion of all batches
+     */
+    private handleAllBatchesComplete(): void {
+        // Final performance update
+        this.performanceMetrics.currentBatch = this.maxBatchesToRender;
+        this.performanceMetrics.renderedNodeCount = this.maxBatchesToRender * 10 + 9;
+        
+        // Ensure simulation is stable
+        this.simulation.alpha(0).alphaTarget(0);
+        this.forceTick(2);
+    }
+
+    /**
+     * PHASE 2.1: Handle sequential state changes
+     */
+    private handleSequentialStateChange(state: BatchRenderState): void {
+        // Update internal performance metrics based on sequential state
+        this.performanceMetrics.currentBatch = state.currentBatch;
+        this.performanceMetrics.renderedNodeCount = state.currentBatch * 10 + 9;
+        
+        // You could emit events here for external UI updates
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('sequential-batch-state-change', {
+                detail: state
+            }));
+        }
+    }
+
+    /**
+     * PHASE 2: Setup enhanced batch rendering with multiple batches
+     */
+    private setupEnhancedBatchRendering(data: GraphData, config?: LayoutUpdateConfig): void {
+        // Stop any running simulation
+        this.stopSimulation();
+        this.clearCaches();
+        
+        // Separate content nodes from navigation/control nodes
+        const contentNodes = data.nodes.filter(node => 
+            node.type === 'statement' || node.type === 'openquestion'
+        );
+        const systemNodes = data.nodes.filter(node => 
+            node.type === 'navigation' || node.type === 'dashboard' || node.type === 'control'
+        );
         
         // CRITICAL FIX: Only proceed if we have content nodes
         if (contentNodes.length === 0) {
-            console.warn('[UniversalGraphManager] No content nodes found, falling back to standard rendering');
+            console.warn('[UniversalGraphManager] Phase 2 - No content nodes found, falling back to standard rendering');
             this.setDataStandard(data, config);
             return;
         }
@@ -139,29 +290,25 @@ export class UniversalGraphManager {
         // Initialize batch renderer with content nodes
         this.batchRenderer.initialize(contentNodes as UniversalNodeData[]);
         
-        // Get first batch (limited to 10 nodes)
-        const firstBatch = this.batchRenderer.getFirstBatch();
-        console.log(`[UniversalGraphManager] First batch contains ${firstBatch.nodes.length} nodes out of ${contentNodes.length} total content nodes`);
+        // PHASE 2: Get ALL batches (up to maxBatchesToRender)
+        const allBatches = this.batchRenderer.getAllBatches();
         
-        // CRITICAL FIX: Use ONLY the first batch nodes, not all content nodes
-        const batchNodes = [...systemNodes, ...firstBatch.nodes];
+        // Use ALL the batch nodes, not just the first batch
+        const batchNodes = [...systemNodes, ...allBatches.nodes];
         const enhancedNodes = this.transformNodes(batchNodes);
         
-        console.log(`[UniversalGraphManager] Processing ${enhancedNodes.length} total nodes (${systemNodes.length} system + ${firstBatch.nodes.length} content)`);
-        
-        // Apply radial positions to content nodes
+        // PHASE 2: Apply enhanced radial positions to content nodes
         enhancedNodes.forEach(node => {
-            if (firstBatch.positions.has(node.id)) {
-                const position = firstBatch.positions.get(node.id)!;
+            if (allBatches.positions.has(node.id)) {
+                const position = allBatches.positions.get(node.id)!;
                 node.x = position.x;
                 node.y = position.y;
                 node.fx = position.x; // Fix position
                 node.fy = position.y;
-                console.log(`[UniversalGraphManager] Fixed position for ${node.id}: (${position.x}, ${position.y}) ring ${position.ring}`);
             }
         });
         
-        // Get relationships only for rendered nodes (IMPORTANT: Only first batch nodes)
+        // Get relationships only for rendered nodes
         const renderedNodeIds = new Set(batchNodes.map(n => n.id));
         const visibleLinks = (data.links || []).filter(link => {
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
@@ -169,21 +316,10 @@ export class UniversalGraphManager {
             return renderedNodeIds.has(sourceId) && renderedNodeIds.has(targetId);
         });
         
-        console.log(`[UniversalGraphManager] Visible links: ${visibleLinks.length} out of ${data.links?.length || 0} total`);
-        
         const enhancedLinks = this.transformLinks(visibleLinks);
         
-        // Update performance metrics
-        this.updatePerformanceMetrics(data.links || []);
-        this.performanceMetrics.renderedNodeCount = batchNodes.length;
-        this.performanceMetrics.currentBatch = 1;
-        
-        console.log(`[UniversalGraphManager] Batch rendering metrics:`, {
-            totalContentNodes: contentNodes.length,
-            renderedContentNodes: firstBatch.nodes.length,
-            totalNodes: batchNodes.length,
-            totalLinks: enhancedLinks.length
-        });
+        // PHASE 2: Update enhanced performance metrics
+        this.updateEnhancedPerformanceMetrics(data.links || [], allBatches);
         
         // Update stores
         this.nodesStore.set(enhancedNodes);
@@ -197,8 +333,45 @@ export class UniversalGraphManager {
             this.simulation.alpha(0.3).restart();
             this.simulationActive = true;
         }
+    }
+
+    /**
+     * PHASE 2: Update enhanced performance metrics with ring information
+     */
+    private updateEnhancedPerformanceMetrics(links: GraphLink[], batchData: any): void {
+        let originalCount = 0;
+        let consolidatedCount = 0;
         
-        console.log(`[UniversalGraphManager] Batch rendering setup complete. Rendered ${enhancedNodes.length} nodes, ${enhancedLinks.length} links`);
+        links.forEach(link => {
+            consolidatedCount++;
+            
+            if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
+                originalCount += (link.metadata.consolidatedKeywords as ConsolidatedKeywordMetadata).relationCount;
+            } else {
+                originalCount++;
+            }
+        });
+        
+        // PHASE 2: Calculate ring positions from batch data
+        const ringPositions: Record<number, number> = {};
+        if (batchData.positions) {
+            for (const [nodeId, position] of batchData.positions.entries()) {
+                const ring = position.ring;
+                ringPositions[ring] = (ringPositions[ring] || 0) + 1;
+            }
+        }
+        
+        this.performanceMetrics = {
+            ...this.performanceMetrics,
+            originalRelationshipCount: originalCount,
+            consolidatedRelationshipCount: consolidatedCount,
+            consolidationRatio: originalCount > 0 ? originalCount / consolidatedCount : 1.0,
+            lastUpdateTime: Date.now(),
+            renderTime: 0, // Will be set in setData
+            renderedNodeCount: batchData.nodes.length,
+            currentBatch: this.maxBatchesToRender,
+            ringPositions
+        };
     }
 
     /**
@@ -235,7 +408,7 @@ export class UniversalGraphManager {
     }
 
     /**
-     * NEW: Get batch renderer debug info
+     * PHASE 2: Get enhanced batch renderer debug info
      */
     public getBatchDebugInfo(): any {
         if (!this.isBatchRenderingEnabled) {
@@ -249,7 +422,7 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Get performance metrics for monitoring consolidation effectiveness
+     * PHASE 2: Get enhanced performance metrics
      */
     public getPerformanceMetrics() {
         return { ...this.performanceMetrics };
@@ -405,8 +578,6 @@ export class UniversalGraphManager {
             this.simulation.nodes(updatedNodes);
             this.nodesStore.set(updatedNodes);
             
-            console.log(`[UniversalGraphManager] Applied ${changedNodeCount} visibility preferences`);
-            
             // Smooth restart
             this.simulation.alpha(0.1).restart();
             this.simulationActive = true;
@@ -439,7 +610,7 @@ export class UniversalGraphManager {
         this.nodesStore.set([...nodes]);
     }
 
-    // Private methods (keeping all existing methods)
+    // Private methods - keeping all existing methods with PHASE 2 enhancements
 
     private initializeSimulation(): d3.Simulation<any, any> {
         const simulation = d3.forceSimulation()
@@ -469,7 +640,7 @@ export class UniversalGraphManager {
                 } else if (node.type === 'navigation') {
                     this.enforceNavigationPosition(node);
                 } else if (this.isBatchRenderingEnabled && node.fx !== null && node.fy !== null) {
-                    // For batch rendering, enforce fixed positions
+                    // PHASE 2: For batch rendering, enforce fixed positions
                     node.x = node.fx;
                     node.y = node.fy;
                     node.vx = 0;
@@ -495,7 +666,6 @@ export class UniversalGraphManager {
 
     private applyUniversalLayout(): void {
         if (this.isBatchRenderingEnabled) {
-            console.log('[UniversalGraphManager] Skipping universal layout - using batch positioning');
             return;
         }
         
@@ -542,11 +712,6 @@ export class UniversalGraphManager {
     }
 
     // Include all other existing private methods unchanged...
-    // (updatePerformanceMetrics, transformNodes, transformLinks, createRenderableNodes, 
-    //  createRenderableLinks, getLinkStrength, centerNode, enforceNavigationPosition, 
-    //  calculateLinkPath, getNodeRadius, getLayoutGroup, getNodeVotes, getNodeColor, 
-    //  extractBaseColorFromStyle, getNodeBackground, getNodeBorder, getNodeHover, 
-    //  getNodeGradientStart, getNodeGradientEnd, clearCaches, clearNodeRadiusCache)
 
     private updatePerformanceMetrics(links: GraphLink[]): void {
         let originalCount = 0;
