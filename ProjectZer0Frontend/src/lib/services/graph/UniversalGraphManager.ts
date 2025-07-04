@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts - PHASE 2.6: Clean Implementation
-// Enhanced Vote-Based with Single-Node Toggle - Completely rewritten for stability
+// src/lib/services/graph/UniversalGraphManager.ts - PHASE 2.7: Enhanced with D3 forceRadial
+// Minimal changes to existing working code - adds natural spacing while preserving vote order
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -24,7 +24,8 @@ import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 
 /**
- * PHASE 2.6: Clean UniversalGraphManager with Single-Node Toggle
+ * PHASE 2.7: Enhanced UniversalGraphManager with D3 forceRadial
+ * Minimal changes to add natural spacing while keeping everything else working
  */
 export class UniversalGraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -53,6 +54,9 @@ export class UniversalGraphManager {
         maxNodesToRender: BATCH_RENDERING.SINGLE_NODE_MODE.MAX_NODES
     };
     
+    // PHASE 2.7: Track settlement phase
+    private isInSettlementPhase = false;
+    
     // Performance tracking
     private nodeRadiusCache = new Map<string, number>();
     private linkPathCache = new Map<string, { path: string; metadata: any }>();
@@ -64,31 +68,31 @@ export class UniversalGraphManager {
         renderTime: 0,
         renderedNodeCount: 0,
         totalNodeCount: 0,
-        layoutType: BATCH_RENDERING.ENABLE_SINGLE_NODE_MODE ? 
-            'vote_based_single_node' as const : 'vote_based_enhanced' as const
+        layoutType: 'vote_based_with_d3_radial' as const
     };
 
     // Public derived stores
     public readonly renderableNodes: Readable<RenderableNode[]>;
     public readonly renderableLinks: Readable<RenderableLink[]>;
+    
+    // PHASE 2.7: Force update counter to trigger reactivity
+    private forceUpdateCounter = writable(0);
 
     constructor() {
-        this.managerId = `universal-vote-${Math.random().toString(36).substring(2, 9)}`;
+        this.managerId = `universal-vote-d3-${Math.random().toString(36).substring(2, 9)}`;
         this.simulation = this.initializeSimulation();
     
-        this.renderableNodes = derived(this.nodesStore, (nodes) => 
-            this.createRenderableNodes(nodes)
+        this.renderableNodes = derived(
+            [this.nodesStore, this.forceUpdateCounter], 
+            ([nodes, _]) => this.createRenderableNodes(nodes)
         );
         
         this.renderableLinks = derived(
-            [this.nodesStore, this.linksStore], 
-            ([nodes, links]) => this.createRenderableLinks(nodes, links)
+            [this.nodesStore, this.linksStore, this.forceUpdateCounter], 
+            ([nodes, links, _]) => this.createRenderableLinks(nodes, links)
         );
         
-        console.log('[UniversalGraphManager] Phase 2.6 - Initialized with mode:', {
-            singleNodeMode: this.enableSingleNodeMode,
-            mode: this.enableSingleNodeMode ? 'Single-Node Sequential' : 'Batch Sequential'
-        });
+        console.log('[UniversalGraphManager] Phase 2.7 - Enhanced with D3 forceRadial');
     }
 
     /**
@@ -101,7 +105,32 @@ export class UniversalGraphManager {
             .alphaMin(0.0001)
             .alphaTarget(0);
 
+        let tickCount = 0;
+        let lastTickTime = Date.now();
+        
         simulation.on('tick', () => {
+            tickCount++;
+            const now = Date.now();
+            
+            // Log every 100 ticks to see if simulation is running
+            if (tickCount % 100 === 0) {
+                console.log(`[UniversalGraphManager] Tick #${tickCount}, alpha: ${simulation.alpha().toFixed(4)}, time since last log: ${now - lastTickTime}ms`);
+                lastTickTime = now;
+                
+                // Sample a node to see if it's moving
+                const nodes = simulation.nodes() as unknown as EnhancedNode[];
+                const sampleNode = nodes.find(n => n.type === 'statement' || n.type === 'openquestion');
+                if (sampleNode) {
+                    console.log(`[UniversalGraphManager] Sample node position:`, {
+                        id: sampleNode.id,
+                        x: sampleNode.x?.toFixed(2),
+                        y: sampleNode.y?.toFixed(2),
+                        vx: sampleNode.vx?.toFixed(2),
+                        vy: sampleNode.vy?.toFixed(2)
+                    });
+                }
+            }
+            
             const nodes = simulation.nodes() as unknown as EnhancedNode[];
             
             nodes.forEach(node => {
@@ -112,12 +141,33 @@ export class UniversalGraphManager {
                 }
             });
             
-            this.nodesStore.set([...nodes]);
+            // CRITICAL FIX: During settlement phase, force derived stores to update
+            if (this.isInSettlementPhase) {
+                if (tickCount % 5 === 0) { // Every 5 ticks
+                    // Update the force counter to trigger derived store recalculation
+                    this.forceUpdateCounter.update(n => n + 1);
+                    
+                    if (tickCount % 50 === 0) {
+                        console.log(`[UniversalGraphManager] Forcing derived store update - tick ${tickCount}`);
+                    }
+                }
+                
+                // Still update the nodes store normally
+                this.nodesStore.set([...nodes]);
+            } else {
+                // Normal update during drop phase
+                this.nodesStore.set([...nodes]);
+            }
         });
 
         simulation.on('end', () => {
-            const mode = this.enableSingleNodeMode ? 'single-node' : 'batch';
-            console.log(`[UniversalGraphManager] Simulation settled (${mode} mode)`);
+            if (this.isInSettlementPhase) {
+                console.log(`[UniversalGraphManager] Simulation reached low energy but will continue running...`);
+                // Don't stop - let it keep running!
+            } else {
+                const mode = this.enableSingleNodeMode ? 'single-node' : 'batch';
+                console.log(`[UniversalGraphManager] Drop phase complete (${mode} mode)`);
+            }
         });
         
         return simulation;
@@ -141,10 +191,9 @@ export class UniversalGraphManager {
             
         this.maxBatchesToRender = maxBatches;
         
-        this.performanceMetrics.layoutType = this.enableSingleNodeMode ? 
-            'vote_based_single_node' : 'vote_based_enhanced';
+        this.performanceMetrics.layoutType = 'vote_based_with_d3_radial';
         
-        console.log('[UniversalGraphManager] Rendering configuration:', {
+        console.log('[UniversalGraphManager] Rendering configuration with D3 enhancements:', {
             enabled: enable,
             sequential,
             singleNodeMode: this.enableSingleNodeMode,
@@ -213,10 +262,24 @@ export class UniversalGraphManager {
      * Render next single node
      */
     private renderNextSingleNode(systemNodes: GraphNode[]): void {
-        if (!this.allNodeData || 
-            this.currentNodeIndex >= this.sortedContentNodes.length || 
-            this.currentNodeIndex >= this.singleNodeConfig.maxNodesToRender) {
-            console.log('[UniversalGraphManager] Single-node rendering complete');
+        if (!this.allNodeData) {
+            console.log('[UniversalGraphManager] No allNodeData - stopping');
+            return;
+        }
+        
+        const shouldStop = this.currentNodeIndex >= this.sortedContentNodes.length || 
+                          this.currentNodeIndex >= this.singleNodeConfig.maxNodesToRender;
+        
+        console.log(`[UniversalGraphManager] renderNextSingleNode - index: ${this.currentNodeIndex}, sorted: ${this.sortedContentNodes.length}, max: ${this.singleNodeConfig.maxNodesToRender}, shouldStop: ${shouldStop}`);
+        
+        if (shouldStop) {
+            console.log('[UniversalGraphManager] All nodes rendered, scheduling settlement phase...');
+            
+            // PHASE 2.7: Start settlement phase after all nodes are dropped
+            setTimeout(() => {
+                console.log('[UniversalGraphManager] Settlement timeout fired!');
+                this.startSettlementPhase();
+            }, 300);
             return;
         }
         
@@ -226,6 +289,14 @@ export class UniversalGraphManager {
         
         // Position nodes using guaranteed vote ordering
         this.calculateSingleNodePositions(enhancedNodes);
+        
+        // PHASE 2.7: Pin newly added node during drop
+        const newNode = enhancedNodes[enhancedNodes.length - 1];
+        if (newNode.type === 'statement' || newNode.type === 'openquestion') {
+            newNode.fx = newNode.x;
+            newNode.fy = newNode.y;
+            console.log(`[UniversalGraphManager] Pinned node ${newNode.id} at (${newNode.fx}, ${newNode.fy})`);
+        }
         
         // Get links
         const renderedNodeIds = new Set(currentNodes.map(n => n.id));
@@ -255,13 +326,152 @@ export class UniversalGraphManager {
         
         this.currentNodeIndex++;
         
-        if (this.currentNodeIndex < this.sortedContentNodes.length && 
-            this.currentNodeIndex < this.singleNodeConfig.maxNodesToRender) {
-            
+        // Check if we should continue or start settlement
+        const shouldContinue = this.currentNodeIndex < this.sortedContentNodes.length && 
+                              this.currentNodeIndex < this.singleNodeConfig.maxNodesToRender;
+        
+        console.log(`[UniversalGraphManager] After increment - index: ${this.currentNodeIndex}, shouldContinue: ${shouldContinue}`);
+        
+        if (shouldContinue) {
             this.singleNodeTimer = window.setTimeout(() => {
                 this.renderNextSingleNode(systemNodes);
             }, this.singleNodeConfig.nodeDelay);
+        } else {
+            // We've rendered all nodes, start settlement!
+            console.log('[UniversalGraphManager] Reached end of rendering, starting settlement in 300ms...');
+            setTimeout(() => {
+                this.startSettlementPhase();
+            }, 300);
         }
+    }
+
+    /**
+     * PHASE 2.7: Start settlement phase with D3 forces
+     */
+    private startSettlementPhase(): void {
+        console.log('[UniversalGraphManager] 🚀 SETTLEMENT PHASE STARTING - FREE MOVEMENT!');
+        console.log('[UniversalGraphManager] Current simulation:', this.simulation);
+        console.log('[UniversalGraphManager] Current nodes:', this.simulation.nodes().length);
+        this.isInSettlementPhase = true;
+        
+        // Get the CURRENT nodes from the simulation, not a stale reference
+        const nodes = this.simulation.nodes() as EnhancedNode[];
+        console.log('[UniversalGraphManager] Got nodes from simulation:', nodes.length);
+        
+        // Unpin ALL nodes - complete freedom
+        nodes.forEach(node => {
+            // Remove ALL constraints
+            node.fx = null;
+            node.fy = null;
+            
+            // Give nodes some random velocity to break out of patterns
+            if (node.type === 'statement' || node.type === 'openquestion') {
+                node.vx = (Math.random() - 0.5) * 10;
+                node.vy = (Math.random() - 0.5) * 10;
+            }
+        });
+        
+        // Configure FREE MOVEMENT forces
+        this.configureFreeMovementForces();
+        
+        // Debug: Check what forces are active
+        console.log('[UniversalGraphManager] Active forces after configuration:');
+        ['charge', 'collision', 'radial', 'link', 'centerX', 'centerY', 'angular', 'boundingBox'].forEach(forceName => {
+            const force = this.simulation.force(forceName);
+            console.log(`  - ${forceName}: ${force ? 'ACTIVE' : 'removed'}`);
+        });
+        
+        // Debug: Check node pinning status
+        const pinnedNodes = nodes.filter(n => n.fx !== null || n.fy !== null);
+        console.log(`[UniversalGraphManager] Pinned nodes: ${pinnedNodes.length}`, pinnedNodes.map(n => ({id: n.id, type: n.type})));
+        
+        // Restart with high energy and let it run indefinitely
+        console.log('[UniversalGraphManager] Before restart - alpha:', this.simulation.alpha());
+        
+        this.simulation
+            .alpha(1.0) // Maximum energy
+            .alphaDecay(0) // NO DECAY - run forever!
+            .alphaMin(0) // Never stop
+            .alphaTarget(0.3) // Keep some energy in the system
+            .restart();
+        
+        console.log('[UniversalGraphManager] After restart - alpha:', this.simulation.alpha());
+        console.log('[UniversalGraphManager] Simulation running?', this.simulationActive);
+        
+        // Force a manual tick to see if it works
+        console.log('[UniversalGraphManager] Forcing manual tick...');
+        this.simulation.tick();
+        
+        // Check velocities after giving random kick
+        const sampleNode = nodes.find(n => n.type === 'statement');
+        if (sampleNode) {
+            console.log('[UniversalGraphManager] Sample node after velocity kick:', {
+                id: sampleNode.id,
+                vx: sampleNode.vx,
+                vy: sampleNode.vy
+            });
+        }
+        
+        console.log('[UniversalGraphManager] Simulation will run indefinitely - watch where nodes settle!');
+    }
+
+    /**
+     * PHASE 2.7: Configure completely free movement forces
+     */
+    private configureFreeMovementForces(): void {
+        const nodes = this.simulation.nodes() as EnhancedNode[];
+        
+        // Remove ALL constraining forces
+        this.simulation.force('radial', null); // NO radial constraint
+        this.simulation.force('centerX', null); // NO center force
+        this.simulation.force('centerY', null); // NO center force
+        this.simulation.force('link', null); // NO link forces
+        this.simulation.force('angular', null); // NO angular force
+        
+        // Just basic repulsion - let's see where nodes want to go
+        this.simulation.force('charge', d3.forceManyBody()
+            .strength(-500) // Moderate repulsion
+            .distanceMin(50)
+            .distanceMax(2000) // Long range
+            .theta(0.9)
+        );
+        
+        // Basic collision only
+        this.simulation.force('collision', d3.forceCollide()
+            .radius((d: any) => (d as EnhancedNode).radius + 30) // Basic padding
+            .strength(0.7)
+            .iterations(1)
+        );
+        
+        // Add a VERY weak center force just to keep things on screen
+        this.simulation.force('boundingBox', (alpha) => {
+            nodes.forEach(node => {
+                // Only apply to content nodes
+                if (node.type === 'statement' || node.type === 'openquestion') {
+                    const x = node.x ?? 0;
+                    const y = node.y ?? 0;
+                    const distance = Math.sqrt(x * x + y * y);
+                    
+                    // Only apply force if node is very far from center (keep on screen)
+                    if (distance > 1500) {
+                        const force = (distance - 1500) * 0.001 * alpha;
+                        if (node.vx !== null && node.vx !== undefined) {
+                            node.vx -= (x / distance) * force;
+                        }
+                        if (node.vy !== null && node.vy !== undefined) {
+                            node.vy -= (y / distance) * force;
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Set simulation parameters for continuous running
+        this.simulation
+            .velocityDecay(0.1) // Very low damping - nodes keep moving
+            .alphaDecay(0) // No cooling
+            .alphaMin(0) // Never stop
+            .alphaTarget(0.3); // Maintain energy
     }
 
     /**
@@ -351,6 +561,9 @@ export class UniversalGraphManager {
         
         if (this.currentBatchNumber > this.maxBatchesToRender) {
             console.log('[UniversalGraphManager] Batch rendering complete');
+            setTimeout(() => {
+                this.startSettlementPhase();
+            }, 300);
             return;
         }
         
@@ -489,6 +702,8 @@ export class UniversalGraphManager {
      * Configure D3 simulation forces
      */
     private configureSimulation(nodes: EnhancedNode[], links: EnhancedLink[]): void {
+        console.log(`[UniversalGraphManager] configureSimulation called - isInSettlementPhase: ${this.isInSettlementPhase}`);
+        
         this.simulation.nodes(asD3Nodes(nodes));
         
         const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
@@ -496,8 +711,14 @@ export class UniversalGraphManager {
             linkForce.links(asD3Links(links));
         }
 
+        if (this.isInSettlementPhase) {
+            console.log('[UniversalGraphManager] In settlement phase - skipping standard force configuration');
+            // Settlement phase uses configureSettlementForces()
+            return;
+        }
+
         if (this.enableSingleNodeMode) {
-            // Single-node mode: lightweight forces
+            // Single-node mode: lightweight forces during drop
             this.simulation.force('collision', d3.forceCollide()
                 .radius((d: any) => (d as EnhancedNode).radius + 50)
                 .strength(0.7)
@@ -933,8 +1154,8 @@ export class UniversalGraphManager {
      */
     public getBatchDebugInfo(): any {
         const baseInfo = {
-            layoutType: this.enableSingleNodeMode ? 'vote_based_single_node' : 'vote_based_enhanced',
-            phase: '2.6',
+            layoutType: 'vote_based_with_d3_radial',
+            phase: '2.7',
             batchRenderingEnabled: this.isBatchRenderingEnabled,
             sequentialRenderingEnabled: this.isSequentialRenderingEnabled,
             singleNodeMode: this.enableSingleNodeMode,
@@ -953,7 +1174,8 @@ export class UniversalGraphManager {
                 baseDistance: this.singleNodeConfig.baseDistance,
                 guaranteedVoteOrdering: true,
                 estimatedTotalTime: `${this.singleNodeConfig.maxNodesToRender * this.singleNodeConfig.nodeDelay}ms`,
-                message: 'Single-node sequential rendering for perfect vote order'
+                d3Settlement: true,
+                message: 'Single-node sequential with D3 radial settlement phase'
             };
         } else {
             return {
@@ -962,8 +1184,9 @@ export class UniversalGraphManager {
                 currentBatch: this.currentBatchNumber,
                 delayBetweenBatches: BATCH_RENDERING.DELAY_BETWEEN_BATCHES,
                 pathBlockingPrevention: true,
+                d3Settlement: true,
                 estimatedTotalTime: `${this.maxBatchesToRender * BATCH_RENDERING.DELAY_BETWEEN_BATCHES}ms`,
-                message: 'Enhanced batch rendering with path-blocking prevention'
+                message: 'Enhanced batch rendering with D3 radial settlement'
             };
         }
     }
@@ -1022,11 +1245,25 @@ export class UniversalGraphManager {
     }
 
     private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
+        // Log occasionally to debug
+        if (Math.random() < 0.01) {
+            console.log('[UniversalGraphManager] Creating renderable nodes, sample:', {
+                nodeId: nodes[0]?.id,
+                x: nodes[0]?.x,
+                y: nodes[0]?.y
+            });
+        }
+        
         return nodes.map(node => {
             const radius = node.radius;
             const x = node.x ?? 0;
             const y = node.y ?? 0;
             const svgTransform = coordinateSystem.createSVGTransform(x, y);
+            
+            // Debug log for first few nodes during settlement
+            if (this.isInSettlementPhase && node.type === 'statement' && Math.random() < 0.05) {
+                console.log(`[UniversalGraphManager] RenderableNode ${node.id}: pos(${x.toFixed(2)}, ${y.toFixed(2)}) transform: ${svgTransform}`);
+            }
             
             return {
                 id: node.id,
