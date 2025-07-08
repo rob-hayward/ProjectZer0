@@ -14,7 +14,7 @@ export const BATCH_RENDERING = {
   SINGLE_NODE_MODE: {
     BASE_DISTANCE: 250,     // Starting distance from center for first node
     DISTANCE_INCREMENT: 40, // Distance increase per vote rank (guaranteed ordering)
-    NODE_DELAY: 150,        // Delay between individual nodes (ms)
+    NODE_DELAY: 50,        // Delay between individual nodes (ms)
     QUICK_SETTLE_TIME: 200, // Fast settling time per node
     MAX_NODES: 40,          // Maximum nodes to render
     USE_GOLDEN_ANGLE: true, // Use golden angle for natural distribution

@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts - PHASE 2.7: Enhanced with D3 forceRadial
-// Minimal changes to existing working code - adds natural spacing while preserving vote order
+// src/lib/services/graph/UniversalGraphManager.ts - PHASE 3.0: Direct D3 Force Implementation
+// Minimal surgical changes to enable natural force-directed layout while preserving vote ordering
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -24,8 +24,11 @@ import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
 
 /**
- * PHASE 2.7: Enhanced UniversalGraphManager with D3 forceRadial
- * Minimal changes to add natural spacing while keeping everything else working
+ * PHASE 3.0: UniversalGraphManager with working D3 force physics
+ * Key changes:
+ * 1. Force reactive updates during settlement phase
+ * 2. Direct D3 DOM manipulation as fallback
+ * 3. Proper force configuration for natural spacing
  */
 export class UniversalGraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -54,8 +57,10 @@ export class UniversalGraphManager {
         maxNodesToRender: BATCH_RENDERING.SINGLE_NODE_MODE.MAX_NODES
     };
     
-    // PHASE 2.7: Track settlement phase
+    // PHASE 3.0: Enhanced settlement tracking
     private isInSettlementPhase = false;
+    private settlementTickCounter = 0;
+    private lastDOMUpdateTime = 0;
     
     // Performance tracking
     private nodeRadiusCache = new Map<string, number>();
@@ -68,41 +73,48 @@ export class UniversalGraphManager {
         renderTime: 0,
         renderedNodeCount: 0,
         totalNodeCount: 0,
-        layoutType: 'vote_based_with_d3_radial' as const
+        layoutType: 'vote_based_with_natural_forces' as const
     };
 
     // Public derived stores
     public readonly renderableNodes: Readable<RenderableNode[]>;
     public readonly renderableLinks: Readable<RenderableLink[]>;
     
-    // PHASE 2.7: Force update counter to trigger reactivity
+    // PHASE 3.0: Force update counter - properly utilized
     private forceUpdateCounter = writable(0);
+    private forceUpdateInterval: number | null = null;
 
     constructor() {
-        this.managerId = `universal-vote-d3-${Math.random().toString(36).substring(2, 9)}`;
+        this.managerId = `universal-phase3-${Math.random().toString(36).substring(2, 9)}`;
         this.simulation = this.initializeSimulation();
     
+        // PHASE 3.0: Include forceUpdateCounter in all derived stores
         this.renderableNodes = derived(
             [this.nodesStore, this.forceUpdateCounter], 
-            ([nodes, _]) => this.createRenderableNodes(nodes)
+            ([nodes, updateCount]) => {
+                // Force fresh computation on each update
+                return this.createRenderableNodes(nodes);
+            }
         );
         
         this.renderableLinks = derived(
             [this.nodesStore, this.linksStore, this.forceUpdateCounter], 
-            ([nodes, links, _]) => this.createRenderableLinks(nodes, links)
+            ([nodes, links, updateCount]) => {
+                return this.createRenderableLinks(nodes, links);
+            }
         );
         
-        console.log('[UniversalGraphManager] Phase 2.7 - Enhanced with D3 forceRadial');
+        console.log('[UniversalGraphManager] Phase 3.0 - Natural force-directed layout with vote ordering');
     }
 
-    /**
-     * Initialize D3 simulation
+   /**
+     * Initialize D3 simulation - FIXED version
      */
     private initializeSimulation(): d3.Simulation<any, any> {
         const simulation = d3.forceSimulation()
-            .velocityDecay(0.2)
-            .alphaDecay(0.003)
-            .alphaMin(0.0001)
+            .velocityDecay(0.4)
+            .alphaDecay(0.02)
+            .alphaMin(0.001)
             .alphaTarget(0);
 
         let tickCount = 0;
@@ -111,28 +123,9 @@ export class UniversalGraphManager {
         simulation.on('tick', () => {
             tickCount++;
             const now = Date.now();
-            
-            // Log every 100 ticks to see if simulation is running
-            if (tickCount % 100 === 0) {
-                console.log(`[UniversalGraphManager] Tick #${tickCount}, alpha: ${simulation.alpha().toFixed(4)}, time since last log: ${now - lastTickTime}ms`);
-                lastTickTime = now;
-                
-                // Sample a node to see if it's moving
-                const nodes = simulation.nodes() as unknown as EnhancedNode[];
-                const sampleNode = nodes.find(n => n.type === 'statement' || n.type === 'openquestion');
-                if (sampleNode) {
-                    console.log(`[UniversalGraphManager] Sample node position:`, {
-                        id: sampleNode.id,
-                        x: sampleNode.x?.toFixed(2),
-                        y: sampleNode.y?.toFixed(2),
-                        vx: sampleNode.vx?.toFixed(2),
-                        vy: sampleNode.vy?.toFixed(2)
-                    });
-                }
-            }
-            
             const nodes = simulation.nodes() as unknown as EnhancedNode[];
             
+            // Enforce fixed positions for system nodes
             nodes.forEach(node => {
                 if (node.fixed || node.group === 'central') {
                     this.centerNode(node);
@@ -141,36 +134,231 @@ export class UniversalGraphManager {
                 }
             });
             
-            // CRITICAL FIX: During settlement phase, force derived stores to update
+            // PHASE 3.0: Enhanced update mechanism during settlement
             if (this.isInSettlementPhase) {
-                if (tickCount % 5 === 0) { // Every 5 ticks
-                    // Update the force counter to trigger derived store recalculation
-                    this.forceUpdateCounter.update(n => n + 1);
+                this.settlementTickCounter++;
+                
+                // Enhanced debugging during settlement
+                if (this.settlementTickCounter % 20 === 0) {
+                    // CRITICAL FIX: Get ALL nodes, not just the filtered ones
+                    const allNodes = simulation.nodes() as EnhancedNode[];
                     
-                    if (tickCount % 50 === 0) {
-                        console.log(`[UniversalGraphManager] Forcing derived store update - tick ${tickCount}`);
+                    // Debug what types we have
+                    const nodeTypes = new Set(allNodes.map(n => n.type));
+                    console.log('[Debug] Node types in simulation:', Array.from(nodeTypes));
+                    
+                    const contentNodes = allNodes.filter(n => 
+                        n.type === 'statement' || n.type === 'openquestion'
+                    );
+                    
+                    console.log('[Debug] Content nodes found:', contentNodes.length);
+                    
+                    const movingNodes = contentNodes.filter(n => 
+                        Math.abs(n.vx ?? 0) > 0.1 || Math.abs(n.vy ?? 0) > 0.1
+                    );
+                    
+                    const stuckNodes = contentNodes.filter(n => 
+                        Math.abs(n.vx ?? 0) < 0.1 && Math.abs(n.vy ?? 0) < 0.1
+                    );
+                    
+                    const avgVelocity = movingNodes.reduce((sum, n) => {
+                        const v = Math.sqrt((n.vx ?? 0) ** 2 + (n.vy ?? 0) ** 2);
+                        return sum + v;
+                    }, 0) / (movingNodes.length || 1);
+                    
+                    const avgDistance = contentNodes.reduce((sum, n) => {
+                        const d = Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2);
+                        return sum + d;
+                    }, 0) / (contentNodes.length || 1);
+                    
+                    console.log(`[Settlement] Tick ${this.settlementTickCounter}:`, {
+                        alpha: simulation.alpha().toFixed(4),
+                        movingNodes: `${movingNodes.length}/${contentNodes.length}`,
+                        stuckNodes: stuckNodes.length,
+                        avgVelocity: avgVelocity.toFixed(2),
+                        avgDistance: avgDistance.toFixed(1),
+                        forces: this.getActiveForces()
+                    });
+                    
+                    // Sample node details
+                    if (this.settlementTickCounter % 100 === 0 && contentNodes.length > 0) {
+                        const sampleNode = contentNodes[0];
+                        console.log(`[Settlement] Sample node detail:`, {
+                            id: sampleNode.id.substring(0, 8),
+                            type: sampleNode.type,
+                            position: `(${sampleNode.x?.toFixed(1)}, ${sampleNode.y?.toFixed(1)})`,
+                            velocity: `(${sampleNode.vx?.toFixed(2)}, ${sampleNode.vy?.toFixed(2)})`,
+                            fixed: `fx=${sampleNode.fx}, fy=${sampleNode.fy}`,
+                            voteRank: (sampleNode as any).voteRank
+                        });
                     }
                 }
                 
-                // Still update the nodes store normally
+                // Update nodes store
                 this.nodesStore.set([...nodes]);
+                
+                // Force reactive update every few ticks
+                if (this.settlementTickCounter % 3 === 0) {
+                    this.forceUpdateCounter.update(n => n + 1);
+                }
+                
+                // Direct D3 DOM update as backup (every 10 ticks)
+                if (this.settlementTickCounter % 10 === 0) {
+                    this.updateDOMDirectly(nodes);
+                }
+                
+                // Kick stuck nodes periodically
+                if (this.settlementTickCounter % 50 === 0) {
+                    const contentNodes = nodes.filter(n => 
+                        n.type === 'statement' || n.type === 'openquestion'
+                    );
+                    
+                    const stuckNodes = contentNodes.filter(n => 
+                        Math.abs(n.vx ?? 0) < 0.5 && 
+                        Math.abs(n.vy ?? 0) < 0.5
+                    );
+                    
+                    if (stuckNodes.length > contentNodes.length * 0.8) {
+                        console.log(`[Settlement] ${stuckNodes.length}/${contentNodes.length} nodes stuck - may be settled`);
+                    }
+                }
+                
+                // STOP SIMULATION if nodes have settled
+                if (this.settlementTickCounter > 200) {
+                    const contentNodes = nodes.filter(n => 
+                        n.type === 'statement' || n.type === 'openquestion'
+                    );
+                    
+                    const totalMovement = contentNodes.reduce((sum, n) => {
+                        return sum + Math.abs(n.vx ?? 0) + Math.abs(n.vy ?? 0);
+                    }, 0);
+                    
+                    const avgMovement = totalMovement / (contentNodes.length || 1);
+                    
+                // CRITICAL: Stop simulation if nodes are stable
+                if (avgMovement < 0.5 && this.simulation.alpha() < 0.01) {
+                    console.log(`[Settlement] Nodes settled! Avg movement: ${avgMovement.toFixed(3)}, stopping simulation`);
+                    
+                    // CRITICAL: Stop all updates BEFORE stopping simulation
+                    this.isInSettlementPhase = false;
+                    
+                    // Clear any update intervals
+                    if (this.forceUpdateInterval) {
+                        clearInterval(this.forceUpdateInterval);
+                        this.forceUpdateInterval = null;
+                    }
+                    
+                    // Stop the simulation
+                    this.simulation.stop();
+                    
+                    // Final positions update
+                    const finalNodes = [...nodes];
+                    this.nodesStore.set(finalNodes);
+                    
+                    // One final force update
+                    this.forceUpdateCounter.update(n => n + 1);
+                    
+                    // CRITICAL: Prevent any further updates
+                    this.simulationActive = false;
+                    
+                    console.log('[Settlement] All updates stopped, positions locked');
+                }
+                }
             } else {
                 // Normal update during drop phase
+                if (tickCount % 100 === 0) {
+                    console.log(`[UniversalGraphManager] Drop phase - Tick #${tickCount}, alpha: ${simulation.alpha().toFixed(4)}`);
+                }
                 this.nodesStore.set([...nodes]);
             }
         });
 
         simulation.on('end', () => {
             if (this.isInSettlementPhase) {
-                console.log(`[UniversalGraphManager] Simulation reached low energy but will continue running...`);
-                // Don't stop - let it keep running!
+                console.log(`[UniversalGraphManager] Settlement phase reached minimum alpha after ${this.settlementTickCounter} ticks`);
+                
+                // Final statistics
+                const nodes = simulation.nodes() as unknown as EnhancedNode[];
+                const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
+                
+                const distances = contentNodes.map(n => Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2));
+                const minDist = Math.min(...distances);
+                const maxDist = Math.max(...distances);
+                const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+                
+                console.log('[Settlement] Final statistics:', {
+                    nodes: contentNodes.length,
+                    distanceRange: `${minDist.toFixed(1)} - ${maxDist.toFixed(1)}`,
+                    avgDistance: avgDist.toFixed(1),
+                    finalAlpha: simulation.alpha()
+                });
+                
+                this.isInSettlementPhase = false;
+                this.settlementTickCounter = 0;
+                
+                // Final update
+                this.forceUpdateCounter.update(n => n + 1);
+                
+                // Clear the update interval
+                if (this.forceUpdateInterval) {
+                    clearInterval(this.forceUpdateInterval);
+                    this.forceUpdateInterval = null;
+                }
             } else {
                 const mode = this.enableSingleNodeMode ? 'single-node' : 'batch';
                 console.log(`[UniversalGraphManager] Drop phase complete (${mode} mode)`);
+                
+                // CRITICAL: Don't let the drop phase end prevent settlement
+                if (this.currentNodeIndex >= this.sortedContentNodes.length || 
+                    this.currentNodeIndex >= this.singleNodeConfig.maxNodesToRender) {
+                    console.log('[UniversalGraphManager] Drop phase ended at max nodes - forcing settlement start');
+                    setTimeout(() => {
+                        this.startSettlementPhase();
+                    }, 100);
+                }
             }
         });
         
         return simulation;
+    }
+
+    /**
+     * PHASE 3.0: Direct DOM update via D3 selection
+     */
+    private updateDOMDirectly(nodes: EnhancedNode[]): void {
+        // CRITICAL: Don't update if simulation is stopped
+        if (!this.simulationActive || !this.isInSettlementPhase) {
+            return;
+        }
+        
+        if (typeof document === 'undefined') return;
+        
+        const now = Date.now();
+        if (now - this.lastDOMUpdateTime < 16) return;
+        this.lastDOMUpdateTime = now;
+        
+        nodes.forEach(node => {
+            if (node.type === 'statement' || node.type === 'openquestion') {
+                d3.select(`[data-node-id="${node.id}"]`)
+                    .transition()
+                    .duration(0)
+                    .attr('transform', `translate(${node.x},${node.y})`);
+            }
+        });
+    }
+
+    /**
+     * PHASE 3.0: Get list of active forces for debugging
+     */
+    private getActiveForces(): string[] {
+        const forces: string[] = []; // Add explicit type
+        const forceNames = ['charge', 'collision', 'voteRadial', 'link', 'centerX', 'centerY', 'gentle-center'];
+        forceNames.forEach(name => {
+            if (this.simulation.force(name)) {
+                forces.push(name);
+            }
+        });
+        return forces;
     }
 
     /**
@@ -185,15 +373,12 @@ export class UniversalGraphManager {
         this.isBatchRenderingEnabled = enable;
         this.isSequentialRenderingEnabled = enable && sequential;
         
-        // Use override if provided, otherwise use constant
         this.enableSingleNodeMode = singleNodeMode !== undefined ? 
             singleNodeMode : BATCH_RENDERING.ENABLE_SINGLE_NODE_MODE;
             
         this.maxBatchesToRender = maxBatches;
         
-        this.performanceMetrics.layoutType = 'vote_based_with_d3_radial';
-        
-        console.log('[UniversalGraphManager] Rendering configuration with D3 enhancements:', {
+        console.log('[UniversalGraphManager] Batch rendering configuration:', {
             enabled: enable,
             sequential,
             singleNodeMode: this.enableSingleNodeMode,
@@ -268,18 +453,21 @@ export class UniversalGraphManager {
         }
         
         const shouldStop = this.currentNodeIndex >= this.sortedContentNodes.length || 
-                          this.currentNodeIndex >= this.singleNodeConfig.maxNodesToRender;
+                        this.currentNodeIndex >= this.singleNodeConfig.maxNodesToRender;
         
         console.log(`[UniversalGraphManager] renderNextSingleNode - index: ${this.currentNodeIndex}, sorted: ${this.sortedContentNodes.length}, max: ${this.singleNodeConfig.maxNodesToRender}, shouldStop: ${shouldStop}`);
         
         if (shouldStop) {
             console.log('[UniversalGraphManager] All nodes rendered, scheduling settlement phase...');
             
-            // PHASE 2.7: Start settlement phase after all nodes are dropped
+            // CRITICAL: Make sure this actually fires
+            const settlementDelay = 300;
+            console.log(`[UniversalGraphManager] Setting timeout for settlement in ${settlementDelay}ms`);
+            
             setTimeout(() => {
-                console.log('[UniversalGraphManager] Settlement timeout fired!');
+                console.log('[UniversalGraphManager] Settlement timeout fired! Calling startSettlementPhase()');
                 this.startSettlementPhase();
-            }, 300);
+            }, settlementDelay);
             return;
         }
         
@@ -290,12 +478,12 @@ export class UniversalGraphManager {
         // Position nodes using guaranteed vote ordering
         this.calculateSingleNodePositions(enhancedNodes);
         
-        // PHASE 2.7: Pin newly added node during drop
+        // Pin newly added node during drop
         const newNode = enhancedNodes[enhancedNodes.length - 1];
         if (newNode.type === 'statement' || newNode.type === 'openquestion') {
             newNode.fx = newNode.x;
             newNode.fy = newNode.y;
-            console.log(`[UniversalGraphManager] Pinned node ${newNode.id} at (${newNode.fx}, ${newNode.fy})`);
+            console.log(`[UniversalGraphManager] Pinned node ${this.currentNodeIndex + 1}/${this.sortedContentNodes.length} at (${newNode.fx?.toFixed(1)}, ${newNode.fy?.toFixed(1)})`);
         }
         
         // Get links
@@ -322,13 +510,13 @@ export class UniversalGraphManager {
         const currentNode = this.sortedContentNodes[this.currentNodeIndex];
         const nodeVotes = this.getNodeVotes(currentNode);
         
-        console.log(`[UniversalGraphManager] Rendered node ${this.currentNodeIndex + 1}/${this.sortedContentNodes.length}: ${nodeVotes} votes`);
+        console.log(`[UniversalGraphManager] Rendered node ${this.currentNodeIndex + 1}/${this.sortedContentNodes.length}: ${nodeVotes} votes, ${currentContentNodes.length} total content nodes`);
         
         this.currentNodeIndex++;
         
         // Check if we should continue or start settlement
         const shouldContinue = this.currentNodeIndex < this.sortedContentNodes.length && 
-                              this.currentNodeIndex < this.singleNodeConfig.maxNodesToRender;
+                            this.currentNodeIndex < this.singleNodeConfig.maxNodesToRender;
         
         console.log(`[UniversalGraphManager] After increment - index: ${this.currentNodeIndex}, shouldContinue: ${shouldContinue}`);
         
@@ -339,139 +527,167 @@ export class UniversalGraphManager {
         } else {
             // We've rendered all nodes, start settlement!
             console.log('[UniversalGraphManager] Reached end of rendering, starting settlement in 300ms...');
-            setTimeout(() => {
+            
+            // CRITICAL: Ensure settlement actually starts
+            const settlementTimer = setTimeout(() => {
+                console.log('[UniversalGraphManager] Final settlement timeout fired!');
                 this.startSettlementPhase();
             }, 300);
+            
+            // Store the timer reference to prevent garbage collection
+            (this as any).settlementTimer = settlementTimer;
         }
     }
 
     /**
-     * PHASE 2.7: Start settlement phase with D3 forces
+     * PHASE 3.0: Start settlement phase with natural forces
      */
     private startSettlementPhase(): void {
-        console.log('[UniversalGraphManager] 🚀 SETTLEMENT PHASE STARTING - FREE MOVEMENT!');
-        console.log('[UniversalGraphManager] Current simulation:', this.simulation);
-        console.log('[UniversalGraphManager] Current nodes:', this.simulation.nodes().length);
+        console.log('[UniversalGraphManager] 🚀 SETTLEMENT PHASE STARTING - Natural force-directed layout!');
         this.isInSettlementPhase = true;
+        this.settlementTickCounter = 0;
         
-        // Get the CURRENT nodes from the simulation, not a stale reference
         const nodes = this.simulation.nodes() as EnhancedNode[];
-        console.log('[UniversalGraphManager] Got nodes from simulation:', nodes.length);
         
-        // Unpin ALL nodes - complete freedom
+        // Unpin ALL content nodes
         nodes.forEach(node => {
-            // Remove ALL constraints
-            node.fx = null;
-            node.fy = null;
-            
-            // Give nodes some random velocity to break out of patterns
             if (node.type === 'statement' || node.type === 'openquestion') {
-                node.vx = (Math.random() - 0.5) * 10;
-                node.vy = (Math.random() - 0.5) * 10;
+                node.fx = null;
+                node.fy = null;
+                
+                // Small initial velocity
+                const angle = Math.atan2(node.y ?? 0, node.x ?? 0) + (Math.random() - 0.5) * 0.3;
+                const speed = 10;
+                node.vx = Math.cos(angle) * speed;
+                node.vy = Math.sin(angle) * speed;
             }
         });
         
-        // Configure FREE MOVEMENT forces
-        this.configureFreeMovementForces();
+        // Configure natural forces
+        this.configureNaturalForces();
         
-        // Debug: Check what forces are active
-        console.log('[UniversalGraphManager] Active forces after configuration:');
-        ['charge', 'collision', 'radial', 'link', 'centerX', 'centerY', 'angular', 'boundingBox'].forEach(forceName => {
-            const force = this.simulation.force(forceName);
-            console.log(`  - ${forceName}: ${force ? 'ACTIVE' : 'removed'}`);
-        });
-        
-        // Debug: Check node pinning status
-        const pinnedNodes = nodes.filter(n => n.fx !== null || n.fy !== null);
-        console.log(`[UniversalGraphManager] Pinned nodes: ${pinnedNodes.length}`, pinnedNodes.map(n => ({id: n.id, type: n.type})));
-        
-        // Restart with high energy and let it run indefinitely
-        console.log('[UniversalGraphManager] Before restart - alpha:', this.simulation.alpha());
-        
+        // Faster simulation for quicker settling
         this.simulation
-            .alpha(1.0) // Maximum energy
-            .alphaDecay(0) // NO DECAY - run forever!
-            .alphaMin(0) // Never stop
-            .alphaTarget(0.3) // Keep some energy in the system
+            .alpha(0.5) // Lower initial energy
+            .alphaDecay(0.03) // Faster decay
+            .alphaMin(0.001)
+            .alphaTarget(0)
             .restart();
         
-        console.log('[UniversalGraphManager] After restart - alpha:', this.simulation.alpha());
-        console.log('[UniversalGraphManager] Simulation running?', this.simulationActive);
-        
-        // Force a manual tick to see if it works
-        console.log('[UniversalGraphManager] Forcing manual tick...');
-        this.simulation.tick();
-        
-        // Check velocities after giving random kick
-        const sampleNode = nodes.find(n => n.type === 'statement');
-        if (sampleNode) {
-            console.log('[UniversalGraphManager] Sample node after velocity kick:', {
-                id: sampleNode.id,
-                vx: sampleNode.vx,
-                vy: sampleNode.vy
-            });
-        }
-        
-        console.log('[UniversalGraphManager] Simulation will run indefinitely - watch where nodes settle!');
+        console.log('[UniversalGraphManager] Settlement phase configured for fast settling');
     }
 
     /**
-     * PHASE 2.7: Configure completely free movement forces
+     * PHASE 3.0: Configure natural force-directed layout
      */
-    private configureFreeMovementForces(): void {
+    private configureNaturalForces(): void {
         const nodes = this.simulation.nodes() as EnhancedNode[];
         
-        // Remove ALL constraining forces
-        this.simulation.force('radial', null); // NO radial constraint
-        this.simulation.force('centerX', null); // NO center force
-        this.simulation.force('centerY', null); // NO center force
-        this.simulation.force('link', null); // NO link forces
-        this.simulation.force('angular', null); // NO angular force
+        // Clear ALL forces first
+        this.simulation.force('radial', null);
+        this.simulation.force('voteRadial', null);
+        this.simulation.force('centerX', null);
+        this.simulation.force('centerY', null);
+        this.simulation.force('link', null);
+        this.simulation.force('charge', null);
+        this.simulation.force('collision', null);
         
-        // Just basic repulsion - let's see where nodes want to go
+        // 1. Moderate charge force for natural repulsion (not too strong!)
         this.simulation.force('charge', d3.forceManyBody()
-            .strength(-500) // Moderate repulsion
-            .distanceMin(50)
-            .distanceMax(2000) // Long range
+            .strength(-400) // Reduced from -800
+            .distanceMin(80) // Reduced from 100
+            .distanceMax(1000) // Reduced from 1500
             .theta(0.9)
         );
         
-        // Basic collision only
+        // 2. Collision force with reasonable radius
         this.simulation.force('collision', d3.forceCollide()
-            .radius((d: any) => (d as EnhancedNode).radius + 30) // Basic padding
-            .strength(0.7)
-            .iterations(1)
+            .radius((d: any) => {
+                const node = d as EnhancedNode;
+                return node.radius + 60; // Reduced from 80
+            })
+            .strength(0.8) // Reduced from 1.0
+            .iterations(3) // Reduced from 5
         );
         
-        // Add a VERY weak center force just to keep things on screen
-        this.simulation.force('boundingBox', (alpha) => {
+        // 3. Gentle center force to prevent explosion
+        this.simulation.force('centerX', d3.forceX(0).strength(0.02));
+        this.simulation.force('centerY', d3.forceY(0).strength(0.02));
+        
+        // 4. Soft radial constraint based on votes (very gentle)
+        this.simulation.force('softRadial', (alpha) => {
             nodes.forEach(node => {
-                // Only apply to content nodes
                 if (node.type === 'statement' || node.type === 'openquestion') {
+                    const targetDistance = (node as any).voteBasedDistance || 400;
                     const x = node.x ?? 0;
                     const y = node.y ?? 0;
-                    const distance = Math.sqrt(x * x + y * y);
+                    const currentDistance = Math.sqrt(x * x + y * y);
                     
-                    // Only apply force if node is very far from center (keep on screen)
-                    if (distance > 1500) {
-                        const force = (distance - 1500) * 0.001 * alpha;
-                        if (node.vx !== null && node.vx !== undefined) {
-                            node.vx -= (x / distance) * force;
-                        }
-                        if (node.vy !== null && node.vy !== undefined) {
-                            node.vy -= (y / distance) * force;
+                    if (currentDistance > 0) {
+                        // Very gentle force toward target distance
+                        const distanceDiff = targetDistance - currentDistance;
+                        const force = distanceDiff * 0.001 * alpha; // Very weak
+                        
+                        const fx = (x / currentDistance) * force;
+                        const fy = (y / currentDistance) * force;
+                        
+                        if (node.vx !== null && node.vx !== undefined) node.vx += fx;
+                        if (node.vy !== null && node.vy !== undefined) node.vy += fy;
+                    }
+                }
+            });
+        });
+        
+        // 5. Angular spreading force (to break out of spiral)
+        this.simulation.force('angular', (alpha) => {
+            const angleMap = new Map<number, EnhancedNode[]>();
+            
+            // Group nodes by similar angles
+            nodes.forEach(node => {
+                if (node.type === 'statement' || node.type === 'openquestion') {
+                    const angle = Math.atan2(node.y ?? 0, node.x ?? 0);
+                    const angleKey = Math.round(angle * 8) / 8; // Round to nearest eighth radian
+                    
+                    if (!angleMap.has(angleKey)) {
+                        angleMap.set(angleKey, []);
+                    }
+                    angleMap.get(angleKey)!.push(node);
+                }
+            });
+            
+            // Apply gentle repulsion between nodes at similar angles
+            angleMap.forEach(nodesAtAngle => {
+                if (nodesAtAngle.length > 1) {
+                    for (let i = 0; i < nodesAtAngle.length; i++) {
+                        for (let j = i + 1; j < nodesAtAngle.length; j++) {
+                            const nodeA = nodesAtAngle[i];
+                            const nodeB = nodesAtAngle[j];
+                            
+                            const dx = (nodeB.x ?? 0) - (nodeA.x ?? 0);
+                            const dy = (nodeB.y ?? 0) - (nodeA.y ?? 0);
+                            const distance = Math.sqrt(dx * dx + dy * dy);
+                            
+                            if (distance > 0 && distance < 200) {
+                                const force = (200 - distance) * 0.005 * alpha; // Very gentle
+                                const fx = (dx / distance) * force;
+                                const fy = (dy / distance) * force;
+                                
+                                if (nodeA.vx !== null && nodeA.vx !== undefined) nodeA.vx -= fx;
+                                if (nodeA.vy !== null && nodeA.vy !== undefined) nodeA.vy -= fy;
+                                if (nodeB.vx !== null && nodeB.vx !== undefined) nodeB.vx += fx;
+                                if (nodeB.vy !== null && nodeB.vy !== undefined) nodeB.vy += fy;
+                            }
                         }
                     }
                 }
             });
         });
         
-        // Set simulation parameters for continuous running
+        // Adjust simulation parameters for controlled settling
         this.simulation
-            .velocityDecay(0.1) // Very low damping - nodes keep moving
-            .alphaDecay(0) // No cooling
-            .alphaMin(0) // Never stop
-            .alphaTarget(0.3); // Maintain energy
+            .velocityDecay(0.4)    // Moderate damping
+            .alphaDecay(0.005)     // Moderate cooling
+            .alphaMin(0.001);      // Run until settled
     }
 
     /**
@@ -497,22 +713,22 @@ export class UniversalGraphManager {
                 id: node.id, type: node.type, data: node.data, group: node.group, metadata: node.metadata 
             });
             
-            // Guaranteed distance ordering
+            // Smoother distance progression
             const targetDistance = this.singleNodeConfig.baseDistance + 
-                                 (index * this.singleNodeConfig.distanceIncrement);
+                                (Math.sqrt(index) * this.singleNodeConfig.distanceIncrement * 2);
             
-            // Golden angle distribution
-            const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-            const angle = index * goldenAngle;
+            // Fibonacci spiral for better distribution
+            const phi = (1 + Math.sqrt(5)) / 2; // Golden ratio
+            const theta = 2 * Math.PI * index / phi;
             
-            node.x = Math.cos(angle) * targetDistance;
-            node.y = Math.sin(angle) * targetDistance;
+            node.x = Math.cos(theta) * targetDistance;
+            node.y = Math.sin(theta) * targetDistance;
             
             // Store data for forces
             (node as any).voteBasedDistance = targetDistance;
             (node as any).netVotes = netVotes;
             (node as any).voteRank = index;
-            (node as any).targetDistanceFromCenter = targetDistance;
+            (node as any).initialAngle = theta;
         });
     }
 
@@ -540,15 +756,12 @@ export class UniversalGraphManager {
         this.allNodeData = { nodes: [...systemNodes, ...sortedContentNodes], links: data.links || [] };
         this.currentBatchNumber = 0;
         
-        // Start with system nodes
         const enhancedSystemNodes = this.transformNodes(systemNodes);
         this.nodesStore.set(enhancedSystemNodes);
         this.linksStore.set([]);
         
         this.configureSimulation(enhancedSystemNodes, []);
         this.renderNextBatch();
-        
-        console.log(`[UniversalGraphManager] Batch rendering started: ${sortedContentNodes.length} content nodes`);
     }
 
     /**
@@ -601,8 +814,6 @@ export class UniversalGraphManager {
         
         this.performanceMetrics.renderedNodeCount = currentNodes.length;
         
-        console.log(`[UniversalGraphManager] Rendered batch ${this.currentBatchNumber}/${this.maxBatchesToRender}: ${currentNodes.length} total nodes`);
-        
         if (this.currentBatchNumber < this.maxBatchesToRender && currentContentNodes.length < contentNodes.length) {
             this.batchRenderTimer = window.setTimeout(() => {
                 this.renderNextBatch();
@@ -653,16 +864,8 @@ export class UniversalGraphManager {
                                (index * indexDistanceMultiplier);
             }
             
-            const totalNodes = contentNodes.length;
-            const nodesPerRing = Math.max(6, Math.min(10, Math.ceil(totalNodes / 4)));
-            const ring = Math.floor(index / nodesPerRing);
-            const positionInRing = index % nodesPerRing;
-            const totalNodesInThisRing = Math.min(nodesPerRing, totalNodes - ring * nodesPerRing);
-            
-            const angleStep = (2 * Math.PI) / totalNodesInThisRing;
-            const ringOffset = ring * 0.4;
-            const randomOffset = (Math.random() - 0.5) * 0.15;
-            const angle = positionInRing * angleStep + ringOffset + randomOffset;
+            const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+            const angle = index * goldenAngle + (Math.random() - 0.5) * 0.3;
             
             node.x = Math.cos(angle) * targetDistance;
             node.y = Math.sin(angle) * targetDistance;
@@ -670,7 +873,6 @@ export class UniversalGraphManager {
             (node as any).voteBasedDistance = targetDistance;
             (node as any).netVotes = netVotes;
             (node as any).voteRank = index;
-            (node as any).targetDistanceFromCenter = targetDistance;
         });
     }
 
@@ -699,11 +901,14 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Configure D3 simulation forces
+     * Configure D3 simulation forces (for drop phase)
      */
     private configureSimulation(nodes: EnhancedNode[], links: EnhancedLink[]): void {
-        console.log(`[UniversalGraphManager] configureSimulation called - isInSettlementPhase: ${this.isInSettlementPhase}`);
-        
+        if (this.isInSettlementPhase) {
+            // Settlement phase uses configureNaturalForces()
+            return;
+        }
+
         this.simulation.nodes(asD3Nodes(nodes));
         
         const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
@@ -711,502 +916,555 @@ export class UniversalGraphManager {
             linkForce.links(asD3Links(links));
         }
 
-        if (this.isInSettlementPhase) {
-            console.log('[UniversalGraphManager] In settlement phase - skipping standard force configuration');
-            // Settlement phase uses configureSettlementForces()
-            return;
-        }
+        // Minimal forces during drop phase
+        this.simulation.force('collision', d3.forceCollide()
+            .radius((d: any) => (d as EnhancedNode).radius + 30)
+            .strength(0.5)
+            .iterations(1)
+        );
 
-        if (this.enableSingleNodeMode) {
-            // Single-node mode: lightweight forces during drop
-            this.simulation.force('collision', d3.forceCollide()
-                .radius((d: any) => (d as EnhancedNode).radius + 50)
-                .strength(0.7)
-                .iterations(2)
-            );
+        this.simulation.force('charge', d3.forceManyBody()
+            .strength(-100)
+            .distanceMin(30)
+            .distanceMax(400)
+            .theta(0.9)
+        );
 
-            this.simulation.force('charge', d3.forceManyBody()
-                .strength(-150)
-                .distanceMin(30)
-                .distanceMax(600)
-                .theta(0.9)
-            );
+        this.simulation.force('centerX', d3.forceX(0).strength(0.01));
+        this.simulation.force('centerY', d3.forceY(0).strength(0.01));
 
-            this.simulation.force('centerX', d3.forceX(0).strength(0.01));
-            this.simulation.force('centerY', d3.forceY(0).strength(0.01));
+        this.simulation
+            .velocityDecay(0.6)
+            .alphaDecay(0.1)
+            .alphaMin(0.01)
+           .alphaTarget(0);
+   }
 
-            if (links.length > 0) {
-                this.simulation.force('link', d3.forceLink()
-                    .id((d: any) => (d as EnhancedNode).id)
-                    .strength(0.03)
-                    .distance(120)
-                );
-            }
+   /**
+    * Sort nodes by net votes (highest first)
+    */
+   private sortNodesByVotes(nodes: GraphNode[]): GraphNode[] {
+       return [...nodes].sort((a, b) => {
+           const votesA = this.getNodeVotes(a);
+           const votesB = this.getNodeVotes(b);
+           return votesB - votesA;
+       });
+   }
 
-            this.simulation
-                .velocityDecay(0.5)
-                .alphaDecay(0.15)
-                .alphaMin(0.02)
-                .alphaTarget(0);
-        } else {
-            // Batch mode: stronger forces for vote ordering
-            this.simulation.force('collision', d3.forceCollide()
-                .radius((d: any) => (d as EnhancedNode).radius + 80)
-                .strength(0.95)
-                .iterations(6)
-            );
+   /**
+    * Get net votes for a node
+    */
+   private getNodeVotes(node: GraphNode): number {
+       if (node.type === 'statement' || node.type === 'openquestion') {
+           const votes = node.metadata?.votes as any;
+           if (votes) {
+               const positiveVotes = getNeo4jNumber(votes.positive);
+               const negativeVotes = getNeo4jNumber(votes.negative);
+               return positiveVotes - negativeVotes;
+           }
+       }
+       return 0;
+   }
 
-            this.simulation.force('charge', d3.forceManyBody()
-                .strength((d: any) => {
-                    const node = d as EnhancedNode;
-                    const baseRepulsion = -350;
-                    const sizeMultiplier = (node.radius / 100) * 50;
-                    return baseRepulsion - sizeMultiplier;
-                })
-                .distanceMin(60)
-                .distanceMax(1200)
-                .theta(0.7)
-            );
+   /**
+    * Transform GraphNodes to EnhancedNodes
+    */
+   private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
+       return nodes.map(node => {
+           const netVotes = this.getNodeVotes(node);
+           const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
+           
+           let nodeMode: NodeMode | undefined = node.mode;
+           if (node.group === 'central' && !node.mode) {
+               nodeMode = 'detail';
+           }
+           
+           const nodeRadius = this.getNodeRadius({
+               ...node,
+               mode: nodeMode,
+               isHidden: isHidden
+           });
+           
+           let nodeData: any = {
+               ...(node.data || {}),
+               id: node.id
+           };
+           
+           if (node.type === 'statement') {
+               const votes = node.metadata?.votes as any;
+               nodeData = {
+                   ...nodeData,
+                   statement: node.data && 'content' in node.data ? node.data.content : 
+                              node.data && 'statement' in node.data ? (node.data as any).statement : '',
+                   positiveVotes: votes?.positive || 0,
+                   negativeVotes: votes?.negative || 0,
+                   netVotes: votes?.net || 0,
+                   votes: votes
+               };
+           } else if (node.type === 'openquestion') {
+               const answerCount = node.metadata?.answer_count || 0;
+               nodeData = {
+                   ...nodeData,
+                   questionText: node.data && 'content' in node.data ? node.data.content : 
+                                node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
+                   answerCount: answerCount
+               };
+           }
+           
+           const enhancedNode: EnhancedNode = {
+               id: node.id,
+               type: node.type,
+               data: nodeData,
+               group: node.group,
+               mode: nodeMode,
+               radius: nodeRadius,
+               fixed: node.group === 'central',
+               expanded: nodeMode === 'detail',
+               isHidden,
+               hiddenReason: isHidden ? 'community' : undefined,
+               
+               x: null,
+               y: null,
+               vx: null,
+               vy: null,
+               fx: null,
+               fy: null,
+               
+               metadata: {
+                   group: this.getLayoutGroup(node),
+                   fixed: node.group === 'central',
+                   isDetail: nodeMode === 'detail',
+                   votes: netVotes,
+                   consensus_ratio: node.metadata?.consensus_ratio,
+                   participant_count: node.metadata?.participant_count,
+                   net_votes: node.metadata?.net_votes,
+                   answer_count: node.metadata?.answer_count,
+                   related_statements_count: node.metadata?.related_statements_count,
+                   userVoteStatus: node.metadata?.userVoteStatus,
+                   userVisibilityPreference: node.metadata?.userVisibilityPreference,
+                   ...(node.metadata || {})
+               }
+           };
+           
+           if (enhancedNode.fixed || enhancedNode.group === 'central') {
+               enhancedNode.fx = 0;
+               enhancedNode.fy = 0;
+               enhancedNode.x = 0;
+               enhancedNode.y = 0;
+           }
+           
+           return enhancedNode;
+       });
+   }
 
-            this.simulation.force('centerX', d3.forceX(0)
-                .strength((d: any) => {
-                    const node = d as EnhancedNode;
-                    const netVotes = (node as any).netVotes || 0;
-                    const voteRank = (node as any).voteRank || 0;
-                    
-                    const baseAttraction = 0.05;
-                    const voteBonus = Math.max(0, netVotes) * 0.015;
-                    const rankPenalty = voteRank * 0.003;
-                    
-                    return Math.min(0.25, baseAttraction + voteBonus - rankPenalty);
-                })
-            );
+   /**
+    * Transform GraphLinks to EnhancedLinks
+    */
+   private transformLinks(links: GraphLink[]): EnhancedLink[] {
+       return links.map(link => {
+           const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+           const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+           
+           let strength = 0.3;
+           let relationshipType: 'direct' | 'keyword' = 'keyword';
+           
+           if (link.type === 'shared_keyword') {
+               relationshipType = 'keyword';
+               if (link.metadata?.consolidatedKeywords) {
+                   strength = Math.min(1.0, link.metadata.consolidatedKeywords.totalStrength);
+               } else {
+                   strength = 0.5;
+               }
+           } else if (link.type === 'answers') {
+               strength = 0.8;
+               relationshipType = 'direct';
+           } else if (link.type === 'related_to') {
+               strength = 0.6;
+               relationshipType = 'direct';
+           }
+           
+           const linkMetadata: any = {
+               ...(link.metadata || {}),
+               linkType: link.type,
+               sourceId,
+               targetId
+           };
+           
+           if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
+               linkMetadata.isConsolidated = true;
+               linkMetadata.originalRelationshipCount = link.metadata.consolidatedKeywords.relationCount;
+               linkMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
+               linkMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
+               linkMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
+           }
+           
+           return {
+               id: link.id || `${sourceId}-${targetId}`,
+               source: sourceId,
+               target: targetId,
+               type: link.type,
+               relationshipType,
+               strength,
+               metadata: linkMetadata
+           };
+       });
+   }
 
-            this.simulation.force('centerY', d3.forceY(0)
-                .strength((d: any) => {
-                    const node = d as EnhancedNode;
-                    const netVotes = (node as any).netVotes || 0;
-                    const voteRank = (node as any).voteRank || 0;
-                    
-                    const baseAttraction = 0.05;
-                    const voteBonus = Math.max(0, netVotes) * 0.015;
-                    const rankPenalty = voteRank * 0.003;
-                    
-                    return Math.min(0.25, baseAttraction + voteBonus - rankPenalty);
-                })
-            );
+   /**
+    * Update node mode
+    */
+   public updateNodeMode(nodeId: string, mode: NodeMode): void {
+       const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+       const nodeIndex = currentNodes.findIndex(n => n.id === nodeId);
+       
+       if (nodeIndex === -1) return;
+       
+       const node = currentNodes[nodeIndex];
+       if (node.mode === mode) return;
+       
+       this.simulation.alpha(0).alphaTarget(0);
+       this.clearNodeRadiusCache(nodeId);
+       
+       const newRadius = this.getNodeRadius({
+           ...node,
+           mode: mode
+       });
+       
+       const updatedNode: EnhancedNode = {
+           ...node,
+           mode,
+           expanded: mode === 'detail',
+           radius: newRadius,
+           metadata: {
+               ...node.metadata,
+               isDetail: mode === 'detail'
+           }
+       };
+       
+       const updatedNodes = [...currentNodes];
+       updatedNodes[nodeIndex] = updatedNode;
+       
+       this.simulation.nodes(updatedNodes);
+       this.nodesStore.set(updatedNodes);
+       
+       // Force update
+       this.forceUpdateCounter.update(n => n + 1);
+       
+       if (node.group === 'central' || node.fixed) {
+           this.centerNode(updatedNode);
+       }
+       
+       this.simulation.alpha(0.1).restart();
+       this.simulationActive = true;
+   }
 
-            if (links.length > 0) {
-                this.simulation.force('link', d3.forceLink()
-                    .id((d: any) => (d as EnhancedNode).id)
-                    .strength(0.08)
-                    .distance((l: any) => {
-                        const link = l as EnhancedLink;
-                        const sourceNode = nodes.find(n => n.id === link.source);
-                        const targetNode = nodes.find(n => n.id === link.target);
-                        
-                        if (!sourceNode || !targetNode) return 160;
-                        return sourceNode.radius + targetNode.radius + 160;
-                    })
-                );
-            }
+   /**
+    * Update node visibility
+    */
+   public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
+       const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+       const nodeIndex = currentNodes.findIndex(n => n.id === nodeId);
+       
+       if (nodeIndex === -1) return;
+       
+       const oldNode = currentNodes[nodeIndex];
+       if (oldNode.isHidden === isHidden) return;
+       
+       this.clearNodeRadiusCache(nodeId);
+       
+       let updatedMode = oldNode.mode;
+       if (oldNode.isHidden && !isHidden) {
+           updatedMode = 'preview';
+       }
+       
+       const newRadius = this.getNodeRadius({
+           ...oldNode,
+           mode: updatedMode,
+           isHidden: isHidden
+       });
+       
+       const updatedNode: EnhancedNode = {
+           ...oldNode,
+           isHidden: isHidden,
+           hiddenReason: hiddenReason,
+           mode: updatedMode,
+           radius: newRadius,
+           expanded: updatedMode === 'detail'
+       };
+       
+       const updatedNodes = [...currentNodes];
+       updatedNodes[nodeIndex] = updatedNode;
+       
+       this.simulation.nodes(updatedNodes);
+       this.nodesStore.set(updatedNodes);
+       
+       // Force update
+       this.forceUpdateCounter.update(n => n + 1);
+       
+       this.simulation.alpha(0.2).restart();
+       this.simulationActive = true;
+   }
 
-            this.simulation
-                .velocityDecay(0.12)
-                .alphaDecay(0.0015)
-                .alphaMin(0.00003)
-                .alphaTarget(0);
-        }
-    }
+   /**
+    * Apply visibility preferences
+    */
+   public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
+       if (Object.keys(preferences).length === 0) return;
+       
+       const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
+       if (!currentNodes || currentNodes.length === 0) return;
+       
+       let changedNodeCount = 0;
+       const updatedNodes = [...currentNodes];
+       
+       Object.entries(preferences).forEach(([nodeId, isVisible]) => {
+           const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
+           if (nodeIndex >= 0) {
+               const node = updatedNodes[nodeIndex];
+               const newHiddenState = !isVisible;
+               
+               if (node.isHidden !== newHiddenState) {
+                   updatedNodes[nodeIndex] = {
+                       ...node,
+                       isHidden: newHiddenState,
+                       hiddenReason: 'user',
+                       radius: this.getNodeRadius({
+                           ...node,
+                           isHidden: newHiddenState
+                       })
+                   };
+                   changedNodeCount++;
+               }
+           }
+       });
+       
+       if (changedNodeCount > 0) {
+           this.simulation.nodes(updatedNodes);
+           this.nodesStore.set(updatedNodes);
+           
+           // Force update
+           this.forceUpdateCounter.update(n => n + 1);
+           
+           this.simulation.alpha(0.1).restart();
+           this.simulationActive = true;
+       }
+   }
 
-    /**
-     * Sort nodes by net votes (highest first)
-     */
-    private sortNodesByVotes(nodes: GraphNode[]): GraphNode[] {
-        return [...nodes].sort((a, b) => {
-            const votesA = this.getNodeVotes(a);
-            const votesB = this.getNodeVotes(b);
-            return votesB - votesA;
-        });
-    }
+   /**
+    * Force tick updates
+    */
+   public forceTick(ticks: number = 1): void {
+       this.simulation.alpha(0).alphaTarget(0);
+       
+       for (let i = 0; i < ticks; i++) {
+           this.simulation.tick();
+       }
+       
+       const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
+       this.nodesStore.set([...nodes]);
+       
+       // Force update
+       this.forceUpdateCounter.update(n => n + 1);
+   }
 
-    /**
-     * Get net votes for a node
-     */
-    private getNodeVotes(node: GraphNode): number {
-        if (node.type === 'statement' || node.type === 'openquestion') {
-            const votes = node.metadata?.votes as any;
-            if (votes) {
-                const positiveVotes = getNeo4jNumber(votes.positive);
-                const negativeVotes = getNeo4jNumber(votes.negative);
-                return positiveVotes - negativeVotes;
-            }
-        }
-        return 0;
-    }
+   /**
+    * Stop simulation and cleanup
+    */
+   public stop(): void {
+       this.stopSimulation();
+       this.clearCaches();
+       this.clearAllTimers();
+   }
 
-    /**
-     * Transform GraphNodes to EnhancedNodes
-     */
-    private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
-        return nodes.map(node => {
-            const netVotes = this.getNodeVotes(node);
-            const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
-            
-            let nodeMode: NodeMode | undefined = node.mode;
-            if (node.group === 'central' && !node.mode) {
-                nodeMode = 'detail';
-            }
-            
-            const nodeRadius = this.getNodeRadius({
-                ...node,
-                mode: nodeMode,
-                isHidden: isHidden
-            });
-            
-            let nodeData: any = {
-                ...(node.data || {}),
-                id: node.id
-            };
-            
-            if (node.type === 'statement') {
-                const votes = node.metadata?.votes as any;
-                nodeData = {
-                    ...nodeData,
-                    statement: node.data && 'content' in node.data ? node.data.content : 
-                               node.data && 'statement' in node.data ? (node.data as any).statement : '',
-                    positiveVotes: votes?.positive || 0,
-                    negativeVotes: votes?.negative || 0,
-                    netVotes: votes?.net || 0,
-                    votes: votes
-                };
-            } else if (node.type === 'openquestion') {
-                const answerCount = node.metadata?.answer_count || 0;
-                nodeData = {
-                    ...nodeData,
-                    questionText: node.data && 'content' in node.data ? node.data.content : 
-                                 node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
-                    answerCount: answerCount
-                };
-            }
-            
-            const enhancedNode: EnhancedNode = {
-                id: node.id,
-                type: node.type,
-                data: nodeData,
-                group: node.group,
-                mode: nodeMode,
-                radius: nodeRadius,
-                fixed: node.group === 'central',
-                expanded: nodeMode === 'detail',
-                isHidden,
-                hiddenReason: isHidden ? 'community' : undefined,
-                
-                x: null,
-                y: null,
-                vx: null,
-                vy: null,
-                fx: null,
-                fy: null,
-                
-                metadata: {
-                    group: this.getLayoutGroup(node),
-                    fixed: node.group === 'central',
-                    isDetail: nodeMode === 'detail',
-                    votes: netVotes,
-                    consensus_ratio: node.metadata?.consensus_ratio,
-                    participant_count: node.metadata?.participant_count,
-                    net_votes: node.metadata?.net_votes,
-                    answer_count: node.metadata?.answer_count,
-                    related_statements_count: node.metadata?.related_statements_count,
-                    userVoteStatus: node.metadata?.userVoteStatus,
-                    userVisibilityPreference: node.metadata?.userVisibilityPreference,
-                    ...(node.metadata || {})
-                }
-            };
-            
-            if (enhancedNode.fixed || enhancedNode.group === 'central') {
-                enhancedNode.fx = 0;
-                enhancedNode.fy = 0;
-                enhancedNode.x = 0;
-                enhancedNode.y = 0;
-            }
-            
-            return enhancedNode;
-        });
-    }
+   /**
+    * Get performance metrics
+    */
+   public getPerformanceMetrics() {
+       return { ...this.performanceMetrics };
+   }
 
-    /**
-     * Transform GraphLinks to EnhancedLinks
-     */
-    private transformLinks(links: GraphLink[]): EnhancedLink[] {
-        return links.map(link => {
-            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
-            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
-            
-            let strength = 0.3;
-            let relationshipType: 'direct' | 'keyword' = 'keyword';
-            
-            if (link.type === 'shared_keyword') {
-                relationshipType = 'keyword';
-                if (link.metadata?.consolidatedKeywords) {
-                    strength = Math.min(1.0, link.metadata.consolidatedKeywords.totalStrength);
-                } else {
-                    strength = 0.5;
-                }
-            } else if (link.type === 'answers') {
-                strength = 0.8;
-                relationshipType = 'direct';
-            } else if (link.type === 'related_to') {
-                strength = 0.6;
-                relationshipType = 'direct';
-            }
-            
-            const linkMetadata: any = {
-                ...(link.metadata || {}),
-                linkType: link.type,
-                sourceId,
-                targetId
-            };
-            
-            if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
-                linkMetadata.isConsolidated = true;
-                linkMetadata.originalRelationshipCount = link.metadata.consolidatedKeywords.relationCount;
-                linkMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
-                linkMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
-                linkMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
-            }
-            
-            return {
-                id: link.id || `${sourceId}-${targetId}`,
-                source: sourceId,
-                target: targetId,
-                type: link.type,
-                relationshipType,
-                strength,
-                metadata: linkMetadata
-            };
-        });
-    }
+   /**
+    * Get batch debug info
+    */
+   public getBatchDebugInfo(): any {
+       return {
+           layoutType: 'vote_based_with_natural_forces',
+           phase: '3.0',
+           batchRenderingEnabled: this.isBatchRenderingEnabled,
+           sequentialRenderingEnabled: this.isSequentialRenderingEnabled,
+           singleNodeMode: this.enableSingleNodeMode,
+           renderedNodeCount: this.performanceMetrics.renderedNodeCount,
+           totalNodeCount: this.performanceMetrics.totalNodeCount,
+           performanceMetrics: this.getPerformanceMetrics(),
+           settlementPhase: this.isInSettlementPhase,
+           settlementTicks: this.settlementTickCounter,
+           message: 'Natural force-directed layout with vote ordering'
+       };
+   }
 
-    /**
-     * Update node mode
-     */
-    public updateNodeMode(nodeId: string, mode: NodeMode): void {
-        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const nodeIndex = currentNodes.findIndex(n => n.id === nodeId);
-        
-        if (nodeIndex === -1) return;
-        
-        const node = currentNodes[nodeIndex];
-        if (node.mode === mode) return;
-        
-        this.simulation.alpha(0).alphaTarget(0);
-        this.clearNodeRadiusCache(nodeId);
-        
-        const newRadius = this.getNodeRadius({
-            ...node,
-            mode: mode
-        });
-        
-        const updatedNode: EnhancedNode = {
-            ...node,
-            mode,
-            expanded: mode === 'detail',
-            radius: newRadius,
-            metadata: {
-                ...node.metadata,
-                isDetail: mode === 'detail'
-            }
-        };
-        
-        const updatedNodes = [...currentNodes];
-        updatedNodes[nodeIndex] = updatedNode;
-        
-        this.simulation.nodes(updatedNodes);
-        this.nodesStore.set(updatedNodes);
-        
-        if (node.group === 'central' || node.fixed) {
-            this.centerNode(updatedNode);
-        }
-        
-        this.simulation.alpha(0.1).restart();
-        this.simulationActive = true;
-    }
+   /**
+    * Create renderable nodes from enhanced nodes
+    * PHASE 3.0: Force fresh transform computation
+    */
+   private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
+       return nodes.map(node => {
+           const radius = node.radius;
+           const x = node.x ?? 0;
+           const y = node.y ?? 0;
+           
+           // PHASE 3.0: Always compute fresh transform, never cache during settlement
+           const svgTransform = `translate(${x},${y})`;
+           
+           return {
+               id: node.id,
+               type: node.type,
+               group: node.group,
+               mode: node.mode,
+               data: node.data,
+               radius: radius,
+               isHidden: node.isHidden,
+               hiddenReason: node.hiddenReason,
+               position: { x, y, svgTransform },
+               metadata: node.metadata,
+               style: {
+                   previewSize: radius,
+                   detailSize: radius,
+                   colors: {
+                       background: this.getNodeBackground(node),
+                       border: this.getNodeBorder(node),
+                       text: COLORS.UI.TEXT.PRIMARY,
+                       hover: this.getNodeHover(node),
+                       gradient: {
+                           start: this.getNodeGradientStart(node),
+                           end: this.getNodeGradientEnd(node)
+                       }
+                   },
+                   padding: {
+                       preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
+                       detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
+                   },
+                   lineHeight: {
+                       preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
+                       detail: NODE_CONSTANTS.LINE_HEIGHT.detail
+                   },
+                   stroke: {
+                       preview: {
+                           normal: NODE_CONSTANTS.STROKE.preview.normal,
+                           hover: NODE_CONSTANTS.STROKE.preview.hover
+                       },
+                       detail: {
+                           normal: NODE_CONSTANTS.STROKE.detail.normal,
+                           hover: NODE_CONSTANTS.STROKE.detail.hover
+                       }
+                   },
+                   highlightColor: this.getNodeColor(node)
+               }
+           };
+       });
+   }
 
-    /**
-     * Update node visibility
-     */
-    public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
-        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const nodeIndex = currentNodes.findIndex(n => n.id === nodeId);
-        
-        if (nodeIndex === -1) return;
-        
-        const oldNode = currentNodes[nodeIndex];
-        if (oldNode.isHidden === isHidden) return;
-        
-        this.clearNodeRadiusCache(nodeId);
-        
-        let updatedMode = oldNode.mode;
-        if (oldNode.isHidden && !isHidden) {
-            updatedMode = 'preview';
-        }
-        
-        const newRadius = this.getNodeRadius({
-            ...oldNode,
-            mode: updatedMode,
-            isHidden: isHidden
-        });
-        
-        const updatedNode: EnhancedNode = {
-            ...oldNode,
-            isHidden: isHidden,
-            hiddenReason: hiddenReason,
-            mode: updatedMode,
-            radius: newRadius,
-            expanded: updatedMode === 'detail'
-        };
-        
-        const updatedNodes = [...currentNodes];
-        updatedNodes[nodeIndex] = updatedNode;
-        
-        this.simulation.nodes(updatedNodes);
-        this.nodesStore.set(updatedNodes);
-        
-        this.simulation.alpha(0.2).restart();
-        this.simulationActive = true;
-    }
+   /**
+    * Create renderable links
+    */
+   private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
+       if (nodes.length === 0 || links.length === 0) return [];
+       
+       const nodeMap = new Map<string, EnhancedNode>();
+       nodes.forEach(node => nodeMap.set(node.id, node));
+       
+       return links.map(link => {
+           const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+           const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+           
+           const source = nodeMap.get(sourceId);
+           const target = nodeMap.get(targetId);
+           
+           if (!source || !target || source.isHidden || target.isHidden) {
+               return null;
+           }
+           
+           const path = this.calculateLinkPath(source, target, link);
+           const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
+           const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
+           
+           const enhancedMetadata: any = { ...link.metadata };
+           
+           if (link.type === 'shared_keyword') {
+               if (link.metadata?.consolidatedKeywords) {
+                   enhancedMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
+                   enhancedMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
+                   enhancedMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
+                   enhancedMetadata.isConsolidated = true;
+               } else {
+                   enhancedMetadata.sharedWords = [enhancedMetadata.keyword || ''];
+                   enhancedMetadata.relationCount = 1;
+                   enhancedMetadata.isConsolidated = false;
+               }
+           }
+           
+           return {
+               id: link.id,
+               type: link.type,
+               sourceId: source.id,
+               targetId: target.id,
+               sourceType: source.type,
+               targetType: target.type,
+               path,
+               sourcePosition: { 
+                   x: source.x ?? 0, 
+                   y: source.y ?? 0,
+                   svgTransform: sourceTransform
+               },
+               targetPosition: { 
+                   x: target.x ?? 0, 
+                   y: target.y ?? 0,
+                   svgTransform: targetTransform
+               },
+               strength: link.strength,
+               relationshipType: link.relationshipType,
+               metadata: enhancedMetadata
+           };
+       }).filter(Boolean) as RenderableLink[];
+   }
 
-    /**
-     * Apply visibility preferences
-     */
-    public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
-        if (Object.keys(preferences).length === 0) return;
-        
-        const currentNodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        if (!currentNodes || currentNodes.length === 0) return;
-        
-        let changedNodeCount = 0;
-        const updatedNodes = [...currentNodes];
-        
-        Object.entries(preferences).forEach(([nodeId, isVisible]) => {
-            const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
-            if (nodeIndex >= 0) {
-                const node = updatedNodes[nodeIndex];
-                const newHiddenState = !isVisible;
-                
-                if (node.isHidden !== newHiddenState) {
-                    updatedNodes[nodeIndex] = {
-                        ...node,
-                        isHidden: newHiddenState,
-                        hiddenReason: 'user',
-                        radius: this.getNodeRadius({
-                            ...node,
-                            isHidden: newHiddenState
-                        })
-                    };
-                    changedNodeCount++;
-                }
-            }
-        });
-        
-        if (changedNodeCount > 0) {
-            this.simulation.nodes(updatedNodes);
-            this.nodesStore.set(updatedNodes);
-            this.simulation.alpha(0.1).restart();
-            this.simulationActive = true;
-        }
-    }
+   // Private helper methods
 
-    /**
-     * Force tick updates
-     */
-    public forceTick(ticks: number = 1): void {
-        this.simulation.alpha(0).alphaTarget(0);
-        
-        for (let i = 0; i < ticks; i++) {
-            this.simulation.tick();
-        }
-        
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        this.nodesStore.set([...nodes]);
-    }
+   private centerNode(node: EnhancedNode): void {
+       node.x = 0;
+       node.y = 0;
+       node.fx = 0;
+       node.fy = 0;
+       node.vx = 0;
+       node.vy = 0;
+   }
 
-    /**
-     * Stop simulation and cleanup
-     */
-    public stop(): void {
-        this.stopSimulation();
-        this.clearCaches();
-        this.clearAllTimers();
-    }
+   private enforceNavigationPosition(node: EnhancedNode): void {
+       if (node.fx !== null && node.fx !== undefined) {
+           node.x = node.fx;
+       }
+       if (node.fy !== null && node.fy !== undefined) {
+           node.y = node.fy;
+       }
+       node.vx = 0;
+       node.vy = 0;
+   }
 
-    /**
-     * Get performance metrics
-     */
-    public getPerformanceMetrics() {
-        return { ...this.performanceMetrics };
-    }
-
-    /**
-     * Get batch debug info
-     */
-    public getBatchDebugInfo(): any {
-        const baseInfo = {
-            layoutType: 'vote_based_with_d3_radial',
-            phase: '2.7',
-            batchRenderingEnabled: this.isBatchRenderingEnabled,
-            sequentialRenderingEnabled: this.isSequentialRenderingEnabled,
-            singleNodeMode: this.enableSingleNodeMode,
-            renderedNodeCount: this.performanceMetrics.renderedNodeCount,
-            totalNodeCount: this.performanceMetrics.totalNodeCount,
-            performanceMetrics: this.getPerformanceMetrics()
-        };
-
-        if (this.enableSingleNodeMode) {
-            return {
-                ...baseInfo,
-                currentNodeIndex: this.currentNodeIndex,
-                maxNodesToRender: this.singleNodeConfig.maxNodesToRender,
-                nodeDelay: this.singleNodeConfig.nodeDelay,
-                distanceIncrement: this.singleNodeConfig.distanceIncrement,
-                baseDistance: this.singleNodeConfig.baseDistance,
-                guaranteedVoteOrdering: true,
-                estimatedTotalTime: `${this.singleNodeConfig.maxNodesToRender * this.singleNodeConfig.nodeDelay}ms`,
-                d3Settlement: true,
-                message: 'Single-node sequential with D3 radial settlement phase'
-            };
-        } else {
-            return {
-                ...baseInfo,
-                maxBatches: this.maxBatchesToRender,
-                currentBatch: this.currentBatchNumber,
-                delayBetweenBatches: BATCH_RENDERING.DELAY_BETWEEN_BATCHES,
-                pathBlockingPrevention: true,
-                d3Settlement: true,
-                estimatedTotalTime: `${this.maxBatchesToRender * BATCH_RENDERING.DELAY_BETWEEN_BATCHES}ms`,
-                message: 'Enhanced batch rendering with D3 radial settlement'
-            };
-        }
-    }
-
-    // Private helper methods
-
-    private stopSimulation(): void {
-        if (!this.simulationActive) return;
-        
-        this.simulation.stop();
-        this.simulation.alpha(0).alphaTarget(0);
-        
-        const nodes = this.simulation.nodes();
-        nodes.forEach((node: any) => {
-            node.vx = 0;
-            node.vy = 0;
-        });
-        
-        this.simulationActive = false;
-    }
+   private stopSimulation(): void {
+       if (!this.simulationActive) return;
+       
+       this.simulation.stop();
+       this.simulation.alpha(0).alphaTarget(0);
+       
+       const nodes = this.simulation.nodes();
+       nodes.forEach((node: any) => {
+           node.vx = 0;
+           node.vy = 0;
+       });
+       
+       this.simulationActive = false;
+       this.isInSettlementPhase = false;
+       this.settlementTickCounter = 0;
+   }
 
     private clearAllTimers(): void {
         if (this.batchRenderTimer) {
@@ -1218,378 +1476,241 @@ export class UniversalGraphManager {
             clearTimeout(this.singleNodeTimer);
             this.singleNodeTimer = null;
         }
-    }
-
-    private updatePerformanceMetrics(links: GraphLink[]): void {
-        let originalCount = 0;
-        let consolidatedCount = 0;
         
-        links.forEach(link => {
-            consolidatedCount++;
-            
-            if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
-                originalCount += (link.metadata.consolidatedKeywords as ConsolidatedKeywordMetadata).relationCount;
-            } else {
-                originalCount++;
-            }
-        });
-        
-        this.performanceMetrics = {
-            ...this.performanceMetrics,
-            originalRelationshipCount: originalCount,
-            consolidatedRelationshipCount: consolidatedCount,
-            consolidationRatio: originalCount > 0 ? originalCount / consolidatedCount : 1.0,
-            lastUpdateTime: Date.now(),
-            renderTime: 0
-        };
-    }
-
-    private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
-        // Log occasionally to debug
-        if (Math.random() < 0.01) {
-            console.log('[UniversalGraphManager] Creating renderable nodes, sample:', {
-                nodeId: nodes[0]?.id,
-                x: nodes[0]?.x,
-                y: nodes[0]?.y
-            });
-        }
-        
-        return nodes.map(node => {
-            const radius = node.radius;
-            const x = node.x ?? 0;
-            const y = node.y ?? 0;
-            const svgTransform = coordinateSystem.createSVGTransform(x, y);
-            
-            // Debug log for first few nodes during settlement
-            if (this.isInSettlementPhase && node.type === 'statement' && Math.random() < 0.05) {
-                console.log(`[UniversalGraphManager] RenderableNode ${node.id}: pos(${x.toFixed(2)}, ${y.toFixed(2)}) transform: ${svgTransform}`);
-            }
-            
-            return {
-                id: node.id,
-                type: node.type,
-                group: node.group,
-                mode: node.mode,
-                data: node.data,
-                radius: radius,
-                isHidden: node.isHidden,
-                hiddenReason: node.hiddenReason,
-                position: { x, y, svgTransform },
-                metadata: node.metadata,
-                style: {
-                    previewSize: radius,
-                    detailSize: radius,
-                    colors: {
-                        background: this.getNodeBackground(node),
-                        border: this.getNodeBorder(node),
-                        text: COLORS.UI.TEXT.PRIMARY,
-                        hover: this.getNodeHover(node),
-                        gradient: {
-                            start: this.getNodeGradientStart(node),
-                            end: this.getNodeGradientEnd(node)
-                        }
-                    },
-                    padding: {
-                        preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
-                        detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
-                    },
-                    lineHeight: {
-                        preview: NODE_CONSTANTS.LINE_HEIGHT.preview,
-                        detail: NODE_CONSTANTS.LINE_HEIGHT.detail
-                    },
-                    stroke: {
-                        preview: {
-                            normal: NODE_CONSTANTS.STROKE.preview.normal,
-                            hover: NODE_CONSTANTS.STROKE.preview.hover
-                        },
-                        detail: {
-                            normal: NODE_CONSTANTS.STROKE.detail.normal,
-                            hover: NODE_CONSTANTS.STROKE.detail.hover
-                        }
-                    },
-                    highlightColor: this.getNodeColor(node)
-                }
-            };
-        });
-    }
-
-    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
-        if (nodes.length === 0 || links.length === 0) return [];
-        
-        const nodeMap = new Map<string, EnhancedNode>();
-        nodes.forEach(node => nodeMap.set(node.id, node));
-        
-        return links.map(link => {
-            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
-            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
-            
-            const source = nodeMap.get(sourceId);
-            const target = nodeMap.get(targetId);
-            
-            if (!source || !target || source.isHidden || target.isHidden) {
-                return null;
-            }
-            
-            const path = this.calculateLinkPath(source, target, link);
-            const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
-            const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
-            
-            const enhancedMetadata: any = { ...link.metadata };
-            
-            if (link.type === 'shared_keyword') {
-                if (link.metadata?.consolidatedKeywords) {
-                    enhancedMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
-                    enhancedMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
-                    enhancedMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
-                    enhancedMetadata.isConsolidated = true;
-                } else {
-                    enhancedMetadata.sharedWords = [enhancedMetadata.keyword || ''];
-                    enhancedMetadata.relationCount = 1;
-                    enhancedMetadata.isConsolidated = false;
-                }
-            }
-            
-            return {
-                id: link.id,
-                type: link.type,
-                sourceId: source.id,
-                targetId: target.id,
-                sourceType: source.type,
-                targetType: target.type,
-                path,
-                sourcePosition: { 
-                    x: source.x ?? 0, 
-                    y: source.y ?? 0,
-                    svgTransform: sourceTransform
-                },
-                targetPosition: { 
-                    x: target.x ?? 0, 
-                    y: target.y ?? 0,
-                    svgTransform: targetTransform
-                },
-                strength: link.strength,
-                relationshipType: link.relationshipType,
-                metadata: enhancedMetadata
-            };
-        }).filter(Boolean) as RenderableLink[];
-    }
-
-    private centerNode(node: EnhancedNode): void {
-        node.x = 0;
-        node.y = 0;
-        node.fx = 0;
-        node.fy = 0;
-        node.vx = 0;
-        node.vy = 0;
-    }
-
-    private enforceNavigationPosition(node: EnhancedNode): void {
-        if (node.fx !== null && node.fx !== undefined) {
-            node.x = node.fx;
-        }
-        if (node.fy !== null && node.fy !== undefined) {
-            node.y = node.fy;
-        }
-        node.vx = 0;
-        node.vy = 0;
-    }
-
-    private calculateLinkPath(source: EnhancedNode, target: EnhancedNode, link?: EnhancedLink): string {
-        const sourceX = source.x ?? 0;
-        const sourceY = source.y ?? 0;
-        const targetX = target.x ?? 0;
-        const targetY = target.y ?? 0;
-        
-        const linkInfo = link ? `${link.type}-${link.metadata?.isConsolidated ? 'consolidated' : 'single'}` : 'default';
-        const cacheKey = `${source.id}-${target.id}-${linkInfo}-${sourceX.toFixed(1)}-${sourceY.toFixed(1)}-${targetX.toFixed(1)}-${targetY.toFixed(1)}`;
-        
-        if (this.linkPathCache.has(cacheKey)) {
-            return this.linkPathCache.get(cacheKey)!.path;
-        }
-        
-        if (sourceX === targetX && sourceY === targetY) return '';
-        
-        const dx = targetX - sourceX;
-        const dy = targetY - sourceY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        const unitX = dx / distance;
-        const unitY = dy / distance;
-        
-        const sourceRadius = source.radius * 0.95;
-        const targetRadius = target.radius * 0.95;
-        
-        const startX = sourceX + (unitX * sourceRadius);
-        const startY = sourceY + (unitY * sourceRadius);
-        const endX = targetX - (unitX * targetRadius);
-        const endY = targetY - (unitY * targetRadius);
-        
-        const path = `M${startX},${startY}L${endX},${endY}`;
-        
-        this.linkPathCache.set(cacheKey, {
-            path,
-            metadata: {
-                linkType: link?.type || 'unknown',
-                isConsolidated: link?.metadata?.isConsolidated || false
-            }
-        });
-        
-        if (this.linkPathCache.size > 500) {
-            const firstKey = this.linkPathCache.keys().next().value;
-            if (firstKey) this.linkPathCache.delete(firstKey);
-        }
-        
-        return path;
-    }
-
-    private getNodeRadius(node: GraphNode | EnhancedNode): number {
-        const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
-        
-        if (this.nodeRadiusCache.has(cacheKey)) {
-            return this.nodeRadiusCache.get(cacheKey)!;
-        }
-        
-        if ('isHidden' in node && node.isHidden) {
-            const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
-            this.nodeRadiusCache.set(cacheKey, radius);
-            return radius;
-        }
-        
-        let radius = 0;
-        switch(node.type) {
-            case 'statement':
-                radius = node.mode === 'detail' ?
-                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
-                    COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
-                break;
-            case 'openquestion':
-                radius = node.mode === 'detail' ?
-                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL / 2 :
-                    COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW / 2;
-                break;
-            case 'navigation':
-                radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
-                break;
-            case 'dashboard':
-                if (node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
-                    radius = node.mode === 'detail' ?
-                        COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
-                        COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
-                } else {
-                    radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
-                }
-                break;
-            default:
-                radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
-        }
-        
-        this.nodeRadiusCache.set(cacheKey, radius);
-        return radius;
-    }
-
-    private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
-        if (node.group === 'central') return 'central';
-        if (node.group === 'live-definition' || node.group === 'alternative-definition') return 'definition';
-        return node.type as "word" | "navigation" | "statement";
-    }
-
-    private getNodeColor(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
-            case 'openquestion':
-                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
-            case 'navigation':
-                return 'transparent';
-            case 'dashboard':
-                return COLORS.UI.TEXT.PRIMARY;
-            default:
-                return COLORS.UI.TEXT.PRIMARY;
+        if (typeof window !== 'undefined' && this.forceUpdateInterval) {
+            clearInterval(this.forceUpdateInterval);
+            this.forceUpdateInterval = null;
         }
     }
 
-    private extractBaseColorFromStyle(style: any): string {
-        if (style.border) {
-            return style.border.substring(0, 7);
-        }
-        return COLORS.UI.TEXT.PRIMARY;
-    }
+   private updatePerformanceMetrics(links: GraphLink[]): void {
+       let originalCount = 0;
+       let consolidatedCount = 0;
+       
+       links.forEach(link => {
+           consolidatedCount++;
+           
+           if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
+               originalCount += (link.metadata.consolidatedKeywords as ConsolidatedKeywordMetadata).relationCount;
+           } else {
+               originalCount++;
+           }
+       });
+       
+       this.performanceMetrics = {
+           ...this.performanceMetrics,
+           originalRelationshipCount: originalCount,
+           consolidatedRelationshipCount: consolidatedCount,
+           consolidationRatio: originalCount > 0 ? originalCount / consolidatedCount : 1.0,
+           lastUpdateTime: Date.now()
+       };
+   }
 
-    private getNodeBackground(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return NODE_CONSTANTS.COLORS.STATEMENT.background;
-            case 'openquestion':
-                return NODE_CONSTANTS.COLORS.OPENQUESTION.background;
-            case 'dashboard':
-                return NODE_CONSTANTS.COLORS.DASHBOARD.background;
-            default:
-                return 'rgba(0, 0, 0, 0.5)';
-        }
-    }
+   private calculateLinkPath(source: EnhancedNode, target: EnhancedNode, link?: EnhancedLink): string {
+       const sourceX = source.x ?? 0;
+       const sourceY = source.y ?? 0;
+       const targetX = target.x ?? 0;
+       const targetY = target.y ?? 0;
+       
+       // PHASE 3.0: Don't cache during settlement phase
+       if (!this.isInSettlementPhase) {
+           const linkInfo = link ? `${link.type}-${link.metadata?.isConsolidated ? 'consolidated' : 'single'}` : 'default';
+           const cacheKey = `${source.id}-${target.id}-${linkInfo}-${sourceX.toFixed(1)}-${sourceY.toFixed(1)}-${targetX.toFixed(1)}-${targetY.toFixed(1)}`;
+           
+           if (this.linkPathCache.has(cacheKey)) {
+               return this.linkPathCache.get(cacheKey)!.path;
+           }
+       }
+       
+       if (sourceX === targetX && sourceY === targetY) return '';
+       
+       const dx = targetX - sourceX;
+       const dy = targetY - sourceY;
+       const distance = Math.sqrt(dx * dx + dy * dy);
+       
+       const unitX = dx / distance;
+       const unitY = dy / distance;
+       
+       const sourceRadius = source.radius * 0.95;
+       const targetRadius = target.radius * 0.95;
+       
+       const startX = sourceX + (unitX * sourceRadius);
+       const startY = sourceY + (unitY * sourceRadius);
+       const endX = targetX - (unitX * targetRadius);
+       const endY = targetY - (unitY * targetRadius);
+       
+       const path = `M${startX},${startY}L${endX},${endY}`;
+       
+       // Only cache if not in settlement phase
+       if (!this.isInSettlementPhase) {
+           const linkInfo = link ? `${link.type}-${link.metadata?.isConsolidated ? 'consolidated' : 'single'}` : 'default';
+           const cacheKey = `${source.id}-${target.id}-${linkInfo}-${sourceX.toFixed(1)}-${sourceY.toFixed(1)}-${targetX.toFixed(1)}-${targetY.toFixed(1)}`;
+           
+           this.linkPathCache.set(cacheKey, {
+               path,
+               metadata: {
+                   linkType: link?.type || 'unknown',
+                   isConsolidated: link?.metadata?.isConsolidated || false
+               }
+           });
+           
+           if (this.linkPathCache.size > 500) {
+               const firstKey = this.linkPathCache.keys().next().value;
+               if (firstKey) this.linkPathCache.delete(firstKey);
+           }
+       }
+       
+       return path;
+   }
 
-    private getNodeBorder(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return NODE_CONSTANTS.COLORS.STATEMENT.border;
-            case 'openquestion':
-                return NODE_CONSTANTS.COLORS.OPENQUESTION.border;
-            case 'dashboard':
-                return NODE_CONSTANTS.COLORS.DASHBOARD.border;
-            default:
-                return 'rgba(255, 255, 255, 1)';
-        }
-    }
+   private getNodeRadius(node: GraphNode | EnhancedNode): number {
+       const cacheKey = `${node.id}-${node.type}-${node.mode || 'preview'}-${('isHidden' in node && node.isHidden) ? 'hidden' : 'visible'}`;
+       
+       if (this.nodeRadiusCache.has(cacheKey)) {
+           return this.nodeRadiusCache.get(cacheKey)!;
+       }
+       
+       if ('isHidden' in node && node.isHidden) {
+           const radius = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
+           this.nodeRadiusCache.set(cacheKey, radius);
+           return radius;
+       }
+       
+       let radius = 0;
+       switch(node.type) {
+           case 'statement':
+               radius = node.mode === 'detail' ?
+                   COORDINATE_SPACE.NODES.SIZES.STATEMENT.DETAIL / 2 :
+                   COORDINATE_SPACE.NODES.SIZES.STATEMENT.PREVIEW / 2;
+               break;
+           case 'openquestion':
+               radius = node.mode === 'detail' ?
+                   COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL / 2 :
+                   COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW / 2;
+               break;
+           case 'navigation':
+               radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
+               break;
+           case 'dashboard':
+               if (node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
+                   radius = node.mode === 'detail' ?
+                       COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                       COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+               } else {
+                   radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+               }
+               break;
+           default:
+               radius = COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2;
+       }
+       
+       this.nodeRadiusCache.set(cacheKey, radius);
+       return radius;
+   }
 
-    private getNodeHover(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return NODE_CONSTANTS.COLORS.STATEMENT.hover;
-            case 'openquestion':
-                return NODE_CONSTANTS.COLORS.OPENQUESTION.hover;
-            case 'dashboard':
-                return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
-            default:
-                return 'rgba(255, 255, 255, 1)';
-        }
-    }
+   private getLayoutGroup(node: GraphNode): "central" | "word" | "definition" | "navigation" | "statement" {
+       if (node.group === 'central') return 'central';
+       if (node.group === 'live-definition' || node.group === 'alternative-definition') return 'definition';
+       return node.type as "word" | "navigation" | "statement";
+   }
 
-    private getNodeGradientStart(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
-            case 'openquestion':
-                return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.start;
-            case 'dashboard':
-                return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
-            default:
-                return 'rgba(255, 255, 255, 0.4)';
-        }
-    }
+   private getNodeColor(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+           case 'openquestion':
+               return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+           case 'navigation':
+               return 'transparent';
+           case 'dashboard':
+               return COLORS.UI.TEXT.PRIMARY;
+           default:
+               return COLORS.UI.TEXT.PRIMARY;
+       }
+   }
 
-    private getNodeGradientEnd(node: EnhancedNode): string {
-        switch (node.type) {
-            case 'statement':
-                return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
-            case 'openquestion':
-                return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.end;
-            case 'dashboard':
-                return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
-            default:
-                return 'rgba(255, 255, 255, 0.2)';
-        }
-    }
+   private extractBaseColorFromStyle(style: any): string {
+       if (style.border) {
+           return style.border.substring(0, 7);
+       }
+       return COLORS.UI.TEXT.PRIMARY;
+   }
 
-    private clearCaches(): void {
-        this.nodeRadiusCache.clear();
-        this.linkPathCache.clear();
-    }
+   private getNodeBackground(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return NODE_CONSTANTS.COLORS.STATEMENT.background;
+           case 'openquestion':
+               return NODE_CONSTANTS.COLORS.OPENQUESTION.background;
+           case 'dashboard':
+               return NODE_CONSTANTS.COLORS.DASHBOARD.background;
+           default:
+               return 'rgba(0, 0, 0, 0.5)';
+       }
+   }
 
-    private clearNodeRadiusCache(nodeId: string): void {
-        for (const key of Array.from(this.nodeRadiusCache.keys())) {
-            if (key.startsWith(`${nodeId}-`)) {
-                this.nodeRadiusCache.delete(key);
-            }
-        }
-    }
+   private getNodeBorder(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return NODE_CONSTANTS.COLORS.STATEMENT.border;
+           case 'openquestion':
+               return NODE_CONSTANTS.COLORS.OPENQUESTION.border;
+           case 'dashboard':
+               return NODE_CONSTANTS.COLORS.DASHBOARD.border;
+           default:
+               return 'rgba(255, 255, 255, 1)';
+       }
+   }
+
+   private getNodeHover(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return NODE_CONSTANTS.COLORS.STATEMENT.hover;
+           case 'openquestion':
+               return NODE_CONSTANTS.COLORS.OPENQUESTION.hover;
+           case 'dashboard':
+               return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
+           default:
+               return 'rgba(255, 255, 255, 1)';
+       }
+   }
+
+   private getNodeGradientStart(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
+           case 'openquestion':
+               return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.start;
+           case 'dashboard':
+               return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
+           default:
+               return 'rgba(255, 255, 255, 0.4)';
+       }
+   }
+
+   private getNodeGradientEnd(node: EnhancedNode): string {
+       switch (node.type) {
+           case 'statement':
+               return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
+           case 'openquestion':
+               return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.end;
+           case 'dashboard':
+               return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
+           default:
+               return 'rgba(255, 255, 255, 0.2)';
+       }
+   }
+
+   private clearCaches(): void {
+       this.nodeRadiusCache.clear();
+       this.linkPathCache.clear();
+   }
+
+   private clearNodeRadiusCache(nodeId: string): void {
+       for (const key of Array.from(this.nodeRadiusCache.keys())) {
+           if (key.startsWith(`${nodeId}-`)) {
+               this.nodeRadiusCache.delete(key);
+           }
+       }
+   }
 }
