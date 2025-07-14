@@ -55,11 +55,15 @@ export class UniversalRenderingStrategy {
         this.enableSingleNodeMode = config.enableSingleNodeMode;
         this.maxBatchesToRender = config.maxBatchesToRender;
         
-        console.log('[RenderingStrategy] Configuration:', {
-            batchRendering: config.enableBatchRendering,
-            singleNodeMode: config.enableSingleNodeMode,
-            maxBatches: config.maxBatchesToRender
-        });
+        // REDUCED: Only log when configuration actually changes significantly
+        if (config.enableBatchRendering !== this.isBatchRenderingEnabled || 
+            config.enableSingleNodeMode !== this.enableSingleNodeMode) {
+            console.log('[RenderingStrategy] Configuration changed:', {
+                batchRendering: config.enableBatchRendering,
+                singleNodeMode: config.enableSingleNodeMode,
+                maxBatches: config.maxBatchesToRender
+            });
+        }
     }
     
     /**
@@ -105,9 +109,11 @@ export class UniversalRenderingStrategy {
         // Choose rendering mode
         if (this.isBatchRenderingEnabled) {
             if (this.enableSingleNodeMode) {
+                console.log(`[RenderingStrategy] Starting single-node rendering: ${contentNodes.length} content nodes`);
                 this.currentNodeIndex = 0;
                 this.renderNextSingleNode(transformNodes, transformLinks);
             } else {
+                console.log(`[RenderingStrategy] Starting batch rendering: ${contentNodes.length} content nodes in ${this.maxBatchesToRender} batches`);
                 this.currentBatchNumber = 0;
                 this.renderNextBatch(transformNodes, transformLinks);
             }
@@ -134,7 +140,7 @@ export class UniversalRenderingStrategy {
                           this.currentNodeIndex >= UNIVERSAL_LAYOUT.LIMITS.MAX_NODES_TO_RENDER;
         
         if (shouldStop) {
-            console.log('[RenderingStrategy] All nodes rendered, signaling completion');
+            console.log('[RenderingStrategy] Single-node rendering complete, all nodes rendered');
             this.callbacks.onRenderComplete();
             return;
         }
@@ -153,8 +159,16 @@ export class UniversalRenderingStrategy {
             newNode.fx = newNode.x;
             newNode.fy = newNode.y;
             
+            // REDUCED: Only log milestone nodes (every 10th node or high-vote nodes)
             const nodeVotes = (newNode as any).netVotes || 0;
-            console.log(`[RenderingStrategy] Node ${this.currentNodeIndex + 1}/${this.sortedContentNodes.length}: ${nodeVotes} votes at (${newNode.fx?.toFixed(1)}, ${newNode.fy?.toFixed(1)})`);
+            const isKeyNode = (this.currentNodeIndex + 1) % 10 === 0 || 
+                             this.currentNodeIndex === 0 || 
+                             this.currentNodeIndex === this.sortedContentNodes.length - 1 ||
+                             nodeVotes > 50;
+            
+            if (isKeyNode) {
+                console.log(`[RenderingStrategy] Node ${this.currentNodeIndex + 1}/${this.sortedContentNodes.length}: ${nodeVotes} votes at (${newNode.fx?.toFixed(1)}, ${newNode.fy?.toFixed(1)})`);
+            }
         }
         
         // Get visible links
@@ -226,6 +240,9 @@ export class UniversalRenderingStrategy {
         
         // Update callbacks
         this.callbacks.onNodesReady(enhancedNodes, visibleLinks);
+        
+        // REDUCED: Only log batch completion, not individual progress
+        console.log(`[RenderingStrategy] Batch ${this.currentBatchNumber}/${this.maxBatchesToRender} complete: ${currentContentNodes.length} content nodes`);
         
         if (this.callbacks.onBatchUpdate) {
             this.callbacks.onBatchUpdate(this.currentBatchNumber, this.maxBatchesToRender);

@@ -22,6 +22,9 @@ export class UniversalD3Simulation {
     private settlementTickCounter = 0;
     private lastDOMUpdateTime = 0;
     private callbacks: SimulationCallbacks;
+
+    private isDormant = false;
+    private shouldIgnoreEndEvents = false;
     
     constructor(callbacks: SimulationCallbacks) {
         this.callbacks = callbacks;
@@ -41,6 +44,11 @@ export class UniversalD3Simulation {
         let tickCount = 0;
         
         simulation.on('tick', () => {
+            // Skip ticks during dormant state
+            if (this.isDormant) {
+                return;
+            }
+            
             tickCount++;
             const nodes = simulation.nodes() as unknown as EnhancedNode[];
             
@@ -51,7 +59,7 @@ export class UniversalD3Simulation {
             if (this.isInSettlementPhase) {
                 this.handleSettlementTick(nodes);
             } else {
-                // Normal tick during drop phase
+                // Normal tick during drop phase - REDUCED: Only log every 100 ticks instead of constantly
                 if (tickCount % 100 === 0) {
                     console.log(`[D3Simulation] Drop phase - Tick #${tickCount}, alpha: ${simulation.alpha().toFixed(4)}`);
                 }
@@ -60,6 +68,12 @@ export class UniversalD3Simulation {
         });
 
         simulation.on('end', () => {
+            // CRITICAL FIX: Ignore 'end' events when dormant
+            if (this.isDormant || this.shouldIgnoreEndEvents) {
+                console.log('[D3Simulation] 🛡️ IGNORING end event - simulation is dormant');
+                return;
+            }
+            
             if (this.isInSettlementPhase) {
                 this.handleSettlementEnd();
                 // Don't call onEnd callback here - settlement end handles it
@@ -78,8 +92,9 @@ export class UniversalD3Simulation {
     private handleSettlementTick(nodes: EnhancedNode[]): void {
         this.settlementTickCounter++;
         
-        // Logging at intervals
-        if (this.settlementTickCounter % UNIVERSAL_LAYOUT.SETTLEMENT.TICK_LOG_INTERVAL === 0) {
+        // REDUCED: Log settlement progress much less frequently to reduce spam
+        // Changed from every 20 ticks to every 100 ticks (5x reduction)
+        if (this.settlementTickCounter % 100 === 0) {
             this.logSettlementProgress(nodes);
         }
         
@@ -115,6 +130,7 @@ export class UniversalD3Simulation {
         );
         const movingRatio = movingNodes.length / (contentNodes.length || 1);
         
+        // CRUCIAL DEBUG: Only log settlement check (this is critical for debugging settlement issues)
         console.log(`[D3Simulation] Settlement check at tick ${this.settlementTickCounter}:`, {
             avgVelocity: avgMovement.toFixed(3),
             movingNodes: movingNodes.length,
@@ -126,13 +142,14 @@ export class UniversalD3Simulation {
         if (avgMovement < UNIVERSAL_LAYOUT.SETTLEMENT.MIN_MOVEMENT_THRESHOLD && 
             this.simulation.alpha() < UNIVERSAL_FORCES.SIMULATION.SETTLEMENT_PHASE.ALPHA_THRESHOLD) {
             
+            // CRUCIAL DEBUG: Settlement completion is critical for debugging
             console.log(`[D3Simulation] Nodes settled! Avg velocity: ${avgMovement.toFixed(3)}, Moving ratio: ${movingRatio.toFixed(2)}`);
             
             // Mark settlement as complete
             this.isInSettlementPhase = false;
             this.settlementTickCounter = 0;
             
-            // Instead of stopping, put simulation to sleep
+            // CRITICAL FIX: Instead of stopping, put simulation to sleep
             this.sleepSimulation();
             
             // Notify callbacks that we're done settling
@@ -141,7 +158,7 @@ export class UniversalD3Simulation {
     }
     
     /**
-     * Log settlement progress
+     * Log settlement progress - REDUCED frequency and detail
      */
     private logSettlementProgress(nodes: EnhancedNode[]): void {
         const contentNodes = nodes.filter(n => 
@@ -158,11 +175,12 @@ export class UniversalD3Simulation {
             return sum + v;
         }, 0) / (movingNodes.length || 1);
         
+        // REDUCED: Simplified settlement progress logging (removed detailed forces array)
         console.log(`[D3Simulation] Settlement tick ${this.settlementTickCounter}:`, {
             alpha: this.simulation.alpha().toFixed(4),
             movingNodes: `${movingNodes.length}/${contentNodes.length}`,
             avgVelocity: avgVelocity.toFixed(2),
-            forces: this.getActiveForces()
+            forces: this.getActiveForces().length // Just count instead of full array
         });
     }
     
@@ -170,6 +188,7 @@ export class UniversalD3Simulation {
      * Handle settlement phase end
      */
     private handleSettlementEnd(): void {
+        // CRUCIAL DEBUG: Settlement phase end is important for debugging
         console.log(`[D3Simulation] Settlement phase ended after ${this.settlementTickCounter} ticks`);
         
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
@@ -178,10 +197,11 @@ export class UniversalD3Simulation {
         const distances = contentNodes.map(n => Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2));
         const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
         
+        // REDUCED: Simplified final statistics
         console.log('[D3Simulation] Final statistics:', {
             nodes: contentNodes.length,
             avgDistance: avgDist.toFixed(1),
-            finalAlpha: this.simulation.alpha()
+            finalAlpha: this.simulation.alpha().toFixed(4)
         });
         
         this.isInSettlementPhase = false;
@@ -380,6 +400,7 @@ export class UniversalD3Simulation {
      * Start settlement phase
      */
     public startSettlementPhase(): void {
+        // CRUCIAL DEBUG: Settlement phase start is critical for debugging
         console.log('[D3Simulation] 🚀 SETTLEMENT PHASE STARTING');
         this.isInSettlementPhase = true;
         this.settlementTickCounter = 0;
@@ -439,20 +460,27 @@ export class UniversalD3Simulation {
     
     /**
      * Put simulation to sleep (keep alive but dormant)
+     * FIXED: Properly enter dormant state without triggering 'end' events
      */
     public sleepSimulation(): void {
-        console.log('[D3Simulation] Putting simulation to sleep');
+        // CRUCIAL DEBUG: Dormant state transitions are critical for debugging simulation lifecycle
+        console.log('[D3Simulation] 🛡️ ENTERING DORMANT STATE - simulation sleeping');
         
-        // Get final positions
+        // STEP 1: Set dormant flags FIRST to prevent any 'end' events
+        this.isDormant = true;
+        this.shouldIgnoreEndEvents = true;
+        
+        // STEP 2: Get final positions
         const nodes = this.simulation.nodes() as EnhancedNode[];
         
-        // Set simulation to dormant state
+        // STEP 3: Set simulation to dormant state with higher alphaMin to prevent 'end' events
         this.simulation
             .alphaTarget(0)      // Target alpha of 0
-            .alpha(0.001)        // Very low alpha (not zero)
-            .velocityDecay(0.8); // High decay to minimize drift
+            .alpha(0.01)         // HIGHER alpha (was 0.001) to stay above alphaMin
+            .alphaMin(0.001)     // Keep original alphaMin
+            .velocityDecay(0.9); // High decay to minimize drift
         
-        // Clear velocities but keep positions flexible
+        // STEP 4: Clear velocities but keep positions flexible
         nodes.forEach((node: any) => {
             node.vx = 0;
             node.vy = 0;
@@ -460,44 +488,63 @@ export class UniversalD3Simulation {
             // This allows nodes to respond to future changes
         });
         
-        console.log('[D3Simulation] Simulation sleeping, ready for interactions');
+        // CRUCIAL DEBUG: Dormant state activation is critical
+        console.log("[D3Simulation] 🛡️ DORMANT STATE ACTIVE - ignoring all 'end' events until woken");
     }
     
     /**
      * Wake simulation for interaction
+     * FIXED: Properly exit dormant state
      */
     public wakeSimulation(energy: number = 0.3): void {
-        console.log(`[D3Simulation] Waking simulation with energy: ${energy}`);
+        // CRUCIAL DEBUG: Wake events are critical for debugging simulation lifecycle
+        console.log(`[D3Simulation] 🌅 WAKING from dormant state with energy: ${energy}`);
         
-        // Reset velocity decay for active movement
+        // STEP 1: Clear dormant flags FIRST
+        this.isDormant = false;
+        this.shouldIgnoreEndEvents = false;
+        
+        // STEP 2: Reset velocity decay for active movement
         this.simulation
             .velocityDecay(UNIVERSAL_FORCES.SIMULATION.VELOCITY_DECAY)
             .alpha(energy)
             .alphaTarget(0)
+            .alphaMin(UNIVERSAL_FORCES.SIMULATION.ALPHA_MIN) // Restore original alphaMin
             .restart();
+            
+        // CRUCIAL DEBUG: Wake completion is critical
+        console.log('[D3Simulation] 🌅 WAKE COMPLETE - simulation responsive again');
     }
     
     /**
-     * Stop simulation
+     * Stop simulation - ONLY for component destruction
+     * FIXED: Clear dormant state when truly stopping
      */
     public stopSimulation(): void {
-        console.log('[D3Simulation] stopSimulation called');
+        // CRUCIAL DEBUG: Stop events are critical for debugging
+        console.log('[D3Simulation] ⛔ FULL STOP - destroying simulation');
         console.trace('[D3Simulation] Called from:');
+        
+        // Clear dormant state since we're truly stopping
+        this.isDormant = false;
+        this.shouldIgnoreEndEvents = false;
         
         // Get final positions before stopping
         const nodes = this.simulation.nodes() as EnhancedNode[];
         
-        // Log sample positions BEFORE stopping
-        const beforeSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
-        console.log('[D3Simulation] Positions BEFORE stop:', 
-            beforeSample.map(n => ({
-                id: n.id.substring(0, 8),
-                x: n.x?.toFixed(1),
-                y: n.y?.toFixed(1),
-                fx: n.fx,
-                fy: n.fy
-            }))
-        );
+        // REDUCED: Only log sample positions in development mode
+        if (import.meta.env.DEV) {
+            const beforeSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
+            console.log('[D3Simulation] Positions BEFORE stop:', 
+                beforeSample.map(n => ({
+                    id: n.id.substring(0, 8),
+                    x: n.x?.toFixed(1),
+                    y: n.y?.toFixed(1),
+                    fx: n.fx,
+                    fy: n.fy
+                }))
+            );
+        }
         
         // For truly stopping (only when destroying the graph)
         // Preserve positions with fx/fy
@@ -517,19 +564,29 @@ export class UniversalD3Simulation {
         this.isInSettlementPhase = false;
         this.settlementTickCounter = 0;
         
-        // Log sample positions AFTER stopping
-        const afterSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
-        console.log('[D3Simulation] Positions AFTER stop:', 
-            afterSample.map(n => ({
-                id: n.id.substring(0, 8),
-                x: n.x?.toFixed(1),
-                y: n.y?.toFixed(1),
-                fx: n.fx?.toFixed(1),
-                fy: n.fy?.toFixed(1)
-            }))
-        );
+        // REDUCED: Only log after positions in development mode
+        if (import.meta.env.DEV) {
+            const afterSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
+            console.log('[D3Simulation] Positions AFTER stop:', 
+                afterSample.map(n => ({
+                    id: n.id.substring(0, 8),
+                    x: n.x?.toFixed(1),
+                    y: n.y?.toFixed(1),
+                    fx: n.fx?.toFixed(1),
+                    fy: n.fy?.toFixed(1)
+                }))
+            );
+        }
         
-        console.log('[D3Simulation] Simulation stopped, positions preserved');
+        // CRUCIAL DEBUG: Stop completion is critical
+        console.log('[D3Simulation] ⛔ SIMULATION STOPPED, positions preserved');
+    }
+
+    /**
+     * Check if simulation is dormant (sleeping)
+     */
+    public isDormantState(): boolean {
+        return this.isDormant;
     }
     
     /**

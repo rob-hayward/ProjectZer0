@@ -321,15 +321,15 @@
 			}
 		}
 		
-		console.log('[StatementNode] Initialized with data-only approach:', {
-			nodeId: node.id,
-			userVoteStatus: userVoteStatus as string,
-			positiveVotes,
-			negativeVotes,
-			netVotes,
-			isHidden: isNodeHidden,
-			hasUserVisibilityOverride: userVisibilityOverride !== undefined
-		});
+		// REMOVED: Individual node initialization logging that was causing spam
+		// Only log if there are issues or in development mode
+		if (import.meta.env.DEV && (!positiveVotes && !negativeVotes && !userVoteStatus)) {
+			console.warn('[StatementNode] Node may have incomplete data:', {
+				nodeId: node.id,
+				hasVotes: !!(positiveVotes || negativeVotes),
+				hasUserStatus: !!userVoteStatus
+			});
+		}
 	});
 
 	onDestroy(() => {

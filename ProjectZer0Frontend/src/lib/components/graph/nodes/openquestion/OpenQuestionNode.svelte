@@ -338,16 +338,16 @@
 			}
 		}
 		
-		console.log('[OpenQuestionNode] Initialized with data-only approach:', {
-			nodeId: node.id,
-			userVoteStatus: userVoteStatus as string,
-			positiveVotes,
-			negativeVotes,
-			netVotes,
-			answerCount, // ADDED: Debug answer count
-			isHidden: isNodeHidden,
-			hasUserVisibilityOverride: userVisibilityOverride !== undefined
-		});
+		// REMOVED: Individual node initialization logging that was causing spam
+		// Only log if there are issues or in development mode
+		if (import.meta.env.DEV && (!positiveVotes && !negativeVotes && !userVoteStatus && !answerCount)) {
+			console.warn('[OpenQuestionNode] Node may have incomplete data:', {
+				nodeId: node.id,
+				hasVotes: !!(positiveVotes || negativeVotes),
+				hasUserStatus: !!userVoteStatus,
+				hasAnswerCount: !!answerCount
+			});
+		}
 	});
 
 	onDestroy(() => {

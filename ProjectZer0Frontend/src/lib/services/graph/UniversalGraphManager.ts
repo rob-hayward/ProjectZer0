@@ -67,6 +67,7 @@ export class UniversalGraphManager {
     constructor() {
         this.managerId = `universal-refactored-${Math.random().toString(36).substring(2, 9)}`;
         
+        // CRUCIAL DEBUG: Track constructor calls
         console.log('[UniversalGraphManager] Constructor called with ID:', this.managerId);
         console.trace('[UniversalGraphManager] Created from:');
         
@@ -98,6 +99,7 @@ export class UniversalGraphManager {
             ([nodes, links, updateCount]) => this.createRenderableLinks(nodes, links)
         );
         
+        // CRUCIAL DEBUG: Confirm initialization
         console.log('[UniversalGraphManager] Refactored architecture initialized');
     }
 
@@ -122,17 +124,94 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Set graph data
+     * Enhanced setData with improved dormant state detection
      */
-    public setData(data: GraphData, config?: LayoutUpdateConfig): void {
+    public setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): void {
         const startTime = performance.now();
         
-        // Stop any existing simulation
-        this.stop();
+        // Check if the new data is substantially the same (same node IDs)
+        const currentNodes = this.d3Simulation?.getSimulation()?.nodes() as EnhancedNode[] || [];
+        const currentNodeIds = new Set(currentNodes.map(n => n.id));
+        const newNodeIds = new Set(data.nodes.map(n => n.id));
+        const isSameDataSet = currentNodeIds.size === newNodeIds.size && 
+            [...currentNodeIds].every(id => newNodeIds.has(id));
+        
+        // IMPROVED: Check if simulation is in dormant state (not just inactive)
+        const isSimulationDormant = this.d3Simulation?.isDormantState?.() === true;
+        
+        // Check if this is a forced restart
+        const forceRestart = config?.forceRestart === true;
+        
+        // CRITICAL: If we have the same dataset and simulation is dormant, this is a reactive loop
+        const isReactiveLoop = isSameDataSet && isSimulationDormant && !forceRestart;
+        
+        // CRUCIAL DEBUG: Track setData analysis for debugging simulation behavior
+        console.log('[UniversalGraphManager] setData analysis:', {
+            isSameDataSet,
+            isSimulationDormant,
+            isReactiveLoop,
+            forceRestart,
+            currentNodes: currentNodes.length,
+            newNodes: data.nodes.length,
+            simulationActive: this.simulationActive,
+            isSettling: this.d3Simulation?.isSettling?.()
+        });
+        
+        // REACTIVE LOOP PROTECTION: Skip full restart for reactive updates with same data
+        if (isReactiveLoop) {
+            // CRUCIAL DEBUG: Track reactive loop detection
+            console.log('[UniversalGraphManager] 🛡️ REACTIVE LOOP DETECTED - Preserving dormant simulation');
+            
+            // For reactive loops with same data, just update stores without any simulation changes
+            // Transform the data but preserve existing positioned nodes
+            const transformedNodes = this.transformNodes(data.nodes);
+            const transformedLinks = this.transformLinks(data.links);
+            
+            // Find nodes with existing positions and preserve them
+            const mergedNodes = transformedNodes.map(newNode => {
+                const existingNode = currentNodes.find(n => n.id === newNode.id);
+                if (existingNode && 
+                    existingNode.x !== undefined && existingNode.x !== null && 
+                    existingNode.y !== undefined && existingNode.y !== null) {
+                    // Preserve settled positions
+                    return {
+                        ...newNode,
+                        x: existingNode.x,
+                        y: existingNode.y,
+                        vx: 0,
+                        vy: 0
+                    };
+                }
+                return newNode;
+            });
+            
+            // Update stores with preserved positions - NO simulation changes
+            this.nodesStore.set(mergedNodes);
+            this.linksStore.set(transformedLinks);
+            this.performanceMetrics.renderedNodeCount = mergedNodes.length;
+            this.updatePerformanceMetrics(transformedLinks);
+            
+            // Skip full rendering process completely
+            this.performanceMetrics.renderTime = performance.now() - startTime;
+            return;
+        }
+        
+        // NORMAL FLOW: Only restart simulation for genuine new data or forced restarts
+        if (forceRestart || !isSameDataSet) {
+            // CRUCIAL DEBUG: Track full restart decisions
+            console.log('[UniversalGraphManager] Full restart - new data or forced');
+            this.stop();
+        } else if (currentNodes.length > 0) {
+            // CRUCIAL DEBUG: Track gentle wake decisions
+            console.log('[UniversalGraphManager] Gentle wake for active simulation');
+            // Wake the simulation gently for minor updates
+            this.d3Simulation.wakeSimulation(0.1);
+            this.simulationActive = true;
+        }
         
         this.performanceMetrics.totalNodeCount = data.nodes.length;
         
-        // Start rendering process
+        // Start full rendering process only for new data or when simulation was fully stopped
         this.renderingStrategy.startRendering(
             data,
             (nodes) => this.transformNodes(nodes),
@@ -140,6 +219,57 @@ export class UniversalGraphManager {
         );
         
         this.performanceMetrics.renderTime = performance.now() - startTime;
+    }
+
+    /**
+     * Enhanced stop method with dormant state awareness
+     */
+    public stop(): void {
+        // CRUCIAL DEBUG: Track stop calls for debugging
+        console.log('[UniversalGraphManager] ⛔ FULL STOP - destroying graph manager');
+        console.trace('[UniversalGraphManager] Stop called from:');
+        
+        this.simulationActive = false;
+        
+        if (this.d3Simulation) {
+            // This will clear the dormant state and truly stop the simulation
+            this.d3Simulation.stopSimulation();
+        }
+        
+        if (this.forceUpdateInterval) {
+            clearInterval(this.forceUpdateInterval);
+            this.forceUpdateInterval = null;
+        }
+        
+        // CRUCIAL DEBUG: Confirm stop completion
+        console.log('[UniversalGraphManager] ⛔ Graph manager stopped');
+    }
+
+
+    /**
+     * NEW: Gentle update method for interactive changes that don't need full restart
+     * Use this for: node mode changes, visibility updates, preference changes
+     */
+    public updateState(newData?: Partial<GraphData>, wakePower: number = 0.2): void {
+        if (newData) {
+            // Update only changed parts without full restart
+            if (newData.nodes) {
+                const transformedNodes = this.transformNodes(newData.nodes);
+                this.nodesStore.set(transformedNodes);
+            }
+            if (newData.links) {
+                const transformedLinks = this.transformLinks(newData.links);
+                this.linksStore.set(transformedLinks);
+            }
+        }
+        
+        // Gentle wake to handle any layout adjustments
+        if (this.d3Simulation) {
+            this.d3Simulation.wakeSimulation(wakePower);
+            this.simulationActive = true;
+        }
+        
+        this.forceUpdateCounter.update(n => n + 1);
     }
 
     /**
@@ -164,11 +294,11 @@ export class UniversalGraphManager {
      * Handle render complete from rendering strategy
      */
     private handleRenderComplete(): void {
+        // CRUCIAL DEBUG: Track render completion for settlement timing
         console.log('[UniversalGraphManager] Rendering complete, starting settlement phase');
         
         // Guard against multiple calls
         if (!this.simulationActive) {
-            console.log('[UniversalGraphManager] Simulation not active, skipping settlement phase');
             return;
         }
         
@@ -178,6 +308,7 @@ export class UniversalGraphManager {
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
                 this.d3Simulation.startSettlementPhase();
             } else {
+                // CRUCIAL DEBUG: Track settlement phase conflicts
                 console.log('[UniversalGraphManager] Settlement phase already started or simulation stopped');
             }
         }, UNIVERSAL_LAYOUT.TIMING.SETTLEMENT_START_DELAY);
@@ -188,6 +319,7 @@ export class UniversalGraphManager {
      */
     private handleBatchUpdate(batchNumber: number, totalBatches: number): void {
         this.performanceMetrics.currentBatch = batchNumber;
+        // CRUCIAL DEBUG: Track batch progress for debugging rendering issues
         console.log(`[UniversalGraphManager] Batch ${batchNumber}/${totalBatches} rendered`);
     }
 
@@ -217,9 +349,17 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Handle simulation end
+     * Handle simulation end - FIXED to respect dormant state
      */
     private handleSimulationEnd(): void {
+        // CRITICAL FIX: Don't process 'end' events if simulation is dormant
+        if (this.d3Simulation?.isDormantState?.()) {
+            // CRUCIAL DEBUG: Track ignored simulation end events (critical for debugging)
+            console.log('[UniversalGraphManager] 🛡️ IGNORING simulation end - dormant state active');
+            return;
+        }
+        
+        // CRUCIAL DEBUG: Track legitimate simulation end events
         console.log('[UniversalGraphManager] Simulation ended, finalizing positions');
         this.simulationActive = false;
         
@@ -236,7 +376,8 @@ export class UniversalGraphManager {
             this.forceUpdateInterval = null;
         }
         
-        // Do NOT restart simulation or trigger any new rendering
+        // CRITICAL: Do NOT restart simulation or trigger any new rendering
+        // This method should ONLY finalize positions for legitimate simulation ends
     }
 
     /**
@@ -384,21 +525,6 @@ export class UniversalGraphManager {
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.nodesStore.set([...nodes]);
         this.forceUpdateCounter.update(n => n + 1);
-    }
-
-    /**
-     * Stop simulation and cleanup
-     */
-    public stop(): void {
-        this.renderingStrategy.stopRendering();
-        this.d3Simulation.stopSimulation();
-        this.simulationActive = false;
-        this.clearCaches();
-        
-        if (this.forceUpdateInterval) {
-            clearInterval(this.forceUpdateInterval);
-            this.forceUpdateInterval = null;
-        }
     }
 
     /**
@@ -575,17 +701,22 @@ export class UniversalGraphManager {
      * Create renderable nodes from enhanced nodes
      */
     private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
-        // Log sample positions during render
-        const sampleForLog = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 2);
-        if (sampleForLog.length > 0) {
-            console.log('[UniversalGraphManager] createRenderableNodes sample positions:', 
-                sampleForLog.map(n => ({
-                    id: n.id.substring(0, 8),
-                    x: n.x?.toFixed(1),
-                    y: n.y?.toFixed(1),
-                    transform: `translate(${n.x ?? 0},${n.y ?? 0})`
-                }))
-            );
+        // REMOVED: Verbose individual node position logging that was causing log spam
+        // Only log essential sample for debugging layout issues
+        const contentNodeCount = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').length;
+        if (contentNodeCount > 0) {
+            const sampleNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 2);
+            // REDUCED: Only log when positions are significantly changing or null
+            const hasNullPositions = sampleNodes.some(n => n.x === null || n.y === null);
+            if (hasNullPositions) {
+                console.log('[UniversalGraphManager] createRenderableNodes sample positions:', 
+                    sampleNodes.map(n => ({
+                        id: n.id.substring(0, 8),
+                        x: n.x?.toFixed(1),
+                        y: n.y?.toFixed(1)
+                    }))
+                );
+            }
         }
         
         return nodes.map(node => {
