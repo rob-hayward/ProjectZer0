@@ -31,6 +31,9 @@
     export let viewType: ViewType;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
     
+    // CRITICAL: Export graphStore for binding - allows parent to access single instance
+    export let graphStore: GraphStore | null = null;
+    
     // These props are kept but not directly used (for backward compatibility)
     export const isPreviewMode = false;
     export const width = COORDINATE_SPACE.WORLD.WIDTH;
@@ -51,7 +54,6 @@
     let contentGroup: SVGGElement;
     
     // Component state
-    let graphStore: GraphStore;
     let background: SvgBackground | null = null;
     let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
@@ -69,6 +71,12 @@
     // Debug info for the central node
     let centralNodePos = { x: 0, y: 0, transform: "", viewX: 0, viewY: 0 };
     let svgViewportInfo = { width: 0, height: 0, viewBox: "", preserveAspectRatio: "" };
+    
+    // ENHANCED: Data change tracking for intelligent updates
+    let lastDataHash = '';
+    let lastProcessedDataId = '';
+    let isProcessingData = false;
+    let dataUpdateCounter = 0;
     
     // Flag to track if we've already applied preferences
     let preferencesApplied = false;
@@ -186,6 +194,40 @@
         
         // Call the existing centerViewportOnCoordinates method with the node's position
         return centerViewportOnCoordinates(node.position.x, node.position.y, duration);
+    }
+
+    /**
+     * ENHANCED: Create stable hash of data to detect genuine changes
+     */
+    function createDataHash(data: GraphData): string {
+        if (!data || !data.nodes) return '';
+        
+        // Create hash based on node IDs and basic structure
+        const nodeHash = data.nodes.map(n => n.id).sort().join(',');
+        const linkHash = (data.links?.length || 0).toString();
+        const structureHash = `${data.nodes.length}-${linkHash}`;
+        
+        return `${nodeHash}-${structureHash}`;
+    }
+
+    /**
+     * ENHANCED: Check if this is a genuine data change vs reactive update
+     */
+    function isGenuineDataChange(newData: GraphData): boolean {
+        const newHash = createDataHash(newData);
+        const isGenuine = newHash !== lastDataHash && newHash.length > 0;
+        
+        if (isGenuine) {
+            console.log('[Graph] Genuine data change detected:', {
+                oldHash: lastDataHash.substring(0, 50) + '...',
+                newHash: newHash.substring(0, 50) + '...',
+                nodeCount: newData.nodes?.length || 0,
+                linkCount: newData.links?.length || 0
+            });
+            lastDataHash = newHash;
+        }
+        
+        return isGenuine;
     }
 
     /**
@@ -526,43 +568,125 @@
     }
 
     /**
-     * Initialize the component
+     * ENHANCED: Initialize the component with intelligent graph store management
      */
     function initialize() {
         if (initialized) return;
         
-        // Create graph store for this view
-        graphStore = createGraphStore(viewType);
+        console.log('[Graph] Initializing component:', { 
+            componentId, 
+            viewType,
+            hasExistingGraphStore: !!graphStore
+        });
+        
+        // CRITICAL: Only create graph store if we don't have one already
+        if (!graphStore) {
+            console.log('[Graph] Creating new graph store for', viewType);
+            graphStore = createGraphStore(viewType);
+        } else {
+            console.log('[Graph] Using existing graph store for', viewType);
+            
+            // Update view type if needed but don't recreate the store
+            if (graphStore.getViewType && graphStore.getViewType() !== viewType) {
+                console.log('[Graph] Updating view type from', graphStore.getViewType(), 'to', viewType);
+                graphStore.setViewType(viewType);
+            }
+        }
         
         // Initialize zoom and background
         updateContainerDimensions();
         initializeZoom();
         initializeBackground();
         
-        // Special handling for statement-network to ensure stability
-        if (viewType === 'statement-network') {
-            // Initialize with data with explicit position enforcement
-            if (data) {
-                graphStore.setData(data, { skipAnimation: true });
-                graphStore.fixNodePositions();
-                graphStore.forceTick(5); // More ticks for statement network
-                
-                // Need a second round of fixes after the initial ticks
-                setTimeout(() => {
-                    if (graphStore) {
-                        graphStore.fixNodePositions();
-                        graphStore.forceTick(3);
-                    }
-                }, 50);
-            }
-        } else {
-            // Normal initialization for other views
-            if (data) {
-                graphStore.setData(data);
-            }
+        // Apply initial data if available
+        if (data && isGenuineDataChange(data)) {
+            console.log('[Graph] Applying initial data during initialization');
+            processDataUpdate(data, true); // Mark as initialization
         }
         
         initialized = true;
+        
+        console.log('[Graph] Component initialized successfully');
+    }
+
+    /**
+     * ENHANCED: Process data updates with intelligent handling
+     */
+    function processDataUpdate(newData: GraphData, isInitialization: boolean = false) {
+        if (isProcessingData && !isInitialization) {
+            console.log('[Graph] Skipping data update - already processing');
+            return;
+        }
+        
+        if (!graphStore) {
+            console.warn('[Graph] Cannot process data update - no graph store');
+            return;
+        }
+        
+        isProcessingData = true;
+        dataUpdateCounter++;
+        
+        console.log('[Graph] Processing data update #', dataUpdateCounter, {
+            isInitialization,
+            viewType,
+            nodeCount: newData.nodes?.length || 0,
+            linkCount: newData.links?.length || 0
+        });
+        
+        try {
+            // Check if this is the specialized universal manager
+            const isUniversalManager = typeof graphStore.enableBatchRendering === 'function';
+            
+            if (isUniversalManager) {
+                // For universal manager, use intelligent update strategy
+                const hasExistingData = graphStore.getPerformanceMetrics?.()?.renderedNodeCount > 0;
+                
+                if (hasExistingData && !isInitialization) {
+                    console.log('[Graph] Using gentle sync for settled universal manager');
+                    
+                    // Check if the manager has the new gentle sync method
+                    if (typeof (graphStore as any).syncDataGently === 'function') {
+                        (graphStore as any).syncDataGently(newData);
+                    } else {
+                        // Fallback to updateState for existing managers
+                        if (typeof (graphStore as any).updateState === 'function') {
+                            (graphStore as any).updateState(newData, 0.1);
+                        } else {
+                            // Final fallback
+                            graphStore.setData(newData, { skipAnimation: true });
+                        }
+                    }
+                } else {
+                    console.log('[Graph] Initial data load for universal manager');
+                    graphStore.setData(newData);
+                }
+            } else {
+                // Standard manager handling
+                if (viewType === 'statement-network') {
+                    graphStore.setData(newData, { skipAnimation: true });
+                    
+                    // Apply statement-network specific behaviors
+                    setTimeout(() => {
+                        if (graphStore) {
+                            graphStore.fixNodePositions();
+                            graphStore.forceTick(5);
+                            setTimeout(() => resetViewport(), 100);
+                        }
+                    }, 0);
+                } else {
+                    // Standard data update
+                    graphStore.setData(newData);
+                }
+            }
+            
+        } catch (error) {
+            console.error('[Graph] Error processing data update:', error);
+        } finally {
+            // Reset processing flag after a delay
+            setTimeout(() => {
+                isProcessingData = false;
+            }, 100);
+        }
     }
 
     /**
@@ -580,6 +704,7 @@
 
     // Lifecycle hooks
     onMount(() => {
+        console.log('[Graph] Component mounting with view type:', viewType);
         initialize();
         
         if (typeof window !== 'undefined') {
@@ -615,9 +740,6 @@
             }) as EventListener;
             window.addEventListener('set-transform', setTransformHandler);
             
-            // Test event system
-            window.addEventListener('test-event', ((event: CustomEvent) => {
-            }) as EventListener);
             // Load visibility preferences when component mounts
             if ($userStore) {
                 // Apply any cached preferences immediately
@@ -630,17 +752,12 @@
             }
         }
         
-        // Force graph to center after a short delay
+        // Force graph to center after a short delay for statement-network
         if (viewType === 'statement-network') {
             setTimeout(() => {
                 resetViewport();
             }, 250);
         }
-        
-        // Test events after a short delay
-        setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('test-event', { detail: { test: true } }));
-        }, 1000);
     });
 
     // When the graph data changes or we navigate to a new page,
@@ -660,6 +777,8 @@
     });
 
     onDestroy(() => {
+        console.log('[Graph] Component destroying');
+        
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateContainerDimensions);
             window.removeEventListener('center-on-node', centerOnNodeHandler);
@@ -675,72 +794,48 @@
             background.destroy();
         }
         
-        if (graphStore) {
-            graphStore.dispose();
+        // IMPORTANT: Only dispose if we own the graph store
+        // If it was passed in via binding, let the parent handle disposal
+        if (graphStore && typeof graphStore.dispose === 'function') {
+            // Check if this store was created by us (not bound from parent)
+            const wasCreatedByUs = !lastDataHash; // Simple heuristic
+            if (wasCreatedByUs) {
+                console.log('[Graph] Disposing graph store created by component');
+                graphStore.dispose();
+            } else {
+                console.log('[Graph] Not disposing graph store - managed by parent');
+            }
         }
     });
 
-    // Reactive declarations
+    // ENHANCED: Reactive declarations with intelligent update handling
     
     // When data changes, reset the preferences flag
     $: if (data) {
         preferencesApplied = false;
     }
     
-    // When viewType changes
-    $: if (initialized && graphStore && viewType !== graphStore.getViewType()) {
-        graphStore.setViewType(viewType);
+    // CRITICAL: When viewType changes, update existing store instead of recreating
+    $: if (initialized && graphStore && viewType) {
+        const currentViewType = graphStore.getViewType ? graphStore.getViewType() : null;
         
-        // Special handling for statement network view
-        if (viewType === 'statement-network') {
-            // Wait for next tick to ensure view type is fully applied
-            setTimeout(() => {
-                if (graphStore) {
-                    graphStore.fixNodePositions();
-                    graphStore.forceTick(5);
-                    
-                    // Reset viewport after a short delay
-                    setTimeout(() => {
-                        resetViewport();
-                    }, 100);
-                }
-            }, 0);
+        if (currentViewType && currentViewType !== viewType) {
+            console.log('[Graph] View type changed from', currentViewType, 'to', viewType);
+            
+            // Update the view type on existing store
+            if (typeof graphStore.setViewType === 'function') {
+                graphStore.setViewType(viewType);
+            }
+            
+            // Apply view-specific behaviors
+            applyViewSpecificBehavior();
         }
     }
     
-    // When data changes
-    $: if (initialized && graphStore && data) {
-        // Log form nodes in the incoming data
-        const formNodes = data.nodes.filter(n => n.type === 'comment-form');
-        
-        // Use skipAnimation for statement network view
-        if (viewType === 'statement-network') {
-            graphStore.setData(data, { skipAnimation: true });
-            // Ensure positions are fixed after data is set
-            setTimeout(() => {
-                if (graphStore) {
-                    graphStore.fixNodePositions();
-                    graphStore.forceTick(5);
-                    
-                    // Reset viewport after a short delay
-                    setTimeout(() => {
-                        resetViewport();
-                    }, 100);
-                }
-            }, 0);
-        } else {
-            graphStore.setData(data);
-            
-            // Check state after setData
-            setTimeout(() => {
-                const state = graphStore.getState() as any;
-                
-                // Log form nodes in the graph store after setting data
-                if (state && state.nodes) {
-                    const storeFormNodes = state.nodes.filter((n: any) => n.type === 'comment-form');
-                }
-            }, 50);
-        }
+    // ENHANCED: Intelligent data change handling
+    $: if (initialized && graphStore && data && isGenuineDataChange(data)) {
+        console.log('[Graph] Reactive data change detected');
+        processDataUpdate(data, false);
     }
     
     // When container dimensions change
@@ -793,49 +888,53 @@
 
                     <!-- Links layer -->
                     <g class="links-layer">
-                        {#each $graphStore.links as link (link.id)}
-                            <LinkRenderer {link} />
-                            {#if showDebug}
-                                <GraphDebugVisualizer {link} active={showDebug} />
-                            {/if}
-                        {/each}
+                        {#if $graphStore && $graphStore.links}
+                            {#each $graphStore.links as link (link.id)}
+                                <LinkRenderer {link} />
+                                {#if showDebug}
+                                    <GraphDebugVisualizer {link} active={showDebug} />
+                                {/if}
+                            {/each}
+                        {/if}
                     </g>
 
                     <!-- Nodes layer -->
                     <g class="nodes-layer">
-                        {#each $graphStore.nodes as node (node.id)}
-                            <NodeRenderer 
-                                {node}
-                                viewType={viewType}
-                                on:modeChange={handleModeChange}
-                                on:visibilityChange={handleVisibilityChange}
-                                on:reply={event => {
-                                    // Ensure we're dispatching the exact event structure expected
-                                    dispatch('reply', { commentId: event.detail.commentId });
-                                }}
-                                on:answerQuestion={event => {
-                                    dispatch('answerQuestion', { questionId: event.detail.questionId });
-                                }}
-                            >
-                                <svelte:fragment 
-                                    slot="default" 
-                                    let:node 
-                                    let:nodeX
-                                    let:nodeY
-                                    let:handleModeChange
+                        {#if $graphStore && $graphStore.nodes}
+                            {#each $graphStore.nodes as node (node.id)}
+                                <NodeRenderer 
+                                    {node}
+                                    viewType={viewType}
+                                    on:modeChange={handleModeChange}
+                                    on:visibilityChange={handleVisibilityChange}
+                                    on:reply={event => {
+                                        // Ensure we're dispatching the exact event structure expected
+                                        dispatch('reply', { commentId: event.detail.commentId });
+                                    }}
+                                    on:answerQuestion={event => {
+                                        dispatch('answerQuestion', { questionId: event.detail.questionId });
+                                    }}
                                 >
-                                    <slot 
-                                        {node}
-                                        {nodeX}
-                                        {nodeY}
-                                        {handleModeChange} 
-                                    />
-                                    {#if showDebug}
-                                        <GraphDebugVisualizer {node} active={showDebug} />
-                                    {/if}
-                                </svelte:fragment>
-                            </NodeRenderer>
-                        {/each}
+                                    <svelte:fragment 
+                                        slot="default" 
+                                        let:node 
+                                        let:nodeX
+                                        let:nodeY
+                                        let:handleModeChange
+                                    >
+                                        <slot 
+                                            {node}
+                                            {nodeX}
+                                            {nodeY}
+                                            {handleModeChange} 
+                                        />
+                                        {#if showDebug}
+                                            <GraphDebugVisualizer {node} active={showDebug} />
+                                        {/if}
+                                    </svelte:fragment>
+                                </NodeRenderer>
+                            {/each}
+                        {/if}
                     </g>
 
                     <!-- Debug overlay only shown when debug is enabled -->

@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts - Refactored Version
-// Central orchestrator using modular components
+// src/lib/services/graph/UniversalGraphManager.ts - Enhanced with Gentle Sync
+// Central orchestrator using modular components with reactive update protection
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -28,8 +28,8 @@ import { UniversalD3Simulation } from './universal/UniversalD3Simulation';
 import { UniversalRenderingStrategy } from './universal/UniversalRenderingStrategy';
 
 /**
- * REFACTORED: UniversalGraphManager using modular architecture
- * Central orchestrator that delegates to specialized components
+ * ENHANCED: UniversalGraphManager with gentle sync and position preservation
+ * Central orchestrator that delegates to specialized components with reactive update protection
  */
 export class UniversalGraphManager {
     private positioning: UniversalPositioning;
@@ -56,6 +56,10 @@ export class UniversalGraphManager {
         currentBatch: 0
     };
 
+    // ENHANCED: Position preservation for gentle updates
+    private finalPositionCache = new Map<string, {x: number, y: number, settled: boolean}>();
+    private settlementCheckInterval: number | null = null;
+
     // Public derived stores
     public readonly renderableNodes: Readable<RenderableNode[]>;
     public readonly renderableLinks: Readable<RenderableLink[]>;
@@ -65,10 +69,10 @@ export class UniversalGraphManager {
     private forceUpdateInterval: number | null = null;
 
     constructor() {
-        this.managerId = `universal-refactored-${Math.random().toString(36).substring(2, 9)}`;
+        this.managerId = `universal-enhanced-${Math.random().toString(36).substring(2, 9)}`;
         
         // CRUCIAL DEBUG: Track constructor calls
-        console.log('[UniversalGraphManager] Constructor called with ID:', this.managerId);
+        console.log('[UniversalGraphManager] Enhanced constructor called with ID:', this.managerId);
         console.trace('[UniversalGraphManager] Created from:');
         
         // Initialize components
@@ -100,7 +104,7 @@ export class UniversalGraphManager {
         );
         
         // CRUCIAL DEBUG: Confirm initialization
-        console.log('[UniversalGraphManager] Refactored architecture initialized');
+        console.log('[UniversalGraphManager] Enhanced architecture initialized with gentle sync capability');
     }
 
     /**
@@ -124,6 +128,183 @@ export class UniversalGraphManager {
     }
 
     /**
+     * ENHANCED: Gentle data sync that preserves settled simulation state
+     * This is the key method that prevents position snapping
+     */
+    public syncDataGently(newData: Partial<GraphData>): void {
+        if (!newData) return;
+        
+        // Check if simulation is in a settled/dormant state
+        const isSettled = this.d3Simulation?.isDormantState?.() === true;
+        const hasSettledPositions = this.finalPositionCache.size > 0;
+        
+        console.log('[UniversalGraphManager] syncDataGently called:', {
+            isSettled,
+            hasSettledPositions,
+            newNodeCount: newData.nodes?.length || 0,
+            newLinkCount: newData.links?.length || 0,
+            cachedPositions: this.finalPositionCache.size
+        });
+        
+        if (isSettled || hasSettledPositions) {
+            console.log('[UniversalGraphManager] 🛡️ PRESERVING SETTLED STATE - gentle sync only');
+            
+            // For settled simulations, only update data properties, not positions
+            if (newData.nodes) {
+                const currentNodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+                const updatedNodes = this.mergeNodeDataOnly(currentNodes, newData.nodes);
+                
+                // Update stores without triggering simulation restart
+                this.nodesStore.set(updatedNodes);
+                this.d3Simulation.updateNodes(updatedNodes);
+                
+                // Update performance metrics
+                this.performanceMetrics.renderedNodeCount = updatedNodes.length;
+            }
+            
+            if (newData.links) {
+                const transformedLinks = this.transformLinks(newData.links);
+                this.linksStore.set(transformedLinks);
+                this.d3Simulation.updateLinks(transformedLinks);
+                
+                // Update performance metrics
+                this.updatePerformanceMetrics(transformedLinks);
+            }
+            
+            // Force one gentle update to reactive stores
+            this.forceUpdateCounter.update(n => n + 1);
+            
+            console.log('[UniversalGraphManager] 🛡️ Gentle sync complete - simulation state preserved');
+            return; // IMPORTANT: Don't call setData or restart simulation
+        }
+        
+        // If not settled, fall back to normal update
+        console.log('[UniversalGraphManager] Simulation not settled, using normal update');
+        this.updateState(newData, 0.2);
+    }
+
+    /**
+     * ENHANCED: Merge new node data without changing positions
+     */
+    private mergeNodeDataOnly(currentNodes: EnhancedNode[], newNodeData: GraphNode[]): EnhancedNode[] {
+        const newDataMap = new Map(newNodeData.map(n => [n.id, n]));
+        
+        return currentNodes.map(currentNode => {
+            const newData = newDataMap.get(currentNode.id);
+            if (!newData) return currentNode;
+            
+            // Get settled position if available
+            const settledPosition = this.finalPositionCache.get(currentNode.id);
+            
+            // Transform the new data to match expected structure
+            const transformedData = this.transformSingleNode(newData);
+            
+            const mergedNode: EnhancedNode = {
+                ...currentNode,
+                // Update data properties but preserve physics state
+                data: { ...currentNode.data, ...transformedData.data },
+                metadata: { ...currentNode.metadata, ...transformedData.metadata },
+                // Update other node properties that might change
+                mode: transformedData.mode || currentNode.mode,
+                radius: transformedData.radius || currentNode.radius,
+                isHidden: transformedData.isHidden !== undefined ? transformedData.isHidden : currentNode.isHidden,
+                hiddenReason: transformedData.hiddenReason || currentNode.hiddenReason,
+                
+                // CRITICAL: Preserve settled positions
+                x: settledPosition?.x ?? currentNode.x,
+                y: settledPosition?.y ?? currentNode.y,
+                // Keep physics state stable
+                vx: 0,
+                vy: 0,
+                fx: settledPosition ? settledPosition.x : currentNode.fx,
+                fy: settledPosition ? settledPosition.y : currentNode.fy
+            };
+            
+            return mergedNode;
+        });
+    }
+
+    /**
+     * Transform a single GraphNode to EnhancedNode (helper for merging)
+     */
+    private transformSingleNode(node: GraphNode): EnhancedNode {
+        const netVotes = this.positioning.getNodeVotes(node);
+        const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
+        
+        let nodeMode: NodeMode | undefined = node.mode;
+        if (node.group === 'central' && !node.mode) {
+            nodeMode = 'detail';
+        }
+        
+        const nodeRadius = this.getNodeRadius({
+            ...node,
+            mode: nodeMode,
+            isHidden: isHidden
+        });
+        
+        // Build node data similar to transformNodes but for single node
+        let nodeData: any = {
+            ...(node.data || {}),
+            id: node.id
+        };
+        
+        if (node.type === 'statement') {
+            const votes = node.metadata?.votes as any;
+            nodeData = {
+                ...nodeData,
+                statement: node.data && 'content' in node.data ? node.data.content : 
+                           node.data && 'statement' in node.data ? (node.data as any).statement : '',
+                positiveVotes: votes?.positive || 0,
+                negativeVotes: votes?.negative || 0,
+                netVotes: votes?.net || 0,
+                votes: votes
+            };
+        } else if (node.type === 'openquestion') {
+            const answerCount = node.metadata?.answer_count || 0;
+            nodeData = {
+                ...nodeData,
+                questionText: node.data && 'content' in node.data ? node.data.content : 
+                            node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
+                answerCount: answerCount
+            };
+        }
+        
+        return {
+            id: node.id,
+            type: node.type,
+            data: nodeData,
+            group: node.group,
+            mode: nodeMode,
+            radius: nodeRadius,
+            fixed: node.group === 'central',
+            expanded: nodeMode === 'detail',
+            isHidden,
+            hiddenReason: isHidden ? 'community' : undefined,
+            
+            x: null,
+            y: null,
+            vx: null,
+            vy: null,
+            fx: null,
+            fy: null,
+            metadata: {
+                group: this.getLayoutGroup(node),
+                fixed: node.group === 'central',
+                isDetail: nodeMode === 'detail',
+                votes: netVotes,
+                consensus_ratio: node.metadata?.consensus_ratio,
+                participant_count: node.metadata?.participant_count,
+                net_votes: node.metadata?.net_votes,
+                answer_count: node.metadata?.answer_count,
+                related_statements_count: node.metadata?.related_statements_count,
+                userVoteStatus: node.metadata?.userVoteStatus,
+                userVisibilityPreference: node.metadata?.userVisibilityPreference,
+                ...(node.metadata || {})
+            }
+        };
+    }
+
+    /**
      * Enhanced setData with improved dormant state detection
      */
     public setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): void {
@@ -136,82 +317,52 @@ export class UniversalGraphManager {
         const isSameDataSet = currentNodeIds.size === newNodeIds.size && 
             [...currentNodeIds].every(id => newNodeIds.has(id));
         
-        // IMPROVED: Check if simulation is in dormant state (not just inactive)
-        const isSimulationDormant = this.d3Simulation?.isDormantState?.() === true;
+        // ENHANCED: Check if simulation is settled and stable
+        const isSimulationSettled = this.d3Simulation?.isDormantState?.() === true;
+        const hasStablePositions = this.finalPositionCache.size > 0;
         
         // Check if this is a forced restart
         const forceRestart = config?.forceRestart === true;
         
-        // CRITICAL: If we have the same dataset and simulation is dormant, this is a reactive loop
-        const isReactiveLoop = isSameDataSet && isSimulationDormant && !forceRestart;
+        // CRITICAL: If we have the same dataset and simulation is settled, use gentle sync
+        const shouldUseGentleSync = isSameDataSet && isSimulationSettled && !forceRestart;
         
-        // CRUCIAL DEBUG: Track setData analysis for debugging simulation behavior
         console.log('[UniversalGraphManager] setData analysis:', {
             isSameDataSet,
-            isSimulationDormant,
-            isReactiveLoop,
+            isSimulationSettled,
+            hasStablePositions,
+            shouldUseGentleSync,
             forceRestart,
             currentNodes: currentNodes.length,
-            newNodes: data.nodes.length,
-            simulationActive: this.simulationActive,
-            isSettling: this.d3Simulation?.isSettling?.()
+            newNodes: data.nodes.length
         });
         
-        // REACTIVE LOOP PROTECTION: Skip full restart for reactive updates with same data
-        if (isReactiveLoop) {
-            // CRUCIAL DEBUG: Track reactive loop detection
-            console.log('[UniversalGraphManager] 🛡️ REACTIVE LOOP DETECTED - Preserving dormant simulation');
-            
-            // For reactive loops with same data, just update stores without any simulation changes
-            // Transform the data but preserve existing positioned nodes
-            const transformedNodes = this.transformNodes(data.nodes);
-            const transformedLinks = this.transformLinks(data.links);
-            
-            // Find nodes with existing positions and preserve them
-            const mergedNodes = transformedNodes.map(newNode => {
-                const existingNode = currentNodes.find(n => n.id === newNode.id);
-                if (existingNode && 
-                    existingNode.x !== undefined && existingNode.x !== null && 
-                    existingNode.y !== undefined && existingNode.y !== null) {
-                    // Preserve settled positions
-                    return {
-                        ...newNode,
-                        x: existingNode.x,
-                        y: existingNode.y,
-                        vx: 0,
-                        vy: 0
-                    };
-                }
-                return newNode;
-            });
-            
-            // Update stores with preserved positions - NO simulation changes
-            this.nodesStore.set(mergedNodes);
-            this.linksStore.set(transformedLinks);
-            this.performanceMetrics.renderedNodeCount = mergedNodes.length;
-            this.updatePerformanceMetrics(transformedLinks);
-            
-            // Skip full rendering process completely
+        if (shouldUseGentleSync) {
+            console.log('[UniversalGraphManager] 🛡️ USING GENTLE SYNC - preserving settled state');
+            this.syncDataGently(data);
             this.performanceMetrics.renderTime = performance.now() - startTime;
             return;
         }
         
-        // NORMAL FLOW: Only restart simulation for genuine new data or forced restarts
+        // For new data or forced restarts, proceed with full restart
+        console.log('[UniversalGraphManager] Full restart required');
+        
+        // Clear position cache since we're restarting
+        this.finalPositionCache.clear();
+        
+        // Stop current simulation if needed
         if (forceRestart || !isSameDataSet) {
-            // CRUCIAL DEBUG: Track full restart decisions
-            console.log('[UniversalGraphManager] Full restart - new data or forced');
+            console.log('[UniversalGraphManager] Stopping existing simulation for restart');
             this.stop();
         } else if (currentNodes.length > 0) {
-            // CRUCIAL DEBUG: Track gentle wake decisions
             console.log('[UniversalGraphManager] Gentle wake for active simulation');
-            // Wake the simulation gently for minor updates
             this.d3Simulation.wakeSimulation(0.1);
             this.simulationActive = true;
         }
         
         this.performanceMetrics.totalNodeCount = data.nodes.length;
         
-        // Start full rendering process only for new data or when simulation was fully stopped
+        // Start full rendering process
         this.renderingStrategy.startRendering(
             data,
             (nodes) => this.transformNodes(nodes),
@@ -231,6 +382,12 @@ export class UniversalGraphManager {
         
         this.simulationActive = false;
         
+        // Clear settlement monitoring
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+            this.settlementCheckInterval = null;
+        }
+        
         if (this.d3Simulation) {
             // This will clear the dormant state and truly stop the simulation
             this.d3Simulation.stopSimulation();
@@ -245,21 +402,31 @@ export class UniversalGraphManager {
         console.log('[UniversalGraphManager] ⛔ Graph manager stopped');
     }
 
-
     /**
-     * NEW: Gentle update method for interactive changes that don't need full restart
+     * ENHANCED: Gentle update method for interactive changes that don't need full restart
      * Use this for: node mode changes, visibility updates, preference changes
      */
     public updateState(newData?: Partial<GraphData>, wakePower: number = 0.2): void {
+        console.log('[UniversalGraphManager] updateState called:', {
+            hasNewData: !!newData,
+            wakePower,
+            simulationActive: this.simulationActive,
+            isDormant: this.d3Simulation?.isDormantState?.()
+        });
+        
         if (newData) {
             // Update only changed parts without full restart
             if (newData.nodes) {
                 const transformedNodes = this.transformNodes(newData.nodes);
                 this.nodesStore.set(transformedNodes);
+                this.d3Simulation.updateNodes(transformedNodes);
+                this.performanceMetrics.renderedNodeCount = transformedNodes.length;
             }
             if (newData.links) {
                 const transformedLinks = this.transformLinks(newData.links);
                 this.linksStore.set(transformedLinks);
+                this.d3Simulation.updateLinks(transformedLinks);
+                this.updatePerformanceMetrics(transformedLinks);
             }
         }
         
@@ -270,6 +437,72 @@ export class UniversalGraphManager {
         }
         
         this.forceUpdateCounter.update(n => n + 1);
+    }
+
+    /**
+     * ENHANCED: Start monitoring for settlement completion without triggering store updates
+     */
+    private startSettlementMonitoring(): void {
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+        }
+        
+        console.log('[UniversalGraphManager] Starting settlement monitoring');
+        
+        this.settlementCheckInterval = window.setInterval(() => {
+            if (!this.simulationActive) return;
+            
+            // Check if simulation has settled without triggering events
+            const isSettled = this.d3Simulation.isDormantState();
+            const wasSettling = this.d3Simulation.isSettling();
+            
+            if (isSettled && !wasSettling) {
+                console.log('[UniversalGraphManager] Settlement detected via polling');
+                this.handleSettlementComplete();
+            }
+        }, 1000); // Check every second
+    }
+
+    /**
+     * ENHANCED: Handle settlement completion without store cascades
+     */
+    private handleSettlementComplete(): void {
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+            this.settlementCheckInterval = null;
+        }
+        
+        console.log('[UniversalGraphManager] Settlement complete - preserving positions');
+        
+        // Mark as no longer active but don't update stores
+        this.simulationActive = false;
+        
+        // Get final positions but don't trigger reactive updates
+        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        
+        // Store positions internally without triggering Svelte reactivity
+        this.preserveFinalPositions(nodes);
+    }
+
+    /**
+     * ENHANCED: Preserve final positions without triggering store updates
+     */
+    private preserveFinalPositions(nodes: EnhancedNode[]): void {
+        console.log('[UniversalGraphManager] Preserving final positions for', nodes.length, 'nodes');
+        
+        // Store positions in a separate cache that won't trigger reactivity
+        nodes.forEach(node => {
+            if (node.x !== undefined && node.x !== null && node.y !== undefined && node.y !== null) {
+                // Store in internal cache instead of reactive store
+                this.finalPositionCache.set(node.id, {
+                    x: node.x,
+                    y: node.y,
+                    settled: true
+                });
+            }
+        });
+        
+        console.log('[UniversalGraphManager] Cached', this.finalPositionCache.size, 'settled positions');
     }
 
     /**
@@ -291,11 +524,10 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Handle render complete from rendering strategy
+     * ENHANCED: Handle render complete with settlement monitoring
      */
     private handleRenderComplete(): void {
-        // CRUCIAL DEBUG: Track render completion for settlement timing
-        console.log('[UniversalGraphManager] Rendering complete, starting settlement phase');
+        console.log('[UniversalGraphManager] Rendering complete, starting settlement monitoring');
         
         // Guard against multiple calls
         if (!this.simulationActive) {
@@ -307,8 +539,8 @@ export class UniversalGraphManager {
             // Double-check simulation is still active
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
                 this.d3Simulation.startSettlementPhase();
+                this.startSettlementMonitoring(); // Start polling instead of event-driven
             } else {
-                // CRUCIAL DEBUG: Track settlement phase conflicts
                 console.log('[UniversalGraphManager] Settlement phase already started or simulation stopped');
             }
         }, UNIVERSAL_LAYOUT.TIMING.SETTLEMENT_START_DELAY);
@@ -319,7 +551,6 @@ export class UniversalGraphManager {
      */
     private handleBatchUpdate(batchNumber: number, totalBatches: number): void {
         this.performanceMetrics.currentBatch = batchNumber;
-        // CRUCIAL DEBUG: Track batch progress for debugging rendering issues
         console.log(`[UniversalGraphManager] Batch ${batchNumber}/${totalBatches} rendered`);
     }
 
@@ -349,23 +580,24 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Handle simulation end - FIXED to respect dormant state
+     * ENHANCED: Handle simulation end - PREVENT STORE UPDATES FOR SETTLED SIMULATIONS
      */
     private handleSimulationEnd(): void {
         // CRITICAL FIX: Don't process 'end' events if simulation is dormant
         if (this.d3Simulation?.isDormantState?.()) {
-            // CRUCIAL DEBUG: Track ignored simulation end events (critical for debugging)
             console.log('[UniversalGraphManager] 🛡️ IGNORING simulation end - dormant state active');
             return;
         }
         
-        // CRUCIAL DEBUG: Track legitimate simulation end events
         console.log('[UniversalGraphManager] Simulation ended, finalizing positions');
         this.simulationActive = false;
         
         // Final update to ensure last positions are captured
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.nodesStore.set([...nodes]);
+        
+        // Preserve positions without triggering reactive updates
+        this.preserveFinalPositions(nodes);
         
         // Final force update
         this.forceUpdateCounter.update(n => n + 1);
@@ -542,12 +774,13 @@ export class UniversalGraphManager {
         
         return {
             layoutType: 'vote_based_with_natural_forces',
-            phase: 'refactored',
+            phase: 'enhanced_gentle_sync',
             renderingStats,
             settlementPhase: this.d3Simulation.isSettling(),
             settlementTicks: this.d3Simulation.getSettlementTickCount(),
             performanceMetrics: this.getPerformanceMetrics(),
-            message: 'Refactored modular architecture'
+            settledPositionCount: this.finalPositionCache.size,
+            message: 'Enhanced with gentle sync and position preservation'
         };
     }
 
@@ -701,8 +934,7 @@ export class UniversalGraphManager {
      * Create renderable nodes from enhanced nodes
      */
     private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
-        // REMOVED: Verbose individual node position logging that was causing log spam
-        // Only log essential sample for debugging layout issues
+        // REDUCED: Only log essential sample for debugging layout issues
         const contentNodeCount = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').length;
         if (contentNodeCount > 0) {
             const sampleNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 2);
@@ -1059,6 +1291,7 @@ export class UniversalGraphManager {
     private clearCaches(): void {
         this.nodeRadiusCache.clear();
         this.linkPathCache.clear();
+        this.finalPositionCache.clear();
     }
 
     private clearNodeRadiusCache(nodeId: string): void {

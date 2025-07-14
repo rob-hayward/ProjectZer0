@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Sequential Batch Rendering -->
+<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -10,8 +10,7 @@
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     
-    // ENHANCED: Import optimized graph store factory
-    import { createOptimizedGraphStore } from '$lib/stores/graphStore';
+    // REMOVED: import { createOptimizedGraphStore } from '$lib/stores/graphStore';
     import { universalGraphStore, type UniversalSortType, type UniversalSortDirection } from '$lib/stores/universalGraphStore';
     import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
@@ -83,14 +82,14 @@
     // Loading state
     let nodesLoading = true;
     
-    // Graph data
+    // Graph data - SINGLE SOURCE OF TRUTH
     let graphData: GraphData = { nodes: [], links: [] };
     
-    // NEW: Flag to prevent duplicate graph updates
-    let isUpdatingGraph = false;
+    // CRITICAL: Single graph store instance - managed by Graph component
+    let graphStore: any = null; // Will be set by Graph component via binding
     
-    // NEW: Create optimized graph store for universal view
-    let graphStore = createOptimizedGraphStore('universal');
+    // Data processing state
+    let isUpdatingGraph = false;
     
     // Get data from the universal graph store
     $: nodes = $universalGraphStore?.nodes || [];
@@ -101,13 +100,9 @@
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
     
-    // Debug reactive updates - SIMPLIFIED
-    $: {
-        if (nodes.length > 0 && !isUpdatingGraph) {
-            if (enableBatchRendering) {
-                updateBatchRenderingStatus();
-            }
-        }
+    // SIMPLIFIED: Only update batch status when graph store is available and ready
+    $: if (graphStore && nodes.length > 0 && !isUpdatingGraph) {
+        updateBatchRenderingStatus();
     }
     
     // Create navigation nodes
@@ -173,20 +168,6 @@
             }) as EventListener);
         }
     }
-
-    // ADDED: Debug backend response function - SIMPLIFIED
-    async function debugBackendResponse() {
-        if (!$userStore) return;
-        
-        try {
-            // Make direct API call to see raw response
-            const data = await fetchWithAuth('/graph/universal/nodes?node_types=openquestion&node_types=statement&limit=5');
-            
-            // Only log summary, not full raw data
-        } catch (error) {
-            console.error('Debug API call failed:', error);
-        }
-    }
     
     // Initialize data and authenticate user
     async function initializeData() {
@@ -247,23 +228,9 @@
                 ];
             }
             
-            // Start with just navigation and control nodes (WITHOUT batch rendering)
+            // CRITICAL: Start with just navigation and control nodes - let Graph component manage the store
             createInitialGraphData();
             dataInitialized = true;
-            
-            // Set the correct view type in graph store
-            if (graphStore) {
-                graphStore.setViewType(viewType);
-                
-                // PHASE 2.1: Enable sequential batch rendering
-                if (typeof graphStore.enableBatchRendering === 'function') {
-                    graphStore.enableBatchRendering(enableBatchRendering);
-                }
-                
-                if (typeof graphStore.fixNodePositions === 'function') {
-                    graphStore.fixNodePositions();
-                }
-            }
             
             // PHASE 2.1: Setup sequential batch listeners
             setupSequentialBatchListeners();
@@ -271,8 +238,6 @@
             // Load universal graph data
             await loadUniversalGraphData();
             
-            // SIMPLIFIED: Only debug in development or when needed
-            // await debugBackendResponse();
         } catch (error) {
             console.error('[UNIVERSAL-GRAPH] Error in initializeData:', error);
             auth0.login();
@@ -301,7 +266,6 @@
             
             // Load nodes from the API
             await universalGraphStore.loadNodes($userStore);
-            // Note: UniversalGraphStore may log many relationship processing messages
             
             // Mark nodes as loaded
             nodesLoaded = true;
@@ -325,12 +289,10 @@
             links: []
         };
         
-        if (graphStore) {
-            graphStore.setData(graphData, { skipAnimation: true });
-            if (typeof graphStore.fixNodePositions === 'function') {
-                graphStore.fixNodePositions();
-            }
-        }
+        console.log('[UNIVERSAL-GRAPH] Initial graph data created:', {
+            nodes: graphData.nodes.length,
+            links: graphData.links.length
+        });
     }
     
     // FIXED: Helper function to safely get Neo4j numbers
@@ -342,9 +304,10 @@
         return Number(value || 0);
     }
     
-    // PHASE 2.1: Update graph with universal data - CLEANED UP LOGGING
+    // PHASE 2.1: Update graph with universal data - SINGLE SOURCE OF TRUTH APPROACH
     function updateGraphWithUniversalData() {
         if (isUpdatingGraph) {
+            console.log('[UNIVERSAL-GRAPH] Skipping update - already in progress');
             return;
         }
         
@@ -355,8 +318,27 @@
             return;
         }
         
+        // DEFENSIVE: Wait for graph store to be ready
+        if (!graphStore) {
+            console.log('[UNIVERSAL-GRAPH] Waiting for graph store to initialize');
+            setTimeout(() => {
+                isUpdatingGraph = false;
+                updateGraphWithUniversalData(); // Retry
+            }, 100);
+            return;
+        }
+        
+        // Verify we have the specialized universal manager
+        const isUniversalManager = typeof graphStore.enableBatchRendering === 'function';
+        
+        if (!isUniversalManager) {
+            console.warn('[UNIVERSAL-GRAPH] Expected universal manager but got standard manager');
+            isUpdatingGraph = false;
+            return;
+        }
+        
         // Enable batch rendering on graph store before processing data
-        if (enableBatchRendering && graphStore && typeof graphStore.enableBatchRendering === 'function') {
+        if (enableBatchRendering && graphStore.enableBatchRendering) {
             graphStore.enableBatchRendering(enableBatchRendering);
         }
         
@@ -398,7 +380,7 @@
         // Filter to batch size for rendering - SIMPLIFIED
         let nodesToProcess = nodesWithNetVotes;
         if (enableBatchRendering) {
-            const totalContentNodes = maxBatchesToRender * batchSize; // 2 * 10 = 20
+            const totalContentNodes = maxBatchesToRender * batchSize; // 4 * 10 = 40
             nodesToProcess = nodesWithNetVotes.slice(0, totalContentNodes);
         }
         
@@ -489,24 +471,27 @@
             metadata: rel.metadata
         }));
         
-        // Combine all nodes and links
+        // Combine all nodes and links - SINGLE SOURCE OF TRUTH
         graphData = {
             nodes: [...navigationNodes, controlNode, ...universalGraphNodes],
             links: graphLinks
         };
         
-        // Update the graph - SIMPLIFIED
-        if (graphStore) {
-            graphStore.setData(graphData);
-            
-            // Update batch rendering status after a short delay
-            setTimeout(() => {
-                updateBatchRenderingStatus();
-                isUpdatingGraph = false; // Reset flag after update completes
-            }, 100);
-        } else {
-            isUpdatingGraph = false;
-        }
+        console.log('[UNIVERSAL-GRAPH] Graph data prepared:', {
+            totalNodes: graphData.nodes.length,
+            contentNodes: universalGraphNodes.length,
+            links: graphData.links.length,
+            hasGraphStore: !!graphStore
+        });
+        
+        // CRITICAL: The Graph component will handle the actual rendering via its reactive blocks
+        // We just update our data and let the Graph component's single source of truth handle it
+        
+        // Update batch rendering status after a short delay
+        setTimeout(() => {
+            updateBatchRenderingStatus();
+            isUpdatingGraph = false; // Reset flag after update completes
+        }, 100);
     }
     
     // Handle control changes (filters, sorting)
@@ -529,17 +514,10 @@
                 mode: event.detail.mode
             };
             
-            // Update in graph store
-            if (graphStore) {
-                graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
-                if (typeof graphStore.fixNodePositions === 'function') {
-                    graphStore.fixNodePositions();
-                }
-                if (typeof graphStore.forceTick === 'function') {
-                    graphStore.forceTick(5);
-                }
-            }
+            console.log('[UNIVERSAL-GRAPH] Control node mode changed to:', event.detail.mode);
         }
+        
+        // The Graph component will handle the actual mode change via its store
     }
 
     // Handle node visibility changes
@@ -555,10 +533,9 @@
         // Update visibility preference
         visibilityStore.setPreference(nodeId, !isHidden, 'user');
         
-        // Update node visibility in graph
-        if (graphStore) {
-            graphStore.updateNodeVisibility(nodeId, isHidden, 'user');
-        }
+        console.log('[UNIVERSAL-GRAPH] Visibility changed:', { nodeId, isHidden });
+        
+        // The Graph component will handle the actual visibility change via its store
     }
 
     // UPDATED: Toggle node type function - now supports both types
@@ -577,7 +554,7 @@
     function toggleBatchRendering() {
         enableBatchRendering = !enableBatchRendering;
         
-        // Update graph store
+        // Update graph store if available
         if (graphStore && typeof graphStore.enableBatchRendering === 'function') {
             graphStore.enableBatchRendering(enableBatchRendering);
         }
@@ -595,7 +572,10 @@
 
     // Cleanup on destroy
     onDestroy(() => {
-        // Any cleanup needed
+        // Clean up any listeners
+        if (graphStore && typeof graphStore.dispose === 'function') {
+            graphStore.dispose();
+        }
     });
 </script>
 
@@ -639,10 +619,11 @@
         </div>
     {/if}
 
-    <!-- Graph visualization -->
+    <!-- Graph visualization - CRITICAL: Single source of truth with binding -->
     <Graph 
         data={graphData}
         viewType={viewType}
+        bind:graphStore={graphStore}
         on:modechange={handleNodeModeChange}
         on:visibilitychange={handleVisibilityChange}
     >
@@ -813,6 +794,11 @@
                                 {:else}
                                     Standard rendering: All {nodes.length} nodes simultaneously
                                 {/if}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
+                                Graph Store: {graphStore ? 'Connected' : 'Not Ready'} | 
+                                Data Nodes: {graphData.nodes.length} | 
+                                Data Links: {graphData.links.length}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Check console for detailed Phase 2.1 sequential rendering output
