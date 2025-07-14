@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor -->
+<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor - FIXED Binding Timing -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -100,9 +100,15 @@
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
     
-    // SIMPLIFIED: Only update batch status when graph store is available and ready
-    $: if (graphStore && nodes.length > 0 && !isUpdatingGraph) {
+    // FIXED: Wait for graph store to be properly bound AND initialized before processing data
+    $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph) {
         updateBatchRenderingStatus();
+        
+        // CRITICAL: Only process data when graph store is fully ready and we haven't processed it yet
+        if (nodesLoaded && graphData.nodes.length <= navigationNodes.length + 1) {
+            console.log('[UNIVERSAL-GRAPH] Graph store bound and ready, processing data');
+            updateGraphWithUniversalData();
+        }
     }
     
     // Create navigation nodes
@@ -271,8 +277,9 @@
             nodesLoaded = true;
             nodesLoading = false;
             
-            // Update graph with loaded data
-            updateGraphWithUniversalData();
+            // REMOVED: Don't call updateGraphWithUniversalData here
+            // The reactive statement will handle it when the graph store is ready
+            
         } catch (error) {
             console.error('[UNIVERSAL-GRAPH] Error loading universal graph data:', error);
             
@@ -484,8 +491,11 @@
             hasGraphStore: !!graphStore
         });
         
-        // CRITICAL: The Graph component will handle the actual rendering via its reactive blocks
-        // We just update our data and let the Graph component's single source of truth handle it
+        // CRITICAL: Now that we have the graph store, set the data
+        if (graphStore) {
+            console.log('[UNIVERSAL-GRAPH] Setting data on bound graph store');
+            graphStore.setData(graphData);
+        }
         
         // Update batch rendering status after a short delay
         setTimeout(() => {
