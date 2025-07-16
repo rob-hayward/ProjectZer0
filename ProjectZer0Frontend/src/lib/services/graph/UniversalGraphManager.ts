@@ -537,26 +537,39 @@ export class UniversalGraphManager {
     }
 
     /**
-     * ENHANCED: Handle render complete with settlement monitoring
-     */
+    * ENHANCED: Handle render complete with settlement monitoring and early reveal
+    */
     private handleRenderComplete(): void {
-        console.log('[UniversalGraphManager] Rendering complete, starting settlement monitoring');
-        
-        // Guard against multiple calls
-        if (!this.simulationActive) {
-            return;
-        }
-        
-        // Start settlement phase after delay
-        setTimeout(() => {
-            // Double-check simulation is still active
-            if (this.simulationActive && !this.d3Simulation.isSettling()) {
-                this.d3Simulation.startSettlementPhase();
-                this.startSettlementMonitoring(); // Start polling instead of event-driven
+    console.log('[UniversalGraphManager] Rendering complete, starting settlement monitoring');
+    
+    // Guard against multiple calls
+    if (!this.simulationActive) {
+        return;
+    }
+    
+    // Start settlement phase after delay
+    setTimeout(() => {
+        // Double-check simulation is still active
+        if (this.simulationActive && !this.d3Simulation.isSettling()) {
+            this.d3Simulation.startSettlementPhase();
+            
+            // NEW: Start reveal sequence here when settlement phase begins (early reveal)
+            const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+            const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
+            
+            if (contentNodes.length > 0) {
+                console.log(`[UniversalGraphManager] Starting early reveal for ${contentNodes.length} content nodes`);
+                this.startRevealSequence();
             } else {
-                console.log('[UniversalGraphManager] Settlement phase already started or simulation stopped');
+                console.log('[UniversalGraphManager] No content nodes to reveal');
+                this.visibilityState = 'revealed';
             }
-        }, UNIVERSAL_LAYOUT.TIMING.SETTLEMENT_START_DELAY);
+            
+            this.startSettlementMonitoring(); // Start polling instead of event-driven
+        } else {
+            console.log('[UniversalGraphManager] Settlement phase already started or simulation stopped');
+        }
+    }, UNIVERSAL_LAYOUT.TIMING.SETTLEMENT_START_DELAY);
     }
 
     /**
@@ -1188,7 +1201,7 @@ export class UniversalGraphManager {
                 hiddenReason: node.hiddenReason,
                 position: { x, y, svgTransform },
                 metadata: node.metadata,
-                opacity: (node as any).opacity || 1, // FIXED: Include D3-controlled opacity
+                opacity: (node as any).opacity !== undefined ? (node as any).opacity : 1,
                 style: {
                     previewSize: radius,
                     detailSize: radius,
