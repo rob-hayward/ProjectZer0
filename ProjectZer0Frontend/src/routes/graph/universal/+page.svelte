@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor - FIXED Binding Timing -->
+<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor - FIXED Binding Timing with Automatic Opacity -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -660,7 +660,7 @@
                 <ControlNode 
                     {node}
                 >
-                    <!-- PHASE 2.1: Universal Graph Controls - Enhanced for sequential rendering -->
+                    <!-- PHASE 2.1: Universal Graph Controls - NO OPACITY CONTROLS (automatic feature) -->
                     <div class="control-content">
                         <h3>Universal Graph Controls - Phase 2.1</h3>
                         
@@ -782,7 +782,7 @@
                             <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
-                        <!-- PHASE 2.1: Enhanced DEBUG INFO with sequential rendering details -->
+                        <!-- PHASE 2.1: Enhanced DEBUG INFO with automatic opacity feature -->
                         <div class="debug-section">
                             <h4>Phase 2.1 Debug Info</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
@@ -809,6 +809,9 @@
                                 Graph Store: {graphStore ? 'Connected' : 'Not Ready'} | 
                                 Data Nodes: {graphData.nodes.length} | 
                                 Data Links: {graphData.links.length}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
+                                D3-Native Opacity Control: Active | Automatic Node Reveals: Enabled
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Check console for detailed Phase 2.1 sequential rendering output

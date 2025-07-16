@@ -1,4 +1,4 @@
-// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships
+// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships and D3-native opacity
 
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
@@ -194,7 +194,7 @@ export interface NodePosition {
     svgTransform: string;
 }
 
-// Ready-to-render node with all display information
+// UPDATED: Ready-to-render node with all display information including D3-native opacity
 export interface RenderableNode {
     id: string;
     type: NodeType;
@@ -207,6 +207,7 @@ export interface RenderableNode {
     position: NodePosition;
     style: NodeStyle;
     metadata: NodeMetadata; // UPDATED: Now includes user-specific data
+    opacity?: number; // NEW: D3-controlled opacity for smooth reveals
 }
 
 export interface LayoutNode {

@@ -49,6 +49,28 @@
     const COMMENT_VISIBLE_RADIUS = COORDINATE_SPACE.NODES.SIZES.COMMENT.PREVIEW / 2;
     const HIDDEN_NODE_RADIUS = COORDINATE_SPACE.NODES.SIZES.HIDDEN / 2;
     
+    // ENHANCED: D3-Native opacity control
+    // Calculate opacity from node data (D3-controlled) with fallback to 1
+    $: nodeOpacity = (() => {
+        // Check if node has D3-controlled opacity
+        if (node.opacity !== undefined && node.opacity !== null) {
+            return node.opacity;
+        }
+        
+        // For hidden nodes, use 0 opacity (but let HiddenNode component handle its own display)
+        if (node.isHidden) {
+            return 1; // Let HiddenNode component handle its own opacity
+        }
+        
+        // Default to fully visible
+        return 1;
+    })();
+    
+    // Log opacity changes for debugging (only in development)
+    $: if (import.meta.env.DEV && nodeOpacity !== 1) {
+        console.log(`[NodeRenderer] Node ${node.id.substring(0, 8)} opacity: ${nodeOpacity.toFixed(3)}`);
+    }
+    
     // Handle mode change events from child components
     function handleModeChange(event: CustomEvent<{ 
         mode: NodeMode; 
@@ -285,10 +307,16 @@
                 }
             }
         }
+        
+        // ENHANCED: Log node opacity on mount for debugging (development only)
+        if (import.meta.env.DEV && (node.type === 'statement' || node.type === 'openquestion')) {
+            console.log(`[NodeRenderer] Mounted ${node.type} node ${node.id.substring(0, 8)} with opacity: ${nodeOpacity}`);
+        }
     });
 </script>
 
 <!-- Apply node position via SVG transform attribute -->
+<!-- ENHANCED: Apply D3-controlled opacity to the entire node wrapper -->
 <g 
     class="node-wrapper" 
     data-node-id={node.id}
@@ -299,6 +327,7 @@
     data-node-radius={node.radius}
     data-force-refresh={forceRefresh}
     transform={transform}
+    opacity={nodeOpacity}
 >
     {#if node.isHidden}
         <!-- Render hidden node -->
