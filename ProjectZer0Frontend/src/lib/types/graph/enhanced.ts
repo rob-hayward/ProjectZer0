@@ -135,6 +135,9 @@ export type EnhancedLink = {
         // NEW: Consolidated keyword metadata for optimized relationships
         consolidatedKeywords?: ConsolidatedKeywordMetadata;
         
+        // NEW: Opacity support for link reveal animations
+        opacity?: number;
+        
         // Other metadata
         [key: string]: any;
     };
@@ -153,6 +156,7 @@ export interface RenderableLink {
     targetPosition: NodePosition;
     strength?: number; 
     relationshipType?: 'direct' | 'keyword';
+    opacity?: number; // NEW: D3-controlled opacity for smooth reveals
     
     // ENHANCED: Metadata with consolidated support
     metadata?: {
@@ -167,6 +171,9 @@ export interface RenderableLink {
         // Performance tracking
         isConsolidated?: boolean; // Quick check for rendering optimizations
         originalRelationshipCount?: number; // How many relationships this represents
+        
+        // NEW: Opacity support
+        opacity?: number;
         
         // Other metadata
         [key: string]: any;
