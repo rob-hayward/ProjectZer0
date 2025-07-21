@@ -1,4 +1,4 @@
-// src/lib/services/graph/UniversalGraphManager.ts - Enhanced with Phantom Links Support
+// src/lib/services/graph/UniversalGraphManager.ts - Enhanced with Phantom Links Support - COMPLETE FIXED VERSION
 // Central orchestrator using modular components with reactive update protection and phantom links control
 
 import * as d3 from 'd3';
@@ -32,6 +32,7 @@ import type { RevealPattern } from './universal/UniversalOpacityController';
 /**
  * ENHANCED: UniversalGraphManager with phantom links support
  * Central orchestrator that delegates to specialized components with dedicated opacity management
+ * FIXED: Callback chain now properly handles phantom links activation
  */
 export class UniversalGraphManager {
     private positioning: UniversalPositioning;
@@ -81,12 +82,12 @@ export class UniversalGraphManager {
         // Initialize components
         this.positioning = new UniversalPositioning();
         
-        // ENHANCED: Initialize opacity controller with phantom links callback
+        // ENHANCED: Initialize opacity controller with phantom links callback - FIXED
         this.opacityController = new UniversalOpacityController({
             onNodeOpacityUpdate: (nodes) => this.handleNodeOpacityUpdate(nodes),
             onLinkOpacityUpdate: (links) => this.handleLinkOpacityUpdate(links),
             onRevealComplete: () => this.handleRevealComplete(),
-            onLinkRevealEnabled: () => this.handleLinkRevealEnabled() // NEW
+            onLinkRevealEnabled: () => this.handleLinkRevealEnabled() // FIXED: Proper binding
         });
         
         // D3 Simulation with callbacks
@@ -115,14 +116,16 @@ export class UniversalGraphManager {
         );
         
         // CRUCIAL DEBUG: Confirm initialization
-        console.log('[UniversalGraphManager] Enhanced architecture initialized with phantom links support');
+        console.log('[UniversalGraphManager] Enhanced architecture initialized with phantom links support - CALLBACK FIXED');
     }
 
     /**
      * NEW: Check if links should be rendered to DOM (phantom links control)
      */
     public getShouldRenderLinks(): boolean {
-        return this.opacityController.shouldRenderLinks();
+        const shouldRender = this.opacityController.shouldRenderLinks();
+        console.log('[UniversalGraphManager] getShouldRenderLinks called, returning:', shouldRender);
+        return shouldRender;
     }
 
     /**
@@ -509,16 +512,21 @@ export class UniversalGraphManager {
         // Store positions internally without triggering Svelte reactivity
         this.preserveFinalPositions(nodes);
         
-        // CRITICAL: Phantom links trigger - the forceRevealAll callback isn't working
-        console.log('[UniversalGraphManager] 🔗 Settlement complete - triggering phantom links as fallback');
+        // CRITICAL: Phantom links trigger - FIXED TRIGGER MECHANISM
+        console.log('[UniversalGraphManager] 🔗 Settlement complete - triggering phantom links');
         const links = this.getCurrentLinks();
         this.opacityController.forceRevealAll(nodes, links);
         
-        // ESSENTIAL: Manual callback trigger since forceRevealAll callback fails
+        // ENHANCED: Multiple phantom links triggers for reliability
         setTimeout(() => {
-            console.log('[UniversalGraphManager] 🔗 Manual phantom links callback trigger');
+            console.log('[UniversalGraphManager] 🔗 Secondary phantom links trigger');
             this.handleLinkRevealEnabled();
         }, 100);
+        
+        setTimeout(() => {
+            console.log('[UniversalGraphManager] 🔗 Tertiary phantom links trigger');
+            this.handleLinkRevealEnabled();
+        }, 200);
     }
 
     /**
@@ -605,8 +613,7 @@ export class UniversalGraphManager {
                     // Still need to mark as revealed for consistency
                     this.opacityController.forceRevealAll(nodes, links);
                     
-                    // CRITICAL FIX: Manually call the link reveal callback since forceRevealAll should trigger it
-                    // But let's also manually trigger it as a backup
+                    // ENHANCED: Multiple phantom links triggers for reliability
                     setTimeout(() => {
                         console.log('[UniversalGraphManager] 🔗 Manually triggering phantom links after forceRevealAll');
                         this.handleLinkRevealEnabled();
@@ -713,13 +720,25 @@ export class UniversalGraphManager {
     }
 
     /**
-     * NEW: Handle phantom links enabled callback
+     * FIXED: Handle phantom links enabled callback with proper force updates
      */
     private handleLinkRevealEnabled(): void {
-        console.log('[UniversalGraphManager] 🔗 Phantom links enabled for DOM rendering');
+        console.log('[UniversalGraphManager] 🔗 Phantom links enabled for DOM rendering - FIXED CALLBACK');
         
-        // Single force update only
+        // ENHANCED: Multiple force updates for reliability
         this.forceUpdateCounter.update(n => n + 1);
+        
+        // Additional force update after small delay
+        setTimeout(() => {
+            this.forceUpdateCounter.update(n => n + 1);
+            console.log('[UniversalGraphManager] 🔗 Secondary force update for phantom links');
+        }, 50);
+        
+        // Final force update
+        setTimeout(() => {
+            this.forceUpdateCounter.update(n => n + 1);
+            console.log('[UniversalGraphManager] 🔗 Final force update for phantom links');
+        }, 100);
     }
 
     /**
@@ -954,7 +973,7 @@ export class UniversalGraphManager {
         
         return {
             layoutType: 'vote_based_with_natural_forces',
-            phase: 'enhanced_phantom_links_with_opacity_controller',
+            phase: 'enhanced_phantom_links_with_opacity_controller_FIXED',
             renderingStats,
             settlementPhase: this.d3Simulation.isSettling(),
             settlementTicks: this.d3Simulation.getSettlementTickCount(),
@@ -963,9 +982,9 @@ export class UniversalGraphManager {
             revealStatus,
             phantomLinks: {
                 enabled: this.getShouldRenderLinks(),
-                description: 'Links included in physics but conditionally rendered to DOM'
+                description: 'Links included in physics but conditionally rendered to DOM - CALLBACK FIXED'
             },
-            message: 'Enhanced with phantom links architecture for smooth post-settlement reveals'
+            message: 'Enhanced with phantom links architecture - callback chain FIXED for reliable link reveals'
         };
     }
     

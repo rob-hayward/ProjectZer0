@@ -85,8 +85,9 @@
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
 
-    // ENHANCED: Phantom links state for universal view
+    // ENHANCED: Phantom links state - FIXED reactive chain
     let shouldRenderLinks = true; // Default to true for non-universal views
+    let phantomLinksInitialized = false;
 
     // Constants - Define viewBox to center coordinate system
     const worldDimensions = {
@@ -99,15 +100,39 @@
     // Background configuration
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // ENHANCED: Simplified phantom links state management - single check
-    $: if (graphStore && viewType === 'universal' && graphStore.getShouldRenderLinks) {
-        const newShouldRenderLinks = graphStore.getShouldRenderLinks();
-        if (newShouldRenderLinks !== shouldRenderLinks) {
-            console.log('[Graph] 🔗 Phantom links state changed:', shouldRenderLinks, '→', newShouldRenderLinks);
-            shouldRenderLinks = newShouldRenderLinks;
+    // FIXED: Phantom links reactive statement with proper initialization
+    $: if (graphStore && viewType === 'universal') {
+        // Initialize phantom links state for universal view
+        if (!phantomLinksInitialized && typeof graphStore.getShouldRenderLinks === 'function') {
+            phantomLinksInitialized = true;
+            shouldRenderLinks = false; // Start with links hidden in universal view
+            console.log('[Graph] 🔗 Phantom links initialized - starting hidden');
+        }
+        
+        // Check for state changes
+        if (typeof graphStore.getShouldRenderLinks === 'function') {
+            const newShouldRenderLinks = graphStore.getShouldRenderLinks();
+            if (newShouldRenderLinks !== shouldRenderLinks) {
+                console.log('[Graph] 🔗 Phantom links state changed:', shouldRenderLinks, '→', newShouldRenderLinks);
+                shouldRenderLinks = newShouldRenderLinks;
+                
+                // Dispatch custom event for external monitoring
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('phantom-links-state-change', {
+                        detail: {
+                            enabled: shouldRenderLinks,
+                            linksCount: data?.links?.length || 0,
+                            revealState: shouldRenderLinks ? 'revealed' : 'hidden'
+                        }
+                    }));
+                }
+            }
         }
     } else if (viewType !== 'universal') {
-        shouldRenderLinks = true;
+        // Non-universal views always show links
+        if (!shouldRenderLinks) {
+            shouldRenderLinks = true;
+        }
     }
 
     // EXPORTED METHODS FOR EXTERNAL CONTROL OF VIEWPORT
@@ -900,29 +925,41 @@
                     </g>
                     {/if}
 
-                    <!-- ENHANCED: Links layer with phantom links conditional rendering -->
-                    <g class="links-layer" class:phantom-links-hidden={!shouldRenderLinks}>
-                        {#if $graphStore && $graphStore.links}
-                            {#if shouldRenderLinks}
+                    <!-- CLEAN: Simple conditional rendering - no opacity tricks -->
+                    <g class="links-layer">
+                        {#if shouldRenderLinks}
+                            <!-- DEBUG: Show when links are rendering -->
+                            <text 
+                                x="0" 
+                                y="-250" 
+                                text-anchor="middle" 
+                                fill="rgba(0,255,0,0.8)" 
+                                font-size="14"
+                                class="links-debug"
+                            >
+                                ✅ CLEAN: RENDERING {$graphStore?.links?.length || 0} LINKS
+                            </text>
+                            
+                            {#if $graphStore && $graphStore.links}
                                 {#each $graphStore.links as link (link.id)}
                                     <LinkRenderer {link} />
                                     {#if showDebug}
                                         <GraphDebugVisualizer {link} active={showDebug} />
                                     {/if}
                                 {/each}
-                            {:else if DEBUG_MODE}
-                                <!-- DEBUG: Show phantom links count when hidden -->
-                                <text 
-                                    x="0" 
-                                    y="-200" 
-                                    text-anchor="middle" 
-                                    fill="rgba(255,255,255,0.3)" 
-                                    font-size="12"
-                                    class="phantom-debug"
-                                >
-                                    Phantom Links: {$graphStore.links.length} (hidden until settlement)
-                                </text>
                             {/if}
+                        {:else}
+                            <!-- DEBUG: Show when links are hidden -->
+                            <text 
+                                x="0" 
+                                y="-250" 
+                                text-anchor="middle" 
+                                fill="rgba(255,100,100,0.8)" 
+                                font-size="14"
+                                class="links-debug"
+                            >
+                                ❌ CLEAN: LINKS HIDDEN - WAITING FOR SETTLEMENT
+                            </text>
                         {/if}
                     </g>
 
@@ -1070,12 +1107,6 @@
         pointer-events: none;
     }
 
-    /* ENHANCED: Phantom links styling */
-    .phantom-links-hidden {
-        opacity: 0;
-        pointer-events: none;
-    }
-
     .links-layer:not(.phantom-links-hidden) :global(.link) {
         opacity: 0;
         animation: phantomLinkReveal 0.8s ease-in-out forwards;
@@ -1089,13 +1120,6 @@
         to { 
             opacity: 1; 
         }
-    }
-
-    /* Debug styling */
-    .phantom-debug {
-        font-family: 'Courier New', monospace;
-        pointer-events: none;
-        user-select: none;
     }
 
     /* The critical fix - proper transform origins */

@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - OPTIMIZED for consolidated relationships -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - FIXED for phantom links opacity -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -7,6 +7,9 @@
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     
     export let link: RenderableLink;
+    
+    // ENHANCED: Add phantom links override prop
+    export let forceVisible: boolean = false;
     
     // Create unique IDs for this link
     const linkId = `link-${Math.random().toString(36).slice(2, 9)}`;
@@ -39,9 +42,23 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
+    // CRITICAL FIX: Simple and effective opacity override
+    $: finalOpacity = (() => {
+        // UNIVERSAL VIEW FIX: Always use 1.0 opacity when links should render
+        if (forceVisible) {
+            console.log(`[LinkRenderer] ${linkId} - Universal view, forcing opacity: 1.0`);
+            return 1.0;
+        }
+        
+        // For other views, use the calculated opacity
+        const calculatedOpacity = visualProps.opacity;
+        console.log(`[LinkRenderer] ${linkId} - Non-universal view, using calculated opacity: ${calculatedOpacity}`);
+        return calculatedOpacity;
+    })();
+    
     // OPTIMIZED: Visual properties from consolidated utils
     $: strokeWidth = visualProps.strokeWidth;
-    $: strokeOpacity = visualProps.opacity;
+    $: strokeOpacity = finalOpacity; // FIXED: Use finalOpacity instead of visualProps.opacity
     $: dashArray = visualProps.dashArray;
     $: glowIntensity = visualProps.glowIntensity;
     $: glowOpacity = Math.min(0.8, strokeOpacity * 0.7);
@@ -49,6 +66,8 @@
     // ENHANCED: Gradient opacity calculation for consolidated relationships
     $: gradientStartOpacity = getGradientOpacity('start');
     $: gradientEndOpacity = getGradientOpacity('end');
+    
+    // Rest of your existing functions remain the same...
     
     /**
      * Helper to extract base color from NODE_CONSTANTS
@@ -215,61 +234,64 @@
      * ENHANCED: Get gradient opacity based on link type and consolidation
      */
     function getGradientOpacity(position: 'start' | 'end'): number {
+        // CRITICAL FIX: Use finalOpacity as base instead of raw values
+        const baseOpacity = finalOpacity;
+        
         // For consolidated relationships, boost opacity
         if (isConsolidated) {
-            const baseOpacity = 0.8;
             const consolidationBonus = Math.min(0.2, (relationshipCount - 1) * 0.02);
             return Math.min(0.95, baseOpacity + consolidationBonus);
         }
         
         if (isStatementRelation) {
             return Math.min(
-                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY,
-                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
-                (relationshipCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT
+                LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MAX_OPACITY * baseOpacity,
+                (LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.MIN_OPACITY + 
+                (relationshipCount - 1) * LINK_CONSTANTS.STYLES.STATEMENT_RELATION.GRADIENT.OPACITY_INCREMENT) * baseOpacity
             );
         }
         
         // Comment links - higher opacity
         if (isComment || isReply) {
-            return position === 'start' ? 0.9 : 0.9;
+            return position === 'start' ? baseOpacity * 0.9 : baseOpacity * 0.9;
         }
         
         // Comment form links - dashed effect with lower opacity
         if (isCommentForm || isReplyForm) {
-            return position === 'start' ? 0.7 : 0.7;
+            return position === 'start' ? baseOpacity * 0.7 : baseOpacity * 0.7;
         }
         
         // Handle answer links
         if (isAnswerLink) {
-            return position === 'start' ? 0.8 : 0.8;
+            return position === 'start' ? baseOpacity * 0.8 : baseOpacity * 0.8;
         }
         
         // Universal graph link opacities
         if (isSharedKeywordLink) {
             // Shared keyword links - opacity based on strength and consolidation
-            const baseOpacity = 0.6;
             const strengthBonus = effectiveStrength * 0.3;
             const consolidationBonus = isConsolidated ? 0.1 : 0;
-            return Math.min(0.9, baseOpacity + strengthBonus + consolidationBonus);
+            return Math.min(0.9, (0.6 + strengthBonus + consolidationBonus) * baseOpacity);
         }
         
         if (isUniversalAnswerLink) {
-            return position === 'start' ? 0.9 : 0.9;
+            return position === 'start' ? baseOpacity * 0.9 : baseOpacity * 0.9;
         }
         
         if (isRespondsToLink || isRelatedToLink) {
-            return position === 'start' ? 0.8 : 0.8;
+            return position === 'start' ? baseOpacity * 0.8 : baseOpacity * 0.8;
         }
         
         // Default for word-definition links
-        return position === 'start' ?
+        const defaultOpacity = position === 'start' ?
             (isLiveDefinition ? 
                 LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.START_OPACITY :
                 LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.START_OPACITY) :
             (isLiveDefinition ? 
                 LINK_CONSTANTS.STYLES.WORD_TO_DEFINITION.GRADIENT.END_OPACITY :
                 LINK_CONSTANTS.STYLES.WORD_TO_ALT_DEFINITION.GRADIENT.END_OPACITY);
+        
+        return defaultOpacity * baseOpacity;
     }
     
     /**
@@ -304,6 +326,7 @@
         class:strong-consolidation={relationshipCount >= 5}
         class:medium-consolidation={relationshipCount >= 3 && relationshipCount < 5}
         class:light-consolidation={relationshipCount >= 2 && relationshipCount < 3}
+        class:phantom-links-revealed={forceVisible}
         data-link-id={linkId}
         data-source-id={link.sourceId}
         data-target-id={link.targetId}
@@ -311,6 +334,7 @@
         data-relation-count={relationshipCount}
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
+        data-final-opacity={finalOpacity.toFixed(2)}
     >
         <defs>
             <!-- ENHANCED: Gradient definition with consolidated relationship support -->
@@ -373,6 +397,7 @@
             class="link-path"
             class:consolidated-link={isConsolidated}
             class:dashed-link={dashArray !== 'none'}
+            class:phantom-revealed={forceVisible}
             stroke-width={strokeWidth}
             stroke-linecap="round"
             stroke-dasharray={dashArray}
@@ -399,9 +424,7 @@
         <title>{tooltipText}</title>
         
         <!-- DEBUG: Performance tracking comment -->
-        <!-- Consolidated relationship: {isConsolidated ? 'YES' : 'NO'} | 
-             Original count: {relationshipCount} | 
-             Effective strength: {effectiveStrength.toFixed(2)} -->
+        <!-- Link opacity: {finalOpacity} | Force visible: {forceVisible} | Original: {link.opacity} -->
     </g>
 {/if}
 
@@ -445,6 +468,16 @@
         animation: consolidation-flow 4s linear infinite;
     }
     
+    /* ENHANCED: Phantom links revealed state */
+    .phantom-revealed {
+        animation: phantomLinkReveal 0.8s ease-in-out forwards !important;
+    }
+    
+    .phantom-links-revealed .link-path {
+        opacity: 1 !important;
+        animation: phantomLinkReveal 0.8s ease-in-out forwards !important;
+    }
+    
     /* ENHANCED: Consolidation strength classes */
     .strong-consolidation .link-path {
         filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
@@ -485,6 +518,16 @@
         }
     }
     
+    /* ENHANCED: Phantom links reveal animation */
+    @keyframes phantomLinkReveal {
+        from { 
+            opacity: 0; 
+        }
+        to { 
+            opacity: 1; 
+        }
+    }
+    
     /* ENHANCED: Hover effects for consolidated relationships */
     .link:hover .consolidated-link {
         animation-duration: 1s; /* Faster pulse on hover */
@@ -501,6 +544,11 @@
         .consolidation-indicator {
             animation: none;
             transition: none;
+        }
+        
+        .phantom-revealed,
+        .phantom-links-revealed .link-path {
+            animation: none !important;
         }
     }
 </style>
