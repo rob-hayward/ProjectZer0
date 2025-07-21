@@ -1,5 +1,5 @@
 // src/lib/services/graph/universal/UniversalOpacityController.ts
-// Dedicated opacity control system for Universal Graph - extracted from UniversalGraphManager
+// Dedicated opacity control system for Universal Graph - Enhanced with Link Rendering Control
 
 import type { EnhancedNode, EnhancedLink, RenderableNode, RenderableLink } from '$lib/types/graph/enhanced';
 import { UniversalPositioning } from './UniversalPositioning';
@@ -19,11 +19,13 @@ interface RevealSequenceCallbacks {
     onNodeOpacityUpdate: (nodes: EnhancedNode[]) => void;
     onLinkOpacityUpdate: (links: EnhancedLink[]) => void;
     onRevealComplete: () => void;
+    onLinkRevealEnabled?: () => void; // NEW - optional for backward compatibility
 }
 
 /**
  * Manages opacity control for both nodes and links in the Universal Graph
  * Handles three-phase system: hidden → revealing → revealed
+ * Enhanced with phantom links control for post-settlement link rendering
  */
 export class UniversalOpacityController {
     private positioning: UniversalPositioning;
@@ -37,12 +39,23 @@ export class UniversalOpacityController {
     private nodeRevealStartTime: number = 0;
     private linkRevealStartTime: number = 0;
     
+    // NEW: Phantom links state management
+    private linkRenderingEnabled = false;
+    
     // Animation frame management
     private animationFrameId: number | null = null;
     
     constructor(callbacks: RevealSequenceCallbacks) {
         this.positioning = new UniversalPositioning();
         this.callbacks = callbacks;
+        
+        // DEBUG: Check which callbacks are available
+        console.log('[OpacityController] Constructor - Available callbacks:', {
+            onNodeOpacityUpdate: !!callbacks.onNodeOpacityUpdate,
+            onLinkOpacityUpdate: !!callbacks.onLinkOpacityUpdate,
+            onRevealComplete: !!callbacks.onRevealComplete,
+            onLinkRevealEnabled: !!callbacks.onLinkRevealEnabled
+        });
         
         // Default configuration
         this.config = {
@@ -59,6 +72,13 @@ export class UniversalOpacityController {
      */
     public configure(config: Partial<OpacityConfig>): void {
         this.config = { ...this.config, ...config };
+    }
+    
+    /**
+     * NEW: Check if links should be rendered to DOM (phantom links control)
+     */
+    public shouldRenderLinks(): boolean {
+        return this.linkRenderingEnabled;
     }
     
     /**
@@ -246,7 +266,7 @@ export class UniversalOpacityController {
     }
     
     /**
-     * Complete the reveal sequence
+     * ENHANCED: Complete the reveal sequence with phantom links control
      */
     private completeRevealSequence(nodes: EnhancedNode[], links: EnhancedLink[]): void {
         console.log('[OpacityController] Full reveal sequence complete');
@@ -264,10 +284,22 @@ export class UniversalOpacityController {
         this.nodeOpacityState = 'revealed';
         this.linkOpacityState = 'revealed';
         
+        // NEW: Enable phantom links rendering
+        this.linkRenderingEnabled = true;
+        console.log('[OpacityController] 🔗 Phantom links enabled for DOM rendering');
+        
         // Final callbacks
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onLinkOpacityUpdate(links);
         this.callbacks.onRevealComplete();
+        
+        // NEW: Trigger phantom links callback
+        if (this.callbacks.onLinkRevealEnabled) {
+            console.log('[OpacityController] 🔗 Calling onLinkRevealEnabled callback');
+            this.callbacks.onLinkRevealEnabled();
+        } else {
+            console.warn('[OpacityController] 🔗 onLinkRevealEnabled callback not available');
+        }
     }
     
     /**
@@ -332,6 +364,10 @@ export class UniversalOpacityController {
         this.nodeOpacityState = 'revealed';
         this.linkOpacityState = 'revealed';
         
+        // NEW: Enable phantom links
+        this.linkRenderingEnabled = true;
+        console.log('[OpacityController] 🔗 Force enabling phantom links');
+        
         // Set full opacity
         nodes.forEach(node => {
             (node as any).opacity = 1;
@@ -345,10 +381,21 @@ export class UniversalOpacityController {
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onLinkOpacityUpdate(links);
         this.callbacks.onRevealComplete();
+        
+        // NEW: Trigger phantom links callback - DEBUG VERSION
+        console.log('[OpacityController] 🔗 About to call onLinkRevealEnabled callback');
+        console.log('[OpacityController] 🔗 Callback available:', !!this.callbacks.onLinkRevealEnabled);
+        
+        if (this.callbacks.onLinkRevealEnabled) {
+            console.log('[OpacityController] 🔗 Force calling onLinkRevealEnabled callback');
+            this.callbacks.onLinkRevealEnabled();
+        } else {
+            console.error('[OpacityController] 🔗 onLinkRevealEnabled callback not available for force reveal!');
+        }
     }
     
     /**
-     * Reset to hidden state
+     * ENHANCED: Reset to hidden state with phantom links reset
      */
     public reset(): void {
         console.log('[OpacityController] Resetting to hidden state');
@@ -365,10 +412,14 @@ export class UniversalOpacityController {
         this.revealStartTime = 0;
         this.nodeRevealStartTime = 0;
         this.linkRevealStartTime = 0;
+        
+        // NEW: Reset phantom links
+        this.linkRenderingEnabled = false;
+        console.log('[OpacityController] 🔗 Phantom links disabled');
     }
     
     /**
-     * Get current reveal status
+     * ENHANCED: Get current reveal status including phantom links
      */
     public getRevealStatus(): {
         nodeState: OpacityState;
@@ -377,6 +428,7 @@ export class UniversalOpacityController {
         linkProgress: number;
         pattern: RevealPattern;
         duration: number;
+        linkRenderingEnabled: boolean; // NEW
     } {
         const now = Date.now();
         
@@ -394,7 +446,8 @@ export class UniversalOpacityController {
             nodeProgress,
             linkProgress,
             pattern: this.config.revealPattern,
-            duration: this.config.revealDuration
+            duration: this.config.revealDuration,
+            linkRenderingEnabled: this.linkRenderingEnabled // NEW
         };
     }
     
@@ -421,6 +474,21 @@ export class UniversalOpacityController {
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
+        }
+    }
+
+    /**
+     * DEBUG: Manual force enable for testing
+     */
+    public debugForceEnable(): void {
+        console.log('[OpacityController] 🐛 DEBUG: Force enabling phantom links');
+        this.linkRenderingEnabled = true;
+        
+        if (this.callbacks.onLinkRevealEnabled) {
+            console.log('[OpacityController] 🐛 DEBUG: Calling onLinkRevealEnabled callback');
+            this.callbacks.onLinkRevealEnabled();
+        } else {
+            console.error('[OpacityController] 🐛 DEBUG: onLinkRevealEnabled callback not available!');
         }
     }
 }

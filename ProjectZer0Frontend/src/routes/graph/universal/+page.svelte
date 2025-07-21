@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - PHASE 2.1: Single Source of Truth Refactor - FIXED Binding Timing with Automatic Opacity -->
+<!-- src/routes/graph/universal/+page.svelte - Enhanced with Phantom Links Integration -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -10,7 +10,6 @@
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     
-    // REMOVED: import { createOptimizedGraphStore } from '$lib/stores/graphStore';
     import { universalGraphStore, type UniversalSortType, type UniversalSortDirection } from '$lib/stores/universalGraphStore';
     import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
@@ -62,6 +61,13 @@
         isComplete: false
     };
     
+    // ENHANCED: Phantom links status tracking
+    let phantomLinksStatus = {
+        enabled: false,
+        linksCount: 0,
+        revealState: 'hidden' as 'hidden' | 'revealing' | 'revealed'
+    };
+    
     // Initialization states
     let authInitialized = false;
     let dataInitialized = false;
@@ -99,6 +105,18 @@
     // Typed helper functions for node filtering
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
+    
+    // ENHANCED: Update phantom links status when graph store is ready
+    $: if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
+        phantomLinksStatus.enabled = graphStore.getShouldRenderLinks();
+        phantomLinksStatus.linksCount = graphData.links.length;
+        
+        // Get reveal status if available
+        if (typeof graphStore.getRevealStatus === 'function') {
+            const revealStatus = graphStore.getRevealStatus();
+            phantomLinksStatus.revealState = revealStatus.linkRenderingEnabled ? 'revealed' : 'hidden';
+        }
+    }
     
     // FIXED: Wait for graph store to be properly bound AND initialized before processing data
     $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph) {
@@ -171,6 +189,17 @@
                     isComplete: state.isComplete,
                     renderedNodes: state.currentBatch * batchSize + navigationNodes.length + 1
                 };
+            }) as EventListener);
+            
+            // ENHANCED: Listen for phantom links state changes
+            window.addEventListener('phantom-links-state-change', ((event: CustomEvent) => {
+                const state = event.detail;
+                phantomLinksStatus = {
+                    enabled: state.enabled,
+                    linksCount: state.linksCount,
+                    revealState: state.revealState
+                };
+                console.log('[UNIVERSAL-GRAPH] 🔗 Phantom links state updated:', phantomLinksStatus);
             }) as EventListener);
         }
     }
@@ -491,6 +520,9 @@
             hasGraphStore: !!graphStore
         });
         
+        // ENHANCED: Update phantom links status
+        phantomLinksStatus.linksCount = graphData.links.length;
+        
         // CRITICAL: Now that we have the graph store, set the data
         if (graphStore) {
             console.log('[UNIVERSAL-GRAPH] Setting data on bound graph store');
@@ -575,6 +607,14 @@
         }
     }
 
+    // ENHANCED: Force reveal all phantom links (for debugging)
+    function forceRevealPhantomLinks() {
+        if (graphStore && typeof graphStore.forceRevealAll === 'function') {
+            console.log('[UNIVERSAL-GRAPH] 🚀 Forcing phantom links reveal');
+            graphStore.forceRevealAll();
+        }
+    }
+
     // Initialize on mount
     onMount(() => {
         initializeData();
@@ -604,32 +644,33 @@
         <span class="loading-text">Initializing universal graph...</span>
     </div>
 {:else}
-    <!-- PHASE 2.1: Enhanced sequential batch rendering status display -->
+    <!-- ENHANCED: Phantom links status display -->
     {#if enableBatchRendering}
         <div class="batch-status">
             <div class="batch-info">
                 <span class="batch-label">
-                    Phase 2.1 {enableSequentialRendering ? 'Sequential' : 'Static'} Batch Rendering: ON
+                    Phase 2.2 Phantom Links: {phantomLinksStatus.enabled ? 'ENABLED' : 'DISABLED'}
                 </span>
                 <span class="batch-progress">
                     {#if enableSequentialRendering}
                         {#if batchRenderingStatus.isRendering}
                             Rendering batch {batchRenderingStatus.currentBatch}/{maxBatchesToRender}...
                         {:else if batchRenderingStatus.isComplete}
-                            Complete: {batchRenderingStatus.renderedNodes} nodes ({maxBatchesToRender} batches)
+                            Complete: {batchRenderingStatus.renderedNodes} nodes | 
+                            Links: {phantomLinksStatus.linksCount} ({phantomLinksStatus.revealState})
                         {:else}
-                            Ready: {maxBatchesToRender} batches of {batchSize} nodes each
+                            Ready: {maxBatchesToRender} batches | Links: {phantomLinksStatus.linksCount}
                         {/if}
                     {:else}
-                        {batchRenderingStatus.renderedNodes} / {batchRenderingStatus.totalNodes} nodes
-                        ({maxBatchesToRender} batches of {batchSize} nodes each)
+                        {batchRenderingStatus.renderedNodes} / {batchRenderingStatus.totalNodes} nodes |
+                        Links: {phantomLinksStatus.linksCount} ({phantomLinksStatus.revealState})
                     {/if}
                 </span>
             </div>
         </div>
     {/if}
 
-    <!-- Graph visualization - CRITICAL: Single source of truth with binding -->
+    <!-- Graph visualization - ENHANCED: Phantom links integration -->
     <Graph 
         data={graphData}
         viewType={viewType}
@@ -660,9 +701,42 @@
                 <ControlNode 
                     {node}
                 >
-                    <!-- PHASE 2.1: Universal Graph Controls - NO OPACITY CONTROLS (automatic feature) -->
+                    <!-- ENHANCED: Universal Graph Controls with Phantom Links -->
                     <div class="control-content">
-                        <h3>Universal Graph Controls - Phase 2.1</h3>
+                        <h3>Universal Graph Controls - Phase 2.2</h3>
+                        
+                        <!-- ENHANCED: Phantom Links status section -->
+                        <div class="control-section phantom-links-section">
+                            <h4>🔗 Phantom Links System</h4>
+                            <div class="phantom-status">
+                                <div class="status-item">
+                                    <span class="status-label">Status:</span>
+                                    <span class="status-value {phantomLinksStatus.enabled ? 'enabled' : 'disabled'}">
+                                        {phantomLinksStatus.enabled ? 'ENABLED' : 'DISABLED'}
+                                    </span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Links Count:</span>
+                                    <span class="status-value">{phantomLinksStatus.linksCount}</span>
+                                </div>
+                                <div class="status-item">
+                                    <span class="status-label">Reveal State:</span>
+                                    <span class="status-value state-{phantomLinksStatus.revealState}">
+                                        {phantomLinksStatus.revealState.toUpperCase()}
+                                    </span>
+                                </div>
+                            </div>
+                            
+                            <!-- DEBUG: Force reveal button -->
+                            {#if !phantomLinksStatus.enabled}
+                                <button 
+                                    class="force-reveal-btn"
+                                    on:click={forceRevealPhantomLinks}
+                                >
+                                    🚀 Force Reveal Links (Debug)
+                                </button>
+                            {/if}
+                        </div>
                         
                         <!-- PHASE 2.1: Enhanced rendering mode controls -->
                         <div class="control-section">
@@ -782,9 +856,9 @@
                             <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
-                        <!-- PHASE 2.1: Enhanced DEBUG INFO with automatic opacity feature -->
+                        <!-- ENHANCED: Phase 2.2 DEBUG INFO with phantom links -->
                         <div class="debug-section">
-                            <h4>Phase 2.1 Debug Info</h4>
+                            <h4>Phase 2.2 Debug Info</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Nodes: {nodes.length} | 
                                 Questions: {questionNodes.length} |
@@ -796,8 +870,13 @@
                                 {/if}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
+                                🔗 Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
+                                Links: {phantomLinksStatus.linksCount} | 
+                                State: {phantomLinksStatus.revealState}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
                                 {#if enableBatchRendering && enableSequentialRendering}
-                                    Sequential Mode: Batches render progressively (Batch 1 → wait → Batch 2)
+                                    Sequential Mode: Batches render progressively → Links reveal post-settlement
                                 {:else if enableBatchRendering}
                                     Static Mode: {navigationNodes.length + 1 + (maxBatchesToRender * batchSize)} total nodes 
                                     ({navigationNodes.length + 1} system + {maxBatchesToRender * batchSize} content)
@@ -811,10 +890,10 @@
                                 Data Links: {graphData.links.length}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                D3-Native Opacity Control: Active | Automatic Node Reveals: Enabled
+                                Phantom Links Architecture: Links included in physics but conditionally rendered to DOM
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Check console for detailed Phase 2.1 sequential rendering output
+                                Check console for detailed Phase 2.2 phantom links output
                             </p>
                         </div>
                     </div>
@@ -862,7 +941,7 @@
         }
     }
 
-    /* PHASE 2.1: Enhanced batch rendering status styles */
+    /* ENHANCED: Phantom links status styles */
     .batch-status {
         position: fixed;
         top: 1rem;
@@ -912,6 +991,74 @@
         margin: 0 0 0.5rem 0;
         font-size: 0.9rem;
         opacity: 0.8;
+    }
+
+    /* ENHANCED: Phantom links section styles */
+    .phantom-links-section {
+        background: rgba(0, 188, 212, 0.1);
+        border: 1px solid rgba(0, 188, 212, 0.3);
+        border-radius: 6px;
+        padding: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .phantom-status {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+
+    .status-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .status-label {
+        font-size: 0.8rem;
+        opacity: 0.8;
+    }
+
+    .status-value {
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .status-value.enabled {
+        color: #00ff88;
+    }
+
+    .status-value.disabled {
+        color: #ff6b6b;
+    }
+
+    .status-value.state-hidden {
+        color: #ff6b6b;
+    }
+
+    .status-value.state-revealing {
+        color: #ffa500;
+    }
+
+    .status-value.state-revealed {
+        color: #00ff88;
+    }
+
+    .force-reveal-btn {
+        background: rgba(255, 107, 107, 0.2);
+        border: 1px solid rgba(255, 107, 107, 0.5);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        transition: all 0.2s ease;
+    }
+
+    .force-reveal-btn:hover {
+        background: rgba(255, 107, 107, 0.3);
+        border-color: rgba(255, 107, 107, 0.7);
     }
 
     .checkbox-group {

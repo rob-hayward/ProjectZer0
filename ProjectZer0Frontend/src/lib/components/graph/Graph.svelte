@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte -->
+<!-- src/lib/components/graph/Graph.svelte - Enhanced with Phantom Links Support -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -85,6 +85,9 @@
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
 
+    // ENHANCED: Phantom links state for universal view
+    let shouldRenderLinks = true; // Default to true for non-universal views
+
     // Constants - Define viewBox to center coordinate system
     const worldDimensions = {
         width: COORDINATE_SPACE.WORLD.WIDTH,
@@ -95,6 +98,17 @@
 
     // Background configuration
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
+
+    // ENHANCED: Simplified phantom links state management - single check
+    $: if (graphStore && viewType === 'universal' && graphStore.getShouldRenderLinks) {
+        const newShouldRenderLinks = graphStore.getShouldRenderLinks();
+        if (newShouldRenderLinks !== shouldRenderLinks) {
+            console.log('[Graph] 🔗 Phantom links state changed:', shouldRenderLinks, '→', newShouldRenderLinks);
+            shouldRenderLinks = newShouldRenderLinks;
+        }
+    } else if (viewType !== 'universal') {
+        shouldRenderLinks = true;
+    }
 
     // EXPORTED METHODS FOR EXTERNAL CONTROL OF VIEWPORT
     
@@ -886,15 +900,29 @@
                     </g>
                     {/if}
 
-                    <!-- Links layer -->
-                    <g class="links-layer">
+                    <!-- ENHANCED: Links layer with phantom links conditional rendering -->
+                    <g class="links-layer" class:phantom-links-hidden={!shouldRenderLinks}>
                         {#if $graphStore && $graphStore.links}
-                            {#each $graphStore.links as link (link.id)}
-                                <LinkRenderer {link} />
-                                {#if showDebug}
-                                    <GraphDebugVisualizer {link} active={showDebug} />
-                                {/if}
-                            {/each}
+                            {#if shouldRenderLinks}
+                                {#each $graphStore.links as link (link.id)}
+                                    <LinkRenderer {link} />
+                                    {#if showDebug}
+                                        <GraphDebugVisualizer {link} active={showDebug} />
+                                    {/if}
+                                {/each}
+                            {:else if DEBUG_MODE}
+                                <!-- DEBUG: Show phantom links count when hidden -->
+                                <text 
+                                    x="0" 
+                                    y="-200" 
+                                    text-anchor="middle" 
+                                    fill="rgba(255,255,255,0.3)" 
+                                    font-size="12"
+                                    class="phantom-debug"
+                                >
+                                    Phantom Links: {$graphStore.links.length} (hidden until settlement)
+                                </text>
+                            {/if}
                         {/if}
                     </g>
 
@@ -957,6 +985,13 @@
                             <text x="10" y="50" fill="white" font-size="12">
                                 Central: ({centralNodePos.x.toFixed(1)}, {centralNodePos.y.toFixed(1)})
                             </text>
+                            
+                            <!-- ENHANCED: Phantom links debug info -->
+                            {#if viewType === 'universal'}
+                                <text x="10" y="70" fill="white" font-size="12">
+                                    Phantom Links: {shouldRenderLinks ? 'ENABLED' : 'DISABLED'}
+                                </text>
+                            {/if}
                         </g>
                     {/if}
                 {/key}
@@ -1024,6 +1059,7 @@
 
     .links-layer {
         pointer-events: none;
+        transition: opacity 0.3s ease-in-out;
     }
 
     .nodes-layer {
@@ -1032,6 +1068,34 @@
     
     .center-marker {
         pointer-events: none;
+    }
+
+    /* ENHANCED: Phantom links styling */
+    .phantom-links-hidden {
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .links-layer:not(.phantom-links-hidden) :global(.link) {
+        opacity: 0;
+        animation: phantomLinkReveal 0.8s ease-in-out forwards;
+    }
+
+    /* ENHANCED: Phantom links reveal animation */
+    @keyframes phantomLinkReveal {
+        from { 
+            opacity: 0; 
+        }
+        to { 
+            opacity: 1; 
+        }
+    }
+
+    /* Debug styling */
+    .phantom-debug {
+        font-family: 'Courier New', monospace;
+        pointer-events: none;
+        user-select: none;
     }
 
     /* The critical fix - proper transform origins */
@@ -1090,5 +1154,23 @@
 
     .debug-overlay {
         pointer-events: none;
+    }
+
+    /* ENHANCED: Reduce animations for users who prefer reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+        .links-layer:not(.phantom-links-hidden) :global(.link) {
+            animation: none !important;
+            opacity: 1 !important;
+        }
+        
+        .links-layer {
+            transition: none !important;
+        }
+        
+        @keyframes phantomLinkReveal {
+            from, to { 
+                opacity: 1; 
+            }
+        }
     }
 </style>

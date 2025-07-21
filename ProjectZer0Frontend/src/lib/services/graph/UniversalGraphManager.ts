@@ -1,5 +1,5 @@
-// src/lib/services/graph/UniversalGraphManager.ts - Enhanced with Gentle Sync and Refactored OpacityController
-// Central orchestrator using modular components with reactive update protection and dedicated opacity management
+// src/lib/services/graph/UniversalGraphManager.ts - Enhanced with Phantom Links Support
+// Central orchestrator using modular components with reactive update protection and phantom links control
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -30,7 +30,7 @@ import { UniversalOpacityController } from './universal/UniversalOpacityControll
 import type { RevealPattern } from './universal/UniversalOpacityController';
 
 /**
- * ENHANCED: UniversalGraphManager with gentle sync, position preservation, and extracted opacity control
+ * ENHANCED: UniversalGraphManager with phantom links support
  * Central orchestrator that delegates to specialized components with dedicated opacity management
  */
 export class UniversalGraphManager {
@@ -81,11 +81,12 @@ export class UniversalGraphManager {
         // Initialize components
         this.positioning = new UniversalPositioning();
         
-        // Initialize opacity controller with callbacks
+        // ENHANCED: Initialize opacity controller with phantom links callback
         this.opacityController = new UniversalOpacityController({
             onNodeOpacityUpdate: (nodes) => this.handleNodeOpacityUpdate(nodes),
             onLinkOpacityUpdate: (links) => this.handleLinkOpacityUpdate(links),
-            onRevealComplete: () => this.handleRevealComplete()
+            onRevealComplete: () => this.handleRevealComplete(),
+            onLinkRevealEnabled: () => this.handleLinkRevealEnabled() // NEW
         });
         
         // D3 Simulation with callbacks
@@ -114,7 +115,14 @@ export class UniversalGraphManager {
         );
         
         // CRUCIAL DEBUG: Confirm initialization
-        console.log('[UniversalGraphManager] Enhanced architecture initialized with opacity controller');
+        console.log('[UniversalGraphManager] Enhanced architecture initialized with phantom links support');
+    }
+
+    /**
+     * NEW: Check if links should be rendered to DOM (phantom links control)
+     */
+    public getShouldRenderLinks(): boolean {
+        return this.opacityController.shouldRenderLinks();
     }
 
     /**
@@ -500,6 +508,17 @@ export class UniversalGraphManager {
         
         // Store positions internally without triggering Svelte reactivity
         this.preserveFinalPositions(nodes);
+        
+        // CRITICAL: Phantom links trigger - the forceRevealAll callback isn't working
+        console.log('[UniversalGraphManager] 🔗 Settlement complete - triggering phantom links as fallback');
+        const links = this.getCurrentLinks();
+        this.opacityController.forceRevealAll(nodes, links);
+        
+        // ESSENTIAL: Manual callback trigger since forceRevealAll callback fails
+        setTimeout(() => {
+            console.log('[UniversalGraphManager] 🔗 Manual phantom links callback trigger');
+            this.handleLinkRevealEnabled();
+        }, 100);
     }
 
     /**
@@ -527,6 +546,11 @@ export class UniversalGraphManager {
      * Handle nodes ready from rendering strategy
      */
     private handleNodesReady(nodes: EnhancedNode[], links: EnhancedLink[]): void {
+        console.log('[UniversalGraphManager] 🚀 NODES READY callback triggered:', {
+            nodeCount: nodes.length,
+            linkCount: links.length
+        });
+        
         // Update stores
         this.nodesStore.set(nodes);
         this.linksStore.set(links);
@@ -539,16 +563,19 @@ export class UniversalGraphManager {
         this.d3Simulation.configureDropPhaseForces(nodes, links);
         this.d3Simulation.start(UNIVERSAL_FORCES.SIMULATION.DROP_PHASE.ALPHA);
         this.simulationActive = true;
+        
+        console.log('[UniversalGraphManager] 🚀 Simulation started in drop phase');
     }
 
     /**
      * ENHANCED: Handle render complete with settlement monitoring and early reveal
      */
     private handleRenderComplete(): void {
-        console.log('[UniversalGraphManager] Rendering complete, starting settlement monitoring');
+        console.log('[UniversalGraphManager] 🚀 RENDER COMPLETE CALLED - starting settlement monitoring');
         
         // Guard against multiple calls
         if (!this.simulationActive) {
+            console.log('[UniversalGraphManager] ⚠️ Render complete called but simulation not active');
             return;
         }
         
@@ -556,6 +583,7 @@ export class UniversalGraphManager {
         setTimeout(() => {
             // Double-check simulation is still active
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
+                console.log('[UniversalGraphManager] 🚀 Starting settlement phase from render complete');
                 this.d3Simulation.startSettlementPhase();
                 
                 // ENHANCED: Get both nodes and links for reveal sequence
@@ -563,13 +591,26 @@ export class UniversalGraphManager {
                 const links = this.getCurrentLinks(); // Get current links
                 const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
                 
+                console.log('[UniversalGraphManager] 🔗 About to start reveal sequence:', {
+                    totalNodes: nodes.length,
+                    contentNodes: contentNodes.length,
+                    links: links.length
+                });
+                
                 if (contentNodes.length > 0) {
                     console.log(`[UniversalGraphManager] Starting early reveal for ${contentNodes.length} content nodes and ${links.length} links`);
                     this.opacityController.startRevealSequence(nodes, links);
                 } else {
-                    console.log('[UniversalGraphManager] No content nodes to reveal');
+                    console.log('[UniversalGraphManager] No content nodes to reveal - force revealing all');
                     // Still need to mark as revealed for consistency
                     this.opacityController.forceRevealAll(nodes, links);
+                    
+                    // CRITICAL FIX: Manually call the link reveal callback since forceRevealAll should trigger it
+                    // But let's also manually trigger it as a backup
+                    setTimeout(() => {
+                        console.log('[UniversalGraphManager] 🔗 Manually triggering phantom links after forceRevealAll');
+                        this.handleLinkRevealEnabled();
+                    }, 100);
                 }
                 
                 this.startSettlementMonitoring(); // Start polling instead of event-driven
@@ -669,6 +710,16 @@ export class UniversalGraphManager {
                 console.log('[UniversalGraphManager] 😴 Simulation sleeping after reveal');
             }
         }, 200);
+    }
+
+    /**
+     * NEW: Handle phantom links enabled callback
+     */
+    private handleLinkRevealEnabled(): void {
+        console.log('[UniversalGraphManager] 🔗 Phantom links enabled for DOM rendering');
+        
+        // Single force update only
+        this.forceUpdateCounter.update(n => n + 1);
     }
 
     /**
@@ -871,7 +922,7 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Get current reveal status (for debugging)
+     * ENHANCED: Get current reveal status (for debugging) - now includes phantom links
      */
     public getRevealStatus(): {
         nodeState: string;
@@ -880,6 +931,7 @@ export class UniversalGraphManager {
         linkProgress: number;
         pattern: string;
         duration: number;
+        linkRenderingEnabled: boolean; // NEW
     } {
         const status = this.opacityController.getRevealStatus();
         return {
@@ -888,12 +940,13 @@ export class UniversalGraphManager {
             nodeProgress: status.nodeProgress,
             linkProgress: status.linkProgress,
             pattern: status.pattern,
-            duration: status.duration
+            duration: status.duration,
+            linkRenderingEnabled: status.linkRenderingEnabled // NEW
         };
     }
 
     /**
-     * Get batch debug info with reveal status
+     * ENHANCED: Get batch debug info with phantom links status
      */
     public getBatchDebugInfo(): any {
         const renderingStats = this.renderingStrategy.getRenderingStats();
@@ -901,15 +954,37 @@ export class UniversalGraphManager {
         
         return {
             layoutType: 'vote_based_with_natural_forces',
-            phase: 'enhanced_gentle_sync_with_opacity_controller',
+            phase: 'enhanced_phantom_links_with_opacity_controller',
             renderingStats,
             settlementPhase: this.d3Simulation.isSettling(),
             settlementTicks: this.d3Simulation.getSettlementTickCount(),
             performanceMetrics: this.getPerformanceMetrics(),
             settledPositionCount: this.finalPositionCache.size,
             revealStatus,
-            message: 'Enhanced with extracted OpacityController and link opacity support'
+            phantomLinks: {
+                enabled: this.getShouldRenderLinks(),
+                description: 'Links included in physics but conditionally rendered to DOM'
+            },
+            message: 'Enhanced with phantom links architecture for smooth post-settlement reveals'
         };
+    }
+    
+    /**
+     * DEBUG: Force enable phantom links for testing
+     */
+    public debugForceEnablePhantomLinks(): void {
+        console.log('[UniversalGraphManager] 🐛 DEBUG: Force enabling phantom links');
+        
+        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const links = this.getCurrentLinks();
+        
+        // Force enable via opacity controller
+        this.opacityController.forceRevealAll(nodes, links);
+        
+        console.log('[UniversalGraphManager] 🐛 DEBUG: After force enable, getShouldRenderLinks():', this.getShouldRenderLinks());
+        
+        // Force update
+        this.forceUpdateCounter.update(n => n + 1);
     }
 
     /**

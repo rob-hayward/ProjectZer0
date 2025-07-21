@@ -1,4 +1,4 @@
-// src/lib/stores/graphStore.ts - Decoupled from GraphManagerFactory
+// src/lib/stores/graphStore.ts - Enhanced with Phantom Links Interface
 
 import { derived, writable, get, type Readable } from 'svelte/store';
 import type { 
@@ -34,12 +34,13 @@ export interface GraphStore {
     forceTick: (ticks?: number) => void;
     dispose: () => void;
     
-    // Universal-specific methods (available when using UniversalGraphManager)
+    // ENHANCED: Universal-specific methods (available when using UniversalGraphManager)
     syncDataGently?: (data: Partial<GraphData>) => void;
     updateState?: (newData?: Partial<GraphData>, wakePower?: number) => void;
     getPerformanceMetrics?: () => any;
     enableBatchRendering?: (enable: boolean) => void;
     getBatchDebugInfo?: () => any;
+    getShouldRenderLinks?: () => boolean; // NEW: Phantom links support
 }
 
 /**
@@ -87,7 +88,9 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             hasRenderableNodes: !!manager.renderableNodes,
             hasRenderableLinks: !!manager.renderableLinks,
             renderableNodesType: typeof manager.renderableNodes,
-            renderableLinksType: typeof manager.renderableLinks
+            renderableLinksType: typeof manager.renderableLinks,
+            hasGetShouldRenderLinks: typeof manager.getShouldRenderLinks === 'function', // NEW
+            getShouldRenderLinksResult: typeof manager.getShouldRenderLinks === 'function' ? manager.getShouldRenderLinks() : 'N/A'
         });
     } else {
         console.log(`[GraphStore] Creating standard GraphManager for view: ${initialViewType}`);
@@ -310,6 +313,11 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
         baseStore.getBatchDebugInfo = () => {
             return manager.getBatchDebugInfo();
         };
+
+        // NEW: Add phantom links support
+        baseStore.getShouldRenderLinks = () => {
+            return manager.getShouldRenderLinks();
+        };
     }
 
     return baseStore;
@@ -334,7 +342,8 @@ export function getPerformanceInfo(viewType: ViewType) {
                 'Performance metrics tracking',
                 'Cached link path calculation',
                 'Batch visibility updates',
-                'Gentle sync for settled states'
+                'Gentle sync for settled states',
+                'Phantom links conditional rendering' // NEW
             ],
             expectedBenefits: [
                 '70% reduction in rendered links',
@@ -342,7 +351,8 @@ export function getPerformanceInfo(viewType: ViewType) {
                 'Smoother interactions',
                 'Reduced memory usage',
                 'Real-time performance monitoring',
-                'Position preservation during updates'
+                'Position preservation during updates',
+                'Smooth link reveals post-settlement' // NEW
             ]
         };
     } else {

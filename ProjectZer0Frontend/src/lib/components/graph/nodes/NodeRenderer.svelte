@@ -66,24 +66,12 @@
         return 1;
     })();
     
-    // Log opacity changes for debugging (only in development)
-    $: if (import.meta.env.DEV && nodeOpacity !== 1) {
-        console.log(`[NodeRenderer] Node ${node.id.substring(0, 8)} opacity: ${nodeOpacity.toFixed(3)}`);
-    }
-    
     // Handle mode change events from child components
     function handleModeChange(event: CustomEvent<{ 
         mode: NodeMode; 
         position?: { x: number; y: number };
         nodeId?: string;
     }>) {
-        console.log('[NodeRenderer] Mode change requested:', {
-            nodeId: node.id,
-            nodeType: node.type,
-            currentMode: node.mode,
-            newMode: event.detail.mode
-        });
-        
         // Include the nodeId in the dispatched event
         const eventData: {
             nodeId: string;
@@ -119,15 +107,6 @@
         
         // Set flag to prevent multiple simultaneous updates
         isProcessingVisibilityChange = true;
-        
-        // Log visibility change request
-        console.log('[NodeRenderer] Visibility change requested:', {
-            nodeId: node.id,
-            nodeType: node.type,
-            currentRadius: node.radius,
-            beforeIsHidden: node.isHidden,
-            afterIsHidden: event.detail.isHidden
-        });
 
         // The visibility store uses isVisible (true = visible, false = hidden)
         // So we need to invert isHidden to get isVisible
@@ -162,7 +141,6 @@
                 setTimeout(() => {
                     // Force component refresh by incrementing counter
                     forceRefresh++;
-                    console.log('[NodeRenderer] Forcing refresh of comment node, current radius:', node.radius);
                     
                     // Dispatch a custom event to notify parent components that node size has changed
                     const customEvent = new CustomEvent('node-size-changed', {
@@ -189,12 +167,6 @@
                         }
                     }));
                     
-                    console.log('[NodeRenderer] Dispatched node-size-changed event:', {
-                        nodeId: node.id,
-                        nodeType: node.type,
-                        radius: node.radius
-                    });
-                    
                     isProcessingVisibilityChange = false;
                 }, 100);
             } else {
@@ -210,7 +182,6 @@
     // Handle discuss button click
     function handleDiscussClick(event: CustomEvent<{ nodeId: string | undefined }>) {
         const nodeId = event.detail.nodeId || node.id;
-        console.log(`[NodeRenderer] Discuss event received for node ${nodeId}`);
         
         // Navigate to the discussion view for this node
         navigateToNodeDiscussion(node.type, node.id);
@@ -225,7 +196,6 @@
     // Handle reply button click
     function handleReply(event: CustomEvent<{ nodeId: string | undefined }>) {
         const nodeId = event.detail.nodeId || node.id;
-        console.log(`[NodeRenderer] Reply event received for node ${nodeId}`);
         
         // Dispatch reply event to parent
         dispatch('reply', { commentId: nodeId });
@@ -234,7 +204,6 @@
     // Handle answer question button click (NEW)
     function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
         const questionId = event.detail.questionId || node.id;
-        console.log(`[NodeRenderer] Answer question event received for question ${questionId}`);
         
         // Dispatch answer question event to parent
         dispatch('answerQuestion', { questionId: questionId });
@@ -247,7 +216,6 @@
     
     // Special case for comment nodes to correct radius value
     $: if (node.type === 'comment' && !node.isHidden && node.radius !== COMMENT_VISIBLE_RADIUS) {
-        console.log(`[NodeRenderer] Correcting comment node radius from ${node.radius} to ${COMMENT_VISIBLE_RADIUS}`);
         node.radius = COMMENT_VISIBLE_RADIUS;
         forceRefresh++; // Force re-render
         
@@ -265,7 +233,6 @@
     
     // Special case for hidden nodes to ensure consistent radius
     $: if (node.isHidden && node.radius !== HIDDEN_NODE_RADIUS) {
-        console.log(`[NodeRenderer] Correcting hidden node radius from ${node.radius} to ${HIDDEN_NODE_RADIUS}`);
         node.radius = HIDDEN_NODE_RADIUS;
         forceRefresh++; // Force re-render
     }
@@ -306,11 +273,6 @@
                     });
                 }
             }
-        }
-        
-        // ENHANCED: Log node opacity on mount for debugging (development only)
-        if (import.meta.env.DEV && (node.type === 'statement' || node.type === 'openquestion')) {
-            console.log(`[NodeRenderer] Mounted ${node.type} node ${node.id.substring(0, 8)} with opacity: ${nodeOpacity}`);
         }
     });
 </script>
@@ -388,7 +350,6 @@
                     nodeId={node.id}
                     nodeType={node.type}
                     on:createLinkedNode={event => {
-                        console.log(`[NodeRenderer] Create linked node event received for node ${event.detail.nodeId} of type ${event.detail.nodeType}`);
                         // Forward the createLinkedNode event to parent components
                         dispatch('createLinkedNode', {
                             nodeId: event.detail.nodeId || node.id,
