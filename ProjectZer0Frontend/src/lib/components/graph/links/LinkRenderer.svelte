@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - FIXED for phantom links opacity -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - CLEAN IMPLEMENTATION -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -8,15 +8,12 @@
     
     export let link: RenderableLink;
     
-    // ENHANCED: Add phantom links override prop
-    export let forceVisible: boolean = false;
-    
     // Create unique IDs for this link
     const linkId = `link-${Math.random().toString(36).slice(2, 9)}`;
     const gradientId = `gradient-${linkId}`;
     const filterId = `filter-${linkId}`;
     
-    // ENHANCED: Consolidated relationship detection
+    // CLEAN: Use consolidated relationship utilities for all calculations
     $: isConsolidated = ConsolidatedRelationshipUtils.isConsolidated(link);
     $: relationshipCount = ConsolidatedRelationshipUtils.getRelationshipCount(link);
     $: primaryKeyword = ConsolidatedRelationshipUtils.getPrimaryKeyword(link);
@@ -38,36 +35,20 @@
     $: isRespondsToLink = link.type === 'responds_to';
     $: isRelatedToLink = link.type === 'related_to';
     
-    // ENHANCED: Get source and target colors based on node types
+    // Get source and target colors based on node types
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // CRITICAL FIX: Simple and effective opacity override
-    $: finalOpacity = (() => {
-        // UNIVERSAL VIEW FIX: Always use 1.0 opacity when links should render
-        if (forceVisible) {
-            console.log(`[LinkRenderer] ${linkId} - Universal view, forcing opacity: 1.0`);
-            return 1.0;
-        }
-        
-        // For other views, use the calculated opacity
-        const calculatedOpacity = visualProps.opacity;
-        console.log(`[LinkRenderer] ${linkId} - Non-universal view, using calculated opacity: ${calculatedOpacity}`);
-        return calculatedOpacity;
-    })();
-    
-    // OPTIMIZED: Visual properties from consolidated utils
+    // CLEAN: Use standard opacity calculations - no phantom links overrides
     $: strokeWidth = visualProps.strokeWidth;
-    $: strokeOpacity = finalOpacity; // FIXED: Use finalOpacity instead of visualProps.opacity
+    $: strokeOpacity = visualProps.opacity;
     $: dashArray = visualProps.dashArray;
     $: glowIntensity = visualProps.glowIntensity;
     $: glowOpacity = Math.min(0.8, strokeOpacity * 0.7);
     
-    // ENHANCED: Gradient opacity calculation for consolidated relationships
+    // Gradient opacity calculation for consolidated relationships
     $: gradientStartOpacity = getGradientOpacity('start');
     $: gradientEndOpacity = getGradientOpacity('end');
-    
-    // Rest of your existing functions remain the same...
     
     /**
      * Helper to extract base color from NODE_CONSTANTS
@@ -80,7 +61,7 @@
     }
     
     /**
-     * ENHANCED: Get the source color based on the source node type
+     * Get the source color based on the source node type
      */
     function getSourceColor(link: RenderableLink): string {
         // Universal graph shared keyword relationships
@@ -171,7 +152,7 @@
     }
 
     /**
-     * ENHANCED: Get the target color based on the target node type
+     * Get the target color based on the target node type
      */
     function getTargetColor(link: RenderableLink): string {
         // Universal graph shared keyword relationships
@@ -231,11 +212,10 @@
     }
     
     /**
-     * ENHANCED: Get gradient opacity based on link type and consolidation
+     * Get gradient opacity based on link type and consolidation
      */
     function getGradientOpacity(position: 'start' | 'end'): number {
-        // CRITICAL FIX: Use finalOpacity as base instead of raw values
-        const baseOpacity = finalOpacity;
+        const baseOpacity = strokeOpacity;
         
         // For consolidated relationships, boost opacity
         if (isConsolidated) {
@@ -295,7 +275,7 @@
     }
     
     /**
-     * ENHANCED: Get visual indicator for consolidated relationships
+     * Get visual indicator for consolidated relationships
      */
     $: consolidationIndicator = (() => {
         if (!isConsolidated) return '';
@@ -306,7 +286,7 @@
     })();
     
     /**
-     * ENHANCED: Get link label for consolidated relationships
+     * Get link label for consolidated relationships
      */
     $: linkLabel = (() => {
         if (isConsolidated) {
@@ -326,7 +306,6 @@
         class:strong-consolidation={relationshipCount >= 5}
         class:medium-consolidation={relationshipCount >= 3 && relationshipCount < 5}
         class:light-consolidation={relationshipCount >= 2 && relationshipCount < 3}
-        class:phantom-links-revealed={forceVisible}
         data-link-id={linkId}
         data-source-id={link.sourceId}
         data-target-id={link.targetId}
@@ -334,10 +313,9 @@
         data-relation-count={relationshipCount}
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
-        data-final-opacity={finalOpacity.toFixed(2)}
     >
         <defs>
-            <!-- ENHANCED: Gradient definition with consolidated relationship support -->
+            <!-- Gradient definition with consolidated relationship support -->
             <linearGradient
                 id={gradientId}
                 gradientUnits="userSpaceOnUse"
@@ -358,7 +336,7 @@
                 />
             </linearGradient>
             
-            <!-- ENHANCED: Glow filter with dynamic intensity for consolidated relationships -->
+            <!-- Glow filter with dynamic intensity for consolidated relationships -->
             <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
                 <feGaussianBlur in="SourceGraphic" stdDeviation={glowIntensity} />
                 <feColorMatrix
@@ -368,7 +346,7 @@
                 <feComposite in="SourceGraphic" operator="over" />
             </filter>
             
-            <!-- ENHANCED: Pattern for consolidated relationships -->
+            <!-- Pattern for consolidated relationships -->
             {#if isConsolidated}
                 <pattern id="consolidation-pattern-{linkId}" x="0" y="0" width="10" height="4" patternUnits="userSpaceOnUse">
                     <rect width="10" height="4" fill="none"/>
@@ -390,14 +368,13 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- ENHANCED: Main link path with consolidated relationship styling -->
+        <!-- CLEAN: Main link path with standard opacity calculations -->
         <path
             d={link.path}
             stroke={`url(#${gradientId})`}
             class="link-path"
             class:consolidated-link={isConsolidated}
             class:dashed-link={dashArray !== 'none'}
-            class:phantom-revealed={forceVisible}
             stroke-width={strokeWidth}
             stroke-linecap="round"
             stroke-dasharray={dashArray}
@@ -405,7 +382,7 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- ENHANCED: Consolidation indicator overlay for multi-keyword relationships -->
+        <!-- Consolidation indicator overlay for multi-keyword relationships -->
         {#if isConsolidated && relationshipCount >= 3}
             <path
                 d={link.path}
@@ -420,11 +397,10 @@
             />
         {/if}
         
-        <!-- ENHANCED: Tooltip with rich consolidated relationship information -->
+        <!-- Tooltip with rich consolidated relationship information -->
         <title>{tooltipText}</title>
         
-        <!-- DEBUG: Performance tracking comment -->
-        <!-- Link opacity: {finalOpacity} | Force visible: {forceVisible} | Original: {link.opacity} -->
+        <!-- CLEAN: No phantom links debug comments needed -->
     </g>
 {/if}
 
@@ -452,7 +428,7 @@
         transition: stroke-width 0.2s ease;
     }
     
-    /* ENHANCED: Consolidated relationship styling */
+    /* Consolidated relationship styling */
     .consolidated-link {
         /* Subtle animation for consolidated relationships */
         animation: consolidation-pulse 3s ease-in-out infinite;
@@ -468,17 +444,7 @@
         animation: consolidation-flow 4s linear infinite;
     }
     
-    /* ENHANCED: Phantom links revealed state */
-    .phantom-revealed {
-        animation: phantomLinkReveal 0.8s ease-in-out forwards !important;
-    }
-    
-    .phantom-links-revealed .link-path {
-        opacity: 1 !important;
-        animation: phantomLinkReveal 0.8s ease-in-out forwards !important;
-    }
-    
-    /* ENHANCED: Consolidation strength classes */
+    /* Consolidation strength classes */
     .strong-consolidation .link-path {
         filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
     }
@@ -491,12 +457,12 @@
         filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.1));
     }
     
-    /* ENHANCED: Dashed link animation for form connections */
+    /* Dashed link animation for form connections */
     .dashed-link {
         animation: dash-flow 20s linear infinite;
     }
     
-    /* ENHANCED: Animations */
+    /* Animations */
     @keyframes consolidation-pulse {
         0%, 100% { 
             opacity: 1; 
@@ -518,17 +484,7 @@
         }
     }
     
-    /* ENHANCED: Phantom links reveal animation */
-    @keyframes phantomLinkReveal {
-        from { 
-            opacity: 0; 
-        }
-        to { 
-            opacity: 1; 
-        }
-    }
-    
-    /* ENHANCED: Hover effects for consolidated relationships */
+    /* Hover effects for consolidated relationships */
     .link:hover .consolidated-link {
         animation-duration: 1s; /* Faster pulse on hover */
     }
@@ -537,18 +493,13 @@
         stroke-opacity: 0.3; /* Brighter glow on hover */
     }
     
-    /* PERFORMANCE: Reduce animations for large numbers of relationships */
+    /* Performance: Reduce animations for large numbers of relationships */
     @media (prefers-reduced-motion: reduce) {
         .link-path,
         .link-glow,
         .consolidation-indicator {
             animation: none;
             transition: none;
-        }
-        
-        .phantom-revealed,
-        .phantom-links-revealed .link-path {
-            animation: none !important;
         }
     }
 </style>

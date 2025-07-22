@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte - Enhanced with Phantom Links Support -->
+<!-- src/lib/components/graph/Graph.svelte - CLEAN IMPLEMENTATION -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -21,7 +21,7 @@
     import { userStore } from '$lib/stores/userStore';
     
     // Enable debug mode for development
-    const DEBUG_MODE = false; // Set to false for production
+    const DEBUG_MODE = false;
 
     // Initialize visibility store as early as possible
     visibilityStore.initialize();
@@ -72,7 +72,7 @@
     let centralNodePos = { x: 0, y: 0, transform: "", viewX: 0, viewY: 0 };
     let svgViewportInfo = { width: 0, height: 0, viewBox: "", preserveAspectRatio: "" };
     
-    // ENHANCED: Data change tracking for intelligent updates
+    // Data change tracking for intelligent updates
     let lastDataHash = '';
     let lastProcessedDataId = '';
     let isProcessingData = false;
@@ -85,69 +85,110 @@
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
 
-    // ENHANCED: Phantom links state - FIXED reactive chain
+    // CLEAN: Single source of truth for phantom links
     let shouldRenderLinks = true; // Default to true for non-universal views
-    let phantomLinksInitialized = false;
+
+    // DEBUG: Add debug state tracking
+    let debugInfo: {
+        lastCheck: string;
+        callCount: number;
+        stateChanges: Array<{
+            timestamp: string;
+            from: boolean;
+            to: boolean;
+            callCount: number;
+        }>;
+    } = {
+        lastCheck: '',
+        callCount: 0,
+        stateChanges: []
+    };
 
     // Constants - Define viewBox to center coordinate system
     const worldDimensions = {
         width: COORDINATE_SPACE.WORLD.WIDTH,
         height: COORDINATE_SPACE.WORLD.HEIGHT,
-        // This centers the coordinate system at (0,0)
         viewBox: `${-COORDINATE_SPACE.WORLD.WIDTH/2} ${-COORDINATE_SPACE.WORLD.HEIGHT/2} ${COORDINATE_SPACE.WORLD.WIDTH} ${COORDINATE_SPACE.WORLD.HEIGHT}`
     };
 
     // Background configuration
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // FIXED: Phantom links reactive statement with proper initialization
-    $: if (graphStore && viewType === 'universal') {
-        // Initialize phantom links state for universal view
-        if (!phantomLinksInitialized && typeof graphStore.getShouldRenderLinks === 'function') {
-            phantomLinksInitialized = true;
-            shouldRenderLinks = false; // Start with links hidden in universal view
-            console.log('[Graph] 🔗 Phantom links initialized - starting hidden');
+    // ENHANCED: Debug reactive statement for phantom links
+    $: {
+        const timestamp = new Date().toISOString().substr(14, 9);
+        debugInfo.callCount++;
+        debugInfo.lastCheck = timestamp;
+        
+        console.log(`[Graph] ${timestamp} 📊 REACTIVE CHECK #${debugInfo.callCount}:`, {
+            viewType,
+            hasGraphStore: !!graphStore,
+            graphStoreType: graphStore?.constructor?.name,
+            hasShouldRenderLinksMethod: graphStore && typeof graphStore.getShouldRenderLinks === 'function'
+        });
+        
+        if (graphStore && viewType === 'universal') {
+            console.log(`[Graph] ${timestamp} 📊 Universal view detected, checking getShouldRenderLinks...`);
+            
+            if (typeof graphStore.getShouldRenderLinks === 'function') {
+                const newShouldRenderLinks = graphStore.getShouldRenderLinks();
+                const oldValue = shouldRenderLinks;
+                
+                console.log(`[Graph] ${timestamp} 📊 getShouldRenderLinks() returned:`, newShouldRenderLinks);
+                console.log(`[Graph] ${timestamp} 📊 Current shouldRenderLinks:`, oldValue);
+                
+                if (newShouldRenderLinks !== oldValue) {
+                    console.log(`[Graph] ${timestamp} 🔗 PHANTOM LINKS STATE CHANGE:`, oldValue, '→', newShouldRenderLinks);
+                    
+                    // Track state change
+                    debugInfo.stateChanges.push({
+                        timestamp,
+                        from: oldValue,
+                        to: newShouldRenderLinks,
+                        callCount: debugInfo.callCount
+                    });
+                    
+                    shouldRenderLinks = newShouldRenderLinks;
+                    
+                    // Dispatch custom event for external monitoring
+                    if (typeof window !== 'undefined') {
+                        console.log(`[Graph] ${timestamp} 📡 Dispatching phantom-links-state-change event`);
+                        window.dispatchEvent(new CustomEvent('phantom-links-state-change', {
+                            detail: {
+                                enabled: shouldRenderLinks,
+                                linksCount: data?.links?.length || 0,
+                                revealState: shouldRenderLinks ? 'revealed' : 'hidden',
+                                timestamp,
+                                callCount: debugInfo.callCount
+                            }
+                        }));
+                    }
+                } else {
+                    console.log(`[Graph] ${timestamp} 📊 No state change needed (${oldValue} === ${newShouldRenderLinks})`);
+                }
+            } else {
+                console.warn(`[Graph] ${timestamp} ⚠️ Graph store missing getShouldRenderLinks method!`);
+            }
+        } else if (viewType !== 'universal') {
+            // Non-universal views always show links
+            if (!shouldRenderLinks) {
+                console.log(`[Graph] ${timestamp} 📊 Non-universal view, enabling links`);
+                shouldRenderLinks = true;
+            }
+        } else {
+            console.log(`[Graph] ${timestamp} 📊 Waiting for graph store initialization...`);
         }
         
-        // Check for state changes
-        if (typeof graphStore.getShouldRenderLinks === 'function') {
-            const newShouldRenderLinks = graphStore.getShouldRenderLinks();
-            if (newShouldRenderLinks !== shouldRenderLinks) {
-                console.log('[Graph] 🔗 Phantom links state changed:', shouldRenderLinks, '→', newShouldRenderLinks);
-                shouldRenderLinks = newShouldRenderLinks;
-                
-                // Dispatch custom event for external monitoring
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('phantom-links-state-change', {
-                        detail: {
-                            enabled: shouldRenderLinks,
-                            linksCount: data?.links?.length || 0,
-                            revealState: shouldRenderLinks ? 'revealed' : 'hidden'
-                        }
-                    }));
-                }
-            }
-        }
-    } else if (viewType !== 'universal') {
-        // Non-universal views always show links
-        if (!shouldRenderLinks) {
-            shouldRenderLinks = true;
-        }
+        console.log(`[Graph] ${timestamp} 📊 Final shouldRenderLinks:`, shouldRenderLinks);
     }
 
     // EXPORTED METHODS FOR EXTERNAL CONTROL OF VIEWPORT
     
-    /**
-     * External method to get the current transform
-     */
     export function getTransform(): any {
         if (!coordinateSystem) return null;
         return coordinateSystem.getCurrentTransform();
     }
     
-    /**
-     * External method to center viewport on specific coordinates
-     */
     export function centerViewportOnCoordinates(x: number, y: number, duration: number = 750): boolean {
         if (!svg || !zoomInstance) {
             console.error('[STATE_DEBUG] Cannot center - svg or zoomInstance is null');
@@ -155,19 +196,13 @@
         }
         
         try {
-            // Get the current transform for reference
             const currentTransform = coordinateSystem.getCurrentTransform();
-            
-            // Use the scale from current transform
             const scale = currentTransform.k;
             
-            // IMPORTANT: With a centered viewBox, we simply need to use the negative coordinates 
-            // as our translation to move that point to the center (0,0)
             const transform = d3.zoomIdentity
                 .translate(-x * scale, -y * scale)
                 .scale(scale);
             
-            // Apply the transform
             d3.select(svg)
                 .transition()
                 .duration(duration)
@@ -181,18 +216,16 @@
     }
 
     export function getInternalState(): any {
-        // Return the internal store state
         return graphStore ? graphStore.getState() : null;
     }
 
     export function findFormNodeByParentId(parentId: string): any {
-        // Find a form node with the specified parent ID
         if (!graphStore) return null;
         
-        const state = graphStore.getState() as any; // Type assertion
+        const state = graphStore.getState() as any;
         if (!state || !state.nodes) return null;
         
-        return state.nodes.find((n: any) => // Type assertion
+        return state.nodes.find((n: any) =>
             n.type === 'comment-form' && 
             (n.metadata?.parentCommentId === parentId || 
             (n.data && n.data.parentCommentId === parentId))
@@ -200,48 +233,34 @@
     }
 
     export function logNodeState(nodeType?: string): void {
-        // Log all nodes or nodes of a specific type
-        if (!graphStore) {
-            return;
-        }
+        if (!graphStore) return;
         
-        const state = graphStore.getState() as any; // Type assertion
-        if (!state || !state.nodes) {
-            return;
-        }
+        const state = graphStore.getState() as any;
+        if (!state || !state.nodes) return;
         
         const nodes = nodeType ? 
-            state.nodes.filter((n: any) => n.type === nodeType) : // Type assertion
+            state.nodes.filter((n: any) => n.type === nodeType) :
             state.nodes;
     }
     
-    /**
-     * External method to center viewport on a specific node by ID
-     */
     export function centerOnNodeById(nodeId: string, duration: number = 750): boolean {
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
             console.error('[STATE_DEBUG] centerOnNodeById failed: graphStore is not initialized');
             return false;
         }
         
-        // Find the node by ID
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node || !node.position) {
             console.error(`[STATE_DEBUG] centerOnNodeById failed: node ${nodeId} not found or has no position`);
             return false;
         }
         
-        // Call the existing centerViewportOnCoordinates method with the node's position
         return centerViewportOnCoordinates(node.position.x, node.position.y, duration);
     }
 
-    /**
-     * ENHANCED: Create stable hash of data to detect genuine changes
-     */
     function createDataHash(data: GraphData): string {
         if (!data || !data.nodes) return '';
         
-        // Create hash based on node IDs and basic structure
         const nodeHash = data.nodes.map(n => n.id).sort().join(',');
         const linkHash = (data.links?.length || 0).toString();
         const structureHash = `${data.nodes.length}-${linkHash}`;
@@ -249,9 +268,6 @@
         return `${nodeHash}-${structureHash}`;
     }
 
-    /**
-     * ENHANCED: Check if this is a genuine data change vs reactive update
-     */
     function isGenuineDataChange(newData: GraphData): boolean {
         const newHash = createDataHash(newData);
         const isGenuine = newHash !== lastDataHash && newHash.length > 0;
@@ -269,9 +285,6 @@
         return isGenuine;
     }
 
-    /**
-     * Update container dimensions when resized
-     */
     function updateContainerDimensions() {
         if (!container) return;
         
@@ -285,15 +298,11 @@
             background.resize(rect.width, rect.height);
         }
         
-        // Update SVG viewport info for debugging
         if (svg && DEBUG_MODE) {
             updateSvgViewportInfo();
         }
     }
     
-    /**
-     * Update SVG viewport info for debugging
-     */
     function updateSvgViewportInfo() {
         if (!svg) return;
         
@@ -306,9 +315,6 @@
         };
     }
 
-    /**
-     * Initialize the background visualization
-     */
     function initializeBackground() {
         if (!backgroundGroup) return;
         
@@ -329,52 +335,36 @@
         }
     }
 
-    /**
-     * Initialize zoom behavior
-     */
     function initializeZoom() {
         if (!svg || !contentGroup || !backgroundGroup) return;
 
-        // Get initial zoom level from constants
         const initialZoomLevel = COORDINATE_SPACE.WORLD.VIEW.INITIAL_ZOOM;
-        
-        // Create initial transform
         initialTransform = d3.zoomIdentity.scale(initialZoomLevel);
-        
-        // Initialize the coordinate system with the initial transform
         coordinateSystem.updateTransform(initialTransform);
 
-        // Configure zoom behavior
         const zoom = d3.zoom<SVGSVGElement, unknown>()
             .scaleExtent([
                 COORDINATE_SPACE.WORLD.VIEW.MIN_ZOOM,
                 COORDINATE_SPACE.WORLD.VIEW.MAX_ZOOM
             ])
             .on('start', () => {
-                // Dispatch zoom start event
                 window.dispatchEvent(new CustomEvent('zoom-start'));
             })
             .on('zoom', (event) => {
                 const transform = event.transform;
                 
-                // Apply transforms to both groups
                 d3.select(contentGroup).attr('transform', transform.toString());
                 d3.select(backgroundGroup).attr('transform', transform.toString());
-                
-                // Update the coordinate system with the current transform
                 coordinateSystem.updateTransform(transform);
                 
-                // For statement network view, enforce fixed positions during zoom
                 if (viewType === 'statement-network' && graphStore) {
                     graphStore.fixNodePositions();
                     if (DEBUG_MODE) updateCentralNodeDebugPosition();
                 }
             })
             .on('end', () => {
-                // Dispatch zoom end event
                 window.dispatchEvent(new CustomEvent('zoom-end'));
                 
-                // For statement network view, enforce fixed positions after zoom
                 if (viewType === 'statement-network' && graphStore) {
                     graphStore.fixNodePositions();
                     graphStore.forceTick(2);
@@ -382,16 +372,13 @@
                 }
             });
 
-        // Store zoom instance for use in other methods
         zoomInstance = zoom;
 
-        // Apply zoom behavior to SVG with initial transform
         d3.select(svg)
             .call(zoom)
             .call(zoom.transform, initialTransform)
             .on('contextmenu', (event) => event.preventDefault());
 
-        // Function to reset zoom
         resetZoom = () => {
             d3.select(svg)
                 .transition()
@@ -400,79 +387,45 @@
         };
     }
     
-    /**
-     * For centering nodes using direct D3 transformations
-     */
     function centerViewportOn(x: number, y: number, zoomLevel?: number, duration: number = 750) {
         if (!svg || !zoomInstance) {
             console.error('[STATE_DEBUG] centerViewportOn failed: svg or zoomInstance is null');
             return;
         }
         
-        // Get the current transform for reference
         const currentTransform = coordinateSystem.getCurrentTransform();
         
         try {
-            // Get or use zoom level
             const scale = zoomLevel !== undefined ? zoomLevel : currentTransform.k;
             
-            // IMPORTANT: With a centered viewBox, we simply need to use the negative coordinates 
-            // as our translation to move that point to the center (0,0)
             const transform = d3.zoomIdentity
                 .translate(-x * scale, -y * scale)
                 .scale(scale);
             
-            // Apply the transform
             d3.select(svg)
                 .transition()
                 .duration(duration)
                 .call(zoomInstance.transform, transform);
-            
-            // Verify transformation after a short delay
-            setTimeout(() => {
-                const newTransform = coordinateSystem.getCurrentTransform();
-            }, duration + 50);
         } catch (e) {
             console.error('[STATE_DEBUG] Error centering viewport:', e);
         }
     }
 
-    /**
-     * Center on a specific node by ID
-     */
     function centerOnNode(nodeId: string, duration: number = 750): void {
-        if (!graphStore) {
+        if (!graphStore || !$graphStore || !$graphStore.nodes) {
             console.error('[STATE_DEBUG] centerOnNode failed: graphStore is null');
             return;
         }
         
-        if (!$graphStore) {
-            console.error('[STATE_DEBUG] centerOnNode failed: $graphStore is null');
-            return;
-        }
-        
-        if (!$graphStore.nodes) {
-            console.error('[STATE_DEBUG] centerOnNode failed: $graphStore.nodes is null');
-            return;
-        }
-        
-        // Find the node by ID
         const node = $graphStore.nodes.find(n => n.id === nodeId);
-        if (!node) {
-            console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} not found`);
+        if (!node || !node.position) {
+            console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} not found or has no position`);
             return;
         }
         
-        if (!node.position) {
-            console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} has no position`);
-            return;
-        }
-        
-        // Call the existing centerViewportOn method with the node's position
         centerViewportOn(node.position.x, node.position.y, undefined, duration);
     }
 
-    // handleModeChange to use this function with proper sequencing
     function handleModeChange(event: CustomEvent<{ 
         nodeId: string; 
         mode: NodeMode;
@@ -481,60 +434,45 @@
         const nodeId = event.detail.nodeId;
         const newMode = event.detail.mode;
         
-        // Always update the node mode in the graph store first
         if (graphStore && typeof graphStore.updateNodeMode === 'function') {
-            // First apply the mode change
             graphStore.updateNodeMode(nodeId, newMode);
             
-            // Force ticks to update the layout
             if (typeof graphStore.forceTick === 'function') {
                 graphStore.forceTick(5);
             }
             
-            // If switching to detail mode, center the viewport
             if (newMode === 'detail') {
-                // Allow time for layout to stabilize
                 setTimeout(() => {
-                    // Get the node with updated position
                     if ($graphStore && $graphStore.nodes) {
                         const node = $graphStore.nodes.find(n => n.id === nodeId);
                         
                         if (node && node.position) {
-                            // Center viewport
                             centerViewportOn(
                                 node.position.x,
                                 node.position.y
                             );
                         }
                     }
-                }, 50); // Small delay for layout to complete
+                }, 50);
             }
         }
         
-        // Forward event to parent
         dispatch('modechange', {
             nodeId: event.detail.nodeId,
             mode: event.detail.mode
         });
     }
 
-    /**
-     * Update debug information for the central node's position
-     */
     function updateCentralNodeDebugPosition() {
         if (!$graphStore || !$graphStore.nodes || !DEBUG_MODE) return;
         
-        // Find the central node
         const centralNode = $graphStore.nodes.find(node => 
             node.group === 'central' || (node.data && 'sub' in node.data && node.data.sub === 'controls')
         );
         
         if (centralNode) {
-            // Get logical coordinates
             const nodeX = centralNode.position.x;
             const nodeY = centralNode.position.y;
-            
-            // Get view coordinates
             const viewCoords = coordinateSystem.worldToView(nodeX, nodeY);
             
             centralNodePos = {
@@ -547,49 +485,31 @@
         }
     }
 
-    /**
-     * Handle node visibility change events
-     */
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
-        // Notify the graph store
         if (graphStore) {
             graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden, 'user');
         }
         
-        // Forward the event to parent
         dispatch('visibilitychange', event.detail);
-        
-        // Save preference to store (true = visible, false = hidden)
         visibilityStore.setPreference(event.detail.nodeId, !event.detail.isHidden);
     }
 
-    /**
-     * Toggle debug mode
-     */
     function toggleDebug() {
         showDebug = !showDebug;
         
         if (showDebug && DEBUG_MODE) {
-            // Update central node position
             updateCentralNodeDebugPosition();
             updateSvgViewportInfo();
         }
     }
 
-    /**
-     * Apply view-specific behaviors
-     * Handles special cases for statement network view
-     */
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
-        // Special handling for statement-network view
         if (viewType === 'statement-network') {
-            // Fix positions more aggressively
             graphStore.fixNodePositions();
             graphStore.forceTick(3);
             
-            // Update debug info if needed
             if (DEBUG_MODE) {
                 updateCentralNodeDebugPosition();
                 updateSvgViewportInfo();
@@ -597,18 +517,38 @@
         }
     }
 
-    /**
-     * Reset viewport to default state
-     */
     function resetViewport() {
         if (!svg || !resetZoom) return;
-        // Reset zoom to initial state
         resetZoom();
     }
 
-    /**
-     * ENHANCED: Initialize the component with intelligent graph store management
-     */
+    // DEBUG: Add a function to manually check phantom links state
+    function debugCheckPhantomLinks() {
+        const timestamp = new Date().toISOString().substr(14, 9);
+        console.log(`[Graph] ${timestamp} 🐛 MANUAL DEBUG CHECK:`);
+        console.log('- viewType:', viewType);
+        console.log('- graphStore:', !!graphStore);
+        console.log('- graphStore type:', graphStore?.constructor?.name);
+        console.log('- hasShouldRenderLinksMethod:', graphStore && typeof graphStore.getShouldRenderLinks === 'function');
+        console.log('- shouldRenderLinks:', shouldRenderLinks);
+        console.log('- debugInfo:', debugInfo);
+        
+        if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
+            const result = graphStore.getShouldRenderLinks();
+            console.log('- getShouldRenderLinks() returns:', result);
+        }
+        
+        if (graphStore && typeof (graphStore as any).getRevealStatus === 'function') {
+            const revealStatus = (graphStore as any).getRevealStatus();
+            console.log('- getRevealStatus():', revealStatus);
+        }
+        
+        if (graphStore && typeof (graphStore as any).opacityController?.getDetailedState === 'function') {
+            const opacityState = (graphStore as any).opacityController.getDetailedState();
+            console.log('- opacityController state:', opacityState);
+        }
+    }
+
     function initialize() {
         if (initialized) return;
         
@@ -618,39 +558,31 @@
             hasExistingGraphStore: !!graphStore
         });
         
-        // CRITICAL: Only create graph store if we don't have one already
         if (!graphStore) {
             console.log('[Graph] Creating new graph store for', viewType);
             graphStore = createGraphStore(viewType);
         } else {
             console.log('[Graph] Using existing graph store for', viewType);
             
-            // Update view type if needed but don't recreate the store
             if (graphStore.getViewType && graphStore.getViewType() !== viewType) {
                 console.log('[Graph] Updating view type from', graphStore.getViewType(), 'to', viewType);
                 graphStore.setViewType(viewType);
             }
         }
         
-        // Initialize zoom and background
         updateContainerDimensions();
         initializeZoom();
         initializeBackground();
         
-        // Apply initial data if available
         if (data && isGenuineDataChange(data)) {
             console.log('[Graph] Applying initial data during initialization');
-            processDataUpdate(data, true); // Mark as initialization
+            processDataUpdate(data, true);
         }
         
         initialized = true;
-        
         console.log('[Graph] Component initialized successfully');
     }
 
-    /**
-     * ENHANCED: Process data updates with intelligent handling
-     */
     function processDataUpdate(newData: GraphData, isInitialization: boolean = false) {
         if (isProcessingData && !isInitialization) {
             console.log('[Graph] Skipping data update - already processing');
@@ -673,25 +605,20 @@
         });
         
         try {
-            // Check if this is the specialized universal manager
             const isUniversalManager = typeof graphStore.enableBatchRendering === 'function';
             
             if (isUniversalManager) {
-                // For universal manager, use intelligent update strategy
                 const hasExistingData = graphStore.getPerformanceMetrics?.()?.renderedNodeCount > 0;
                 
                 if (hasExistingData && !isInitialization) {
                     console.log('[Graph] Using gentle sync for settled universal manager');
                     
-                    // Check if the manager has the new gentle sync method
                     if (typeof (graphStore as any).syncDataGently === 'function') {
                         (graphStore as any).syncDataGently(newData);
                     } else {
-                        // Fallback to updateState for existing managers
                         if (typeof (graphStore as any).updateState === 'function') {
                             (graphStore as any).updateState(newData, 0.1);
                         } else {
-                            // Final fallback
                             graphStore.setData(newData, { skipAnimation: true });
                         }
                     }
@@ -700,11 +627,9 @@
                     graphStore.setData(newData);
                 }
             } else {
-                // Standard manager handling
                 if (viewType === 'statement-network') {
                     graphStore.setData(newData, { skipAnimation: true });
                     
-                    // Apply statement-network specific behaviors
                     setTimeout(() => {
                         if (graphStore) {
                             graphStore.fixNodePositions();
@@ -713,7 +638,6 @@
                         }
                     }, 0);
                 } else {
-                    // Standard data update
                     graphStore.setData(newData);
                 }
             }
@@ -721,22 +645,17 @@
         } catch (error) {
             console.error('[Graph] Error processing data update:', error);
         } finally {
-            // Reset processing flag after a delay
             setTimeout(() => {
                 isProcessingData = false;
             }, 100);
         }
     }
 
-    /**
-     * Apply visibility preferences to current nodes
-     */
     function applyVisibilityPreferences() {
         if (!graphStore) return;
         
         const preferences = visibilityStore.getAllPreferences();
         if (Object.keys(preferences).length > 0) {
-            // Use the method to apply all preferences at once
             (graphStore as any).applyVisibilityPreferences(preferences);
         }
     }
@@ -749,18 +668,13 @@
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', updateContainerDimensions);
             
-            // Setup event listeners for centering
             centerOnNodeHandler = ((event: CustomEvent) => {
-                if (!event.detail) {
-                    return;
-                }
+                if (!event.detail) return;
                 
                 if (event.detail.nodeId || (event.detail.x !== undefined && event.detail.y !== undefined)) {
                     if (event.detail.nodeId) {
-                        // Center by ID if provided
                         centerOnNode(event.detail.nodeId, event.detail.duration);
                     } else {
-                        // Or center by coordinates
                         centerViewportOn(event.detail.x, event.detail.y, 
                                         event.detail.zoomLevel, event.detail.duration);
                     }
@@ -768,7 +682,6 @@
             }) as EventListener;
             window.addEventListener('center-on-node', centerOnNodeHandler);
             
-            // Add listener for setting transform directly
             setTransformHandler = ((event: CustomEvent) => {
                 if (event.detail && event.detail.transform && svg && zoomInstance) {
                     d3.select(svg)
@@ -779,19 +692,15 @@
             }) as EventListener;
             window.addEventListener('set-transform', setTransformHandler);
             
-            // Load visibility preferences when component mounts
             if ($userStore) {
-                // Apply any cached preferences immediately
                 applyVisibilityPreferences();
                 
-                // Then load from backend and apply again
                 visibilityStore.loadPreferences().then(() => {
                     applyVisibilityPreferences();
                 });
             }
         }
         
-        // Force graph to center after a short delay for statement-network
         if (viewType === 'statement-network') {
             setTimeout(() => {
                 resetViewport();
@@ -799,17 +708,12 @@
         }
     });
 
-    // When the graph data changes or we navigate to a new page,
-    // make sure preferences are applied (but only once)
     afterUpdate(() => {
         if (data && graphStore && !preferencesApplied) {
-            preferencesApplied = true; // Set the flag to prevent loops
-            
-            // Apply preferences immediately without timeout
+            preferencesApplied = true;
             applyVisibilityPreferences();
         }
         
-        // Apply view-specific behaviors after any update
         if (initialized && graphStore) {
             applyViewSpecificBehavior();
         }
@@ -824,7 +728,6 @@
             window.removeEventListener('set-transform', setTransformHandler);
         }
         
-        // Remove D3 zoom behavior
         if (svg) {
             d3.select(svg).on('.zoom', null);
         }
@@ -833,11 +736,8 @@
             background.destroy();
         }
         
-        // IMPORTANT: Only dispose if we own the graph store
-        // If it was passed in via binding, let the parent handle disposal
         if (graphStore && typeof graphStore.dispose === 'function') {
-            // Check if this store was created by us (not bound from parent)
-            const wasCreatedByUs = !lastDataHash; // Simple heuristic
+            const wasCreatedByUs = !lastDataHash;
             if (wasCreatedByUs) {
                 console.log('[Graph] Disposing graph store created by component');
                 graphStore.dispose();
@@ -847,37 +747,31 @@
         }
     });
 
-    // ENHANCED: Reactive declarations with intelligent update handling
+    // Reactive declarations
     
-    // When data changes, reset the preferences flag
     $: if (data) {
         preferencesApplied = false;
     }
     
-    // CRITICAL: When viewType changes, update existing store instead of recreating
     $: if (initialized && graphStore && viewType) {
         const currentViewType = graphStore.getViewType ? graphStore.getViewType() : null;
         
         if (currentViewType && currentViewType !== viewType) {
             console.log('[Graph] View type changed from', currentViewType, 'to', viewType);
             
-            // Update the view type on existing store
             if (typeof graphStore.setViewType === 'function') {
                 graphStore.setViewType(viewType);
             }
             
-            // Apply view-specific behaviors
             applyViewSpecificBehavior();
         }
     }
     
-    // ENHANCED: Intelligent data change handling
     $: if (initialized && graphStore && data && isGenuineDataChange(data)) {
         console.log('[Graph] Reactive data change detected');
         processDataUpdate(data, false);
     }
     
-    // When container dimensions change
     $: if (initialized && containerDimensions.width && containerDimensions.height) {
         updateContainerDimensions();
     }
@@ -893,14 +787,12 @@
         class="graph-svg"
     >
         <defs>
-            <!-- Global filters and patterns -->
             <filter id="glow-effect" x="-50%" y="-50%" width="200%" height="200%">
                 <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
                 <feComposite in="blur" in2="SourceGraphic" operator="atop" />
             </filter>
         </defs>
 
-        <!-- Background layer with no pointer events -->
         <g class="background-layer">
             <svg 
                 width="100%"
@@ -911,21 +803,19 @@
             </svg>
         </g>
 
-        <!-- Content layer with graph elements -->
         <g 
             bind:this={contentGroup} 
             class="content-layer"
         >
             {#if initialized && graphStore}
                 {#key graphStore.getViewType()}
-                    <!-- Small center marker for visual reference -->
                     {#if DEBUG_MODE}
                     <g class="center-marker">
                         <circle cx="0" cy="0" r="3" fill="red" fill-opacity="0.5" />
                     </g>
                     {/if}
 
-                    <!-- CLEAN: Simple conditional rendering - no opacity tricks -->
+                    <!-- CLEAN: Simple conditional rendering - single source of truth -->
                     <g class="links-layer">
                         {#if shouldRenderLinks}
                             <!-- DEBUG: Show when links are rendering -->
@@ -973,7 +863,6 @@
                                     on:modeChange={handleModeChange}
                                     on:visibilityChange={handleVisibilityChange}
                                     on:reply={event => {
-                                        // Ensure we're dispatching the exact event structure expected
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
                                     on:answerQuestion={event => {
@@ -1002,28 +891,22 @@
                         {/if}
                     </g>
 
-                    <!-- Debug overlay only shown when debug is enabled -->
                     {#if showDebug}
                         <g class="debug-overlay">
-                            <!-- Central axes -->
                             <line x1="-500" y1="0" x2="500" y2="0" stroke="rgba(255,0,0,0.3)" stroke-width="1" />
                             <line x1="0" y1="-500" x2="0" y2="500" stroke="rgba(255,0,0,0.3)" stroke-width="1" />
                             
-                            <!-- Origin marker -->
                             <circle cx="0" cy="0" r="5" fill="red" />
                             <text x="10" y="10" fill="white" font-size="12">Origin (0,0)</text>
                             
-                            <!-- Zoom info -->
                             <text x="10" y="30" fill="white" font-size="12">
                                 Zoom: {coordinateSystem.getCurrentTransform().k.toFixed(2)}
                             </text>
                             
-                            <!-- Central node position -->
                             <text x="10" y="50" fill="white" font-size="12">
                                 Central: ({centralNodePos.x.toFixed(1)}, {centralNodePos.y.toFixed(1)})
                             </text>
                             
-                            <!-- ENHANCED: Phantom links debug info -->
                             {#if viewType === 'universal'}
                                 <text x="10" y="70" fill="white" font-size="12">
                                     Phantom Links: {shouldRenderLinks ? 'ENABLED' : 'DISABLED'}
@@ -1038,7 +921,6 @@
 
     <!-- Control buttons -->
     <div class="controls">
-        <!-- Reset zoom button -->
         {#if resetZoom}
             <button
                 class="control-button reset-button"
@@ -1050,7 +932,6 @@
             </button>
         {/if}
         
-        <!-- Debug toggle button - only shown in development -->
         {#if DEBUG_MODE}
             <button
                 class="control-button debug-button"
@@ -1085,7 +966,6 @@
         cursor: grabbing;
     }
 
-    /* These classes define the layering structure */
     .background-layer {
         pointer-events: none;
     }
@@ -1096,7 +976,6 @@
 
     .links-layer {
         pointer-events: none;
-        transition: opacity 0.3s ease-in-out;
     }
 
     .nodes-layer {
@@ -1107,32 +986,15 @@
         pointer-events: none;
     }
 
-    .links-layer:not(.phantom-links-hidden) :global(.link) {
-        opacity: 0;
-        animation: phantomLinkReveal 0.8s ease-in-out forwards;
-    }
-
-    /* ENHANCED: Phantom links reveal animation */
-    @keyframes phantomLinkReveal {
-        from { 
-            opacity: 0; 
-        }
-        to { 
-            opacity: 1; 
-        }
-    }
-
-    /* The critical fix - proper transform origins */
     :global(.graph-svg) {
-        transform-origin: 0px 0px; /* Use absolute coordinates for SVG root */
+        transform-origin: 0px 0px;
     }
 
     :global(.content-layer),
     :global(.background-layer) {
-        transform-origin: 0px 0px; /* Use absolute coordinates for main groups */
+        transform-origin: 0px 0px;
     }
 
-    /* For nodes only, we keep fill-box for their internal transforms */
     :global(.node-wrapper) {
         transform-box: fill-box;
         transform-origin: 50% 50%;
@@ -1178,23 +1040,5 @@
 
     .debug-overlay {
         pointer-events: none;
-    }
-
-    /* ENHANCED: Reduce animations for users who prefer reduced motion */
-    @media (prefers-reduced-motion: reduce) {
-        .links-layer:not(.phantom-links-hidden) :global(.link) {
-            animation: none !important;
-            opacity: 1 !important;
-        }
-        
-        .links-layer {
-            transition: none !important;
-        }
-        
-        @keyframes phantomLinkReveal {
-            from, to { 
-                opacity: 1; 
-            }
-        }
     }
 </style>
