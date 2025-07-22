@@ -1,5 +1,5 @@
 // src/lib/services/graph/universal/UniversalOpacityController.ts
-// CLEAN IMPLEMENTATION - Single Authority for Phantom Links
+// FIXED: Settlement completion trigger
 
 import type { EnhancedNode, EnhancedLink, RenderableNode, RenderableLink } from '$lib/types/graph/enhanced';
 
@@ -15,14 +15,11 @@ interface OpacityConfig {
 interface RevealSequenceCallbacks {
     onNodeOpacityUpdate: (nodes: EnhancedNode[]) => void;
     onRevealComplete: () => void;
-    onLinkRenderingEnabled: () => void; // CLEAN: Single callback for phantom links
+    onLinkRenderingEnabled: () => void;
 }
 
 /**
- * CLEAN ARCHITECTURE: Single authority for ALL opacity concerns
- * - Node opacity during construction phase
- * - Link rendering enablement (phantom links)
- * - Settlement-based timing coordination
+ * FIXED: Settlement completion trigger for phantom links
  */
 export class UniversalOpacityController {
     private config: OpacityConfig;
@@ -41,7 +38,7 @@ export class UniversalOpacityController {
     constructor(callbacks: RevealSequenceCallbacks) {
         this.callbacks = callbacks;
         
-        console.log('[OpacityController] CLEAN ARCHITECTURE - Single authority initialized');
+        console.log('[OpacityController] HARDCODED TEST - Link opacity controller initialized');
         
         // Default configuration
         this.config = {
@@ -52,43 +49,60 @@ export class UniversalOpacityController {
     }
     
     /**
-     * DEBUG: Enhanced getShouldRenderLinks with detailed logging
+     * CLEAN: getShouldRenderLinks - single source of truth
      */
     public getShouldRenderLinks(): boolean {
-        const timestamp = new Date().toISOString().substr(14, 9); // Get milliseconds
-        console.log(`[OpacityController] ${timestamp} getShouldRenderLinks() called, returning:`, this.linkRenderingEnabled);
-        
-        // DEBUG: Log call stack to see WHO is calling this
-        if (typeof console.trace !== 'undefined') {
-            console.trace('[OpacityController] getShouldRenderLinks() call stack:');
-        }
-        
         return this.linkRenderingEnabled;
     }
     
     /**
-     * DEBUG: Enhanced onSettlementComplete with detailed logging
+     * FIXED: onSettlementComplete - enable phantom links
      */
     public onSettlementComplete(): void {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        console.log(`[OpacityController] ${timestamp} 🔗 onSettlementComplete() called`);
-        console.log(`[OpacityController] ${timestamp} 🔗 BEFORE: linkRenderingEnabled =`, this.linkRenderingEnabled);
+        console.log('[OpacityController] 🔗 FIXED - Settlement complete, enabling phantom links');
         
         this.linkRenderingEnabled = true;
         
-        console.log(`[OpacityController] ${timestamp} 🔗 AFTER: linkRenderingEnabled =`, this.linkRenderingEnabled);
-        console.log(`[OpacityController] ${timestamp} 🔗 About to call onLinkRenderingEnabled callback`);
+        // Force all links in DOM to be visible
+        this.forceAllLinksVisible();
         
-        // Verify callback exists
+        // Verify callback exists and call it
         if (this.callbacks.onLinkRenderingEnabled) {
-            console.log(`[OpacityController] ${timestamp} 🔗 Callback exists, calling now...`);
             this.callbacks.onLinkRenderingEnabled();
-            console.log(`[OpacityController] ${timestamp} 🔗 Callback completed`);
-        } else {
-            console.error(`[OpacityController] ${timestamp} 🔗 ERROR: onLinkRenderingEnabled callback is missing!`);
         }
         
-        console.log(`[OpacityController] ${timestamp} 🔗 onSettlementComplete() completed`);
+        console.log('[OpacityController] 🔗 FIXED - Phantom links enabled and links forced visible');
+    }
+    
+    /**
+     * HARDCODED TEST: Force all link elements in DOM to be visible
+     */
+    private forceAllLinksVisible(): void {
+        if (typeof window === 'undefined' || !window.document) return;
+        
+        console.log('[OpacityController] 🔗 HARDCODED TEST - Forcing all links visible via DOM');
+        
+        // Find all link elements in the DOM
+        const linkElements = window.document.querySelectorAll('.link, .link-path, [data-link-id]');
+        console.log(`[OpacityController] 🔗 Found ${linkElements.length} link elements`);
+        
+        // Force opacity to 1 on all link elements
+        linkElements.forEach((element) => {
+            if (element instanceof HTMLElement || element instanceof SVGElement) {
+                (element as any).style.opacity = '1';
+            }
+        });
+        
+        // Also try to find SVG path elements specifically
+        const pathElements = window.document.querySelectorAll('svg path[stroke]');
+        console.log(`[OpacityController] 🔗 Found ${pathElements.length} SVG path elements`);
+        
+        pathElements.forEach((element) => {
+            if (element instanceof SVGPathElement) {
+                element.style.opacity = '1';
+                element.setAttribute('opacity', '1');
+            }
+        });
     }
     
     /**
@@ -115,6 +129,19 @@ export class UniversalOpacityController {
     }
     
     /**
+     * HARDCODED TEST: Set initial opacity for links - start with 0
+     */
+    public setInitialLinkOpacity(link: EnhancedLink): void {
+        // Start with 0 opacity
+        (link as any).opacity = 0;
+        
+        // Also set in metadata
+        if (link.metadata) {
+            link.metadata.opacity = 0;
+        }
+    }
+    
+    /**
      * Calculate opacity for renderable nodes
      */
     public calculateNodeOpacity(node: RenderableNode): number {
@@ -133,11 +160,26 @@ export class UniversalOpacityController {
     }
     
     /**
-     * CLEAN: Simple link opacity - no phantom links logic here
+     * HARDCODED TEST: Calculate opacity for renderable links
      */
     public calculateLinkOpacity(link: RenderableLink): number {
-        // Just return standard opacity - phantom links handled by DOM rendering
-        return 1;
+        // HARDCODED TEST: If phantom links are enabled, force opacity 1
+        if (this.linkRenderingEnabled) {
+            return 1;
+        }
+        
+        // Check if link has D3-controlled opacity
+        if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
+            return (link as any).opacity;
+        }
+        
+        // Check metadata opacity
+        if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
+            return link.metadata.opacity;
+        }
+        
+        // Default to hidden
+        return 0;
     }
     
     /**
@@ -221,10 +263,10 @@ export class UniversalOpacityController {
     }
     
     /**
-     * Complete the reveal sequence
+     * FIXED: Complete the reveal sequence and trigger settlement
      */
     private completeRevealSequence(nodes: EnhancedNode[]): void {
-        console.log('[OpacityController] Node reveal sequence complete');
+        console.log('[OpacityController] FIXED - Node reveal sequence complete, triggering settlement');
         
         // Ensure all nodes are fully visible
         nodes.forEach(node => {
@@ -237,6 +279,10 @@ export class UniversalOpacityController {
         // Final callbacks
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onRevealComplete();
+        
+        // FIXED: Automatically trigger settlement completion for phantom links
+        console.log('[OpacityController] FIXED - Auto-triggering onSettlementComplete()');
+        this.onSettlementComplete();
     }
     
     /**
@@ -283,10 +329,10 @@ export class UniversalOpacityController {
     }
     
     /**
-     * Force reveal all nodes immediately (for debugging)
+     * FIXED: Force reveal all nodes immediately (for debugging)
      */
     public forceRevealAll(nodes: EnhancedNode[]): void {
-        console.log('[OpacityController] Force revealing all nodes');
+        console.log('[OpacityController] FIXED - Force revealing all nodes and triggering settlement');
         
         // Stop any ongoing animation
         if (this.animationFrameId) {
@@ -306,25 +352,21 @@ export class UniversalOpacityController {
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onRevealComplete();
         
-        // CLEAN: Enable phantom links immediately
-        console.log('[OpacityController] Force enabling phantom links');
-        this.linkRenderingEnabled = true;
-        this.callbacks.onLinkRenderingEnabled();
+        // FIXED: Trigger settlement completion for phantom links
+        console.log('[OpacityController] FIXED - Force triggering onSettlementComplete()');
+        this.onSettlementComplete();
     }
     
     /**
-     * DEBUG: Enhanced reset with detailed logging
+     * CLEAN: Reset with phantom links control
      */
     public reset(): void {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        console.log(`[OpacityController] ${timestamp} 🔄 RESET called`);
-        console.log(`[OpacityController] ${timestamp} 🔄 BEFORE reset: linkRenderingEnabled =`, this.linkRenderingEnabled);
+        console.log('[OpacityController] 🔄 RESET - disabling phantom links');
         
         // Stop any ongoing animation
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
-            console.log(`[OpacityController] ${timestamp} 🔄 Cancelled animation frame`);
         }
         
         // Reset states
@@ -333,9 +375,6 @@ export class UniversalOpacityController {
         
         // CRITICAL: Disable phantom links
         this.linkRenderingEnabled = false;
-        
-        console.log(`[OpacityController] ${timestamp} 🔄 AFTER reset: linkRenderingEnabled =`, this.linkRenderingEnabled);
-        console.log(`[OpacityController] ${timestamp} 🔗 Phantom links disabled on reset`);
     }
     
     /**
@@ -388,43 +427,18 @@ export class UniversalOpacityController {
     }
 
     /**
-     * DEBUG: Add a method to get detailed state information
-     */
-    public getDetailedState(): {
-        linkRenderingEnabled: boolean;
-        nodeOpacityState: OpacityState;
-        revealStartTime: number;
-        hasAnimationFrame: boolean;
-        timestamp: string;
-    } {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        return {
-            linkRenderingEnabled: this.linkRenderingEnabled,
-            nodeOpacityState: this.nodeOpacityState,
-            revealStartTime: this.revealStartTime,
-            hasAnimationFrame: this.animationFrameId !== null,
-            timestamp
-        };
-    }
-
-    /**
      * DEBUG: Force enable method for testing
      */
     public debugForceEnable(): void {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        console.log(`[OpacityController] ${timestamp} 🐛 DEBUG FORCE ENABLE called`);
-        console.log(`[OpacityController] ${timestamp} 🐛 BEFORE: linkRenderingEnabled =`, this.linkRenderingEnabled);
+        console.log('[OpacityController] 🐛 DEBUG FORCE ENABLE called');
         
         this.linkRenderingEnabled = true;
         
-        console.log(`[OpacityController] ${timestamp} 🐛 AFTER: linkRenderingEnabled =`, this.linkRenderingEnabled);
+        // HARDCODED TEST: Force all links visible
+        this.forceAllLinksVisible();
         
         if (this.callbacks.onLinkRenderingEnabled) {
-            console.log(`[OpacityController] ${timestamp} 🐛 Calling callback...`);
             this.callbacks.onLinkRenderingEnabled();
-            console.log(`[OpacityController] ${timestamp} 🐛 Callback completed`);
-        } else {
-            console.error(`[OpacityController] ${timestamp} 🐛 ERROR: No callback available!`);
         }
     }
 }

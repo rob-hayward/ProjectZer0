@@ -423,9 +423,11 @@ export class UniversalGraphManager {
                 
                 if (contentNodes.length > 0) {
                     console.log(`[UniversalGraphManager] CLEAN - Starting node reveal for ${contentNodes.length} content nodes`);
+                    // FIXED: OpacityController.startRevealSequence only takes nodes parameter
                     this.opacityController.startRevealSequence(nodes);
                 } else {
                     console.log('[UniversalGraphManager] CLEAN - No content nodes, force revealing all');
+                    // FIXED: OpacityController.forceRevealAll only takes nodes parameter
                     this.opacityController.forceRevealAll(nodes);
                 }
                 
@@ -946,7 +948,7 @@ export class UniversalGraphManager {
     }
 
     /**
-     * CLEAN: Transform GraphLinks to EnhancedLinks
+     * CLEAN: Transform GraphLinks to EnhancedLinks with phantom links opacity control
      */
     private transformLinks(links: GraphLink[]): EnhancedLink[] {
         return links.map(link => {
@@ -996,8 +998,94 @@ export class UniversalGraphManager {
                 metadata: linkMetadata
             };
             
+            // CLEAN: Use opacity controller to set initial link opacity
+            this.opacityController.setInitialLinkOpacity(enhancedLink);
+            
             return enhancedLink;
         });
+    }
+
+    /**
+     * CLEAN: Create renderable links with phantom links integration
+     */
+    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
+        if (nodes.length === 0 || links.length === 0) {
+            return [];
+        }
+        
+        const nodeMap = new Map<string, EnhancedNode>();
+        nodes.forEach(node => nodeMap.set(node.id, node));
+        
+        const renderableLinks = links.map(link => {
+            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
+            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
+            
+            const source = nodeMap.get(sourceId);
+            const target = nodeMap.get(targetId);
+            
+            if (!source || !target) {
+                return null;
+            }
+            
+            if (source.isHidden || target.isHidden) {
+                return null;
+            }
+            
+            const path = this.calculateLinkPath(source, target, link);
+            if (!path) {
+                return null;
+            }
+            
+            const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
+            const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
+            
+            const enhancedMetadata: any = { ...link.metadata };
+            
+            if (link.type === 'shared_keyword') {
+                if (link.metadata?.consolidatedKeywords) {
+                    enhancedMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
+                    enhancedMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
+                    enhancedMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
+                    enhancedMetadata.isConsolidated = true;
+                } else {
+                    enhancedMetadata.sharedWords = [enhancedMetadata.keyword || ''];
+                    enhancedMetadata.relationCount = 1;
+                    enhancedMetadata.isConsolidated = false;
+                }
+            }
+            
+            // CLEAN: Use opacity controller to calculate current link opacity
+            const linkOpacity = this.opacityController.calculateLinkOpacity(link as any);
+            
+            return {
+                id: link.id,
+                type: link.type,
+                sourceId: source.id,
+                targetId: target.id,
+                sourceType: source.type,
+                targetType: target.type,
+                path,
+                sourcePosition: { 
+                    x: source.x ?? 0, 
+                    y: source.y ?? 0,
+                    svgTransform: sourceTransform
+                },
+                targetPosition: { 
+                    x: target.x ?? 0, 
+                    y: target.y ?? 0,
+                    svgTransform: targetTransform
+                },
+                strength: link.strength,
+                relationshipType: link.relationshipType,
+                metadata: {
+                    ...enhancedMetadata,
+                    opacity: linkOpacity
+                },
+                opacity: linkOpacity
+            };
+        }).filter(Boolean) as RenderableLink[];
+        
+        return renderableLinks;
     }
 
     /**
@@ -1073,72 +1161,6 @@ export class UniversalGraphManager {
                 }
             };
         });
-    }
-
-    /**
-     * CLEAN: Create renderable links
-     */
-    private createRenderableLinks(nodes: EnhancedNode[], links: EnhancedLink[]): RenderableLink[] {
-        if (nodes.length === 0 || links.length === 0) return [];
-        
-        const nodeMap = new Map<string, EnhancedNode>();
-        nodes.forEach(node => nodeMap.set(node.id, node));
-        
-        return links.map(link => {
-            const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
-            const targetId = typeof link.target === 'string' ? link.target : link.target.id;
-            
-            const source = nodeMap.get(sourceId);
-            const target = nodeMap.get(targetId);
-            
-            if (!source || !target || source.isHidden || target.isHidden) {
-                return null;
-            }
-            
-            const path = this.calculateLinkPath(source, target, link);
-            const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
-            const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
-            
-            const enhancedMetadata: any = { ...link.metadata };
-            
-            if (link.type === 'shared_keyword') {
-                if (link.metadata?.consolidatedKeywords) {
-                    enhancedMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
-                    enhancedMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
-                    enhancedMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
-                    enhancedMetadata.isConsolidated = true;
-                } else {
-                    enhancedMetadata.sharedWords = [enhancedMetadata.keyword || ''];
-                    enhancedMetadata.relationCount = 1;
-                    enhancedMetadata.isConsolidated = false;
-                }
-            }
-            
-            return {
-                id: link.id,
-                type: link.type,
-                sourceId: source.id,
-                targetId: target.id,
-                sourceType: source.type,
-                targetType: target.type,
-                path,
-                sourcePosition: { 
-                    x: source.x ?? 0, 
-                    y: source.y ?? 0,
-                    svgTransform: sourceTransform
-                },
-                targetPosition: { 
-                    x: target.x ?? 0, 
-                    y: target.y ?? 0,
-                    svgTransform: targetTransform
-                },
-                strength: link.strength,
-                relationshipType: link.relationshipType,
-                metadata: enhancedMetadata,
-                // CLEAN: No special opacity calculations needed
-                opacity: 1
-            };
-        }).filter(Boolean) as RenderableLink[];
     }
 
     // Helper methods (preserved from original)

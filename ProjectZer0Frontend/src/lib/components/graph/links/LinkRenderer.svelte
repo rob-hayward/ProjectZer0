@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - CLEAN IMPLEMENTATION -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - CLEAN Phantom Links Implementation -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -39,12 +39,28 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // CLEAN: Use standard opacity calculations - no phantom links overrides
+    // CLEAN: D3-controlled opacity - single source of truth
+    $: linkOpacity = (() => {
+        // Check if link has D3-controlled opacity (like nodes do)
+        if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
+            return (link as any).opacity;
+        }
+        
+        // Check metadata opacity
+        if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
+            return link.metadata.opacity;
+        }
+        
+        // Default to visible for non-phantom links
+        return 1;
+    })();
+    
+    // Use calculated link opacity for all visual properties
     $: strokeWidth = visualProps.strokeWidth;
-    $: strokeOpacity = visualProps.opacity;
+    $: strokeOpacity = linkOpacity;
+    $: glowOpacity = linkOpacity * 0.7;
     $: dashArray = visualProps.dashArray;
     $: glowIntensity = visualProps.glowIntensity;
-    $: glowOpacity = Math.min(0.8, strokeOpacity * 0.7);
     
     // Gradient opacity calculation for consolidated relationships
     $: gradientStartOpacity = getGradientOpacity('start');
@@ -306,6 +322,9 @@
         class:strong-consolidation={relationshipCount >= 5}
         class:medium-consolidation={relationshipCount >= 3 && relationshipCount < 5}
         class:light-consolidation={relationshipCount >= 2 && relationshipCount < 3}
+        class:phantom-hidden={linkOpacity === 0}
+        class:phantom-revealing={linkOpacity > 0 && linkOpacity < 1}
+        class:phantom-visible={linkOpacity === 1}
         data-link-id={linkId}
         data-source-id={link.sourceId}
         data-target-id={link.targetId}
@@ -313,6 +332,7 @@
         data-relation-count={relationshipCount}
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
+        data-link-opacity={linkOpacity}
     >
         <defs>
             <!-- Gradient definition with consolidated relationship support -->
@@ -368,13 +388,14 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- CLEAN: Main link path with standard opacity calculations -->
+        <!-- CLEAN: Main link path with phantom links opacity control -->
         <path
             d={link.path}
             stroke={`url(#${gradientId})`}
             class="link-path"
             class:consolidated-link={isConsolidated}
             class:dashed-link={dashArray !== 'none'}
+            class:phantom-link={true}
             stroke-width={strokeWidth}
             stroke-linecap="round"
             stroke-dasharray={dashArray}
@@ -399,15 +420,13 @@
         
         <!-- Tooltip with rich consolidated relationship information -->
         <title>{tooltipText}</title>
-        
-        <!-- CLEAN: No phantom links debug comments needed -->
     </g>
 {/if}
 
 <style>
     .link {
         pointer-events: none;
-        transition: all 0.3s ease;
+        transition: opacity 0.3s ease;
     }
 
     .link-path {
@@ -416,7 +435,7 @@
         stroke-opacity: 1;
         stroke-linecap: round;
         stroke-linejoin: round;
-        transition: stroke-width 0.2s ease, opacity 0.2s ease;
+        transition: opacity 0.3s ease;
     }
 
     .link-glow {
@@ -425,7 +444,27 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         vector-effect: non-scaling-stroke;
-        transition: stroke-width 0.2s ease;
+        transition: opacity 0.3s ease;
+    }
+    
+    /* Phantom links state styling */
+    .phantom-hidden {
+        opacity: 0;
+    }
+    
+    .phantom-revealing {
+        opacity: 0.5;
+        transition: opacity 0.8s ease-out;
+    }
+    
+    .phantom-visible {
+        opacity: 1;
+        transition: opacity 0.3s ease-out;
+    }
+    
+    .phantom-link {
+        /* Smooth transitions for phantom links */
+        transition: opacity 0.5s ease-out;
     }
     
     /* Consolidated relationship styling */
@@ -497,7 +536,8 @@
     @media (prefers-reduced-motion: reduce) {
         .link-path,
         .link-glow,
-        .consolidation-indicator {
+        .consolidation-indicator,
+        .phantom-link {
             animation: none;
             transition: none;
         }

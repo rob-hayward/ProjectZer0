@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte - CLEAN IMPLEMENTATION -->
+<!-- src/lib/components/graph/Graph.svelte - CLEAN IMPLEMENTATION with NO Console Spam -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -85,23 +85,16 @@
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
 
-    // CLEAN: Single source of truth for phantom links
-    let shouldRenderLinks = true; // Default to true for non-universal views
+    // CLEAN: Phantom links controlled by opacity system
+    let shouldRenderLinks = true; // Always render, let opacity control visibility
 
-    // DEBUG: Add debug state tracking
+    // CLEAN: Simple debug state tracking
     let debugInfo: {
-        lastCheck: string;
-        callCount: number;
-        stateChanges: Array<{
-            timestamp: string;
-            from: boolean;
-            to: boolean;
-            callCount: number;
-        }>;
+        linkCount: number;
+        phantomLinksSupported: boolean;
     } = {
-        lastCheck: '',
-        callCount: 0,
-        stateChanges: []
+        linkCount: 0,
+        phantomLinksSupported: false
     };
 
     // Constants - Define viewBox to center coordinate system
@@ -114,72 +107,13 @@
     // Background configuration
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // ENHANCED: Debug reactive statement for phantom links
+    // CLEAN: Simple reactive statement for phantom links
     $: {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        debugInfo.callCount++;
-        debugInfo.lastCheck = timestamp;
+        debugInfo.linkCount = data?.links?.length || 0;
+        debugInfo.phantomLinksSupported = !!(graphStore && typeof graphStore.getShouldRenderLinks === 'function');
         
-        console.log(`[Graph] ${timestamp} 📊 REACTIVE CHECK #${debugInfo.callCount}:`, {
-            viewType,
-            hasGraphStore: !!graphStore,
-            graphStoreType: graphStore?.constructor?.name,
-            hasShouldRenderLinksMethod: graphStore && typeof graphStore.getShouldRenderLinks === 'function'
-        });
-        
-        if (graphStore && viewType === 'universal') {
-            console.log(`[Graph] ${timestamp} 📊 Universal view detected, checking getShouldRenderLinks...`);
-            
-            if (typeof graphStore.getShouldRenderLinks === 'function') {
-                const newShouldRenderLinks = graphStore.getShouldRenderLinks();
-                const oldValue = shouldRenderLinks;
-                
-                console.log(`[Graph] ${timestamp} 📊 getShouldRenderLinks() returned:`, newShouldRenderLinks);
-                console.log(`[Graph] ${timestamp} 📊 Current shouldRenderLinks:`, oldValue);
-                
-                if (newShouldRenderLinks !== oldValue) {
-                    console.log(`[Graph] ${timestamp} 🔗 PHANTOM LINKS STATE CHANGE:`, oldValue, '→', newShouldRenderLinks);
-                    
-                    // Track state change
-                    debugInfo.stateChanges.push({
-                        timestamp,
-                        from: oldValue,
-                        to: newShouldRenderLinks,
-                        callCount: debugInfo.callCount
-                    });
-                    
-                    shouldRenderLinks = newShouldRenderLinks;
-                    
-                    // Dispatch custom event for external monitoring
-                    if (typeof window !== 'undefined') {
-                        console.log(`[Graph] ${timestamp} 📡 Dispatching phantom-links-state-change event`);
-                        window.dispatchEvent(new CustomEvent('phantom-links-state-change', {
-                            detail: {
-                                enabled: shouldRenderLinks,
-                                linksCount: data?.links?.length || 0,
-                                revealState: shouldRenderLinks ? 'revealed' : 'hidden',
-                                timestamp,
-                                callCount: debugInfo.callCount
-                            }
-                        }));
-                    }
-                } else {
-                    console.log(`[Graph] ${timestamp} 📊 No state change needed (${oldValue} === ${newShouldRenderLinks})`);
-                }
-            } else {
-                console.warn(`[Graph] ${timestamp} ⚠️ Graph store missing getShouldRenderLinks method!`);
-            }
-        } else if (viewType !== 'universal') {
-            // Non-universal views always show links
-            if (!shouldRenderLinks) {
-                console.log(`[Graph] ${timestamp} 📊 Non-universal view, enabling links`);
-                shouldRenderLinks = true;
-            }
-        } else {
-            console.log(`[Graph] ${timestamp} 📊 Waiting for graph store initialization...`);
-        }
-        
-        console.log(`[Graph] ${timestamp} 📊 Final shouldRenderLinks:`, shouldRenderLinks);
+        // Always render links - let opacity system control visibility
+        shouldRenderLinks = true;
     }
 
     // EXPORTED METHODS FOR EXTERNAL CONTROL OF VIEWPORT
@@ -524,13 +458,13 @@
 
     // DEBUG: Add a function to manually check phantom links state
     function debugCheckPhantomLinks() {
-        const timestamp = new Date().toISOString().substr(14, 9);
-        console.log(`[Graph] ${timestamp} 🐛 MANUAL DEBUG CHECK:`);
+        console.log('[Graph] 🐛 MANUAL DEBUG CHECK:');
         console.log('- viewType:', viewType);
         console.log('- graphStore:', !!graphStore);
-        console.log('- graphStore type:', graphStore?.constructor?.name);
-        console.log('- hasShouldRenderLinksMethod:', graphStore && typeof graphStore.getShouldRenderLinks === 'function');
+        console.log('- phantomLinksSupported:', debugInfo.phantomLinksSupported);
         console.log('- shouldRenderLinks:', shouldRenderLinks);
+        console.log('- data.links.length:', data?.links?.length || 0);
+        console.log('- $graphStore.links.length:', $graphStore?.links?.length || 0);
         console.log('- debugInfo:', debugInfo);
         
         if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
@@ -541,11 +475,6 @@
         if (graphStore && typeof (graphStore as any).getRevealStatus === 'function') {
             const revealStatus = (graphStore as any).getRevealStatus();
             console.log('- getRevealStatus():', revealStatus);
-        }
-        
-        if (graphStore && typeof (graphStore as any).opacityController?.getDetailedState === 'function') {
-            const opacityState = (graphStore as any).opacityController.getDetailedState();
-            console.log('- opacityController state:', opacityState);
         }
     }
 
@@ -815,41 +744,16 @@
                     </g>
                     {/if}
 
-                    <!-- CLEAN: Simple conditional rendering - single source of truth -->
+                    <!-- CLEAN: Always render links - opacity controls visibility -->
                     <g class="links-layer">
-                        {#if shouldRenderLinks}
-                            <!-- DEBUG: Show when links are rendering -->
-                            <text 
-                                x="0" 
-                                y="-250" 
-                                text-anchor="middle" 
-                                fill="rgba(0,255,0,0.8)" 
-                                font-size="14"
-                                class="links-debug"
-                            >
-                                ✅ CLEAN: RENDERING {$graphStore?.links?.length || 0} LINKS
-                            </text>
-                            
-                            {#if $graphStore && $graphStore.links}
-                                {#each $graphStore.links as link (link.id)}
-                                    <LinkRenderer {link} />
-                                    {#if showDebug}
-                                        <GraphDebugVisualizer {link} active={showDebug} />
-                                    {/if}
-                                {/each}
-                            {/if}
-                        {:else}
-                            <!-- DEBUG: Show when links are hidden -->
-                            <text 
-                                x="0" 
-                                y="-250" 
-                                text-anchor="middle" 
-                                fill="rgba(255,100,100,0.8)" 
-                                font-size="14"
-                                class="links-debug"
-                            >
-                                ❌ CLEAN: LINKS HIDDEN - WAITING FOR SETTLEMENT
-                            </text>
+                        {#if $graphStore && $graphStore.links && $graphStore.links.length > 0}
+                            <!-- Render all links with phantom links opacity control -->
+                            {#each $graphStore.links as link (link.id)}
+                                <LinkRenderer {link} />
+                                {#if showDebug}
+                                    <GraphDebugVisualizer {link} active={showDebug} />
+                                {/if}
+                            {/each}
                         {/if}
                     </g>
 
@@ -907,11 +811,13 @@
                                 Central: ({centralNodePos.x.toFixed(1)}, {centralNodePos.y.toFixed(1)})
                             </text>
                             
-                            {#if viewType === 'universal'}
-                                <text x="10" y="70" fill="white" font-size="12">
-                                    Phantom Links: {shouldRenderLinks ? 'ENABLED' : 'DISABLED'}
-                                </text>
-                            {/if}
+                            <text x="10" y="70" fill="white" font-size="12">
+                                Phantom Links: {debugInfo.phantomLinksSupported ? 'ENABLED' : 'DISABLED'} | Count: {$graphStore?.links?.length || 0}
+                            </text>
+                            
+                            <text x="10" y="90" fill="white" font-size="12">
+                                Links always render - opacity controls visibility
+                            </text>
                         </g>
                     {/if}
                 {/key}
@@ -942,6 +848,16 @@
                 <span class="material-symbols-outlined">{showDebug ? 'bug_off' : 'bug_on'}</span>
             </button>
         {/if}
+        
+        <!-- DEBUG: Manual phantom links check button -->
+        <button
+            class="control-button debug-phantom-button"
+            on:click={debugCheckPhantomLinks}
+            aria-label="Debug phantom links"
+            title="Check phantom links state"
+        >
+            <span class="material-symbols-outlined">link</span>
+        </button>
     </div>
 </div>
 
@@ -1038,7 +954,32 @@
         font-size: 1.5rem;
     }
 
+    /* DEBUG: Special styling for phantom links debug button */
+    .debug-phantom-button {
+        background-color: rgba(0, 255, 255, 0.2);
+        border-color: rgba(0, 255, 255, 0.5);
+    }
+
+    .debug-phantom-button:hover {
+        background-color: rgba(0, 255, 255, 0.3);
+        border-color: rgba(0, 255, 255, 0.7);
+    }
+
     .debug-overlay {
         pointer-events: none;
+    }
+    
+    /* DEBUG: Style for link debug text */
+    .links-debug {
+        font-family: 'Courier New', monospace;
+        font-weight: bold;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        pointer-events: none;
+        dominant-baseline: middle;
+    }
+    
+    /* DEBUG: Enhanced visibility for debug text */
+    .links-debug {
+        filter: drop-shadow(0 0 2px rgba(0,0,0,1));
     }
 </style>
