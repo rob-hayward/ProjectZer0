@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - CLEAN Phantom Links Implementation -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - UPDATED: Event-based reveal factor -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -39,25 +39,105 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // CLEAN: D3-controlled opacity - single source of truth
+    // UPDATED: Get reveal factor from window-accessible opacity controller
+    let revealFactor = 0;
+    
+    // UPDATED: Use the same trigger mechanism as the working hardcoded version
+    function updateRevealFactor() {
+        const oldRevealFactor = revealFactor;
+        
+        if (typeof window !== 'undefined' && (window as any).universalOpacityController) {
+            const newRevealFactor = (window as any).universalOpacityController.getLinkRevealFactor();
+            if (newRevealFactor !== revealFactor) {
+                revealFactor = newRevealFactor;
+                // Only log on actual changes and for first few links
+                if (linkId.endsWith('2')) {
+                    console.log(`[LinkRenderer] Sample link reveal factor: ${oldRevealFactor} → ${revealFactor}`);
+                }
+            }
+        } else {
+            // Fallback to visible for non-universal views
+            if (revealFactor !== 1) {
+                revealFactor = 1;
+            }
+        }
+    }
+    
+    onMount(() => {
+        // Initial reveal factor
+        updateRevealFactor();
+        
+        // UPDATED: Listen for the same trigger event as the working version
+        function handleRevealEvent(event: Event) {
+            // Only log for first link to avoid spam
+            if (linkId.endsWith('2')) {
+                console.log(`[LinkRenderer] Sample link received phantom-links-reveal event`);
+            }
+            
+            updateRevealFactor();
+            
+            // Force Svelte reactivity update by reassigning
+            const currentFactor = revealFactor;
+            revealFactor = currentFactor;
+        }
+        
+        function handleStateChangeEvent(event: Event) {
+            // Minimal logging
+            updateRevealFactor();
+        }
+        
+        if (typeof window !== 'undefined') {
+            // Listen for the new specific reveal event
+            window.addEventListener('phantom-links-reveal', handleRevealEvent);
+            
+            // Keep legacy listener for compatibility
+            window.addEventListener('phantom-links-state-change', handleStateChangeEvent);
+            
+            // Also listen for force updates from the manager
+            window.addEventListener('force-link-update', handleStateChangeEvent);
+        }
+        
+        return () => {
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('phantom-links-reveal', handleRevealEvent);
+                window.removeEventListener('phantom-links-state-change', handleStateChangeEvent);
+                window.removeEventListener('force-link-update', handleStateChangeEvent);
+            }
+        };
+    });
+    
+    // UPDATED: Calculate final opacity using reveal factor × visual opacity
     $: linkOpacity = (() => {
-        // Check if link has D3-controlled opacity (like nodes do)
+        // FIXED: Use the sophisticated gradient opacity calculation instead of visualProps.opacity
+        let visualOpacity: number;
+        
+        // Check if link has existing opacity properties (for compatibility)
         if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
-            return (link as any).opacity;
+            visualOpacity = (link as any).opacity;
+        } else if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
+            visualOpacity = link.metadata.opacity;
+        } else {
+            // FIXED: Use the sophisticated gradient opacity calculation (this has the real logic!)
+            // Take the average of start and end gradient opacity for the main link opacity
+            const startOpacity = getGradientOpacity('start');
+            const endOpacity = getGradientOpacity('end');
+            visualOpacity = (startOpacity + endOpacity) / 2;
         }
         
-        // Check metadata opacity
-        if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
-            return link.metadata.opacity;
+        // UPDATED: Apply reveal factor - this is where the magic happens!
+        const finalOpacity = revealFactor * visualOpacity;
+        
+        // MINIMAL DEBUG: Only log one sample link when reveal factor changes
+        if (linkId.endsWith('2') && revealFactor > 0) {
+            console.log(`[LinkRenderer] Sample: reveal=${revealFactor}, visual=${visualOpacity.toFixed(2)}, final=${finalOpacity.toFixed(2)}, type=${link.type}`);
         }
         
-        // Default to visible for non-phantom links
-        return 1;
+        return finalOpacity;
     })();
     
     // Use calculated link opacity for all visual properties
     $: strokeWidth = visualProps.strokeWidth;
-    $: strokeOpacity = linkOpacity;
+    $: strokeOpacity = linkOpacity; // FIXED: Use our calculated linkOpacity directly
     $: glowOpacity = linkOpacity * 0.7;
     $: dashArray = visualProps.dashArray;
     $: glowIntensity = visualProps.glowIntensity;
@@ -231,7 +311,8 @@
      * Get gradient opacity based on link type and consolidation
      */
     function getGradientOpacity(position: 'start' | 'end'): number {
-        const baseOpacity = strokeOpacity;
+        // FIXED: Use linkOpacity as base instead of strokeOpacity to avoid circular reference
+        const baseOpacity = 1.0; // Use 1.0 as base, we'll multiply by reveal factor later
         
         // For consolidated relationships, boost opacity
         if (isConsolidated) {
@@ -332,7 +413,9 @@
         data-relation-count={relationshipCount}
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
-        data-link-opacity={linkOpacity}
+        data-link-opacity={linkOpacity.toFixed(3)}
+        data-reveal-factor={revealFactor.toFixed(3)}
+        data-visual-opacity={visualProps.opacity.toFixed(3)}
     >
         <defs>
             <!-- Gradient definition with consolidated relationship support -->
@@ -388,7 +471,7 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- CLEAN: Main link path with phantom links opacity control -->
+        <!-- UPDATED: Main link path with reveal factor × visual opacity -->
         <path
             d={link.path}
             stroke={`url(#${gradientId})`}
@@ -401,6 +484,8 @@
             stroke-dasharray={dashArray}
             opacity={strokeOpacity}
             vector-effect="non-scaling-stroke"
+            data-debug-calculated-opacity={linkOpacity.toFixed(3)}
+            data-debug-stroke-opacity={strokeOpacity.toFixed(3)}
         />
         
         <!-- Consolidation indicator overlay for multi-keyword relationships -->
@@ -447,23 +532,23 @@
         transition: opacity 0.3s ease;
     }
     
-    /* Phantom links state styling */
+    /* FIXED: Phantom links state styling - don't override calculated opacity */
     .phantom-hidden {
         opacity: 0;
     }
     
     .phantom-revealing {
-        opacity: 0.5;
-        transition: opacity 0.8s ease-out;
+        /* Don't set opacity here - let the calculated value through */
+        transition: opacity 0.5s ease-out;
     }
     
     .phantom-visible {
-        opacity: 1;
+        /* Don't set opacity: 1 here - let the calculated value through */
         transition: opacity 0.3s ease-out;
     }
     
     .phantom-link {
-        /* Smooth transitions for phantom links */
+        /* Smooth transitions for phantom links reveal */
         transition: opacity 0.5s ease-out;
     }
     

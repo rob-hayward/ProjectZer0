@@ -1,5 +1,5 @@
 // src/lib/services/graph/universal/UniversalOpacityController.ts
-// FIXED: Settlement completion trigger
+// UPDATED: Event-based reveal factor system using working settlement trigger
 
 import type { EnhancedNode, EnhancedLink, RenderableNode, RenderableLink } from '$lib/types/graph/enhanced';
 
@@ -19,7 +19,7 @@ interface RevealSequenceCallbacks {
 }
 
 /**
- * FIXED: Settlement completion trigger for phantom links
+ * UPDATED: Event-based reveal factor system with working settlement trigger
  */
 export class UniversalOpacityController {
     private config: OpacityConfig;
@@ -29,7 +29,7 @@ export class UniversalOpacityController {
     private nodeOpacityState: OpacityState = 'hidden';
     private revealStartTime: number = 0;
     
-    // CLEAN: Single source of truth for phantom links
+    // UPDATED: Single source of truth for phantom links reveal state
     private linkRenderingEnabled = false;
     
     // Animation frame management
@@ -38,7 +38,8 @@ export class UniversalOpacityController {
     constructor(callbacks: RevealSequenceCallbacks) {
         this.callbacks = callbacks;
         
-        console.log('[OpacityController] HARDCODED TEST - Link opacity controller initialized');
+        // Minimal initialization logging
+        console.log('[OpacityController] Reveal factor system initialized');
         
         // Default configuration
         this.config = {
@@ -49,60 +50,68 @@ export class UniversalOpacityController {
     }
     
     /**
-     * CLEAN: getShouldRenderLinks - single source of truth
+     * CLEAN: getShouldRenderLinks - single source of truth for phantom links
      */
     public getShouldRenderLinks(): boolean {
         return this.linkRenderingEnabled;
     }
     
     /**
-     * FIXED: onSettlementComplete - enable phantom links
+     * UPDATED: Get reveal factor for LinkRenderer to multiply with visual opacity
+     * Returns: 0 (hidden) or 1 (revealed) - LinkRenderer handles visual opacity
      */
-    public onSettlementComplete(): void {
-        console.log('[OpacityController] 🔗 FIXED - Settlement complete, enabling phantom links');
-        
-        this.linkRenderingEnabled = true;
-        
-        // Force all links in DOM to be visible
-        this.forceAllLinksVisible();
-        
-        // Verify callback exists and call it
-        if (this.callbacks.onLinkRenderingEnabled) {
-            this.callbacks.onLinkRenderingEnabled();
-        }
-        
-        console.log('[OpacityController] 🔗 FIXED - Phantom links enabled and links forced visible');
+    public getLinkRevealFactor(): number {
+        return this.linkRenderingEnabled ? 1 : 0;
     }
     
     /**
-     * HARDCODED TEST: Force all link elements in DOM to be visible
+     * UPDATED: Settlement complete - enable phantom links using working trigger mechanism
      */
-    private forceAllLinksVisible(): void {
-        if (typeof window === 'undefined' || !window.document) return;
+    public onSettlementComplete(): void {
+        console.log('[OpacityController] Settlement complete - enabling phantom links');
         
-        console.log('[OpacityController] 🔗 HARDCODED TEST - Forcing all links visible via DOM');
+        this.linkRenderingEnabled = true;
         
-        // Find all link elements in the DOM
-        const linkElements = window.document.querySelectorAll('.link, .link-path, [data-link-id]');
-        console.log(`[OpacityController] 🔗 Found ${linkElements.length} link elements`);
+        // UPDATED: Use the same working trigger mechanism from hardcoded version
+        // Instead of setting DOM opacity, dispatch event to update reveal factor
+        this.triggerLinkRevealFactorUpdate();
         
-        // Force opacity to 1 on all link elements
-        linkElements.forEach((element) => {
-            if (element instanceof HTMLElement || element instanceof SVGElement) {
-                (element as any).style.opacity = '1';
+        // Notify that links should now use reveal factor in their calculations
+        if (this.callbacks.onLinkRenderingEnabled) {
+            this.callbacks.onLinkRenderingEnabled();
+        }
+    }
+    
+    /**
+     * UPDATED: Use the working DOM-based trigger mechanism to notify LinkRenderer
+     * This uses the same timing as the hardcoded version that works
+     */
+    private triggerLinkRevealFactorUpdate(): void {
+        if (typeof window === 'undefined') return;
+        
+        console.log('[OpacityController] Dispatching phantom-links-reveal event');
+        
+        // Dispatch custom event that LinkRenderer listens for
+        const event = new CustomEvent('phantom-links-reveal', {
+            detail: {
+                revealFactor: this.getLinkRevealFactor(),
+                linkRenderingEnabled: this.linkRenderingEnabled,
+                timestamp: Date.now()
             }
         });
         
-        // Also try to find SVG path elements specifically
-        const pathElements = window.document.querySelectorAll('svg path[stroke]');
-        console.log(`[OpacityController] 🔗 Found ${pathElements.length} SVG path elements`);
+        window.dispatchEvent(event);
         
-        pathElements.forEach((element) => {
-            if (element instanceof SVGPathElement) {
-                element.style.opacity = '1';
-                element.setAttribute('opacity', '1');
+        // Also trigger any existing listeners for compatibility
+        const legacyEvent = new CustomEvent('phantom-links-state-change', {
+            detail: {
+                enabled: this.linkRenderingEnabled,
+                revealState: 'revealed',
+                linksCount: 0 // LinkRenderer will update this
             }
         });
+        
+        window.dispatchEvent(legacyEvent);
     }
     
     /**
@@ -129,20 +138,22 @@ export class UniversalOpacityController {
     }
     
     /**
-     * HARDCODED TEST: Set initial opacity for links - start with 0
+     * UPDATED: Set initial state for links - no longer sets opacity directly
+     * LinkRenderer will use getLinkRevealFactor() to calculate final opacity
      */
     public setInitialLinkOpacity(link: EnhancedLink): void {
-        // Start with 0 opacity
-        (link as any).opacity = 0;
-        
-        // Also set in metadata
-        if (link.metadata) {
-            link.metadata.opacity = 0;
+        // Don't set opacity directly - LinkRenderer will calculate it
+        // Just ensure metadata exists for LinkRenderer to use
+        if (!link.metadata) {
+            link.metadata = {};
         }
+        
+        // LinkRenderer will use getLinkRevealFactor() for timing
+        // No logging needed here - called for every link
     }
     
     /**
-     * Calculate opacity for renderable nodes
+     * Calculate opacity for renderable nodes (unchanged)
      */
     public calculateNodeOpacity(node: RenderableNode): number {
         // Check if node has D3-controlled opacity
@@ -160,26 +171,12 @@ export class UniversalOpacityController {
     }
     
     /**
-     * HARDCODED TEST: Calculate opacity for renderable links
+     * UPDATED: Links now calculate their own opacity using reveal factor
+     * This method is kept for compatibility but LinkRenderer should use getLinkRevealFactor()
      */
     public calculateLinkOpacity(link: RenderableLink): number {
-        // HARDCODED TEST: If phantom links are enabled, force opacity 1
-        if (this.linkRenderingEnabled) {
-            return 1;
-        }
-        
-        // Check if link has D3-controlled opacity
-        if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
-            return (link as any).opacity;
-        }
-        
-        // Check metadata opacity
-        if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
-            return link.metadata.opacity;
-        }
-        
-        // Default to hidden
-        return 0;
+        // UPDATED: Return reveal factor only - LinkRenderer handles visual opacity
+        return this.getLinkRevealFactor();
     }
     
     /**
@@ -263,11 +260,9 @@ export class UniversalOpacityController {
     }
     
     /**
-     * FIXED: Complete the reveal sequence and trigger settlement
+     * Complete the reveal sequence and trigger settlement
      */
     private completeRevealSequence(nodes: EnhancedNode[]): void {
-        console.log('[OpacityController] FIXED - Node reveal sequence complete, triggering settlement');
-        
         // Ensure all nodes are fully visible
         nodes.forEach(node => {
             (node as any).opacity = 1;
@@ -280,8 +275,7 @@ export class UniversalOpacityController {
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onRevealComplete();
         
-        // FIXED: Automatically trigger settlement completion for phantom links
-        console.log('[OpacityController] FIXED - Auto-triggering onSettlementComplete()');
+        // Automatically trigger settlement completion for phantom links
         this.onSettlementComplete();
     }
     
@@ -329,10 +323,10 @@ export class UniversalOpacityController {
     }
     
     /**
-     * FIXED: Force reveal all nodes immediately (for debugging)
+     * UPDATED: Force reveal all nodes immediately (for debugging)
      */
     public forceRevealAll(nodes: EnhancedNode[]): void {
-        console.log('[OpacityController] FIXED - Force revealing all nodes and triggering settlement');
+        console.log('[OpacityController] Force revealing all nodes');
         
         // Stop any ongoing animation
         if (this.animationFrameId) {
@@ -352,8 +346,7 @@ export class UniversalOpacityController {
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onRevealComplete();
         
-        // FIXED: Trigger settlement completion for phantom links
-        console.log('[OpacityController] FIXED - Force triggering onSettlementComplete()');
+        // Trigger settlement completion for phantom links
         this.onSettlementComplete();
     }
     
@@ -386,6 +379,7 @@ export class UniversalOpacityController {
         pattern: RevealPattern;
         duration: number;
         linkRenderingEnabled: boolean;
+        linkRevealFactor: number;
     } {
         const now = Date.now();
         
@@ -398,7 +392,8 @@ export class UniversalOpacityController {
             nodeProgress,
             pattern: this.config.revealPattern,
             duration: this.config.revealDuration,
-            linkRenderingEnabled: this.linkRenderingEnabled
+            linkRenderingEnabled: this.linkRenderingEnabled,
+            linkRevealFactor: this.getLinkRevealFactor() // UPDATED: Include reveal factor
         };
     }
     
@@ -430,12 +425,12 @@ export class UniversalOpacityController {
      * DEBUG: Force enable method for testing
      */
     public debugForceEnable(): void {
-        console.log('[OpacityController] 🐛 DEBUG FORCE ENABLE called');
+        console.log('[OpacityController] Debug force enable called');
         
         this.linkRenderingEnabled = true;
         
-        // HARDCODED TEST: Force all links visible
-        this.forceAllLinksVisible();
+        // UPDATED: Use event-based trigger instead of DOM manipulation
+        this.triggerLinkRevealFactorUpdate();
         
         if (this.callbacks.onLinkRenderingEnabled) {
             this.callbacks.onLinkRenderingEnabled();

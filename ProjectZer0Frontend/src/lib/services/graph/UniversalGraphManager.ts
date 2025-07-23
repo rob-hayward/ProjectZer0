@@ -94,6 +94,12 @@ export class UniversalGraphManager {
             onLinkRenderingEnabled: () => this.handleLinkRenderingEnabled() // CLEAN: Proper callback
         });
         
+        // UPDATED: Expose opacity controller to window for LinkRenderer access
+        if (typeof window !== 'undefined') {
+            (window as any).universalOpacityController = this.opacityController;
+            console.log('[UniversalGraphManager] UPDATED - OpacityController exposed to window for LinkRenderer');
+        }
+        
         // D3 Simulation with callbacks
         this.d3Simulation = new UniversalD3Simulation({
             onTick: (nodes) => this.handleSimulationTick(nodes),

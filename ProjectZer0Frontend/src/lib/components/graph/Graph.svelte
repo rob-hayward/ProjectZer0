@@ -968,18 +968,4 @@
     .debug-overlay {
         pointer-events: none;
     }
-    
-    /* DEBUG: Style for link debug text */
-    .links-debug {
-        font-family: 'Courier New', monospace;
-        font-weight: bold;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
-        pointer-events: none;
-        dominant-baseline: middle;
-    }
-    
-    /* DEBUG: Enhanced visibility for debug text */
-    .links-debug {
-        filter: drop-shadow(0 0 2px rgba(0,0,0,1));
-    }
 </style>
