@@ -39,10 +39,10 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // UPDATED: Get reveal factor from window-accessible opacity controller
+    // SIMPLIFIED: Get reveal factor from window-accessible opacity controller
     let revealFactor = 0;
     
-    // UPDATED: Use the same trigger mechanism as the working hardcoded version
+    // Simple reveal factor update
     function updateRevealFactor() {
         const oldRevealFactor = revealFactor;
         
@@ -67,7 +67,7 @@
         // Initial reveal factor
         updateRevealFactor();
         
-        // UPDATED: Listen for the same trigger event as the working version
+        // Simple event handling
         function handleRevealEvent(event: Event) {
             // Only log for first link to avoid spam
             if (linkId.endsWith('2')) {
@@ -75,14 +75,9 @@
             }
             
             updateRevealFactor();
-            
-            // Force Svelte reactivity update by reassigning
-            const currentFactor = revealFactor;
-            revealFactor = currentFactor;
         }
         
         function handleStateChangeEvent(event: Event) {
-            // Minimal logging
             updateRevealFactor();
         }
         
@@ -532,24 +527,24 @@
         transition: opacity 0.3s ease;
     }
     
-    /* FIXED: Phantom links state styling - don't override calculated opacity */
+    /* ENHANCED: Smooth phantom links transitions for beautiful fade-in */
     .phantom-hidden {
         opacity: 0;
     }
     
     .phantom-revealing {
-        /* Don't set opacity here - let the calculated value through */
-        transition: opacity 0.5s ease-out;
+        /* Smooth fade-in over 800ms */
+        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }
     
     .phantom-visible {
-        /* Don't set opacity: 1 here - let the calculated value through */
-        transition: opacity 0.3s ease-out;
+        /* Smooth fade-in over 800ms */
+        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }
     
     .phantom-link {
         /* Smooth transitions for phantom links reveal */
-        transition: opacity 0.5s ease-out;
+        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     }
     
     /* Consolidated relationship styling */
