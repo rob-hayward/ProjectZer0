@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte - CLEAN IMPLEMENTATION with NO Console Spam -->
+<!-- src/lib/components/graph/Graph.svelte - CLEAN VERSION (No unused CSS) -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -20,26 +20,20 @@
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { userStore } from '$lib/stores/userStore';
     
-    // Enable debug mode for development
     const DEBUG_MODE = false;
 
-    // Initialize visibility store as early as possible
     visibilityStore.initialize();
 
     // Props
     export let data: GraphData;
     export let viewType: ViewType;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
-    
-    // CRITICAL: Export graphStore for binding - allows parent to access single instance
     export let graphStore: GraphStore | null = null;
     
-    // These props are kept but not directly used (for backward compatibility)
     export const isPreviewMode = false;
     export const width = COORDINATE_SPACE.WORLD.WIDTH;
     export const height = COORDINATE_SPACE.WORLD.HEIGHT;
 
-    // Event dispatch for node mode changes
     const dispatch = createEventDispatcher<{
         modechange: { nodeId: string; mode: NodeMode };
         visibilitychange: { nodeId: string; isHidden: boolean };
@@ -58,65 +52,45 @@
     let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
     let zoomInstance: d3.ZoomBehavior<SVGSVGElement, unknown> | undefined;
-    let containerDimensions = {
-        width: 0,
-        height: 0
-    };
+    let containerDimensions = { width: 0, height: 0 };
     let initialized = false;
     let showDebug = false;
     
-    // Track component instance with unique ID
     let componentId = Math.random().toString(36).slice(2, 8);
     
-    // Debug info for the central node
+    // Debug info
     let centralNodePos = { x: 0, y: 0, transform: "", viewX: 0, viewY: 0 };
     let svgViewportInfo = { width: 0, height: 0, viewBox: "", preserveAspectRatio: "" };
     
-    // Data change tracking for intelligent updates
+    // Data change tracking
     let lastDataHash = '';
     let lastProcessedDataId = '';
     let isProcessingData = false;
     let dataUpdateCounter = 0;
-    
-    // Flag to track if we've already applied preferences
     let preferencesApplied = false;
 
-    // Event handlers for event-based communication
+    // Event handlers
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
 
-    // CLEAN: Phantom links controlled by opacity system
-    let shouldRenderLinks = true; // Always render, let opacity control visibility
+    // SIMPLE: Just track if this is universal view
+    let isUniversalView = false;
 
-    // CLEAN: Simple debug state tracking
-    let debugInfo: {
-        linkCount: number;
-        phantomLinksSupported: boolean;
-    } = {
-        linkCount: 0,
-        phantomLinksSupported: false
-    };
-
-    // Constants - Define viewBox to center coordinate system
+    // Constants
     const worldDimensions = {
         width: COORDINATE_SPACE.WORLD.WIDTH,
         height: COORDINATE_SPACE.WORLD.HEIGHT,
         viewBox: `${-COORDINATE_SPACE.WORLD.WIDTH/2} ${-COORDINATE_SPACE.WORLD.HEIGHT/2} ${COORDINATE_SPACE.WORLD.WIDTH} ${COORDINATE_SPACE.WORLD.HEIGHT}`
     };
 
-    // Background configuration
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // CLEAN: Simple reactive statement for phantom links
+    // SIMPLE: Just detect universal view
     $: {
-        debugInfo.linkCount = data?.links?.length || 0;
-        debugInfo.phantomLinksSupported = !!(graphStore && typeof graphStore.getShouldRenderLinks === 'function');
-        
-        // Always render links - let opacity system control visibility
-        shouldRenderLinks = true;
+        isUniversalView = viewType === 'universal';
     }
 
-    // EXPORTED METHODS FOR EXTERNAL CONTROL OF VIEWPORT
+    // EXPORTED METHODS
     
     export function getTransform(): any {
         if (!coordinateSystem) return null;
@@ -125,7 +99,7 @@
     
     export function centerViewportOnCoordinates(x: number, y: number, duration: number = 750): boolean {
         if (!svg || !zoomInstance) {
-            console.error('[STATE_DEBUG] Cannot center - svg or zoomInstance is null');
+            console.error('[Graph] Cannot center - svg or zoomInstance is null');
             return false;
         }
         
@@ -144,7 +118,7 @@
             
             return true;
         } catch (e) {
-            console.error('[STATE_DEBUG] Error centering viewport:', e);
+            console.error('[Graph] Error centering viewport:', e);
             return false;
         }
     }
@@ -179,13 +153,13 @@
     
     export function centerOnNodeById(nodeId: string, duration: number = 750): boolean {
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
-            console.error('[STATE_DEBUG] centerOnNodeById failed: graphStore is not initialized');
+            console.error('[Graph] centerOnNodeById failed: graphStore is not initialized');
             return false;
         }
         
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node || !node.position) {
-            console.error(`[STATE_DEBUG] centerOnNodeById failed: node ${nodeId} not found or has no position`);
+            console.error(`[Graph] centerOnNodeById failed: node ${nodeId} not found or has no position`);
             return false;
         }
         
@@ -323,7 +297,7 @@
     
     function centerViewportOn(x: number, y: number, zoomLevel?: number, duration: number = 750) {
         if (!svg || !zoomInstance) {
-            console.error('[STATE_DEBUG] centerViewportOn failed: svg or zoomInstance is null');
+            console.error('[Graph] centerViewportOn failed: svg or zoomInstance is null');
             return;
         }
         
@@ -341,19 +315,19 @@
                 .duration(duration)
                 .call(zoomInstance.transform, transform);
         } catch (e) {
-            console.error('[STATE_DEBUG] Error centering viewport:', e);
+            console.error('[Graph] Error centering viewport:', e);
         }
     }
 
     function centerOnNode(nodeId: string, duration: number = 750): void {
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
-            console.error('[STATE_DEBUG] centerOnNode failed: graphStore is null');
+            console.error('[Graph] centerOnNode failed: graphStore is null');
             return;
         }
         
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node || !node.position) {
-            console.error(`[STATE_DEBUG] centerOnNode failed: node ${nodeId} not found or has no position`);
+            console.error(`[Graph] centerOnNode failed: node ${nodeId} not found or has no position`);
             return;
         }
         
@@ -456,34 +430,13 @@
         resetZoom();
     }
 
-    // DEBUG: Add a function to manually check phantom links state
-    function debugCheckPhantomLinks() {
-        console.log('[Graph] 🐛 MANUAL DEBUG CHECK:');
-        console.log('- viewType:', viewType);
-        console.log('- graphStore:', !!graphStore);
-        console.log('- phantomLinksSupported:', debugInfo.phantomLinksSupported);
-        console.log('- shouldRenderLinks:', shouldRenderLinks);
-        console.log('- data.links.length:', data?.links?.length || 0);
-        console.log('- $graphStore.links.length:', $graphStore?.links?.length || 0);
-        console.log('- debugInfo:', debugInfo);
-        
-        if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
-            const result = graphStore.getShouldRenderLinks();
-            console.log('- getShouldRenderLinks() returns:', result);
-        }
-        
-        if (graphStore && typeof (graphStore as any).getRevealStatus === 'function') {
-            const revealStatus = (graphStore as any).getRevealStatus();
-            console.log('- getRevealStatus():', revealStatus);
-        }
-    }
-
     function initialize() {
         if (initialized) return;
         
-        console.log('[Graph] Initializing component:', { 
+        console.log('[Graph] SIMPLE - Initializing component:', { 
             componentId, 
             viewType,
+            isUniversalView,
             hasExistingGraphStore: !!graphStore
         });
         
@@ -509,7 +462,7 @@
         }
         
         initialized = true;
-        console.log('[Graph] Component initialized successfully');
+        console.log('[Graph] SIMPLE - Component initialized successfully');
     }
 
     function processDataUpdate(newData: GraphData, isInitialization: boolean = false) {
@@ -526,9 +479,10 @@
         isProcessingData = true;
         dataUpdateCounter++;
         
-        console.log('[Graph] Processing data update #', dataUpdateCounter, {
+        console.log('[Graph] SIMPLE - Processing data update #', dataUpdateCounter, {
             isInitialization,
             viewType,
+            isUniversalView,
             nodeCount: newData.nodes?.length || 0,
             linkCount: newData.links?.length || 0
         });
@@ -591,7 +545,7 @@
 
     // Lifecycle hooks
     onMount(() => {
-        console.log('[Graph] Component mounting with view type:', viewType);
+        console.log('[Graph] SIMPLE - Component mounting with view type:', viewType, 'isUniversal:', isUniversalView);
         initialize();
         
         if (typeof window !== 'undefined') {
@@ -649,7 +603,7 @@
     });
 
     onDestroy(() => {
-        console.log('[Graph] Component destroying');
+        console.log('[Graph] SIMPLE - Component destroying');
         
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateContainerDimensions);
@@ -697,7 +651,7 @@
     }
     
     $: if (initialized && graphStore && data && isGenuineDataChange(data)) {
-        console.log('[Graph] Reactive data change detected');
+        console.log('[Graph] SIMPLE - Reactive data change detected');
         processDataUpdate(data, false);
     }
     
@@ -706,7 +660,12 @@
     }
 </script>
 
-<div bind:this={container} class="graph-container">
+<!-- SIMPLE: Clean container without unused CSS -->
+<div 
+    bind:this={container} 
+    class="graph-container"
+    class:universal-graph={isUniversalView}
+>
     <svg 
         bind:this={svg}
         width="100%"
@@ -744,10 +703,9 @@
                     </g>
                     {/if}
 
-                    <!-- CLEAN: Always render links - opacity controls visibility -->
+                    <!-- SIMPLE: Links without complex CSS -->
                     <g class="links-layer">
                         {#if $graphStore && $graphStore.links && $graphStore.links.length > 0}
-                            <!-- Render all links with phantom links opacity control -->
                             {#each $graphStore.links as link (link.id)}
                                 <LinkRenderer {link} />
                                 {#if showDebug}
@@ -812,11 +770,15 @@
                             </text>
                             
                             <text x="10" y="70" fill="white" font-size="12">
-                                Phantom Links: {debugInfo.phantomLinksSupported ? 'ENABLED' : 'DISABLED'} | Count: {$graphStore?.links?.length || 0}
+                                View: {isUniversalView ? 'Universal' : 'Standard'}
                             </text>
                             
                             <text x="10" y="90" fill="white" font-size="12">
-                                Links always render - opacity controls visibility
+                                Links: {$graphStore?.links?.length || 0}
+                            </text>
+                            
+                            <text x="10" y="110" fill="white" font-size="12">
+                                SIMPLE: Direct opacity calculations
                             </text>
                         </g>
                     {/if}
@@ -848,16 +810,6 @@
                 <span class="material-symbols-outlined">{showDebug ? 'bug_off' : 'bug_on'}</span>
             </button>
         {/if}
-        
-        <!-- DEBUG: Manual phantom links check button -->
-        <button
-            class="control-button debug-phantom-button"
-            on:click={debugCheckPhantomLinks}
-            aria-label="Debug phantom links"
-            title="Check phantom links state"
-        >
-            <span class="material-symbols-outlined">link</span>
-        </button>
     </div>
 </div>
 
@@ -954,18 +906,52 @@
         font-size: 1.5rem;
     }
 
-    /* DEBUG: Special styling for phantom links debug button */
-    .debug-phantom-button {
-        background-color: rgba(0, 255, 255, 0.2);
-        border-color: rgba(0, 255, 255, 0.5);
-    }
-
-    .debug-phantom-button:hover {
-        background-color: rgba(0, 255, 255, 0.3);
-        border-color: rgba(0, 255, 255, 0.7);
-    }
-
     .debug-overlay {
         pointer-events: none;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .controls {
+            bottom: 0.5rem;
+            right: 0.5rem;
+            gap: 0.25rem;
+        }
+        
+        .control-button {
+            width: 2rem;
+            height: 2rem;
+        }
+        
+        .control-button :global(.material-symbols-outlined) {
+            font-size: 1.25rem;
+        }
+    }
+
+    /* High contrast mode support */
+    @media (prefers-contrast: high) {
+        .control-button {
+            background-color: rgba(0, 0, 0, 0.8);
+            border-color: rgba(255, 255, 255, 0.8);
+        }
+    }
+
+    /* Reduced motion support */
+    @media (prefers-reduced-motion: reduce) {
+        .control-button {
+            transition: none;
+        }
+    }
+
+    /* Print styles */
+    @media print {
+        .controls {
+            display: none;
+        }
+        
+        .graph-container {
+            height: 100%;
+            background: white;
+        }
     }
 </style>

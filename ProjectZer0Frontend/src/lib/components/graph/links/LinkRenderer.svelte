@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - UPDATED: Event-based reveal factor -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - CSS Custom Properties Implementation -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -7,6 +7,7 @@
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     
     export let link: RenderableLink;
+    export let viewType: string = 'standard'; // NEW: Pass viewType from parent
     
     // Create unique IDs for this link
     const linkId = `link-${Math.random().toString(36).slice(2, 9)}`;
@@ -39,100 +40,29 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // SIMPLIFIED: Get reveal factor from window-accessible opacity controller
-    let revealFactor = 0;
-    
-    // Simple reveal factor update
-    function updateRevealFactor() {
-        const oldRevealFactor = revealFactor;
-        
-        if (typeof window !== 'undefined' && (window as any).universalOpacityController) {
-            const newRevealFactor = (window as any).universalOpacityController.getLinkRevealFactor();
-            if (newRevealFactor !== revealFactor) {
-                revealFactor = newRevealFactor;
-                // Only log on actual changes and for first few links
-                if (linkId.endsWith('2')) {
-                    console.log(`[LinkRenderer] Sample link reveal factor: ${oldRevealFactor} → ${revealFactor}`);
-                }
-            }
-        } else {
-            // Fallback to visible for non-universal views
-            if (revealFactor !== 1) {
-                revealFactor = 1;
-            }
-        }
-    }
-    
-    onMount(() => {
-        // Initial reveal factor
-        updateRevealFactor();
-        
-        // Simple event handling
-        function handleRevealEvent(event: Event) {
-            // Only log for first link to avoid spam
-            if (linkId.endsWith('2')) {
-                console.log(`[LinkRenderer] Sample link received phantom-links-reveal event`);
-            }
-            
-            updateRevealFactor();
-        }
-        
-        function handleStateChangeEvent(event: Event) {
-            updateRevealFactor();
-        }
-        
-        if (typeof window !== 'undefined') {
-            // Listen for the new specific reveal event
-            window.addEventListener('phantom-links-reveal', handleRevealEvent);
-            
-            // Keep legacy listener for compatibility
-            window.addEventListener('phantom-links-state-change', handleStateChangeEvent);
-            
-            // Also listen for force updates from the manager
-            window.addEventListener('force-link-update', handleStateChangeEvent);
-        }
-        
-        return () => {
-            if (typeof window !== 'undefined') {
-                window.removeEventListener('phantom-links-reveal', handleRevealEvent);
-                window.removeEventListener('phantom-links-state-change', handleStateChangeEvent);
-                window.removeEventListener('force-link-update', handleStateChangeEvent);
-            }
-        };
-    });
-    
-    // UPDATED: Calculate final opacity using reveal factor × visual opacity
-    $: linkOpacity = (() => {
-        // FIXED: Use the sophisticated gradient opacity calculation instead of visualProps.opacity
-        let visualOpacity: number;
-        
+    // UPDATED: Calculate sophisticated visual opacity (same logic as before)
+    $: calculatedVisualOpacity = (() => {
         // Check if link has existing opacity properties (for compatibility)
         if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
-            visualOpacity = (link as any).opacity;
+            return (link as any).opacity;
         } else if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
-            visualOpacity = link.metadata.opacity;
+            return link.metadata.opacity;
         } else {
-            // FIXED: Use the sophisticated gradient opacity calculation (this has the real logic!)
-            // Take the average of start and end gradient opacity for the main link opacity
+            // Use the sophisticated gradient opacity calculation
             const startOpacity = getGradientOpacity('start');
             const endOpacity = getGradientOpacity('end');
-            visualOpacity = (startOpacity + endOpacity) / 2;
+            return (startOpacity + endOpacity) / 2;
         }
-        
-        // UPDATED: Apply reveal factor - this is where the magic happens!
-        const finalOpacity = revealFactor * visualOpacity;
-        
-        // MINIMAL DEBUG: Only log one sample link when reveal factor changes
-        if (linkId.endsWith('2') && revealFactor > 0) {
-            console.log(`[LinkRenderer] Sample: reveal=${revealFactor}, visual=${visualOpacity.toFixed(2)}, final=${finalOpacity.toFixed(2)}, type=${link.type}`);
-        }
-        
-        return finalOpacity;
     })();
     
-    // Use calculated link opacity for all visual properties
+    // NEW: CSS approach for universal view vs traditional approach for other views
+    $: linkOpacity = viewType === 'universal' 
+        ? 1 // CSS will handle opacity via custom properties and classes
+        : calculatedVisualOpacity; // Traditional immediate opacity for other views
+    
+    // Use calculated properties for visual styling
     $: strokeWidth = visualProps.strokeWidth;
-    $: strokeOpacity = linkOpacity; // FIXED: Use our calculated linkOpacity directly
+    $: strokeOpacity = linkOpacity;
     $: glowOpacity = linkOpacity * 0.7;
     $: dashArray = visualProps.dashArray;
     $: glowIntensity = visualProps.glowIntensity;
@@ -306,8 +236,7 @@
      * Get gradient opacity based on link type and consolidation
      */
     function getGradientOpacity(position: 'start' | 'end'): number {
-        // FIXED: Use linkOpacity as base instead of strokeOpacity to avoid circular reference
-        const baseOpacity = 1.0; // Use 1.0 as base, we'll multiply by reveal factor later
+        const baseOpacity = 1.0; // Use 1.0 as base for calculations
         
         // For consolidated relationships, boost opacity
         if (isConsolidated) {
@@ -398,9 +327,7 @@
         class:strong-consolidation={relationshipCount >= 5}
         class:medium-consolidation={relationshipCount >= 3 && relationshipCount < 5}
         class:light-consolidation={relationshipCount >= 2 && relationshipCount < 3}
-        class:phantom-hidden={linkOpacity === 0}
-        class:phantom-revealing={linkOpacity > 0 && linkOpacity < 1}
-        class:phantom-visible={linkOpacity === 1}
+        class:phantom-link={viewType === 'universal'}
         data-link-id={linkId}
         data-source-id={link.sourceId}
         data-target-id={link.targetId}
@@ -408,9 +335,8 @@
         data-relation-count={relationshipCount}
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
-        data-link-opacity={linkOpacity.toFixed(3)}
-        data-reveal-factor={revealFactor.toFixed(3)}
-        data-visual-opacity={visualProps.opacity.toFixed(3)}
+        data-view-type={viewType}
+        style="--link-opacity: {calculatedVisualOpacity}; --glow-opacity: {calculatedVisualOpacity * 0.7}"
     >
         <defs>
             <!-- Gradient definition with consolidated relationship support -->
@@ -466,21 +392,19 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- UPDATED: Main link path with reveal factor × visual opacity -->
+        <!-- UPDATED: Main link path with CSS custom properties and staggered reveal -->
         <path
             d={link.path}
             stroke={`url(#${gradientId})`}
             class="link-path"
             class:consolidated-link={isConsolidated}
             class:dashed-link={dashArray !== 'none'}
-            class:phantom-link={true}
             stroke-width={strokeWidth}
             stroke-linecap="round"
             stroke-dasharray={dashArray}
             opacity={strokeOpacity}
             vector-effect="non-scaling-stroke"
-            data-debug-calculated-opacity={linkOpacity.toFixed(3)}
-            data-debug-stroke-opacity={strokeOpacity.toFixed(3)}
+            style="--reveal-delay: {Math.random() * 1.5}s"
         />
         
         <!-- Consolidation indicator overlay for multi-keyword relationships -->
@@ -506,7 +430,6 @@
 <style>
     .link {
         pointer-events: none;
-        transition: opacity 0.3s ease;
     }
 
     .link-path {
@@ -515,7 +438,6 @@
         stroke-opacity: 1;
         stroke-linecap: round;
         stroke-linejoin: round;
-        transition: opacity 0.3s ease;
     }
 
     .link-glow {
@@ -524,27 +446,35 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         vector-effect: non-scaling-stroke;
-        transition: opacity 0.3s ease;
     }
     
-    /* ENHANCED: Smooth phantom links transitions for beautiful fade-in */
-    .phantom-hidden {
-        opacity: 0;
-    }
-    
-    .phantom-revealing {
-        /* Smooth fade-in over 800ms */
-        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    }
-    
-    .phantom-visible {
-        /* Smooth fade-in over 800ms */
-        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    }
-    
+    /* UPDATED: CSS-driven phantom links with better staggered reveal */
     .phantom-link {
-        /* Smooth transitions for phantom links reveal */
-        transition: opacity 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        /* Initial state - hidden */
+        opacity: 0;
+        
+        /* Smooth reveal transition with individual delays */
+        transition: opacity 1.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        transition-delay: var(--reveal-delay, 0s);
+        
+        /* GPU acceleration for smooth performance */
+        will-change: opacity;
+    }
+    
+    /* When parent has 'revealed' class, show links with calculated opacity */
+    :global(.universal-graph.revealed) .phantom-link {
+        opacity: var(--link-opacity, 1);
+    }
+    
+    /* Glow follows same timing */
+    .phantom-link .link-glow {
+        transition: opacity 1.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        transition-delay: var(--reveal-delay, 0s);
+        will-change: opacity;
+    }
+    
+    :global(.universal-graph.revealed) .phantom-link .link-glow {
+        opacity: var(--glow-opacity, 0.7);
     }
     
     /* Consolidated relationship styling */
