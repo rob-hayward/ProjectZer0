@@ -106,6 +106,9 @@ export class UniversalGraphManager {
             (window as any).universalOpacityController = this.opacityController;
             console.log('[UniversalGraphManager] ENHANCED - OpacityController exposed to window');
         }
+
+        // Configure default link reveal for smooth transitions
+        this.opacityController.configureLinkReveal(4000, 'staggered', 3000, 500);
         
         // D3 Simulation with callbacks
         this.d3Simulation = new UniversalD3Simulation({
@@ -531,6 +534,24 @@ export class UniversalGraphManager {
         
         this.linkOpacityStore.set(new Map(linkOpacities));
         this.forceUpdateCounter.update(n => n + 1);
+    }
+
+    /**
+     * Configure link reveal timing for smoother transitions
+     */
+    public configureLinkReveal(
+        duration: number = 4000,
+        pattern: 'staggered' | 'wave' | 'radial' | 'strength-based' = 'staggered',
+        staggerDuration: number = 3000,
+        delay: number = 500
+    ): void {
+        this.opacityController.configureLinkReveal(duration, pattern, staggerDuration, delay);
+        console.log(`[UniversalGraphManager] Link reveal configured:`, {
+            duration,
+            pattern,
+            staggerDuration,
+            delay
+        });
     }
 
     /**

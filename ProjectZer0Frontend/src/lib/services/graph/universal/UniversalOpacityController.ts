@@ -1,16 +1,22 @@
 // src/lib/services/graph/universal/UniversalOpacityController.ts
-// FIXED: Preserve sophisticated opacity calculations while managing reveal timing
+// ENHANCED: Smooth progressive link reveal with configurable timing
 
 import type { EnhancedNode, EnhancedLink, RenderableNode, RenderableLink } from '$lib/types/graph/enhanced';
 import { ConsolidatedRelationshipUtils } from '$lib/types/graph/enhanced';
 
 export type OpacityState = 'hidden' | 'revealing' | 'revealed';
 export type RevealPattern = 'center-out' | 'vote-ranking' | 'spiral-sequence';
+export type LinkRevealPattern = 'staggered' | 'wave' | 'radial' | 'strength-based';
 
 interface OpacityConfig {
     revealDuration: number;
     revealPattern: RevealPattern;
     nodeRevealDelay: number;
+    // NEW: Link reveal configuration
+    linkRevealDuration: number;
+    linkRevealPattern: LinkRevealPattern;
+    linkRevealDelay: number; // Delay after nodes before links start
+    linkStaggerDuration: number; // Total time to stagger all links
 }
 
 interface RevealSequenceCallbacks {
@@ -21,7 +27,7 @@ interface RevealSequenceCallbacks {
 }
 
 /**
- * FIXED: Preserve sophisticated opacity calculations while managing reveal timing
+ * ENHANCED: Smooth progressive link reveal with sophisticated timing
  */
 export class UniversalOpacityController {
     private config: OpacityConfig;
@@ -29,49 +35,118 @@ export class UniversalOpacityController {
     
     // State management
     private nodeOpacityState: OpacityState = 'hidden';
+    private linkOpacityState: OpacityState = 'hidden';
     private revealStartTime: number = 0;
+    private linkRevealStartTime: number = 0;
     
-    // FIXED: Single source of truth for phantom links reveal state
+    // Single source of truth for phantom links reveal state
     private linkRenderingEnabled = false;
     
-    // FIXED: Enhanced link opacity cache for sophisticated calculations
+    // Enhanced link opacity cache for sophisticated calculations
     private linkOpacityCache = new Map<string, number>();
-    private visualOpacityCache = new Map<string, number>(); // NEW: Cache visual calculations
+    private visualOpacityCache = new Map<string, number>();
+    private linkRevealProgress = new Map<string, number>(); // NEW: Track individual link progress
     private currentLinks: RenderableLink[] = [];
     
     // Animation frame management
     private animationFrameId: number | null = null;
+    private linkAnimationFrameId: number | null = null;
     
     constructor(callbacks: RevealSequenceCallbacks) {
         this.callbacks = callbacks;
         
-        console.log('[OpacityController] FIXED - Sophisticated opacity + reveal timing');
+        console.log('[OpacityController] ENHANCED - Smooth progressive link reveal');
         
-        // Default configuration
+        // Enhanced default configuration with link timing
         this.config = {
             revealDuration: 2000,
             revealPattern: 'center-out',
-            nodeRevealDelay: 0
+            nodeRevealDelay: 0,
+            // NEW: Link reveal settings
+            linkRevealDuration: 4000, // 4 seconds for full link reveal
+            linkRevealPattern: 'staggered',
+            linkRevealDelay: 500, // Start links 500ms after nodes complete
+            linkStaggerDuration: 3000 // Stagger links over 3 seconds
         };
     }
     
     /**
-     * FIXED: Register links and calculate sophisticated visual opacities
+     * Register links and calculate sophisticated visual opacities
      */
     public registerLinks(links: RenderableLink[]): void {
         this.currentLinks = links;
         
-        // FIXED: Pre-calculate and cache sophisticated visual opacities
+        // Pre-calculate and cache sophisticated visual opacities
         this.precalculateVisualOpacities(links);
+        
+        // Initialize reveal progress for each link
+        this.initializeLinkRevealProgress(links);
         
         // Calculate initial opacity for all links
         this.updateAllLinkOpacities();
         
-        console.log(`[OpacityController] FIXED - Registered ${links.length} links with sophisticated opacity`);
+        console.log(`[OpacityController] Registered ${links.length} links for smooth reveal`);
     }
     
     /**
-     * FIXED: Pre-calculate sophisticated visual opacities for all links
+     * NEW: Initialize reveal progress tracking for smooth transitions
+     */
+    private initializeLinkRevealProgress(links: RenderableLink[]): void {
+        this.linkRevealProgress.clear();
+        
+        // Calculate reveal order based on pattern
+        const sortedLinks = this.getSortedLinksForReveal(links);
+        
+        sortedLinks.forEach((link, index) => {
+            // Each link gets a progress value that determines when it starts revealing
+            const startProgress = index / links.length;
+            this.linkRevealProgress.set(link.id, startProgress);
+        });
+    }
+    
+    /**
+     * NEW: Sort links based on reveal pattern
+     */
+    private getSortedLinksForReveal(links: RenderableLink[]): RenderableLink[] {
+        const linksWithMetrics = links.map(link => {
+            let sortValue: number;
+            
+            switch (this.config.linkRevealPattern) {
+                case 'radial':
+                    // Sort by distance from center
+                    const avgX = (link.sourcePosition.x + link.targetPosition.x) / 2;
+                    const avgY = (link.sourcePosition.y + link.targetPosition.y) / 2;
+                    sortValue = Math.sqrt(avgX * avgX + avgY * avgY);
+                    break;
+                    
+                case 'strength-based':
+                    // Stronger links reveal first
+                    const effectiveStrength = ConsolidatedRelationshipUtils.getEffectiveStrength(link);
+                    sortValue = -effectiveStrength; // Negative for descending order
+                    break;
+                    
+                case 'wave':
+                    // Left to right wave
+                    sortValue = (link.sourcePosition.x + link.targetPosition.x) / 2;
+                    break;
+                    
+                case 'staggered':
+                default:
+                    // Random stagger for organic feel
+                    sortValue = Math.random();
+                    break;
+            }
+            
+            return { link, sortValue };
+        });
+        
+        return linksWithMetrics
+            .sort((a, b) => a.sortValue - b.sortValue)
+            .map(item => item.link);
+    }
+    
+    /**
+     * Pre-calculate sophisticated visual opacities for all links
      */
     private precalculateVisualOpacities(links: RenderableLink[]): void {
         this.visualOpacityCache.clear();
@@ -79,28 +154,13 @@ export class UniversalOpacityController {
         links.forEach(link => {
             const visualOpacity = this.calculateSophisticatedVisualOpacity(link);
             this.visualOpacityCache.set(link.id, visualOpacity);
-            
-            // DEBUG: Log first few links to verify sophisticated calculations
-            if (this.visualOpacityCache.size <= 3) {
-                const isConsolidated = ConsolidatedRelationshipUtils.isConsolidated(link);
-                const relationshipCount = ConsolidatedRelationshipUtils.getRelationshipCount(link);
-                const effectiveStrength = ConsolidatedRelationshipUtils.getEffectiveStrength(link);
-                
-                console.log(`[OpacityController] FIXED - Link ${link.id.substring(0, 8)}:`, {
-                    type: link.type,
-                    visualOpacity: visualOpacity.toFixed(3),
-                    isConsolidated,
-                    relationshipCount,
-                    effectiveStrength: effectiveStrength.toFixed(2)
-                });
-            }
         });
         
-        console.log(`[OpacityController] FIXED - Pre-calculated visual opacities for ${links.length} links`);
+        console.log(`[OpacityController] Pre-calculated visual opacities for ${links.length} links`);
     }
     
     /**
-     * FIXED: Calculate sophisticated visual opacity (preserves all existing logic)
+     * Calculate sophisticated visual opacity (preserves all existing logic)
      */
     private calculateSophisticatedVisualOpacity(link: RenderableLink): number {
         // Use existing ConsolidatedRelationshipUtils for all sophisticated calculations
@@ -112,9 +172,8 @@ export class UniversalOpacityController {
         // Start with base visual properties opacity
         let baseOpacity = visualProps.opacity;
         
-        // PRESERVED: All sophisticated opacity logic from original LinkRenderer
+        // All sophisticated opacity logic from original LinkRenderer
         if (link.type === 'shared_keyword') {
-            // Shared keyword links - opacity based on strength and consolidation
             const strengthBonus = effectiveStrength * 0.3;
             const consolidationBonus = isConsolidated ? 0.1 : 0;
             baseOpacity = Math.min(0.9, 0.6 + strengthBonus + consolidationBonus);
@@ -127,46 +186,38 @@ export class UniversalOpacityController {
         } else if (link.type === 'comment-form' || link.type === 'reply-form') {
             baseOpacity = 0.7;
         } else if (link.type === 'related') {
-            // Statement relation opacity based on relationship count
             baseOpacity = Math.min(0.9, 0.5 + (relationshipCount - 1) * 0.1);
         }
         
-        // PRESERVED: Consolidation boost for multi-relationship links
+        // Consolidation boost for multi-relationship links
         if (isConsolidated && relationshipCount >= 3) {
             const consolidationBonus = Math.min(0.2, (relationshipCount - 1) * 0.02);
             baseOpacity = Math.min(0.95, baseOpacity + consolidationBonus);
         }
         
-        // PRESERVED: Strength-based adjustments for consolidated relationships
+        // Strength-based adjustments for consolidated relationships
         if (isConsolidated) {
-            const strengthMultiplier = 0.8 + (effectiveStrength * 0.2); // Range: 0.8 to 1.0
+            const strengthMultiplier = 0.8 + (effectiveStrength * 0.2);
             baseOpacity = baseOpacity * strengthMultiplier;
         }
         
-        return Math.max(0.1, Math.min(1.0, baseOpacity)); // Clamp to valid range
+        return Math.max(0.1, Math.min(1.0, baseOpacity));
     }
     
     /**
-     * FIXED: Calculate final opacity preserving sophisticated calculations
+     * ENHANCED: Calculate final opacity with smooth progressive reveal
      */
     public calculateFinalLinkOpacity(link: RenderableLink): number {
-        // Check cache first for performance
-        const cached = this.linkOpacityCache.get(link.id);
-        if (cached !== undefined) {
-            return cached;
-        }
-        
-        // FIXED: Get sophisticated visual opacity from cache
+        // Get sophisticated visual opacity from cache
         let visualOpacity = this.visualOpacityCache.get(link.id);
         
-        // Fallback: calculate if not cached
         if (visualOpacity === undefined) {
             visualOpacity = this.calculateSophisticatedVisualOpacity(link);
             this.visualOpacityCache.set(link.id, visualOpacity);
         }
         
-        // FIXED: Apply reveal factor to sophisticated opacity (not override it)
-        const revealFactor = this.getLinkRevealFactor();
+        // ENHANCED: Apply smooth reveal factor based on individual link progress
+        const revealFactor = this.getLinkRevealFactorForLink(link.id);
         const finalOpacity = revealFactor * visualOpacity;
         
         // Cache the result
@@ -176,15 +227,55 @@ export class UniversalOpacityController {
     }
     
     /**
-     * FIXED: Update all link opacities preserving sophisticated calculations
+     * NEW: Get reveal factor for individual link with smooth easing
+     */
+    private getLinkRevealFactorForLink(linkId: string): number {
+        if (!this.linkRenderingEnabled) return 0;
+        
+        if (this.linkOpacityState === 'hidden') return 0;
+        if (this.linkOpacityState === 'revealed') return 1;
+        
+        // During reveal phase, calculate smooth progress
+        const now = Date.now();
+        const elapsed = now - this.linkRevealStartTime;
+        const totalRevealTime = this.config.linkRevealDuration;
+        
+        // Global progress (0-1)
+        const globalProgress = Math.min(1, elapsed / totalRevealTime);
+        
+        // Get this link's start time in the sequence
+        const linkStartProgress = this.linkRevealProgress.get(linkId) || 0;
+        
+        // Calculate when this link should start and end revealing
+        const staggerRatio = this.config.linkStaggerDuration / totalRevealTime;
+        const linkRevealDuration = 1 - staggerRatio; // Time for individual link to reveal
+        
+        // This link's progress window
+        const linkStart = linkStartProgress * staggerRatio;
+        const linkEnd = linkStart + linkRevealDuration;
+        
+        // Calculate this link's individual progress
+        let linkProgress = 0;
+        if (globalProgress >= linkEnd) {
+            linkProgress = 1;
+        } else if (globalProgress > linkStart) {
+            linkProgress = (globalProgress - linkStart) / linkRevealDuration;
+        }
+        
+        // Apply smooth easing for organic feel
+        return this.easeInOutCubic(linkProgress);
+    }
+    
+    /**
+     * Update all link opacities with smooth progressive reveal
      */
     private updateAllLinkOpacities(): void {
         if (this.currentLinks.length === 0) return;
         
-        // Clear final opacity cache to force recalculation with current reveal state
+        // Clear final opacity cache to force recalculation
         this.linkOpacityCache.clear();
         
-        // Calculate new final opacities (sophisticated visual × reveal factor)
+        // Calculate new final opacities
         const linkOpacities = new Map<string, number>();
         
         this.currentLinks.forEach(link => {
@@ -192,118 +283,110 @@ export class UniversalOpacityController {
             linkOpacities.set(link.id, finalOpacity);
         });
         
-        // DEBUG: Log sample final opacities to verify sophisticated calculations are preserved
-        let sampleCount = 0;
-        linkOpacities.forEach((opacity, linkId) => {
-            if (sampleCount < 3) {
-                const visualOpacity = this.visualOpacityCache.get(linkId) || 1;
-                const revealFactor = this.getLinkRevealFactor();
-                console.log(`[OpacityController] FIXED - Final opacity for ${linkId.substring(0, 8)}:`, {
-                    visual: visualOpacity.toFixed(3),
-                    reveal: revealFactor.toFixed(3),
-                    final: opacity.toFixed(3)
-                });
-                sampleCount++;
-            }
-        });
-        
-        // Notify subscribers (UniversalGraphManager)
+        // Notify subscribers
         this.callbacks.onLinkOpacityUpdate(linkOpacities);
         
-        // Update CSS custom properties for immediate visual effect
+        // Update CSS custom properties
         this.updateCSSCustomProperties(linkOpacities);
     }
     
     /**
-     * FIXED: Update CSS custom properties with staggered timing for smooth reveal
+     * ENHANCED: Smoother CSS updates without staggering (handled by reveal logic)
      */
     private updateCSSCustomProperties(linkOpacities: Map<string, number>): void {
         if (typeof document === 'undefined') return;
         
         const root = document.documentElement;
         
-        if (this.linkRenderingEnabled) {
-            // FIXED: Staggered reveal for smooth transition
-            let delay = 0;
-            const staggerDelay = 20; // 20ms between each link
-            
-            linkOpacities.forEach((opacity, linkId) => {
-                setTimeout(() => {
-                    root.style.setProperty(`--link-${linkId}-opacity`, opacity.toString());
-                }, delay);
-                delay += staggerDelay;
-            });
-            
-            console.log(`[OpacityController] FIXED - Staggered CSS update for ${linkOpacities.size} links over ${delay}ms`);
-        } else {
-            // Immediate update when hiding
-            linkOpacities.forEach((opacity, linkId) => {
-                root.style.setProperty(`--link-${linkId}-opacity`, opacity.toString());
-            });
-        }
+        // Update all CSS properties immediately - smoothness comes from the values
+        linkOpacities.forEach((opacity, linkId) => {
+            root.style.setProperty(`--link-${linkId}-opacity`, opacity.toString());
+        });
     }
     
     /**
-     * CLEAN: getShouldRenderLinks - single source of truth for phantom links
+     * Get whether links should be rendered
      */
     public getShouldRenderLinks(): boolean {
         return this.linkRenderingEnabled;
     }
     
     /**
-     * FIXED: Get reveal factor for LinkRenderer compatibility
+     * Get reveal factor for LinkRenderer compatibility
      */
     public getLinkRevealFactor(): number {
         return this.linkRenderingEnabled ? 1 : 0;
     }
     
     /**
-     * FIXED: Settlement complete with smooth reveal timing
+     * ENHANCED: Settlement complete with smooth progressive reveal
      */
     public onSettlementComplete(): void {
-        console.log('[OpacityController] FIXED - Settlement complete, enabling sophisticated phantom links');
+        console.log('[OpacityController] Settlement complete, starting smooth link reveal');
         
         this.linkRenderingEnabled = true;
+        this.linkOpacityState = 'revealing';
+        this.linkRevealStartTime = Date.now() + this.config.linkRevealDelay;
         
-        // FIXED: Smooth reveal sequence instead of immediate update
-        this.triggerSmoothReveal();
-    }
-    
-    /**
-     * FIXED: Trigger smooth reveal sequence with proper timing
-     */
-    private triggerSmoothReveal(): void {
-        // Step 1: Update container state first
+        // Start the smooth reveal sequence
+        this.startLinkRevealAnimation();
+        
+        // Update container state
         this.triggerContainerStateChange();
         
-        // Step 2: Update all link opacities with staggering after slight delay
-        setTimeout(() => {
-            this.updateAllLinkOpacities();
-        }, 100); // Small delay allows CSS transition to initialize
-        
-        // Step 3: Notify callbacks after reveal starts
-        setTimeout(() => {
-            if (this.callbacks.onLinkRenderingEnabled) {
-                this.callbacks.onLinkRenderingEnabled();
-            }
-        }, 200);
+        // Notify callbacks
+        if (this.callbacks.onLinkRenderingEnabled) {
+            this.callbacks.onLinkRenderingEnabled();
+        }
     }
     
     /**
-     * FIXED: Trigger container-level CSS state change with better timing
+     * NEW: Start smooth link reveal animation
+     */
+    private startLinkRevealAnimation(): void {
+        const animate = () => {
+            const now = Date.now();
+            
+            // Wait for delay before starting
+            if (now < this.linkRevealStartTime) {
+                this.linkAnimationFrameId = requestAnimationFrame(animate);
+                return;
+            }
+            
+            // Update all link opacities
+            this.updateAllLinkOpacities();
+            
+            // Check if reveal is complete
+            const elapsed = now - this.linkRevealStartTime;
+            if (elapsed >= this.config.linkRevealDuration) {
+                this.linkOpacityState = 'revealed';
+                this.linkAnimationFrameId = null;
+                console.log('[OpacityController] Link reveal animation complete');
+                
+                // Final update to ensure all links are at full opacity
+                this.updateAllLinkOpacities();
+                return;
+            }
+            
+            // Continue animation
+            this.linkAnimationFrameId = requestAnimationFrame(animate);
+        };
+        
+        // Start the animation
+        this.linkAnimationFrameId = requestAnimationFrame(animate);
+    }
+    
+    /**
+     * Trigger container-level CSS state change
      */
     private triggerContainerStateChange(): void {
         if (typeof window === 'undefined') return;
         
-        console.log('[OpacityController] FIXED - Triggering smooth container state change');
+        console.log('[OpacityController] Triggering container state change for smooth reveal');
         
-        // Find universal graph container and update class
         const container = document.querySelector('.universal-graph');
         if (container) {
-            // Add a slight delay to ensure smooth transition
             container.classList.remove('revealing');
-            
-            // Use requestAnimationFrame for smooth CSS transition
             requestAnimationFrame(() => {
                 container.classList.add('revealed');
             });
@@ -320,11 +403,10 @@ export class UniversalOpacityController {
         
         window.dispatchEvent(event);
         
-        // Legacy compatibility event
         const legacyEvent = new CustomEvent('phantom-links-state-change', {
             detail: {
                 enabled: this.linkRenderingEnabled,
-                revealState: 'revealed',
+                revealState: 'revealing',
                 linksCount: this.currentLinks.length
             }
         });
@@ -332,14 +414,31 @@ export class UniversalOpacityController {
         window.dispatchEvent(legacyEvent);
     }
     
-    // ... (Keep all existing node opacity methods unchanged)
-    
     /**
      * Configure opacity behavior
      */
     public configure(config: Partial<OpacityConfig>): void {
         this.config = { ...this.config, ...config };
     }
+    
+    /**
+     * Configure link reveal timing specifically
+     */
+    public configureLinkReveal(duration: number, pattern: LinkRevealPattern, staggerDuration: number, delay: number = 500): void {
+        this.config.linkRevealDuration = Math.max(1000, Math.min(10000, duration));
+        this.config.linkRevealPattern = pattern;
+        this.config.linkStaggerDuration = Math.max(500, Math.min(5000, staggerDuration));
+        this.config.linkRevealDelay = Math.max(0, Math.min(2000, delay));
+        
+        console.log('[OpacityController] Link reveal configured:', {
+            duration: this.config.linkRevealDuration,
+            pattern: this.config.linkRevealPattern,
+            stagger: this.config.linkStaggerDuration,
+            delay: this.config.linkRevealDelay
+        });
+    }
+    
+    // ... (Keep all existing node opacity methods unchanged)
     
     /**
      * Set initial opacity for nodes during creation
@@ -358,44 +457,35 @@ export class UniversalOpacityController {
     }
     
     /**
-     * FIXED: Set initial state for links - preserves sophisticated calculations
+     * Set initial state for links
      */
     public setInitialLinkOpacity(link: EnhancedLink): void {
-        // Ensure metadata exists
         if (!link.metadata) {
             link.metadata = {};
         }
-        
-        // Note: Sophisticated opacity calculation happens in calculateFinalLinkOpacity
-        // This method is kept for interface compatibility
     }
     
     /**
-     * Calculate opacity for renderable nodes (unchanged)
+     * Calculate opacity for renderable nodes
      */
     public calculateNodeOpacity(node: RenderableNode): number {
-        // Check if node has D3-controlled opacity
         if ((node as any).opacity !== undefined && (node as any).opacity !== null) {
             return (node as any).opacity;
         }
         
-        // For hidden nodes, let HiddenNode component handle its own display
         if (node.isHidden) {
             return 1;
         }
         
-        // Default to fully visible
         return 1;
     }
     
     /**
-     * FIXED: Calculate link opacity - now preserves sophisticated calculations
+     * Calculate link opacity
      */
     public calculateLinkOpacity(link: RenderableLink): number {
         return this.calculateFinalLinkOpacity(link);
     }
-    
-    // ... (Keep all existing node reveal methods unchanged)
     
     /**
      * Start the reveal sequence for nodes only
@@ -534,26 +624,37 @@ export class UniversalOpacityController {
     }
     
     /**
-     * Smooth easing function
+     * Smooth easing functions
      */
     private easeOutCubic(t: number): number {
         return 1 - Math.pow(1 - t, 3);
     }
     
+    private easeInOutCubic(t: number): number {
+        return t < 0.5 
+            ? 4 * t * t * t 
+            : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+    
     /**
-     * FIXED: Force reveal all nodes and links immediately (for debugging)
+     * Force reveal all nodes and links immediately (for debugging)
      */
     public forceRevealAll(nodes: EnhancedNode[]): void {
-        console.log('[OpacityController] FIXED - Force revealing all nodes and links with sophisticated opacity');
+        console.log('[OpacityController] Force revealing all nodes and links');
         
-        // Stop any ongoing animation
+        // Stop any ongoing animations
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
         }
+        if (this.linkAnimationFrameId) {
+            cancelAnimationFrame(this.linkAnimationFrameId);
+            this.linkAnimationFrameId = null;
+        }
         
         // Set states
         this.nodeOpacityState = 'revealed';
+        this.linkOpacityState = 'revealed';
         this.linkRenderingEnabled = true;
         
         // Set full opacity for nodes
@@ -561,37 +662,44 @@ export class UniversalOpacityController {
             (node as any).opacity = 1;
         });
         
-        // Update all link opacities with sophisticated calculations
+        // Update all link opacities
         this.updateAllLinkOpacities();
         
         // Trigger callbacks
         this.callbacks.onNodeOpacityUpdate(nodes);
         this.callbacks.onRevealComplete();
         
-        // Trigger settlement completion
-        this.triggerSmoothReveal();
+        // Trigger container state change
+        this.triggerContainerStateChange();
     }
     
     /**
-     * FIXED: Reset with phantom links control and sophisticated opacity cache clearing
+     * Reset with phantom links control
      */
     public reset(): void {
-        console.log('[OpacityController] FIXED - RESET, clearing all opacity state and caches');
+        console.log('[OpacityController] RESET - clearing all opacity state');
         
-        // Stop any ongoing animation
+        // Stop any ongoing animations
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
         }
+        if (this.linkAnimationFrameId) {
+            cancelAnimationFrame(this.linkAnimationFrameId);
+            this.linkAnimationFrameId = null;
+        }
         
         // Reset states
         this.nodeOpacityState = 'hidden';
+        this.linkOpacityState = 'hidden';
         this.revealStartTime = 0;
+        this.linkRevealStartTime = 0;
         
-        // FIXED: Disable phantom links and clear all caches
+        // Disable phantom links and clear caches
         this.linkRenderingEnabled = false;
         this.linkOpacityCache.clear();
-        this.visualOpacityCache.clear(); // FIXED: Clear sophisticated opacity cache
+        this.visualOpacityCache.clear();
+        this.linkRevealProgress.clear();
         
         // Update all link opacities to reflect reset state
         if (this.currentLinks.length > 0) {
@@ -619,12 +727,18 @@ export class UniversalOpacityController {
         linkRenderingEnabled: boolean;
         linkRevealFactor: number;
         linkCount: number;
+        linkState: OpacityState;
+        linkProgress: number;
     } {
         const now = Date.now();
         
         const nodeProgress = this.nodeOpacityState === 'revealing' && this.revealStartTime > 0
             ? Math.min(1, (now - this.revealStartTime) / this.config.revealDuration)
             : (this.nodeOpacityState === 'revealed' ? 1 : 0);
+            
+        const linkProgress = this.linkOpacityState === 'revealing' && this.linkRevealStartTime > 0
+            ? Math.min(1, Math.max(0, (now - this.linkRevealStartTime)) / this.config.linkRevealDuration)
+            : (this.linkOpacityState === 'revealed' ? 1 : 0);
             
         return {
             nodeState: this.nodeOpacityState,
@@ -633,7 +747,9 @@ export class UniversalOpacityController {
             duration: this.config.revealDuration,
             linkRenderingEnabled: this.linkRenderingEnabled,
             linkRevealFactor: this.getLinkRevealFactor(),
-            linkCount: this.currentLinks.length
+            linkCount: this.currentLinks.length,
+            linkState: this.linkOpacityState,
+            linkProgress
         };
     }
     
@@ -659,10 +775,15 @@ export class UniversalOpacityController {
             cancelAnimationFrame(this.animationFrameId);
             this.animationFrameId = null;
         }
+        if (this.linkAnimationFrameId) {
+            cancelAnimationFrame(this.linkAnimationFrameId);
+            this.linkAnimationFrameId = null;
+        }
         
-        // FIXED: Clear all caches
+        // Clear all caches
         this.linkOpacityCache.clear();
         this.visualOpacityCache.clear();
+        this.linkRevealProgress.clear();
         this.currentLinks = [];
     }
 
@@ -670,14 +791,15 @@ export class UniversalOpacityController {
      * DEBUG: Force enable method for testing
      */
     public debugForceEnable(): void {
-        console.log('[OpacityController] FIXED - Debug force enable with sophisticated opacity');
+        console.log('[OpacityController] Debug force enable');
         
         this.linkRenderingEnabled = true;
+        this.linkOpacityState = 'revealed';
         
-        // Update all link opacities with sophisticated calculations
+        // Update all link opacities
         this.updateAllLinkOpacities();
         
-        // Trigger smooth reveal
-        this.triggerSmoothReveal();
+        // Trigger container state change
+        this.triggerContainerStateChange();
     }
 }

@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/links/LinkRenderer.svelte - CSS Custom Properties Implementation -->
+<!-- src/lib/components/graph/links/LinkRenderer.svelte - Enhanced for Smooth Reveals -->
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { RenderableLink } from '$lib/types/graph/enhanced';
@@ -7,14 +7,14 @@
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     
     export let link: RenderableLink;
-    export let viewType: string = 'standard'; // NEW: Pass viewType from parent
+    export let viewType: string = 'standard';
     
     // Create unique IDs for this link
     const linkId = `link-${Math.random().toString(36).slice(2, 9)}`;
     const gradientId = `gradient-${linkId}`;
     const filterId = `filter-${linkId}`;
     
-    // CLEAN: Use consolidated relationship utilities for all calculations
+    // Use consolidated relationship utilities for all calculations
     $: isConsolidated = ConsolidatedRelationshipUtils.isConsolidated(link);
     $: relationshipCount = ConsolidatedRelationshipUtils.getRelationshipCount(link);
     $: primaryKeyword = ConsolidatedRelationshipUtils.getPrimaryKeyword(link);
@@ -40,9 +40,9 @@
     $: sourceColor = getSourceColor(link);
     $: targetColor = getTargetColor(link);
     
-    // UPDATED: Calculate sophisticated visual opacity (same logic as before)
+    // Calculate sophisticated visual opacity
     $: calculatedVisualOpacity = (() => {
-        // Check if link has existing opacity properties (for compatibility)
+        // Check if link has existing opacity properties
         if ((link as any).opacity !== undefined && (link as any).opacity !== null) {
             return (link as any).opacity;
         } else if (link.metadata?.opacity !== undefined && link.metadata.opacity !== null) {
@@ -55,7 +55,7 @@
         }
     })();
     
-    // NEW: CSS approach for universal view vs traditional approach for other views
+    // CSS approach for universal view vs traditional approach for other views
     $: linkOpacity = viewType === 'universal' 
         ? 1 // CSS will handle opacity via custom properties and classes
         : calculatedVisualOpacity; // Traditional immediate opacity for other views
@@ -336,7 +336,7 @@
         data-is-consolidated={isConsolidated}
         data-effective-strength={effectiveStrength.toFixed(2)}
         data-view-type={viewType}
-        style="--link-opacity: {calculatedVisualOpacity}; --glow-opacity: {calculatedVisualOpacity * 0.7}"
+        style="--link-opacity: {calculatedVisualOpacity}; --glow-opacity: {calculatedVisualOpacity * 0.7}; --link-{linkId}-opacity: {calculatedVisualOpacity}"
     >
         <defs>
             <!-- Gradient definition with consolidated relationship support -->
@@ -392,7 +392,7 @@
             vector-effect="non-scaling-stroke"
         />
         
-        <!-- UPDATED: Main link path with CSS custom properties and staggered reveal -->
+        <!-- Main link path with CSS custom properties and smooth reveal -->
         <path
             d={link.path}
             stroke={`url(#${gradientId})`}
@@ -404,7 +404,6 @@
             stroke-dasharray={dashArray}
             opacity={strokeOpacity}
             vector-effect="non-scaling-stroke"
-            style="--reveal-delay: {Math.random() * 1.5}s"
         />
         
         <!-- Consolidation indicator overlay for multi-keyword relationships -->
@@ -448,29 +447,34 @@
         vector-effect: non-scaling-stroke;
     }
     
-    /* UPDATED: CSS-driven phantom links with better staggered reveal */
+    /* ENHANCED: Smoother CSS-driven phantom links with longer transitions */
     .phantom-link {
         /* Initial state - hidden */
         opacity: 0;
         
-        /* Smooth reveal transition with individual delays */
-        transition: opacity 1.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        transition-delay: var(--reveal-delay, 0s);
+        /* ENHANCED: Much longer, smoother transition - 4 seconds base */
+        transition: opacity 4s cubic-bezier(0.25, 0.1, 0.25, 1);
         
         /* GPU acceleration for smooth performance */
         will-change: opacity;
     }
     
-    /* When parent has 'revealed' class, show links with calculated opacity */
-    :global(.universal-graph.revealed) .phantom-link {
-        opacity: var(--link-opacity, 1);
+    /* ENHANCED: Use CSS custom property for individual link opacity */
+    .phantom-link .link-path,
+    .phantom-link .link-glow,
+    .phantom-link .consolidation-indicator {
+        opacity: var(--link-opacity, 0);
+        transition: opacity 4s cubic-bezier(0.25, 0.1, 0.25, 1);
     }
     
-    /* Glow follows same timing */
-    .phantom-link .link-glow {
-        transition: opacity 1.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-        transition-delay: var(--reveal-delay, 0s);
-        will-change: opacity;
+    /* When parent has 'revealed' class, show links with calculated opacity */
+    :global(.universal-graph.revealed) .phantom-link {
+        opacity: 1; /* Container opacity */
+    }
+    
+    /* ENHANCED: Individual link opacity controlled by custom property */
+    :global(.universal-graph.revealed) .phantom-link .link-path {
+        opacity: var(--link-opacity, 1);
     }
     
     :global(.universal-graph.revealed) .phantom-link .link-glow {
@@ -552,4 +556,7 @@
             transition: none;
         }
     }
+    
+    /* ENHANCED: Support for individual link timing via CSS custom properties */
+    /* Removed invalid @supports block with dynamic property name */
 </style>
