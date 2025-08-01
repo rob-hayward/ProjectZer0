@@ -100,23 +100,27 @@
     
     // Handle visibility change events
     async function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
+        console.log('[NodeRenderer] handleVisibilityChange called:', {
+            nodeId: node.id,
+            isHidden: event.detail.isHidden,
+            isProcessing: isProcessingVisibilityChange
+        });
+        
         // Prevent duplicate processing of the same event
         if (isProcessingVisibilityChange) {
+            console.log('[NodeRenderer] Skipping duplicate visibility change processing');
             return;
         }
         
         // Set flag to prevent multiple simultaneous updates
         isProcessingVisibilityChange = true;
 
-        // The visibility store uses isVisible (true = visible, false = hidden)
-        // So we need to invert isHidden to get isVisible
-        const isVisible = !event.detail.isHidden;
+        // REMOVED: Direct call to visibilityStore.setPreference
+        // The visibilityBehaviour in the node component handles this
         
-        // First update the visibility store directly
-        visibilityStore.setPreference(node.id, isVisible);
-        
-        // Then update the graph store
+        // Update the graph store
         if (graphStore) {
+            console.log('[NodeRenderer] Updating graph store visibility');
             // Call the correct method on graphStore to update visibility
             graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
             
@@ -177,6 +181,8 @@
             // For non-comment nodes, release the flag normally
             isProcessingVisibilityChange = false;
         }
+        
+        console.log('[NodeRenderer] handleVisibilityChange complete');
     }
         
     // Handle discuss button click

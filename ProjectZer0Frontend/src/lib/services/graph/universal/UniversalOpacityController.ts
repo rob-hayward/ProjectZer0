@@ -346,6 +346,11 @@ export class UniversalOpacityController {
     private startLinkRevealAnimation(): void {
         const animate = () => {
             const now = Date.now();
+
+            // Check if already revealed to prevent excessive updates
+        if (this.linkOpacityState === 'revealed') {
+            return;
+        }
             
             // Wait for delay before starting
             if (now < this.linkRevealStartTime) {

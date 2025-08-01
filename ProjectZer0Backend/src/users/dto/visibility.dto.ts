@@ -1,10 +1,16 @@
-// src/users/dto/visibility-preference.dto.ts
+// src/users/dto/visibility.dto.ts
+
+import { IsString, IsBoolean, IsNotEmpty } from 'class-validator';
 
 /**
  * Data Transfer Object for setting visibility preferences
  */
 export class VisibilityPreferenceDto {
+  @IsString()
+  @IsNotEmpty()
   nodeId: string;
+
+  @IsBoolean()
   isVisible: boolean;
 }
 

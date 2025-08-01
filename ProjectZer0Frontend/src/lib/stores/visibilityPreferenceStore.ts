@@ -226,6 +226,8 @@ function createVisibilityStore() {
     
     // Set preference and save to backend and cache
     async setPreference(nodeId: string, isVisible: boolean, source: PreferenceSource = 'user') {
+      console.log(`[VisibilityStore] setPreference called - nodeId: ${nodeId}, isVisible: ${isVisible}, source: ${source}`);
+      
       // Optimistically update local state
       update(state => {
         const updatedPreferences = {
@@ -257,20 +259,41 @@ function createVisibilityStore() {
       // Only save user preferences to backend
       if (source === 'user') {
         try {
-          console.log(`Saving preference for ${nodeId}: ${isVisible}`);
+          console.log(`[VisibilityStore] Saving preference to backend for ${nodeId}: ${isVisible}`);
+          
+          // Create the correct payload format matching VisibilityPreferenceDto
+          const payload = {
+            nodeId,
+            isVisible
+          };
+          
+          console.log('[VisibilityStore] Sending payload:', JSON.stringify(payload));
+          console.log('[VisibilityStore] Payload structure check:', {
+            hasNodeId: 'nodeId' in payload,
+            nodeIdType: typeof payload.nodeId,
+            hasIsVisible: 'isVisible' in payload,
+            isVisibleType: typeof payload.isVisible,
+            extraKeys: Object.keys(payload).filter(k => k !== 'nodeId' && k !== 'isVisible')
+          });
           
           const response = await fetchWithAuth('/users/visibility-preferences', {
             method: 'POST',
-            body: JSON.stringify({
-              nodeId,
-              isVisible
-            })
+            body: JSON.stringify(payload)
           });
           
-          console.log(`Successfully saved preference for ${nodeId}`);
+          console.log(`[VisibilityStore] Successfully saved preference for ${nodeId}`, response);
           return isVisible;
         } catch (error) {
-          console.error(`Error saving preference for ${nodeId}:`, error);
+          console.error(`[VisibilityStore] Error saving preference for ${nodeId}:`, error);
+          
+          // Log additional error details
+          if (error instanceof Error) {
+            console.error('[VisibilityStore] Error details:', {
+              message: error.message,
+              stack: error.stack,
+              name: error.name
+            });
+          }
           
           // Update error state but don't revert the optimistic update
           update(state => ({

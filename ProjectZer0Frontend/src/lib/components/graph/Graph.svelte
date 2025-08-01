@@ -394,12 +394,26 @@
     }
 
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
+        console.log('[Graph] handleVisibilityChange received event:', {
+            nodeId: event.detail.nodeId,
+            isHidden: event.detail.isHidden,
+            eventType: event.type,
+            timestamp: Date.now()
+        });
+        
         if (graphStore) {
+            console.log('[Graph] Updating graph store node visibility');
             graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden, 'user');
+        } else {
+            console.warn('[Graph] No graphStore available for visibility update');
         }
         
+        // Forward the event to parent components
         dispatch('visibilitychange', event.detail);
-        visibilityStore.setPreference(event.detail.nodeId, !event.detail.isHidden);
+        
+        // REMOVED: duplicate call to visibilityStore.setPreference
+        // The visibilityBehaviour in the node component already handles this
+        console.log('[Graph] Visibility change handling complete - visibilityBehaviour should handle backend save');
     }
 
     function toggleDebug() {
