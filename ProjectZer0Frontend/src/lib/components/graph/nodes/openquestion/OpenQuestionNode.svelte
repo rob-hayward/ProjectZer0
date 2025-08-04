@@ -118,12 +118,30 @@
 	$: dataPositiveVotes = getNeo4jNumber(questionData.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(questionData.negativeVotes) || 0;
 
-	// Extract vote data from node metadata if available (universal view)
-	$: metadataVotes = node.metadata?.net_votes !== undefined ? {
-		positive: dataPositiveVotes,
-		negative: dataNegativeVotes,
-		net: node.metadata.net_votes
-	} : null;
+	// FIXED: Extract vote data from node metadata properly (universal view)
+	$: metadataVotes = (() => {
+		if (node.metadata?.votes && typeof node.metadata.votes === 'object' && 'positive' in node.metadata.votes) {
+			// Use vote data from metadata.votes object (preferred for universal view)
+			const votesObj = node.metadata.votes as any;
+			const positive = getNeo4jNumber(votesObj.positive) || 0;
+			const negative = getNeo4jNumber(votesObj.negative) || 0;
+			const net = getNeo4jNumber(votesObj.net);
+			
+			return {
+				positive,
+				negative,
+				net: net !== undefined ? net : (positive - negative)
+			};
+		} else if (node.metadata?.net_votes !== undefined) {
+			// Fallback: use net_votes with data for positive/negative (original logic)
+			return {
+				positive: dataPositiveVotes,
+				negative: dataNegativeVotes,
+				net: getNeo4jNumber(node.metadata.net_votes)
+			};
+		}
+		return null;
+	})();
 
 	// Use metadata votes if available, otherwise use data votes
 	$: positiveVotes = metadataVotes?.positive ?? dataPositiveVotes;
@@ -229,16 +247,19 @@
 				positiveVotes = newPositiveVotes;
 				negativeVotes = newNegativeVotes;
 				netVotes = newPositiveVotes - newNegativeVotes;
-				userVoteStatus = (result.status || 'none') as VoteStatus;
+				
+				// FIXED: Set userVoteStatus based on what was just voted, not API response
+				// This fixes the vote icon color issue since API doesn't return status field
+				userVoteStatus = voteType;
 				
 				// Update store if available
 				if (contextVoteStore?.updateVoteData) {
 					contextVoteStore.updateVoteData(node.id, newPositiveVotes, newNegativeVotes);
 				}
 				
-				// Convert VoteStatus to the format expected by store
-				const storeVoteStatus = userVoteStatus === 'none' ? null : userVoteStatus;
+				// FIXED: Also update user vote status in store
 				if (contextVoteStore?.updateUserVoteStatus) {
+					const storeVoteStatus = voteType === 'none' ? null : voteType;
 					contextVoteStore.updateUserVoteStatus(node.id, storeVoteStatus);
 				}
 				

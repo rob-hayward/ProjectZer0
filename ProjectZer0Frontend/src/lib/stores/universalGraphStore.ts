@@ -240,20 +240,30 @@ function createUniversalGraphStore(): UniversalGraphStore {
         return voteData;
     }
 
-    // UPDATED: Extract and normalize vote data from universal node (supports both types)
-    function extractVoteDataFromNode(node: UniversalNodeData): VoteData {
+    // ENHANCED: Helper function to extract vote data from a node - supports both types
+    function extractVoteDataFromNode(node: any): VoteData {
         let positiveVotes = 0;
         let negativeVotes = 0;
-
-        // Extract votes based on node type - supports both openquestion and statement
-        if (node.type === 'openquestion' || node.type === 'statement') {
-            if (node.metadata.votes) {
-                positiveVotes = getNeo4jNumber(node.metadata.votes.positive);
-                negativeVotes = getNeo4jNumber(node.metadata.votes.negative);
-            }
+        
+        // Try multiple sources for vote data
+        if (node.metadata?.votes) {
+            positiveVotes = getNeo4jNumber(node.metadata.votes.positive) || 0;
+            negativeVotes = getNeo4jNumber(node.metadata.votes.negative) || 0;
+        } else if (node.data) {
+            // Fallback to data object
+            positiveVotes = getNeo4jNumber(node.data.positiveVotes) || 0;
+            negativeVotes = getNeo4jNumber(node.data.negativeVotes) || 0;
         }
-
-        return cacheVoteData(node.id, positiveVotes, negativeVotes);
+        
+        const netVotes = positiveVotes - negativeVotes;
+        const shouldBeHidden = netVotes < 0;
+        
+        return {
+            positiveVotes,
+            negativeVotes,
+            netVotes,
+            shouldBeHidden
+        };
     }
 
     // Process and cache vote data for all nodes
@@ -515,32 +525,51 @@ function createUniversalGraphStore(): UniversalGraphStore {
 
     // Update vote data for a universal graph node - supports both types
     function updateVoteData(nodeId: string, positiveVotes: number, negativeVotes: number): void {
-        const state = get({ subscribe });
-        const node = state.nodes.find(n => n.id === nodeId);
-        
-        if (node) {
-            // Ensure we're working with numbers
-            const posVotes = getNeo4jNumber(positiveVotes);
-            const negVotes = getNeo4jNumber(negativeVotes);
+        update(state => {
+            const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
             
-            // Update the node's vote data - supports both openquestion and statement
-            if (node.type === 'openquestion' || node.type === 'statement') {
+            if (nodeIndex >= 0) {
+                // FIXED: Create a completely new nodes array to ensure Svelte reactivity
+                const updatedNodes = [...state.nodes];
+                const node = { ...updatedNodes[nodeIndex] };
+                
+                // Ensure we're working with numbers
+                const posVotes = getNeo4jNumber(positiveVotes);
+                const negVotes = getNeo4jNumber(negativeVotes);
+                
+                // FIXED: Update node metadata with proper structure - only use defined properties
                 if (!node.metadata.votes) {
                     node.metadata.votes = { positive: 0, negative: 0, net: 0 };
                 }
-                node.metadata.votes.positive = posVotes;
-                node.metadata.votes.negative = negVotes;
-                node.metadata.votes.net = posVotes - negVotes;
+                
+                // Update the votes object
+                node.metadata.votes = {
+                    positive: posVotes,
+                    negative: negVotes,
+                    net: posVotes - negVotes
+                };
+                
+                updatedNodes[nodeIndex] = node;
+                
+                // Cache the updated vote data
+                cacheVoteData(nodeId, posVotes, negVotes);
+                
+                console.log(`[UniversalGraphStore] Updated vote data for ${nodeId}:`, {
+                    positive: posVotes,
+                    negative: negVotes,
+                    net: posVotes - negVotes
+                });
+                
+                return {
+                    ...state,
+                    nodes: updatedNodes
+                };
+            } else {
+                console.warn(`[UniversalGraphStore] Attempted to update vote data for unknown node: ${nodeId}`);
             }
             
-            // Cache the updated vote data
-            cacheVoteData(nodeId, posVotes, negVotes);
-            
-            // Trigger store update
-            update(state => ({ ...state }));
-        } else {
-            console.warn(`[UniversalGraphStore] Attempted to update vote data for unknown node: ${nodeId}`);
-        }
+            return state;
+        });
     }
 
     // Clear vote cache - matches other store interfaces
@@ -570,12 +599,13 @@ function createUniversalGraphStore(): UniversalGraphStore {
         return {};
     }
 
-    // Update user vote status for a node
-    function updateUserVoteStatus(nodeId: string, voteStatus: 'agree' | 'disagree' | null): void {
-        const state = get({ subscribe });
+// Update user vote status for a node
+function updateUserVoteStatus(nodeId: string, voteStatus: 'agree' | 'disagree' | null): void {
+    update(state => {
         const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
         
         if (nodeIndex >= 0) {
+            // FIXED: Create new nodes array for proper Svelte reactivity
             const updatedNodes = [...state.nodes];
             const node = { ...updatedNodes[nodeIndex] };
             
@@ -589,13 +619,19 @@ function createUniversalGraphStore(): UniversalGraphStore {
             
             updatedNodes[nodeIndex] = node;
             
-            // Update the store
-            update(state => ({
+            console.log(`[UniversalGraphStore] Updated user vote status for ${nodeId}:`, voteStatus);
+            
+            return {
                 ...state,
                 nodes: updatedNodes
-            }));
+            };
+        } else {
+            console.warn(`[UniversalGraphStore] Attempted to update user vote status for unknown node: ${nodeId}`);
         }
-    }
+        
+        return state;
+    });
+}
 
     // Update user visibility preference for a node
     function updateUserVisibilityPreference(
