@@ -347,6 +347,14 @@ function createUniversalGraphStore(): UniversalGraphStore {
             // Process and cache vote data for all nodes
             processAndCacheVoteData(nodes);
 
+            console.log('[UniversalGraphStore] Cached vote data for', nodes.length, 'nodes');
+            console.log('[UniversalGraphStore] Vote cache sample:', 
+                Array.from(voteCache.entries()).slice(0, 3).map(([id, data]) => ({
+                    id: id.substring(0, 8),
+                    ...data
+                }))
+            );
+
             update(state => ({
                 ...state,
                 nodes: nodes,

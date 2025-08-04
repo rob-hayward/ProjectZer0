@@ -19,6 +19,7 @@ import { COORDINATE_SPACE, NODE_CONSTANTS } from '$lib/constants/graph';
 import { COLORS } from '$lib/constants/colors';
 import { coordinateSystem } from './CoordinateSystem';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
 
 // Import modular components
 import { UNIVERSAL_LAYOUT } from './universal/UniversalConstants';
@@ -37,11 +38,13 @@ import type { RevealPattern } from './universal/UniversalOpacityController';
  * - Manages simulation and rendering
  * - Delegates ALL opacity decisions to OpacityController
  * - Provides link opacity data to components
+ * - Integrates with visibility preferences store
  * 
  * ENHANCED FEATURES:
  * - Link opacity store management
  * - Enhanced callback system
  * - CSS custom properties integration
+ * - User visibility preferences persistence
  */
 export class UniversalGraphManager {
     private positioning: UniversalPositioning;
@@ -89,7 +92,10 @@ export class UniversalGraphManager {
         this.managerId = `universal-enhanced-${Math.random().toString(36).substring(2, 9)}`;
         
         console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Creating with ID:', this.managerId);
-        
+
+        // Initialize visibility store early
+        visibilityStore.initialize();
+
         // Initialize components
         this.positioning = new UniversalPositioning();
         
@@ -140,8 +146,10 @@ export class UniversalGraphManager {
             ([opacities, updateCount]) => opacities
         );
         
-        console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Initialization complete');
+        console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Initialization complete with visibility store');
     }
+
+    
 
     /**
      * ENHANCED: Single authority delegation - ONLY method that decides link visibility
@@ -172,7 +180,7 @@ export class UniversalGraphManager {
         });
     }
 
-    /**
+   /**
      * ENHANCED: Gentle data sync that preserves settled simulation state
      */
     public syncDataGently(newData: Partial<GraphData>): void {
@@ -216,6 +224,9 @@ export class UniversalGraphManager {
                 this.opacityController.registerLinks(renderableLinks);
             }
             
+            // Apply stored visibility preferences
+            this.applyStoredVisibilityPreferences();
+            
             this.forceUpdateCounter.update(n => n + 1);
             console.log('[UniversalGraphManager] 🛡️ ENHANCED gentle sync complete - simulation state preserved');
             return;
@@ -224,11 +235,10 @@ export class UniversalGraphManager {
         console.log('[UniversalGraphManager] Simulation not settled, using normal update');
         this.updateState(newData, 0.2);
     }
-
     /**
      * ENHANCED: setData with proper opacity controller reset and link registration
      */
-    public setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): void {
+    public async setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): Promise<void> {
         const startTime = performance.now();
         
         // ENHANCED: Reset opacity controller - disables phantom links and clears caches
@@ -286,7 +296,31 @@ export class UniversalGraphManager {
             (links) => this.transformLinks(links)
         );
         
+        // Apply visibility preferences after data is set
+        await this.applyStoredVisibilityPreferences();
+        
         this.performanceMetrics.renderTime = performance.now() - startTime;
+    }
+
+    /**
+     * Apply stored visibility preferences from visibilityStore
+     */
+    private async applyStoredVisibilityPreferences(): Promise<void> {
+        try {
+            // Get all preferences from the visibility store
+            const preferences = visibilityStore.getAllPreferences();
+            
+            if (Object.keys(preferences).length > 0) {
+                console.log('[UniversalGraphManager] Applying stored visibility preferences:', {
+                    count: Object.keys(preferences).length
+                });
+                
+                // Apply preferences to nodes
+                this.applyVisibilityPreferences(preferences);
+            }
+        } catch (error) {
+            console.error('[UniversalGraphManager] Error applying stored visibility preferences:', error);
+        }
     }
 
     /**
@@ -662,6 +696,10 @@ export class UniversalGraphManager {
         };
         
         nodes[nodeIndex] = updatedNode;
+
+        if (hiddenReason === 'user') {
+            visibilityStore.setPreference(nodeId, !isHidden);
+        }
         
         this.d3Simulation.updateNodes(nodes);
         this.nodesStore.set(nodes);
@@ -919,13 +957,19 @@ export class UniversalGraphManager {
         return enhancedNode;
     }
 
-    /**
+   /**
      * ENHANCED: Transform GraphNodes to EnhancedNodes with opacity controller integration
      */
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
         return nodes.map(node => {
             const netVotes = this.positioning.getNodeVotes(node);
-            const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
+            
+            // Check visibility preference
+            const visibilityPref = visibilityStore.getPreference(node.id);
+            const isHidden = visibilityPref !== undefined ? !visibilityPref : 
+                            ((node.type === 'statement' || node.type === 'openquestion') && netVotes < 0);
+            const hiddenReason = visibilityPref !== undefined ? 'user' : 
+                                (isHidden ? 'community' : undefined);
             
             let nodeMode: NodeMode | undefined = node.mode;
             if (node.group === 'central' && !node.mode) {
@@ -948,7 +992,7 @@ export class UniversalGraphManager {
                 nodeData = {
                     ...nodeData,
                     statement: node.data && 'content' in node.data ? node.data.content : 
-                               node.data && 'statement' in node.data ? (node.data as any).statement : '',
+                            node.data && 'statement' in node.data ? (node.data as any).statement : '',
                     positiveVotes: votes?.positive || 0,
                     negativeVotes: votes?.negative || 0,
                     netVotes: votes?.net || 0,
@@ -974,7 +1018,7 @@ export class UniversalGraphManager {
                 fixed: node.group === 'central',
                 expanded: nodeMode === 'detail',
                 isHidden,
-                hiddenReason: isHidden ? 'community' : undefined,
+                hiddenReason,
                 
                 x: null,
                 y: null,

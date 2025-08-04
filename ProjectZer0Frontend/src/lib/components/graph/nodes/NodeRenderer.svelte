@@ -15,6 +15,7 @@
     import { graphStore } from '$lib/stores/graphStore';
     import { navigateToNodeDiscussion } from '$lib/services/navigation';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
+	import { universalGraphStore } from '$lib/stores/universalGraphStore';
     
     // The node to render
     export let node: RenderableNode;
@@ -249,15 +250,24 @@
         posY = 0;
         transform = 'translate(0,0)';
     }
-    
-    // Get vote data from the appropriate store based on node type
-    $: netVotes = node.type === 'statement' 
-        ? statementNetworkStore.getVoteData(node.id).netVotes 
-        : (node.type === 'word' || node.type === 'definition')
-            ? wordViewStore.getVoteData(node.id).netVotes
-            : node.type === 'openquestion'
-                ? openQuestionViewStore.getVoteData(node.id).netVotes
-                : 0;
+
+    // Get vote data from the appropriate store based on node type AND view type
+    $: netVotes = (() => {
+        // Check if we're in universal view
+        if (viewType === 'universal') {
+            // Import universalGraphStore at the top of the file if not already done
+            return universalGraphStore.getVoteData(node.id).netVotes;
+        }
+        
+        // Otherwise use the original logic
+        return node.type === 'statement' 
+            ? statementNetworkStore.getVoteData(node.id).netVotes 
+            : (node.type === 'word' || node.type === 'definition')
+                ? wordViewStore.getVoteData(node.id).netVotes
+                : node.type === 'openquestion'
+                    ? openQuestionViewStore.getVoteData(node.id).netVotes
+                    : 0;
+    })();
     
     // Calculate button positions based on node radius
     $: showHideButtonX = node.radius * 0.7071;

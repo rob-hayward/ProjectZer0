@@ -233,10 +233,17 @@
             // Initialize visibility preferences
             visibilityStore.initialize();
             
-            // Load visibility preferences from the server
+            // Load visibility preferences from the server - enhanced with error handling
             if (!visibilityPreferencesLoaded) {
-                await visibilityStore.loadPreferences();
-                visibilityPreferencesLoaded = true;
+                try {
+                    await visibilityStore.loadPreferences();
+                    visibilityPreferencesLoaded = true;
+                    console.log('[UNIVERSAL-GRAPH] Visibility preferences loaded successfully');
+                } catch (error) {
+                    console.error('[UNIVERSAL-GRAPH] Error loading visibility preferences:', error);
+                    // Continue without preferences - they can be applied later
+                    visibilityPreferencesLoaded = false;
+                }
             }
             
             // Load word list for keyword filtering
@@ -400,7 +407,7 @@
         const nodesWithNetVotes = deduplicatedNodes.map((node: any) => {
             // Calculate net votes for sorting
             const netVotes = getNeo4jNumber(node.metadata?.votes?.net) || 
-                           (getNeo4jNumber(node.metadata?.votes?.positive) - getNeo4jNumber(node.metadata?.votes?.negative)) || 0;
+                        (getNeo4jNumber(node.metadata?.votes?.positive) - getNeo4jNumber(node.metadata?.votes?.negative)) || 0;
             
             return {
                 ...node,
@@ -527,6 +534,27 @@
         if (graphStore) {
             console.log('[UNIVERSAL-GRAPH] Setting data on bound graph store');
             graphStore.setData(graphData);
+            
+            // VISIBILITY PREFERENCES: Apply them after setting data
+            if (visibilityPreferencesLoaded) {
+                // Small delay to ensure data is processed before applying preferences
+                setTimeout(() => {
+                    try {
+                        const preferences = visibilityStore.getAllPreferences();
+                        if (Object.keys(preferences).length > 0) {
+                            console.log('[UNIVERSAL-GRAPH] Applying visibility preferences:', {
+                                count: Object.keys(preferences).length,
+                                nodeCount: universalGraphNodes.length
+                            });
+                            graphStore.applyVisibilityPreferences(preferences);
+                        } else {
+                            console.log('[UNIVERSAL-GRAPH] No visibility preferences to apply');
+                        }
+                    } catch (error) {
+                        console.error('[UNIVERSAL-GRAPH] Error applying visibility preferences:', error);
+                    }
+                }, 200); // Small delay to ensure graph store has processed the data
+            }
         }
         
         // Update batch rendering status after a short delay
@@ -534,6 +562,26 @@
             updateBatchRenderingStatus();
             isUpdatingGraph = false; // Reset flag after update completes
         }, 100);
+    }
+
+    // Apply visibility preferences to the graph
+    async function applyVisibilityPreferencesToGraph() {
+        if (!graphStore || !visibilityPreferencesLoaded) {
+            console.log('[UNIVERSAL-GRAPH] Cannot apply visibility preferences - store not ready or preferences not loaded');
+            return;
+        }
+        
+        try {
+            const preferences = visibilityStore.getAllPreferences();
+            if (Object.keys(preferences).length > 0) {
+                console.log('[UNIVERSAL-GRAPH] Applying visibility preferences to graph:', {
+                    count: Object.keys(preferences).length
+                });
+                graphStore.applyVisibilityPreferences(preferences);
+            }
+        } catch (error) {
+            console.error('[UNIVERSAL-GRAPH] Error applying visibility preferences:', error);
+        }
     }
     
     // Handle control changes (filters, sorting)
