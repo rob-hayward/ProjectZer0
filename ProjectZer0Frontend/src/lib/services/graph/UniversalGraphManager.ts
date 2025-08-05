@@ -636,34 +636,134 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Update node mode
+     * Update node mode with proper reheating
      */
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
-        if (nodeIndex === -1) return;
+        if (nodeIndex === -1) {
+            console.warn(`[UniversalGraphManager] Node ${nodeId} not found for mode update`);
+            return;
+        }
         
         const node = nodes[nodeIndex];
-        if (node.mode === mode) return;
+        if (node.mode === mode) {
+            console.log(`[UniversalGraphManager] Node ${nodeId} already in ${mode} mode`);
+            return;
+        }
         
+        // Calculate the new radius based on the new mode
+        const oldRadius = node.radius;
         const newRadius = this.getNodeRadius({ ...node, mode });
+        
+        console.log(`[UniversalGraphManager] Updating node ${nodeId} mode:`, {
+            oldMode: node.mode,
+            newMode: mode,
+            oldRadius,
+            newRadius,
+            radiusChange: newRadius - oldRadius
+        });
+        
+        // Update the node with new properties
         const updatedNode: EnhancedNode = {
             ...node,
             mode,
             expanded: mode === 'detail',
             radius: newRadius,
-            metadata: { ...node.metadata, isDetail: mode === 'detail' }
+            metadata: { 
+                ...node.metadata, 
+                isDetail: mode === 'detail' 
+            }
         };
         
+        // Update the node in the array
         nodes[nodeIndex] = updatedNode;
         
+        // Update collision force with new radius
+        this.updateCollisionForce();
+        
+        // Store current positions before reheating
+        this.storeCurrentPositions(nodes);
+        
+        // Reheat the simulation with appropriate energy
+        this.reheatSimulation(0.3); // Moderate reheat for size changes
+        
+        // Update stores
         this.d3Simulation.updateNodes(nodes);
         this.nodesStore.set(nodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        this.d3Simulation.start(0.1);
-        this.simulationActive = true;
+        console.log(`[UniversalGraphManager] Node ${nodeId} mode updated to ${mode}`);
+    }
+
+    /**
+     * Update collision force to account for new node sizes
+     */
+    private updateCollisionForce(): void {
+        const simulation = this.d3Simulation.getSimulation();
+        
+        // Remove existing collision force
+        simulation.force('collision', null);
+        
+        // Add updated collision force with new radii
+        simulation.force('collision', d3.forceCollide()
+            .radius((d: any) => {
+                const node = d as EnhancedNode;
+                // Add padding based on current phase
+                const padding = this.d3Simulation.isSettling() 
+                    ? UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.SETTLEMENT_PHASE
+                    : UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.DROP_PHASE;
+                return node.radius + padding;
+            })
+            .strength(0.8)
+            .iterations(2)
+        );
+    }
+
+     /**
+     * Store current node positions before reheating
+     */
+    private storeCurrentPositions(nodes: EnhancedNode[]): void {
+        nodes.forEach(node => {
+            if (node.x !== null && node.y !== null) {
+                // Store current position as fixed position temporarily
+                node.fx = node.x;
+                node.fy = node.y;
+            }
+        });
+    }
+
+    /**
+     * Reheat simulation with controlled energy
+     */
+    private reheatSimulation(alpha: number = 0.3): void {
+        const simulation = this.d3Simulation.getSimulation();
+        
+        console.log('[UniversalGraphManager] Reheating simulation with alpha:', alpha);
+        
+        // Set new alpha to reheat
+        simulation.alpha(alpha);
+        simulation.alphaTarget(0);
+        
+        // Gradually release fixed positions
+        setTimeout(() => {
+            const nodes = simulation.nodes() as EnhancedNode[];
+            nodes.forEach(node => {
+                // Only release if not intentionally fixed
+                if (!node.fixed && node.fx !== null) {
+                    node.fx = null;
+                    node.fy = null;
+                }
+            });
+            console.log('[UniversalGraphManager] Released node positions for natural adjustment');
+        }, 100);
+        
+        // Ensure simulation is running
+        if (!this.simulationActive) {
+            simulation.restart();
+            this.simulationActive = true;
+        }
     }
 
     /**

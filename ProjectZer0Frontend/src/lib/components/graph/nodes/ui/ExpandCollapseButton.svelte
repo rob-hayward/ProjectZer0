@@ -40,6 +40,11 @@
     }
 
     function handleClick() {
+          console.log('[ExpandCollapseButton] Click detected:', {
+            currentMode: mode,
+            nodeId,
+            nodePosition: { x: nodeX, y: nodeY }
+        });
         // Dispatch regular click event
         dispatch('click');
         
