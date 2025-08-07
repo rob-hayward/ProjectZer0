@@ -1,5 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte - UPDATED WITH MODE ROUTING -->
-<!-- Graph.svelte - CORRECTED Script Section -->
+<!-- src/lib/components/graph/Graph.svelte - FIXED EVENT FLOW -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -20,6 +19,13 @@
     import { coordinateSystem } from '$lib/services/graph/CoordinateSystem';
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { userStore } from '$lib/stores/userStore';
+    
+    // Import node components
+    import StatementNode from './nodes/statement/StatementNode.svelte';
+    import OpenQuestionNode from './nodes/openquestion/OpenQuestionNode.svelte';
+    import NavigationNode from './nodes/navigation/NavigationNode.svelte';
+    import ControlNode from './nodes/controlNode/ControlNode.svelte';
+    import { isStatementNode, isOpenQuestionNode, isNavigationNode, isStatementData, isOpenQuestionData } from '$lib/types/graph/enhanced';
     
     const DEBUG_MODE = false;
 
@@ -610,6 +616,17 @@
             debugModeChangeHandler = ((event: CustomEvent) => {
                 console.log('[Graph] DEBUG - Received debug mode change event from StatementNode:', event.detail);
                 console.log('[Graph] DEBUG - This confirms StatementNode is dispatching events correctly');
+                
+                // TEMPORARY: Call manager directly from debug event to test
+                console.log('[Graph] DEBUG - Testing direct manager call from debug event');
+                if (graphStore && typeof graphStore.updateNodeMode === 'function') {
+                    try {
+                        graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
+                        console.log('[Graph] DEBUG - Direct manager call successful');
+                    } catch (error) {
+                        console.error('[Graph] DEBUG - Direct manager call failed:', error);
+                    }
+                }
             }) as EventListener;
             window.addEventListener('debug-statement-mode', debugModeChangeHandler);
             
@@ -801,12 +818,36 @@
                                         let:nodeY
                                         let:handleModeChange
                                     >
-                                        <slot 
-                                            {node}
-                                            {nodeX}
-                                            {nodeY}
-                                            {handleModeChange} 
-                                        />
+                                        <!-- FIXED: Direct node rendering with proper event binding -->
+                                        {#if isStatementNode(node)}
+                                            <StatementNode 
+                                                {node}
+                                                statementText={isStatementData(node.data) ? node.data.statement : ''}
+                                                viewType="universal"
+                                                on:modeChange={handleModeChange}
+                                            />
+                                        {:else if isOpenQuestionNode(node)}
+                                            <OpenQuestionNode
+                                                {node}
+                                                questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
+                                                viewType="universal"
+                                                on:modeChange={handleModeChange}
+                                            />
+                                        {:else if isNavigationNode(node)}
+                                            <NavigationNode 
+                                                {node}
+                                            />
+                                        {:else if node.id === 'universal-graph-controls'}
+                                            <ControlNode 
+                                                {node}
+                                            >
+                                                <slot {node} {handleModeChange} />
+                                            </ControlNode>
+                                        {:else}
+                                            <!-- Fallback for other node types -->
+                                            <slot {node} {handleModeChange} />
+                                        {/if}
+                                        
                                         {#if showDebug}
                                             <GraphDebugVisualizer {node} active={showDebug} />
                                         {/if}
@@ -841,7 +882,7 @@
                             </text>
                             
                             <text x="10" y="110" fill="white" font-size="12">
-                                Mode Routing: Manager Authority
+                                Mode Routing: Manager Authority - FIXED
                             </text>
                         </g>
                     {/if}
