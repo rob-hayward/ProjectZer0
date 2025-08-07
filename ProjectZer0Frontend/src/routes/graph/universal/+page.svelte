@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - Enhanced with Phantom Links Integration -->
+<!-- src/routes/graph/universal/+page.svelte - UPDATED WITH MODE ROUTING -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -45,11 +45,11 @@
     const controlNodeId = 'universal-graph-controls';
     let controlNodeMode: NodeMode = 'detail'; 
     
-    // PHASE 2.1: Sequential batch rendering settings
-    let enableBatchRendering = true; // Enable by default
-    let enableSequentialRendering = true; // NEW: Enable sequential rendering
+    // Sequential batch rendering settings
+    let enableBatchRendering = true;
+    let enableSequentialRendering = true;
     const maxBatchesToRender = BATCH_RENDERING.MAX_BATCHES;
-    const batchSize = 10; // Nodes per batch
+    const batchSize = 10;
     let batchRenderingStatus = {
         enabled: true,
         sequential: true,
@@ -61,7 +61,7 @@
         isComplete: false
     };
     
-    // ENHANCED: Phantom links status tracking
+    // Phantom links status tracking
     let phantomLinksStatus = {
         enabled: false,
         linksCount: 0,
@@ -106,7 +106,7 @@
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
     
-    // ENHANCED: Update phantom links status when graph store is ready
+    // Update phantom links status when graph store is ready
     $: if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
         phantomLinksStatus.enabled = graphStore.getShouldRenderLinks();
         phantomLinksStatus.linksCount = graphData.links.length;
@@ -118,15 +118,27 @@
         }
     }
     
-    // FIXED: Wait for graph store to be properly bound AND initialized before processing data
+    // Wait for graph store to be properly bound AND initialized before processing data
     $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph) {
         updateBatchRenderingStatus();
         
-        // CRITICAL: Only process data when graph store is fully ready and we haven't processed it yet
+        // Only process data when graph store is fully ready and we haven't processed it yet
         if (nodesLoaded && graphData.nodes.length <= navigationNodes.length + 1) {
-            console.log('[UNIVERSAL-GRAPH] Graph store bound and ready, processing data');
+            console.log('[UNIVERSAL-PAGE] Graph store bound and ready, processing data');
             updateGraphWithUniversalData();
         }
+    }
+
+    $: if (graphStore) {
+        console.log('[UNIVERSAL-PAGE] Graph store bound and ready:', {
+            isUniversalManager: typeof graphStore.updateNodeMode === 'function',
+            hasEnableBatchRendering: typeof graphStore.enableBatchRendering === 'function',
+            hasGetPerformanceMetrics: typeof graphStore.getPerformanceMetrics === 'function',
+            constructor: graphStore.constructor?.name,
+            availableMethods: Object.getOwnPropertyNames(Object.getPrototypeOf(graphStore)).filter(name => 
+                typeof graphStore[name] === 'function' && !name.startsWith('_')
+            )
+        });
     }
     
     // Create navigation nodes
@@ -158,7 +170,12 @@
         mode: controlNodeMode
     };
 
-    // PHASE 2.1: Update batch rendering status
+    // Event listeners for manager events
+    let modeChangeListener: EventListener;
+    let sequentialBatchListener: EventListener;
+    let phantomLinksListener: EventListener;
+
+    // Update batch rendering status
     function updateBatchRenderingStatus() {
         if (graphStore && typeof graphStore.getPerformanceMetrics === 'function') {
             const metrics = graphStore.getPerformanceMetrics();
@@ -169,19 +186,18 @@
                 totalNodes: metrics?.totalNodeCount || 0,
                 currentBatch: metrics?.currentBatch || 0,
                 maxBatches: maxBatchesToRender,
-                isRendering: false, // Will be updated by sequential state events
+                isRendering: false,
                 isComplete: false
             };
         }
     }
 
-    // PHASE 2.1: Listen for sequential batch state changes - SIMPLIFIED
+    // Listen for sequential batch state changes
     function setupSequentialBatchListeners() {
         if (typeof window !== 'undefined') {
-            window.addEventListener('sequential-batch-state-change', ((event: CustomEvent) => {
+            sequentialBatchListener = ((event: CustomEvent) => {
                 const state = event.detail;
                 
-                // Update batch rendering status with sequential state
                 batchRenderingStatus = {
                     ...batchRenderingStatus,
                     currentBatch: state.currentBatch,
@@ -189,18 +205,33 @@
                     isComplete: state.isComplete,
                     renderedNodes: state.currentBatch * batchSize + navigationNodes.length + 1
                 };
-            }) as EventListener);
+            }) as EventListener;
             
-            // ENHANCED: Listen for phantom links state changes
-            window.addEventListener('phantom-links-state-change', ((event: CustomEvent) => {
+            phantomLinksListener = ((event: CustomEvent) => {
                 const state = event.detail;
                 phantomLinksStatus = {
                     enabled: state.enabled,
                     linksCount: state.linksCount,
                     revealState: state.revealState
                 };
-                console.log('[UNIVERSAL-GRAPH] 🔗 Phantom links state updated:', phantomLinksStatus);
-            }) as EventListener);
+                console.log('[UNIVERSAL-PAGE] 🔗 Phantom links state updated:', phantomLinksStatus);
+            }) as EventListener;
+            
+            modeChangeListener = ((event: CustomEvent) => {
+                const { nodeId, mode, position } = event.detail;
+                console.log('[UNIVERSAL-PAGE] Manager mode change event:', { nodeId, mode, position });
+                
+                // Update local state if needed (e.g., for control node)
+                if (nodeId === controlNodeId) {
+                    controlNodeMode = mode;
+                    controlNode = { ...controlNode, mode };
+                    console.log('[UNIVERSAL-PAGE] Control node mode updated to:', mode);
+                }
+            }) as EventListener;
+            
+            window.addEventListener('sequential-batch-state-change', sequentialBatchListener);
+            window.addEventListener('phantom-links-state-change', phantomLinksListener);
+            window.addEventListener('node-mode-change', modeChangeListener);
         }
     }
     
@@ -233,15 +264,14 @@
             // Initialize visibility preferences
             visibilityStore.initialize();
             
-            // Load visibility preferences from the server - enhanced with error handling
+            // Load visibility preferences from the server
             if (!visibilityPreferencesLoaded) {
                 try {
                     await visibilityStore.loadPreferences();
                     visibilityPreferencesLoaded = true;
-                    console.log('[UNIVERSAL-GRAPH] Visibility preferences loaded successfully');
+                    console.log('[UNIVERSAL-PAGE] Visibility preferences loaded successfully');
                 } catch (error) {
-                    console.error('[UNIVERSAL-GRAPH] Error loading visibility preferences:', error);
-                    // Continue without preferences - they can be applied later
+                    console.error('[UNIVERSAL-PAGE] Error loading visibility preferences:', error);
                     visibilityPreferencesLoaded = false;
                 }
             }
@@ -252,7 +282,6 @@
                 const allWords = wordListStore.getAllWords();
                 
                 if (allWords.length === 0) {
-                    // Provide fallback keywords
                     availableKeywords = [
                         'democracy', 'freedom', 'justice', 'equality', 'society', 
                         'government', 'truth', 'privacy', 'rights', 'liberty',
@@ -263,25 +292,25 @@
                     availableKeywords = allWords;
                 }
             } catch (error) {
-                console.error('[UNIVERSAL-GRAPH] Error loading word list:', error);
+                console.error('[UNIVERSAL-PAGE] Error loading word list:', error);
                 availableKeywords = [
                     'democracy', 'freedom', 'justice', 'equality', 'society', 
                     'government', 'truth', 'privacy', 'rights', 'liberty'
                 ];
             }
             
-            // CRITICAL: Start with just navigation and control nodes - let Graph component manage the store
+            // Start with just navigation and control nodes
             createInitialGraphData();
             dataInitialized = true;
             
-            // PHASE 2.1: Setup sequential batch listeners
+            // Setup sequential batch listeners
             setupSequentialBatchListeners();
             
             // Load universal graph data
             await loadUniversalGraphData();
             
         } catch (error) {
-            console.error('[UNIVERSAL-GRAPH] Error in initializeData:', error);
+            console.error('[UNIVERSAL-PAGE] Error in initializeData:', error);
             auth0.login();
         }
     }
@@ -289,11 +318,11 @@
     // Load universal graph data
     async function loadUniversalGraphData() {
         if (!$userStore) {
-            console.error('[UNIVERSAL-GRAPH] No user store available');
+            console.error('[UNIVERSAL-PAGE] No user store available');
             return;
         }
         try {
-            // Apply current filters to the store - SIMPLIFIED
+            // Apply current filters to the store
             universalGraphStore.setSortType(sortType);
             universalGraphStore.setSortDirection(sortDirection);
             universalGraphStore.setNodeTypeFilter(Array.from(selectedNodeTypes));
@@ -313,11 +342,8 @@
             nodesLoaded = true;
             nodesLoading = false;
             
-            // REMOVED: Don't call updateGraphWithUniversalData here
-            // The reactive statement will handle it when the graph store is ready
-            
         } catch (error) {
-            console.error('[UNIVERSAL-GRAPH] Error loading universal graph data:', error);
+            console.error('[UNIVERSAL-PAGE] Error loading universal graph data:', error);
             
             // Still consider nodes loaded, even if empty
             nodesLoaded = true;
@@ -332,13 +358,13 @@
             links: []
         };
         
-        console.log('[UNIVERSAL-GRAPH] Initial graph data created:', {
+        console.log('[UNIVERSAL-PAGE] Initial graph data created:', {
             nodes: graphData.nodes.length,
             links: graphData.links.length
         });
     }
     
-    // FIXED: Helper function to safely get Neo4j numbers
+    // Helper function to safely get Neo4j numbers
     function getNeo4jNumber(value: any): number {
         if (value === null || value === undefined) return 0;
         if (typeof value === 'object' && value !== null && 'low' in value) {
@@ -347,10 +373,10 @@
         return Number(value || 0);
     }
     
-    // PHASE 2.1: Update graph with universal data - SINGLE SOURCE OF TRUTH APPROACH
+    // Update graph with universal data
     function updateGraphWithUniversalData() {
         if (isUpdatingGraph) {
-            console.log('[UNIVERSAL-GRAPH] Skipping update - already in progress');
+            console.log('[UNIVERSAL-PAGE] Skipping update - already in progress');
             return;
         }
         
@@ -361,12 +387,12 @@
             return;
         }
         
-        // DEFENSIVE: Wait for graph store to be ready
+        // Wait for graph store to be ready
         if (!graphStore) {
-            console.log('[UNIVERSAL-GRAPH] Waiting for graph store to initialize');
+            console.log('[UNIVERSAL-PAGE] Waiting for graph store to initialize');
             setTimeout(() => {
                 isUpdatingGraph = false;
-                updateGraphWithUniversalData(); // Retry
+                updateGraphWithUniversalData();
             }, 100);
             return;
         }
@@ -375,7 +401,7 @@
         const isUniversalManager = typeof graphStore.enableBatchRendering === 'function';
         
         if (!isUniversalManager) {
-            console.warn('[UNIVERSAL-GRAPH] Expected universal manager but got standard manager');
+            console.warn('[UNIVERSAL-PAGE] Expected universal manager but got standard manager');
             isUpdatingGraph = false;
             return;
         }
@@ -385,7 +411,7 @@
             graphStore.enableBatchRendering(enableBatchRendering);
         }
         
-        // Deduplicate nodes by ID - SIMPLIFIED LOGGING
+        // Deduplicate nodes by ID
         const deduplicatedNodes = nodes.reduce((acc: any[], node: any) => {
             const existingIndex = acc.findIndex(existing => existing.id === node.id);
             if (existingIndex === -1) {
@@ -403,9 +429,8 @@
             return acc;
         }, []);
         
-        // PHASE 2.1: Add net votes to nodes for batch rendering
+        // Add net votes to nodes for batch rendering
         const nodesWithNetVotes = deduplicatedNodes.map((node: any) => {
-            // Calculate net votes for sorting
             const netVotes = getNeo4jNumber(node.metadata?.votes?.net) || 
                         (getNeo4jNumber(node.metadata?.votes?.positive) - getNeo4jNumber(node.metadata?.votes?.negative)) || 0;
             
@@ -415,19 +440,19 @@
             };
         });
         
-        // Sort nodes by net votes for batch rendering - SIMPLIFIED
+        // Sort nodes by net votes for batch rendering
         if (enableBatchRendering) {
             nodesWithNetVotes.sort((a: any, b: any) => (b.netVotes || 0) - (a.netVotes || 0));
         }
         
-        // Filter to batch size for rendering - SIMPLIFIED
+        // Filter to batch size for rendering
         let nodesToProcess = nodesWithNetVotes;
         if (enableBatchRendering) {
-            const totalContentNodes = maxBatchesToRender * batchSize; // 4 * 10 = 40
+            const totalContentNodes = maxBatchesToRender * batchSize;
             nodesToProcess = nodesWithNetVotes.slice(0, totalContentNodes);
         }
         
-        // FIXED: Transform universal nodes to graph nodes with proper data structures
+        // Transform universal nodes to graph nodes
         const universalGraphNodes: GraphNode[] = nodesToProcess.map((node: any) => {
             
             // Extract common properties
@@ -438,11 +463,9 @@
                 created_by: node.created_by,
                 public_credit: node.public_credit,
                 keywords: node.metadata.keywords || [],
-                // Add vote data using the same extraction logic as OpenQuestionNode
                 positiveVotes: getNeo4jNumber(node.metadata.votes?.positive) || 0,
                 negativeVotes: getNeo4jNumber(node.metadata.votes?.negative) || 0,
                 netVotes: getNeo4jNumber(node.metadata.votes?.net) || 0,
-                // Add user-specific data
                 userVoteStatus: node.metadata.userVoteStatus?.status || 'none',
                 userVisibilityPreference: node.metadata.userVisibilityPreference
             };
@@ -453,22 +476,19 @@
             if (node.type === 'openquestion') {
                 nodeData = {
                     ...commonProperties,
-                    questionText: node.content, // Map content to questionText
+                    questionText: node.content,
                     answerCount: getNeo4jNumber(node.metadata.answer_count) || 0
                 };
             } else if (node.type === 'statement') {
-                // FIXED: Use the same data structure as StatementNode expects
                 nodeData = {
                     ...commonProperties,
-                    statement: node.content, // Map content to statement
-                    // Add statement-specific properties from metadata
+                    statement: node.content,
                     relatedStatements: node.metadata.relatedStatements || [],
                     parentQuestion: node.metadata.parentQuestion,
                     discussionId: node.metadata.discussionId,
                     initialComment: node.metadata.initialComment || ''
                 };
             } else {
-                // Fallback for unknown types
                 nodeData = {
                     ...commonProperties,
                     content: node.content
@@ -479,20 +499,17 @@
                 id: node.id,
                 type: node.type as NodeType,
                 data: nodeData,
-                group: node.type as NodeGroup, // Use node type as group
+                group: node.type as NodeGroup,
                 mode: 'preview' as NodeMode,
                 metadata: {
-                    group: node.type as any, // Match the group
+                    group: node.type as any,
                     participant_count: node.participant_count,
                     net_votes: node.metadata.votes?.net,
                     createdAt: node.created_at,
-                    // FIXED: Add answer_count and related_statements_count to metadata for components
                     answer_count: node.type === 'openquestion' ? getNeo4jNumber(node.metadata.answer_count) || 0 : undefined,
                     related_statements_count: node.type === 'statement' ? (node.metadata.relatedStatements?.length || 0) : undefined,
-                    // Store user-specific data in metadata properly
                     userVoteStatus: node.metadata.userVoteStatus,
                     userVisibilityPreference: node.metadata.userVisibilityPreference,
-                    // PHASE 2.1: Add votes object for proper vote handling
                     votes: node.metadata.votes
                 }
             };
@@ -514,76 +531,55 @@
             metadata: rel.metadata
         }));
         
-        // Combine all nodes and links - SINGLE SOURCE OF TRUTH
+        // Combine all nodes and links
         graphData = {
             nodes: [...navigationNodes, controlNode, ...universalGraphNodes],
             links: graphLinks
         };
         
-        console.log('[UNIVERSAL-GRAPH] Graph data prepared:', {
+        console.log('[UNIVERSAL-PAGE] Graph data prepared:', {
             totalNodes: graphData.nodes.length,
             contentNodes: universalGraphNodes.length,
             links: graphData.links.length,
             hasGraphStore: !!graphStore
         });
         
-        // ENHANCED: Update phantom links status
+        // Update phantom links status
         phantomLinksStatus.linksCount = graphData.links.length;
         
-        // CRITICAL: Now that we have the graph store, set the data
+        // Set data on graph store
         if (graphStore) {
-            console.log('[UNIVERSAL-GRAPH] Setting data on bound graph store');
+            console.log('[UNIVERSAL-PAGE] Setting data on bound graph store');
             graphStore.setData(graphData);
             
-            // VISIBILITY PREFERENCES: Apply them after setting data
+            // Apply visibility preferences after setting data
             if (visibilityPreferencesLoaded) {
-                // Small delay to ensure data is processed before applying preferences
                 setTimeout(() => {
                     try {
                         const preferences = visibilityStore.getAllPreferences();
                         if (Object.keys(preferences).length > 0) {
-                            console.log('[UNIVERSAL-GRAPH] Applying visibility preferences:', {
+                            console.log('[UNIVERSAL-PAGE] Applying visibility preferences:', {
                                 count: Object.keys(preferences).length,
                                 nodeCount: universalGraphNodes.length
                             });
                             graphStore.applyVisibilityPreferences(preferences);
                         } else {
-                            console.log('[UNIVERSAL-GRAPH] No visibility preferences to apply');
+                            console.log('[UNIVERSAL-PAGE] No visibility preferences to apply');
                         }
                     } catch (error) {
-                        console.error('[UNIVERSAL-GRAPH] Error applying visibility preferences:', error);
+                        console.error('[UNIVERSAL-PAGE] Error applying visibility preferences:', error);
                     }
-                }, 200); // Small delay to ensure graph store has processed the data
+                }, 200);
             }
         }
         
         // Update batch rendering status after a short delay
         setTimeout(() => {
             updateBatchRenderingStatus();
-            isUpdatingGraph = false; // Reset flag after update completes
+            isUpdatingGraph = false;
         }, 100);
     }
 
-    // Apply visibility preferences to the graph
-    async function applyVisibilityPreferencesToGraph() {
-        if (!graphStore || !visibilityPreferencesLoaded) {
-            console.log('[UNIVERSAL-GRAPH] Cannot apply visibility preferences - store not ready or preferences not loaded');
-            return;
-        }
-        
-        try {
-            const preferences = visibilityStore.getAllPreferences();
-            if (Object.keys(preferences).length > 0) {
-                console.log('[UNIVERSAL-GRAPH] Applying visibility preferences to graph:', {
-                    count: Object.keys(preferences).length
-                });
-                graphStore.applyVisibilityPreferences(preferences);
-            }
-        } catch (error) {
-            console.error('[UNIVERSAL-GRAPH] Error applying visibility preferences:', error);
-        }
-    }
-    
     // Handle control changes (filters, sorting)
     async function handleControlChange() {
         if (!$userStore) return;
@@ -592,22 +588,31 @@
         await loadUniversalGraphData();
     }
 
-    // Handle node mode changes
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode; radius?: number }>) {
-        // If this is the control node, update its mode
-        if (event.detail.nodeId === controlNodeId) {
-            controlNodeMode = event.detail.mode;
-            
-            // Update the control node mode in our local state
+        const { nodeId, mode } = event.detail;
+        
+        console.log('[UNIVERSAL-PAGE] MODE ROUTING - Mode change received from Graph:', { 
+            nodeId: nodeId.substring(0, 8), 
+            mode,
+            isControlNode: nodeId === controlNodeId,
+            currentControlMode: controlNodeMode
+        });
+        
+        // Update local state for control node (UI consistency)
+        if (nodeId === controlNodeId) {
+            console.log('[UNIVERSAL-PAGE] MODE ROUTING - Updating control node mode from', controlNodeMode, 'to', mode);
+            controlNodeMode = mode;
             controlNode = {
                 ...controlNode,
-                mode: event.detail.mode
+                mode
             };
             
-            console.log('[UNIVERSAL-GRAPH] Control node mode changed to:', event.detail.mode);
+            console.log('[UNIVERSAL-PAGE] Control node mode updated locally to:', mode);
         }
         
-        // The Graph component will handle the actual mode change via its store
+        // The UniversalGraphManager handles all the visual changes
+        // No need to do anything else here - just maintain local state consistency
+        console.log('[UNIVERSAL-PAGE] Mode change handled by UniversalGraphManager');
     }
 
     // Handle node visibility changes
@@ -623,24 +628,23 @@
         // Update visibility preference
         visibilityStore.setPreference(nodeId, !isHidden, 'user');
         
-        console.log('[UNIVERSAL-GRAPH] Visibility changed:', { nodeId, isHidden });
+        console.log('[UNIVERSAL-PAGE] Visibility changed:', { nodeId, isHidden });
         
-        // The Graph component will handle the actual visibility change via its store
+        // The Graph component handles the actual visibility change via its store
     }
 
-    // UPDATED: Toggle node type function - now supports both types
+    // Toggle node type function
     function toggleNodeType(nodeType: 'openquestion' | 'statement') {
         if (selectedNodeTypes.has(nodeType)) {
             selectedNodeTypes.delete(nodeType);
         } else {
             selectedNodeTypes.add(nodeType);
         }
-        // Trigger reactive update
         selectedNodeTypes = new Set(selectedNodeTypes);
         handleControlChange();
     }
 
-    // PHASE 2.1: Toggle batch rendering mode (now includes sequential option)
+    // Toggle batch rendering mode
     function toggleBatchRendering() {
         enableBatchRendering = !enableBatchRendering;
         
@@ -655,10 +659,10 @@
         }
     }
 
-    // ENHANCED: Force reveal all phantom links (for debugging)
+    // Force reveal all phantom links (for debugging)
     function forceRevealPhantomLinks() {
         if (graphStore && typeof graphStore.forceRevealAll === 'function') {
-            console.log('[UNIVERSAL-GRAPH] 🚀 Forcing phantom links reveal');
+            console.log('[UNIVERSAL-PAGE] 🚀 Forcing phantom links reveal');
             graphStore.forceRevealAll();
         }
     }
@@ -670,7 +674,21 @@
 
     // Cleanup on destroy
     onDestroy(() => {
-        // Clean up any listeners
+        console.log('[UNIVERSAL-PAGE] Component destroying');
+        
+        // Clean up event listeners
+        if (typeof window !== 'undefined') {
+            if (sequentialBatchListener) {
+                window.removeEventListener('sequential-batch-state-change', sequentialBatchListener);
+            }
+            if (phantomLinksListener) {
+                window.removeEventListener('phantom-links-state-change', phantomLinksListener);
+            }
+            if (modeChangeListener) {
+                window.removeEventListener('node-mode-change', modeChangeListener);
+            }
+        }
+        
         if (graphStore && typeof graphStore.dispose === 'function') {
             graphStore.dispose();
         }
@@ -692,7 +710,7 @@
         <span class="loading-text">Initializing universal graph...</span>
     </div>
 {:else}
-    <!-- ENHANCED: Phantom links status display -->
+    <!-- Phantom links status display -->
     {#if enableBatchRendering}
         <div class="batch-status">
             <div class="batch-info">
@@ -718,7 +736,7 @@
         </div>
     {/if}
 
-    <!-- Graph visualization - ENHANCED: Phantom links integration -->
+    <!-- Graph visualization -->
     <Graph 
         data={graphData}
         viewType={viewType}
@@ -728,14 +746,12 @@
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isStatementNode(node)}
-                <!-- ADDED: Statement nodes -->
                 <StatementNode 
                     {node}
                     statementText={isStatementData(node.data) ? node.data.statement : ''}
                     viewType="universal"
                 />
             {:else if isOpenQuestionNode(node)}
-                <!-- ENHANCED: Pass viewType to ensure correct store usage -->
                 <OpenQuestionNode
                     {node}
                     questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
@@ -749,11 +765,11 @@
                 <ControlNode 
                     {node}
                 >
-                    <!-- ENHANCED: Universal Graph Controls with Phantom Links -->
+                    <!-- Universal Graph Controls -->
                     <div class="control-content">
                         <h3>Universal Graph Controls - Phase 2.2</h3>
                         
-                        <!-- ENHANCED: Phantom Links status section -->
+                        <!-- Phantom Links status section -->
                         <div class="control-section phantom-links-section">
                             <h4>🔗 Phantom Links System</h4>
                             <div class="phantom-status">
@@ -786,7 +802,7 @@
                             {/if}
                         </div>
                         
-                        <!-- PHASE 2.1: Enhanced rendering mode controls -->
+                        <!-- Enhanced rendering mode controls -->
                         <div class="control-section">
                             <h4>Rendering Mode</h4>
                             <label class="batch-toggle">
@@ -815,7 +831,7 @@
                             {/if}
                         </div>
                         
-                        <!-- Node Type Filter - UPDATED for both types -->
+                        <!-- Node Type Filter -->
                         <div class="control-section">
                             <h4>Node Types</h4>
                             <div class="checkbox-group">
@@ -838,7 +854,7 @@
                             </div>
                         </div>
                         
-                        <!-- Sort Options - UPDATED for both types -->
+                        <!-- Sort Options -->
                         <div class="control-section">
                             <h4>Sort By</h4>
                             <select bind:value={sortType} on:change={handleControlChange}>
@@ -904,7 +920,7 @@
                             <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
-                        <!-- ENHANCED: Phase 2.2 DEBUG INFO with phantom links -->
+                        <!-- Phase 2.2 DEBUG INFO with phantom links -->
                         <div class="debug-section">
                             <h4>Phase 2.2 Debug Info</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
@@ -921,6 +937,11 @@
                                 🔗 Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
                                 Links: {phantomLinksStatus.linksCount} | 
                                 State: {phantomLinksStatus.revealState}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
+                                MODE ROUTING: UniversalGraphManager Authority | 
+                                Control Mode: {controlNodeMode} | 
+                                Local State Sync: Active
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 {#if enableBatchRendering && enableSequentialRendering}
@@ -941,7 +962,7 @@
                                 Phantom Links Architecture: Links included in physics but conditionally rendered to DOM
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Check console for detailed Phase 2.2 phantom links output
+                                Mode Management: Page maintains UI state, Manager handles visual state, Store handles data
                             </p>
                         </div>
                     </div>

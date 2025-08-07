@@ -144,7 +144,6 @@ interface UniversalGraphStore {
     getUserData: (nodeId: string) => any;
     updateUserVoteStatus: (nodeId: string, voteStatus: 'agree' | 'disagree' | null) => void;
     updateUserVisibilityPreference: (nodeId: string, isVisible: boolean, source?: string) => void;
-    updateNodeMode: (nodeId: string, mode: 'preview' | 'detail') => void; // NEW METHOD
     // ENHANCED: Performance metrics access
     getPerformanceMetrics: () => any;
 }
@@ -637,41 +636,6 @@ function createUniversalGraphStore(): UniversalGraphStore {
         }
     }
 
-    // NEW METHOD: Update node mode
-    function updateNodeMode(nodeId: string, mode: 'preview' | 'detail'): void {
-        update(state => {
-            const nodeIndex = state.nodes.findIndex(n => n.id === nodeId);
-            
-            if (nodeIndex >= 0) {
-                // Create new nodes array for proper Svelte reactivity
-                const updatedNodes = [...state.nodes];
-                const node = { ...updatedNodes[nodeIndex] };
-                
-                // Update the node mode
-                node.mode = mode;
-                
-                // Update metadata to reflect the mode change
-                node.metadata = {
-                    ...node.metadata,
-                    isDetail: mode === 'detail'
-                };
-                
-                updatedNodes[nodeIndex] = node;
-                
-                console.log(`[UniversalGraphStore] Updated node ${nodeId} mode to ${mode}`);
-                
-                return {
-                    ...state,
-                    nodes: updatedNodes
-                };
-            } else {
-                console.warn(`[UniversalGraphStore] Attempted to update mode for unknown node: ${nodeId}`);
-            }
-            
-            return state;
-        });
-    }
-
     // ENHANCED: Get performance metrics
     function getPerformanceMetrics() {
         const state = get({ subscribe });
@@ -703,9 +667,6 @@ function createUniversalGraphStore(): UniversalGraphStore {
         getUserData,
         updateUserVoteStatus,
         updateUserVisibilityPreference,
-        
-        // NEW: Node mode management
-        updateNodeMode,
         
         // ENHANCED: Performance metrics access
         getPerformanceMetrics

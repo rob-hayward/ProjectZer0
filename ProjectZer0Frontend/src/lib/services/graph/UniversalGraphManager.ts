@@ -88,6 +88,10 @@ export class UniversalGraphManager {
     // Force update mechanism
     private forceUpdateCounter = writable(0);
 
+    // ENHANCED: Mode state management - single source of truth
+    private nodeModes = new Map<string, NodeMode>();
+    private defaultNodeMode: NodeMode = 'preview';
+
     constructor() {
         this.managerId = `universal-enhanced-${Math.random().toString(36).substring(2, 9)}`;
         
@@ -148,8 +152,6 @@ export class UniversalGraphManager {
         
         console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Initialization complete with visibility store');
     }
-
-    
 
     /**
      * ENHANCED: Single authority delegation - ONLY method that decides link visibility
@@ -321,29 +323,6 @@ export class UniversalGraphManager {
         } catch (error) {
             console.error('[UniversalGraphManager] Error applying stored visibility preferences:', error);
         }
-    }
-
-    /**
-     * ENHANCED: Stop method with proper cleanup including opacity controller
-     */
-    public stop(): void {
-        console.log('[UniversalGraphManager] ⛔ ENHANCED STOP - destroying graph manager');
-        
-        this.simulationActive = false;
-        
-        if (this.settlementCheckInterval) {
-            clearInterval(this.settlementCheckInterval);
-            this.settlementCheckInterval = null;
-        }
-        
-        // ENHANCED: Dispose opacity controller
-        this.opacityController.dispose();
-        
-        if (this.d3Simulation) {
-            this.d3Simulation.stopSimulation();
-        }
-        
-        console.log('[UniversalGraphManager] ⛔ ENHANCED - Graph manager stopped');
     }
 
     /**
@@ -635,21 +614,39 @@ export class UniversalGraphManager {
         return currentLinks;
     }
 
-    /**
-     * Update node mode with proper reheating
-     */
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
+        const timestamp = Date.now();
+        console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - updateNodeMode() called:`, {
+            nodeId: nodeId.substring(0, 8),
+            requestedMode: mode,
+            currentMode: this.nodeModes.get(nodeId) || 'not-set',
+            timestamp,
+            simulationActive: this.simulationActive
+        });
+        
+        // Update internal mode tracking
+        const previousMode = this.nodeModes.get(nodeId);
+        this.nodeModes.set(nodeId, mode);
+        
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Mode map updated:`, {
+            nodeId: nodeId.substring(0, 8),
+            previousMode: previousMode || 'not-set',
+            newMode: mode,
+            totalTrackedModes: this.nodeModes.size
+        });
+        
+        // Get current simulation nodes
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[UniversalGraphManager] Node ${nodeId} not found for mode update`);
+            console.warn(`[UniversalGraphManager] ❌ MODE AUTHORITY - Node ${nodeId.substring(0, 8)} not found in simulation`);
             return;
         }
         
         const node = nodes[nodeIndex];
         if (node.mode === mode) {
-            console.log(`[UniversalGraphManager] Node ${nodeId} already in ${mode} mode`);
+            console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - Node ${nodeId.substring(0, 8)} already in ${mode} mode`);
             return;
         }
         
@@ -657,12 +654,15 @@ export class UniversalGraphManager {
         const oldRadius = node.radius;
         const newRadius = this.getNodeRadius({ ...node, mode });
         
-        console.log(`[UniversalGraphManager] Updating node ${nodeId} mode:`, {
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Mode change details:`, {
+            nodeId: nodeId.substring(0, 8),
+            nodeType: node.type,
             oldMode: node.mode,
             newMode: mode,
-            oldRadius,
-            newRadius,
-            radiusChange: newRadius - oldRadius
+            oldRadius: oldRadius.toFixed(1),
+            newRadius: newRadius.toFixed(1),
+            radiusChange: (newRadius - oldRadius).toFixed(1),
+            position: { x: node.x?.toFixed(1), y: node.y?.toFixed(1) }
         });
         
         // Update the node with new properties
@@ -680,21 +680,101 @@ export class UniversalGraphManager {
         // Update the node in the array
         nodes[nodeIndex] = updatedNode;
         
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Node updated in simulation array`);
+        
         // Update collision force with new radius
         this.updateCollisionForce();
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Collision force updated`);
         
         // Store current positions before reheating
         this.storeCurrentPositions(nodes);
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Current positions stored`);
         
         // Reheat the simulation with appropriate energy
         this.reheatSimulation(0.3); // Moderate reheat for size changes
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Simulation reheated`);
         
         // Update stores
         this.d3Simulation.updateNodes(nodes);
         this.nodesStore.set(nodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        console.log(`[UniversalGraphManager] Node ${nodeId} mode updated to ${mode}`);
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Stores updated, force counter incremented`);
+        
+        // Dispatch mode change event for external listeners
+        this.dispatchModeChangeEvent(nodeId, mode, { x: updatedNode.x ?? 0, y: updatedNode.y ?? 0 });
+        
+        console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - Mode change complete:`, {
+            nodeId: nodeId.substring(0, 8),
+            finalMode: mode,
+            finalRadius: newRadius.toFixed(1),
+            totalDuration: `${Date.now() - timestamp}ms`
+        });
+    }
+
+    /**
+     * Get current mode for a node
+     */
+    public getNodeMode(nodeId: string): NodeMode {
+        return this.nodeModes.get(nodeId) ?? this.defaultNodeMode;
+    }
+
+        /**
+     * Get all node modes (for debugging)
+     */
+    public getAllNodeModes(): Map<string, NodeMode> {
+        return new Map(this.nodeModes);
+    }
+
+    /**
+     * Set default mode for new nodes
+     */
+    public setDefaultNodeMode(mode: NodeMode): void {
+        this.defaultNodeMode = mode;
+        console.log(`[UniversalGraphManager] Default node mode set to: ${mode}`);
+    }
+
+    /**
+     * Reset all nodes to preview mode
+     */
+    public resetAllNodesToPreview(): void {
+        console.log('[UniversalGraphManager] Resetting all nodes to preview mode');
+        
+        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        let changedCount = 0;
+        
+        nodes.forEach(node => {
+            if (node.mode === 'detail' && (node.type === 'statement' || node.type === 'openquestion')) {
+                this.nodeModes.set(node.id, 'preview');
+                node.mode = 'preview';
+                node.expanded = false;
+                node.radius = this.getNodeRadius(node);
+                node.metadata.isDetail = false;
+                changedCount++;
+            }
+        });
+        
+        if (changedCount > 0) {
+            this.updateCollisionForce();
+            this.reheatSimulation(0.2);
+            this.d3Simulation.updateNodes(nodes);
+            this.nodesStore.set(nodes);
+            this.forceUpdateCounter.update(n => n + 1);
+            
+            console.log(`[UniversalGraphManager] Reset ${changedCount} nodes to preview mode`);
+        }
+    }
+
+    /**
+     * Dispatch mode change event for external listeners
+     */
+    private dispatchModeChangeEvent(nodeId: string, mode: NodeMode, position: { x: number; y: number }): void {
+        if (typeof window !== 'undefined') {
+            const event = new CustomEvent('node-mode-change', {
+                detail: { nodeId, mode, position }
+            });
+            window.dispatchEvent(event);
+        }
     }
 
     /**
@@ -1057,10 +1137,12 @@ export class UniversalGraphManager {
         return enhancedNode;
     }
 
-   /**
-     * ENHANCED: Transform GraphNodes to EnhancedNodes with opacity controller integration
+    /**
+     * ENHANCED: Transform GraphNodes to EnhancedNodes with mode state management
      */
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
+        console.log(`[UniversalGraphManager] MODE AUTHORITY - Transforming ${nodes.length} nodes with mode state management`);
+        
         return nodes.map(node => {
             const netVotes = this.positioning.getNodeVotes(node);
             
@@ -1071,17 +1153,30 @@ export class UniversalGraphManager {
             const hiddenReason = visibilityPref !== undefined ? 'user' : 
                                 (isHidden ? 'community' : undefined);
             
-            let nodeMode: NodeMode | undefined = node.mode;
-            if (node.group === 'central' && !node.mode) {
+            // MODE AUTHORITY: Get current mode from manager state, or use default/provided mode
+            let nodeMode: NodeMode = this.nodeModes.get(node.id) ?? node.mode ?? this.defaultNodeMode;
+            
+            // Special handling for control nodes - always detail mode
+            if (node.group === 'central' && !this.nodeModes.has(node.id)) {
                 nodeMode = 'detail';
+                this.nodeModes.set(node.id, nodeMode);
+                console.log(`[UniversalGraphManager] MODE AUTHORITY - Set central node ${node.id} to detail mode`);
             }
             
+            // For regular content nodes, ensure they start in preview mode unless explicitly set
+            if ((node.type === 'statement' || node.type === 'openquestion') && !this.nodeModes.has(node.id)) {
+                nodeMode = 'preview';
+                this.nodeModes.set(node.id, nodeMode);
+            }
+            
+            // Calculate radius based on manager-controlled mode
             const nodeRadius = this.getNodeRadius({
                 ...node,
                 mode: nodeMode,
                 isHidden: isHidden
             });
             
+            // Prepare node data based on type
             let nodeData: any = {
                 ...(node.data || {}),
                 id: node.id
@@ -1093,33 +1188,52 @@ export class UniversalGraphManager {
                     ...nodeData,
                     statement: node.data && 'content' in node.data ? node.data.content : 
                             node.data && 'statement' in node.data ? (node.data as any).statement : '',
-                    positiveVotes: votes?.positive || 0,
-                    negativeVotes: votes?.negative || 0,
-                    netVotes: votes?.net || 0,
+                    positiveVotes: getNeo4jNumber(votes?.positive) || 0,
+                    negativeVotes: getNeo4jNumber(votes?.negative) || 0,
+                    netVotes: getNeo4jNumber(votes?.net) || (getNeo4jNumber(votes?.positive) - getNeo4jNumber(votes?.negative)) || 0,
                     votes: votes
                 };
             } else if (node.type === 'openquestion') {
-                const answerCount = node.metadata?.answer_count || 0;
+                const votes = node.metadata?.votes as any;
+                const answerCount = getNeo4jNumber(node.metadata?.answer_count) || 0;
                 nodeData = {
                     ...nodeData,
                     questionText: node.data && 'content' in node.data ? node.data.content : 
                                 node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
-                    answerCount: answerCount
+                    answerCount: answerCount,
+                    positiveVotes: getNeo4jNumber(votes?.positive) || 0,
+                    negativeVotes: getNeo4jNumber(votes?.negative) || 0,
+                    netVotes: getNeo4jNumber(votes?.net) || (getNeo4jNumber(votes?.positive) - getNeo4jNumber(votes?.negative)) || 0,
+                    votes: votes
+                };
+            } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
+                // Control node data
+                nodeData = {
+                    ...nodeData,
+                    sub: 'universal-controls',
+                    name: 'Universal Graph Controls',
+                    email: '',
+                    picture: '',
+                    'https://projectzer0.co/user_metadata': {
+                        handle: 'universal-controls'
+                    }
                 };
             }
             
+            // Create enhanced node with manager-controlled mode
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
                 data: nodeData,
                 group: node.group,
-                mode: nodeMode,
+                mode: nodeMode, // Use manager-controlled mode
                 radius: nodeRadius,
                 fixed: node.group === 'central',
-                expanded: nodeMode === 'detail',
+                expanded: nodeMode === 'detail', // Derived from manager-controlled mode
                 isHidden,
                 hiddenReason,
                 
+                // D3 simulation properties
                 x: null,
                 y: null,
                 vx: null,
@@ -1127,15 +1241,16 @@ export class UniversalGraphManager {
                 fx: null,
                 fy: null,
                 
+                // Enhanced metadata with mode-derived properties
                 metadata: {
                     group: this.getLayoutGroup(node),
                     fixed: node.group === 'central',
-                    isDetail: nodeMode === 'detail',
+                    isDetail: nodeMode === 'detail', // Derived from manager-controlled mode
                     votes: netVotes,
                     consensus_ratio: node.metadata?.consensus_ratio,
-                    participant_count: node.metadata?.participant_count,
-                    net_votes: node.metadata?.net_votes,
-                    answer_count: node.metadata?.answer_count,
+                    participant_count: getNeo4jNumber(node.metadata?.participant_count) || 0,
+                    net_votes: getNeo4jNumber(node.metadata?.net_votes) || netVotes,
+                    answer_count: getNeo4jNumber(node.metadata?.answer_count),
                     related_statements_count: node.metadata?.related_statements_count,
                     userVoteStatus: node.metadata?.userVoteStatus,
                     userVisibilityPreference: node.metadata?.userVisibilityPreference,
@@ -1143,14 +1258,20 @@ export class UniversalGraphManager {
                 }
             };
             
-            // ENHANCED: Use opacity controller to set initial opacity
+            // Set initial opacity using opacity controller
             this.opacityController.setInitialNodeOpacity(enhancedNode);
             
+            // Set fixed positions for central/system nodes
             if (enhancedNode.fixed || enhancedNode.group === 'central') {
                 enhancedNode.fx = 0;
                 enhancedNode.fy = 0;
                 enhancedNode.x = 0;
                 enhancedNode.y = 0;
+            }
+            
+            // Log mode assignment for debugging
+            if (node.type === 'statement' || node.type === 'openquestion') {
+                console.log(`[UniversalGraphManager] MODE AUTHORITY - Node ${node.id.substring(0, 8)} assigned mode: ${nodeMode}`);
             }
             
             return enhancedNode;
@@ -1613,5 +1734,110 @@ export class UniversalGraphManager {
                 this.nodeRadiusCache.delete(key);
             }
         }
+    }
+
+    /**
+     * ENHANCED: Stop method with comprehensive cleanup including mode state
+     */
+    public stop(): void {
+        console.log('[UniversalGraphManager] ⛔ ENHANCED STOP - destroying graph manager with mode cleanup');
+        console.trace('[UniversalGraphManager] Stop called from:');
+        
+        // Mark simulation as inactive immediately
+        this.simulationActive = false;
+        
+        // Clear settlement monitoring
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+            this.settlementCheckInterval = null;
+            console.log('[UniversalGraphManager] ⛔ Settlement monitoring cleared');
+        }
+        
+        // Get final node positions before stopping simulation
+        if (this.d3Simulation) {
+            const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+            
+            // Log final positions for debugging
+            if (import.meta.env.DEV && nodes.length > 0) {
+                const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
+                console.log('[UniversalGraphManager] ⛔ Final node positions before stop:', 
+                    contentNodes.map(n => ({
+                        id: n.id.substring(0, 8),
+                        mode: n.mode,
+                        x: n.x?.toFixed(1),
+                        y: n.y?.toFixed(1),
+                        fx: n.fx?.toFixed(1),
+                        fy: n.fy?.toFixed(1)
+                    }))
+                );
+            }
+            
+            // Preserve final positions in cache
+            this.preserveFinalPositions(nodes);
+            
+            // Stop D3 simulation with proper cleanup
+            this.d3Simulation.stopSimulation();
+            console.log('[UniversalGraphManager] ⛔ D3 simulation stopped');
+        }
+        
+        // Stop rendering strategy
+        if (this.renderingStrategy) {
+            this.renderingStrategy.stopRendering();
+            console.log('[UniversalGraphManager] ⛔ Rendering strategy stopped');
+        }
+        
+        // Dispose opacity controller with enhanced cleanup
+        if (this.opacityController) {
+            this.opacityController.dispose();
+            console.log('[UniversalGraphManager] ⛔ ENHANCED - OpacityController disposed');
+        }
+        
+        // ENHANCED: Clear mode state management
+        const modeCount = this.nodeModes.size;
+        this.nodeModes.clear();
+        console.log(`[UniversalGraphManager] ⛔ MODE AUTHORITY - Cleared ${modeCount} node modes`);
+        
+        // Clear all caches
+        this.clearCaches();
+        console.log('[UniversalGraphManager] ⛔ All caches cleared');
+        
+        // Reset performance metrics
+        this.performanceMetrics = {
+            originalRelationshipCount: 0,
+            consolidatedRelationshipCount: 0,
+            consolidationRatio: 1.0,
+            lastUpdateTime: 0,
+            renderTime: 0,
+            renderedNodeCount: 0,
+            totalNodeCount: 0,
+            layoutType: 'vote_based_with_natural_forces' as const,
+            currentBatch: 0
+        };
+        
+        // Clear stores to empty state
+        this.nodesStore.set([]);
+        this.linksStore.set([]);
+        this.linkOpacityStore.set(new Map());
+        
+        // Final force update to ensure clean state
+        this.forceUpdateCounter.update(n => n + 1);
+        
+        // Remove window reference to opacity controller
+        if (typeof window !== 'undefined' && (window as any).universalOpacityController) {
+            delete (window as any).universalOpacityController;
+            console.log('[UniversalGraphManager] ⛔ ENHANCED - OpacityController removed from window');
+        }
+        
+        console.log('[UniversalGraphManager] ⛔ ENHANCED STOP COMPLETE - Graph manager fully destroyed');
+        console.log('[UniversalGraphManager] ⛔ Final state:', {
+            simulationActive: this.simulationActive,
+            modeCount: this.nodeModes.size,
+            cacheSize: {
+                nodeRadius: this.nodeRadiusCache.size,
+                linkPath: this.linkPathCache.size,
+                finalPositions: this.finalPositionCache.size
+            },
+            managerId: this.managerId
+        });
     }
 }

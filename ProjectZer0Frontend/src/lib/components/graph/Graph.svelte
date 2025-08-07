@@ -1,4 +1,5 @@
-<!-- src/lib/components/graph/Graph.svelte - CLEAN VERSION (No unused CSS) -->
+<!-- src/lib/components/graph/Graph.svelte - UPDATED WITH MODE ROUTING -->
+<!-- Graph.svelte - CORRECTED Script Section -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -72,8 +73,9 @@
     // Event handlers
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
+    let debugModeChangeHandler: EventListener; // Debug event handler
 
-    // SIMPLE: Just track if this is universal view
+    // Universal view detection
     let isUniversalView = false;
 
     // Constants
@@ -85,7 +87,7 @@
 
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // SIMPLE: Just detect universal view
+    // Detect universal view
     $: {
         isUniversalView = viewType === 'universal';
     }
@@ -334,41 +336,82 @@
         centerViewportOn(node.position.x, node.position.y, undefined, duration);
     }
 
+    // CORRECTED: Mode change handler with comprehensive logging
     function handleModeChange(event: CustomEvent<{ 
         nodeId: string; 
         mode: NodeMode;
         position?: { x: number; y: number }; 
     }>) {
-        const nodeId = event.detail.nodeId;
-        const newMode = event.detail.mode;
+        const { nodeId, mode, position } = event.detail;
         
+        console.log('[Graph] MODE ROUTING - Received mode change from NodeRenderer:', { 
+            nodeId: nodeId.substring(0, 8), 
+            mode, 
+            position: position ? `(${position.x.toFixed(1)}, ${position.y.toFixed(1)})` : 'undefined',
+            hasGraphStore: !!graphStore,
+            graphStoreType: graphStore?.constructor?.name,
+            hasUpdateNodeMode: typeof graphStore?.updateNodeMode === 'function',
+            isUniversalView
+        });
+        
+        // ROUTE DIRECTLY TO MANAGER - Single authority pattern
         if (graphStore && typeof graphStore.updateNodeMode === 'function') {
-            graphStore.updateNodeMode(nodeId, newMode);
+            console.log('[Graph] MODE ROUTING - Calling graphStore.updateNodeMode() on UniversalGraphManager');
             
-            if (typeof graphStore.forceTick === 'function') {
-                graphStore.forceTick(5);
+            try {
+                graphStore.updateNodeMode(nodeId, mode);
+                console.log('[Graph] MODE ROUTING - ✅ Successfully called updateNodeMode()');
+                
+                // Optional: Center on node if position provided and mode is detail
+                if (mode === 'detail' && position) {
+                    console.log('[Graph] MODE ROUTING - Centering on node in detail mode');
+                    setTimeout(() => {
+                        const success = centerViewportOnCoordinates(position.x, position.y, 750);
+                        console.log('[Graph] MODE ROUTING - Centering result:', success ? 'SUCCESS' : 'FAILED');
+                    }, 100); // Small delay to let layout settle
+                }
+                
+            } catch (error) {
+                console.error('[Graph] MODE ROUTING - ❌ Error calling updateNodeMode():', error);
             }
             
-            if (newMode === 'detail') {
+        } else if (graphStore && typeof (graphStore as any).updateNodeMode === 'function') {
+            // Fallback for standard graph stores (shouldn't happen in universal view)
+            console.log('[Graph] MODE ROUTING - Using fallback for standard graph store');
+            (graphStore as any).updateNodeMode(nodeId, mode);
+            
+            if (typeof (graphStore as any).forceTick === 'function') {
+                (graphStore as any).forceTick(5);
+            }
+            
+            if (mode === 'detail') {
                 setTimeout(() => {
                     if ($graphStore && $graphStore.nodes) {
                         const node = $graphStore.nodes.find(n => n.id === nodeId);
                         
                         if (node && node.position) {
-                            centerViewportOn(
-                                node.position.x,
-                                node.position.y
-                            );
+                            centerViewportOn(node.position.x, node.position.y);
                         }
                     }
                 }, 50);
             }
+        } else {
+            console.error('[Graph] MODE ROUTING - ❌ Cannot route mode change:', {
+                hasGraphStore: !!graphStore,
+                updateNodeModeExists: typeof graphStore?.updateNodeMode === 'function',
+                graphStoreKeys: graphStore ? Object.getOwnPropertyNames(Object.getPrototypeOf(graphStore)) : [],
+                graphStoreConstructor: graphStore?.constructor?.name,
+                graphStorePrototype: graphStore ? Object.getPrototypeOf(graphStore).constructor.name : 'none'
+            });
         }
         
+        // FORWARD TO PARENT - For any parent components that need to know
         dispatch('modechange', {
-            nodeId: event.detail.nodeId,
-            mode: event.detail.mode
+            nodeId,
+            mode
         });
+        
+        console.log('[Graph] MODE ROUTING - Event forwarded to parent component');
     }
 
     function updateCentralNodeDebugPosition() {
@@ -411,8 +454,6 @@
         // Forward the event to parent components
         dispatch('visibilitychange', event.detail);
         
-        // REMOVED: duplicate call to visibilityStore.setPreference
-        // The visibilityBehaviour in the node component already handles this
         console.log('[Graph] Visibility change handling complete - visibilityBehaviour should handle backend save');
     }
 
@@ -447,7 +488,7 @@
     function initialize() {
         if (initialized) return;
         
-        console.log('[Graph] SIMPLE - Initializing component:', { 
+        console.log('[Graph] Initializing component:', { 
             componentId, 
             viewType,
             isUniversalView,
@@ -476,7 +517,7 @@
         }
         
         initialized = true;
-        console.log('[Graph] SIMPLE - Component initialized successfully');
+        console.log('[Graph] Component initialized successfully');
     }
 
     function processDataUpdate(newData: GraphData, isInitialization: boolean = false) {
@@ -493,7 +534,7 @@
         isProcessingData = true;
         dataUpdateCounter++;
         
-        console.log('[Graph] SIMPLE - Processing data update #', dataUpdateCounter, {
+        console.log('[Graph] Processing data update #', dataUpdateCounter, {
             isInitialization,
             viewType,
             isUniversalView,
@@ -559,11 +600,18 @@
 
     // Lifecycle hooks
     onMount(() => {
-        console.log('[Graph] SIMPLE - Component mounting with view type:', viewType, 'isUniversal:', isUniversalView);
+        console.log('[Graph] Component mounting with view type:', viewType, 'isUniversal:', isUniversalView);
         initialize();
         
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', updateContainerDimensions);
+            
+            // Debug event listener for testing mode changes
+            debugModeChangeHandler = ((event: CustomEvent) => {
+                console.log('[Graph] DEBUG - Received debug mode change event from StatementNode:', event.detail);
+                console.log('[Graph] DEBUG - This confirms StatementNode is dispatching events correctly');
+            }) as EventListener;
+            window.addEventListener('debug-statement-mode', debugModeChangeHandler);
             
             centerOnNodeHandler = ((event: CustomEvent) => {
                 if (!event.detail) return;
@@ -617,12 +665,13 @@
     });
 
     onDestroy(() => {
-        console.log('[Graph] SIMPLE - Component destroying');
+        console.log('[Graph] Component destroying');
         
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateContainerDimensions);
             window.removeEventListener('center-on-node', centerOnNodeHandler);
             window.removeEventListener('set-transform', setTransformHandler);
+            window.removeEventListener('debug-statement-mode', debugModeChangeHandler);
         }
         
         if (svg) {
@@ -665,7 +714,7 @@
     }
     
     $: if (initialized && graphStore && data && isGenuineDataChange(data)) {
-        console.log('[Graph] SIMPLE - Reactive data change detected');
+        console.log('[Graph] Reactive data change detected');
         processDataUpdate(data, false);
     }
     
@@ -674,7 +723,7 @@
     }
 </script>
 
-<!-- SIMPLE: Clean container without unused CSS -->
+<!-- Component template -->
 <div 
     bind:this={container} 
     class="graph-container"
@@ -717,7 +766,7 @@
                     </g>
                     {/if}
 
-                    <!-- SIMPLE: Links without complex CSS -->
+                    <!-- Links layer -->
                     <g class="links-layer">
                         {#if $graphStore && $graphStore.links && $graphStore.links.length > 0}
                             {#each $graphStore.links as link (link.id)}
@@ -792,7 +841,7 @@
                             </text>
                             
                             <text x="10" y="110" fill="white" font-size="12">
-                                SIMPLE: Direct opacity calculations
+                                Mode Routing: Manager Authority
                             </text>
                         </g>
                     {/if}

@@ -328,11 +328,28 @@
 		position?: { x: number; y: number };
 		nodeId?: string;
 	}>) {
-		// Forward the event with position data
-		dispatch('modeChange', {
-			mode: event.detail.mode,
-			position: event.detail.position
+		console.log('[OpenQuestionNode] MODE EVENT - Received from ExpandCollapseButton:', {
+			nodeId: node.id.substring(0, 8),
+			currentNodeMode: node.mode,
+			eventMode: event.detail.mode,
+			eventNodeId: event.detail.nodeId?.substring(0, 8),
+			eventPosition: event.detail.position,
+			hasPosition: !!event.detail.position
 		});
+		
+		// CRITICAL: Don't use modeBehaviour - forward directly to manager via Graph
+		const eventData = {
+			nodeId: node.id,
+			mode: event.detail.mode,
+			position: event.detail.position || { x: node.position.x, y: node.position.y }
+		};
+		
+		console.log('[OpenQuestionNode] MODE EVENT - Dispatching to Graph component:', eventData);
+		
+		// Forward the event with node ID
+		dispatch('modeChange', eventData);
+		
+		console.log('[OpenQuestionNode] MODE EVENT - Successfully dispatched to parent');
 	}
 
 	function handleVote(event: CustomEvent<{ voteType: any }>) {

@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/nodes/statement/StatementNode.svelte - Universal Graph Optimized Version -->
+<!-- src/lib/components/graph/nodes/statement/StatementNode.svelte - CORRECTED VERSION -->
 <script lang="ts">
 	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
@@ -11,10 +11,9 @@
 	import { graphStore } from '$lib/stores/graphStore';
 	import { getUserDetails } from '$lib/services/userLookup';
 	
-	// ENHANCED: Import all possible vote stores
+	// Import all possible vote stores
 	import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 	import { universalGraphStore } from '$lib/stores/universalGraphStore';
-	import { get } from 'svelte/store';
 	
 	// Import the shared UI components
 	import VoteButtons from '../ui/VoteButtons.svelte';
@@ -28,11 +27,11 @@
 	export let nodeX: number | undefined = undefined;
 	export let nodeY: number | undefined = undefined;
 	
-	// ENHANCED: Optional props for explicit context control
+	// Optional props for explicit context control
 	export let viewType: ViewType | undefined = undefined;
-	export let voteStore: any = undefined; // Allow explicit store override
+	export let voteStore: any = undefined;
 
-	// Debug toggle - set to true to show ContentBox borders
+	// Debug toggle
 	const DEBUG_SHOW_BORDERS = false;
 
 	if (!isStatementData(node.data)) {
@@ -44,12 +43,12 @@
 	// Get the statement text
 	$: displayStatementText = statementText || statementData.statement;
 
-	// ENHANCED: Context-aware store detection
+	// Context-aware store detection
 	$: detectedViewType = detectViewContext(viewType);
 	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
 
 	/**
-	 * ROBUST: Detect current view context using multiple methods
+	 * Detect current view context using multiple methods
 	 */
 	function detectViewContext(explicitViewType?: ViewType): ViewType {
 		// Method 1: Use explicit viewType prop if provided
@@ -76,7 +75,7 @@
 	}
 
 	/**
-	 * FLEXIBLE: Select appropriate vote store based on context
+	 * Select appropriate vote store based on context
 	 */
 	function selectVoteStore(detectedViewType: ViewType, explicitStore?: any) {
 		// Method 1: Use explicit store override if provided
@@ -93,21 +92,15 @@
 				return statementNetworkStore;
 			
 			case 'discussion':
-				// Discussion view might use statement network store or its own
 				return statementNetworkStore;
 			
 			default:
-				// Safe fallback
 				return statementNetworkStore;
 		}
 	}
 
-	// CRITICAL: NO vote behavior creation for universal view - use data-only approach
-	let voteBehaviour: any = null;
-	let visibilityBehaviour: any = null;
-	let modeBehaviour: any = null;
-	let dataBehaviour: any = null;
-
+	// REMOVED: No more behavior creation - use node.mode directly from manager
+	// Use mode directly from node (controlled by manager)
 	$: isDetail = node.mode === 'detail';
 	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
@@ -115,11 +108,11 @@
 		return value && typeof value === 'object' && 'low' in value ? Number(value.low) : Number(value || 0);
 	}
 
-	// OPTIMIZED: Get all data from node metadata and data - NO API CALLS
+	// Get all data from node metadata and data - NO API CALLS
 	$: dataPositiveVotes = getNeo4jNumber(statementData.positiveVotes) || 0;
 	$: dataNegativeVotes = getNeo4jNumber(statementData.negativeVotes) || 0;
 
-	// FIXED: Extract vote data from node metadata properly (universal view)
+	// Extract vote data from node metadata properly (universal view)
 	$: metadataVotes = (() => {
 		if (node.metadata?.votes && typeof node.metadata.votes === 'object' && 'positive' in node.metadata.votes) {
 			// Use vote data from metadata.votes object (preferred for universal view)
@@ -149,14 +142,14 @@
 	$: negativeVotes = metadataVotes?.negative ?? dataNegativeVotes;
 	$: netVotes = metadataVotes?.net ?? (positiveVotes - negativeVotes);
 
-	// CRITICAL: User vote status from metadata ONLY - no API calls
+	// User vote status from metadata ONLY - no API calls
 	$: userVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
 
-	// Get related statements count from node metadata (where backend sends it)
+	// Get related statements count from node metadata
 	$: relatedStatementsCount = (node.metadata as any)?.related_statements_count || statementData.relatedStatements?.length || 0;
 
-	// CRITICAL: Visibility determination - community-based with user override
-	$: communityHidden = netVotes < 0; // Community default: hide if net votes < 0
+	// Visibility determination - community-based with user override
+	$: communityHidden = netVotes < 0;
 	$: userVisibilityOverride = node.metadata?.userVisibilityPreference?.isVisible;
 	$: isNodeHidden = userVisibilityOverride !== undefined ? !userVisibilityOverride : communityHidden;
 
@@ -164,14 +157,15 @@
 	let isVoting = false;
 	let voteSuccess = false;
 	let lastVoteType: VoteStatus | null = null;
-	// FIXED: Consistent green styling (not vote-based)
+
+	// Consistent green styling
 	$: {
 		if (node.style) {
 			node.style.highlightColor = NODE_CONSTANTS.COLORS.STATEMENT.border;
 		}
 	}
 
-	// Consistent styling like definition nodes - NOT vote-based
+	// Consistent styling - NOT vote-based
 	$: voteBasedStyles = {
 		glow: {
 			intensity: 8,
@@ -185,6 +179,7 @@
 
 	const dispatch = createEventDispatcher<{
 		modeChange: { 
+			nodeId: string;
 			mode: NodeMode;
 			position?: { x: number; y: number };
 		};
@@ -192,17 +187,15 @@
 	}>();
 
 	/**
-	 * OPTIMIZED: Handle vote - only makes API call when user actually votes
+	 * Handle vote - only makes API call when user actually votes
 	 */
 	async function updateVoteState(voteType: VoteStatus) {
-		// Prevent multiple simultaneous votes
 		if (isVoting) return false;
 		
 		isVoting = true;
 		lastVoteType = voteType;
 		
 		try {
-			// Make API call to vote
 			const endpoint = voteType === 'none' 
 				? `/nodes/statement/${node.id}/vote/remove`
 				: `/nodes/statement/${node.id}/vote`;
@@ -212,7 +205,6 @@
 				isPositive: voteType === 'agree'
 			}) : undefined;
 			
-			// Import fetchWithAuth dynamically to avoid circular dependencies
 			const { fetchWithAuth } = await import('$lib/services/api');
 			
 			const result = await fetchWithAuth(endpoint, {
@@ -221,36 +213,28 @@
 			});
 			
 			if (result) {
-				// Update vote counts from API response
 				const newPositiveVotes = getNeo4jNumber(result.positiveVotes);
 				const newNegativeVotes = getNeo4jNumber(result.negativeVotes);
 				
-				// Update local state
 				positiveVotes = newPositiveVotes;
 				negativeVotes = newNegativeVotes;
 				netVotes = newPositiveVotes - newNegativeVotes;
 				
-				// FIXED: Set userVoteStatus based on what was just voted, not API response
-				// This fixes the vote icon color issue since API doesn't return status field
 				userVoteStatus = voteType;
 				
-				// Update store if available
 				if (contextVoteStore?.updateVoteData) {
 					contextVoteStore.updateVoteData(node.id, newPositiveVotes, newNegativeVotes);
 				}
 				
-				// FIXED: Also update user vote status in store
 				if (contextVoteStore?.updateUserVoteStatus) {
 					const storeVoteStatus = voteType === 'none' ? null : voteType;
 					contextVoteStore.updateUserVoteStatus(node.id, storeVoteStatus);
 				}
 				
-				// Update graph store visibility if needed
 				if (graphStore) {
 					graphStore.recalculateNodeVisibility(node.id, newPositiveVotes, newNegativeVotes);
 				}
 				
-				// Show success animation
 				voteSuccess = true;
 				setTimeout(() => {
 					voteSuccess = false;
@@ -274,7 +258,6 @@
 	 */
 	async function updateVisibilityPreference(isVisible: boolean) {
 		try {
-			// Update visibility preference via API
 			const { fetchWithAuth } = await import('$lib/services/api');
 			
 			await fetchWithAuth(`/users/visibility-preferences`, {
@@ -288,12 +271,10 @@
 				})
 			});
 			
-			// Update store if available
 			if (contextVoteStore?.updateUserVisibilityPreference) {
 				contextVoteStore.updateUserVisibilityPreference(node.id, isVisible, 'user');
 			}
 			
-			// Update graph store
 			if (graphStore) {
 				graphStore.updateNodeVisibility(node.id, !isVisible, 'user');
 			}
@@ -305,16 +286,42 @@
 		}
 	}
 
+	// CORRECTED: Mode change handler - forward events to NodeRenderer
 	function handleModeChange(event: CustomEvent<{ 
 		mode: NodeMode; 
 		position?: { x: number; y: number };
 		nodeId?: string;
 	}>) {
-		// Forward the event with position data
-		dispatch('modeChange', {
-			mode: event.detail.mode,
-			position: event.detail.position
+		console.log('[StatementNode] MODE EVENT - Received from ExpandCollapseButton:', {
+			nodeId: node.id.substring(0, 8),
+			currentNodeMode: node.mode,
+			eventMode: event.detail.mode,
+			eventNodeId: event.detail.nodeId?.substring(0, 8),
+			eventPosition: event.detail.position,
+			hasPosition: !!event.detail.position
 		});
+		
+		// CRITICAL: Forward directly to NodeRenderer/Graph - don't use behaviors
+		const eventData = {
+			nodeId: node.id, // Always use our node ID
+			mode: event.detail.mode,
+			position: event.detail.position || { x: node.position.x, y: node.position.y }
+		};
+		
+		console.log('[StatementNode] MODE EVENT - Dispatching to NodeRenderer:', eventData);
+		
+		// Forward the event
+		dispatch('modeChange', eventData);
+		
+		console.log('[StatementNode] MODE EVENT - Successfully dispatched to parent');
+		
+		// DEBUG: Also dispatch to window for testing
+		if (typeof window !== 'undefined') {
+			window.dispatchEvent(new CustomEvent('debug-statement-mode', {
+				detail: eventData
+			}));
+			console.log('[StatementNode] DEBUG - Also dispatched debug event to window');
+		}
 	}
 
 	function handleVote(event: CustomEvent<{ voteType: any }>) {
@@ -322,7 +329,6 @@
 	}
 
 	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-		// Update user preference when visibility is manually changed
 		updateVisibilityPreference(!event.detail.isHidden);
 		dispatch('visibilityChange', event.detail);
 	}
@@ -330,7 +336,7 @@
 	let statementCreatorDetails: any = null;
 
 	onMount(async () => {
-		// NO behavior initialization - we use data-only approach
+		// REMOVED: No behavior initialization - we use data-only approach
 		
 		// Only fetch creator details if needed
 		if (statementData.createdBy) {
@@ -341,7 +347,6 @@
 			}
 		}
 		
-		// REMOVED: Individual node initialization logging that was causing spam
 		// Only log if there are issues or in development mode
 		if (import.meta.env.DEV && (!positiveVotes && !negativeVotes && !userVoteStatus)) {
 			console.warn('[StatementNode] Node may have incomplete data:', {
