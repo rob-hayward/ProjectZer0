@@ -1,4 +1,4 @@
-// src/lib/services/graph/UniversalGraphManager.ts - ENHANCED COMPLETE VERSION
+// src/lib/services/graph/UniversalGraphManager.ts - CLEANED VERSION
 // Central orchestrator with enhanced opacity controller integration
 
 import * as d3 from 'd3';
@@ -30,32 +30,14 @@ import { UniversalRenderingStrategy } from './universal/UniversalRenderingStrate
 import { UniversalOpacityController } from './universal/UniversalOpacityController';
 import type { RevealPattern } from './universal/UniversalOpacityController';
 
-/**
- * ENHANCED ARCHITECTURE: UniversalGraphManager
- * 
- * RESPONSIBILITIES:
- * - Orchestrates components
- * - Manages simulation and rendering
- * - Delegates ALL opacity decisions to OpacityController
- * - Provides link opacity data to components
- * - Integrates with visibility preferences store
- * 
- * ENHANCED FEATURES:
- * - Link opacity store management
- * - Enhanced callback system
- * - CSS custom properties integration
- * - User visibility preferences persistence
- */
 export class UniversalGraphManager {
     private positioning: UniversalPositioning;
     private d3Simulation: UniversalD3Simulation;
     private renderingStrategy: UniversalRenderingStrategy;
-    private opacityController: UniversalOpacityController; // ENHANCED: Single authority
+    private opacityController: UniversalOpacityController;
     
     private nodesStore = writable<EnhancedNode[]>([]);
     private linksStore = writable<EnhancedLink[]>([]);
-    
-    // ENHANCED: Link opacity store for component access
     private linkOpacityStore = writable<Map<string, number>>(new Map());
     
     private managerId: string;
@@ -80,61 +62,46 @@ export class UniversalGraphManager {
     private finalPositionCache = new Map<string, {x: number, y: number, settled: boolean}>();
     private settlementCheckInterval: number | null = null;
 
-    // ENHANCED: Public derived stores including link opacities
     public readonly renderableNodes: Readable<RenderableNode[]>;
     public readonly renderableLinks: Readable<RenderableLink[]>;
     public readonly linkOpacities: Readable<Map<string, number>>;
     
-    // Force update mechanism
     private forceUpdateCounter = writable(0);
-
-    // ENHANCED: Mode state management - single source of truth
     private nodeModes = new Map<string, NodeMode>();
     private defaultNodeMode: NodeMode = 'preview';
 
     constructor() {
         this.managerId = `universal-enhanced-${Math.random().toString(36).substring(2, 9)}`;
         
-        console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Creating with ID:', this.managerId);
-
-        // Initialize visibility store early
         visibilityStore.initialize();
 
-        // Initialize components
         this.positioning = new UniversalPositioning();
         
-        // ENHANCED: Initialize opacity controller with enhanced callback system
         this.opacityController = new UniversalOpacityController({
             onNodeOpacityUpdate: (nodes) => this.handleNodeOpacityUpdate(nodes),
-            onLinkOpacityUpdate: (linkOpacities) => this.handleLinkOpacityUpdate(linkOpacities), // NEW
+            onLinkOpacityUpdate: (linkOpacities) => this.handleLinkOpacityUpdate(linkOpacities),
             onRevealComplete: () => this.handleRevealComplete(),
             onLinkRenderingEnabled: () => this.handleLinkRenderingEnabled()
         });
         
-        // ENHANCED: Expose opacity controller to window for debugging and compatibility
         if (typeof window !== 'undefined') {
             (window as any).universalOpacityController = this.opacityController;
-            console.log('[UniversalGraphManager] ENHANCED - OpacityController exposed to window');
         }
 
-        // Configure default link reveal for smooth transitions
         this.opacityController.configureLinkReveal(4000, 'staggered', 3000, 500);
         
-        // D3 Simulation with callbacks
         this.d3Simulation = new UniversalD3Simulation({
             onTick: (nodes) => this.handleSimulationTick(nodes),
             onEnd: () => this.handleSimulationEnd(),
             onSettlementTick: (nodes, tickCount) => this.handleSettlementTick(nodes, tickCount)
         });
         
-        // Rendering strategy with callbacks
         this.renderingStrategy = new UniversalRenderingStrategy({
             onNodesReady: (nodes, links) => this.handleNodesReady(nodes, links),
             onRenderComplete: () => this.handleRenderComplete(),
             onBatchUpdate: (batch, total) => this.handleBatchUpdate(batch, total)
         });
         
-        // ENHANCED: Initialize derived stores including link opacities
         this.renderableNodes = derived(
             [this.nodesStore, this.forceUpdateCounter], 
             ([nodes, updateCount]) => this.createRenderableNodes(nodes)
@@ -149,22 +116,12 @@ export class UniversalGraphManager {
             [this.linkOpacityStore, this.forceUpdateCounter],
             ([opacities, updateCount]) => opacities
         );
-        
-        console.log('[UniversalGraphManager] ENHANCED ARCHITECTURE - Initialization complete with visibility store');
     }
 
-    /**
-     * ENHANCED: Single authority delegation - ONLY method that decides link visibility
-     */
     public getShouldRenderLinks(): boolean {
-        const shouldRender = this.opacityController.getShouldRenderLinks();
-        console.log('[UniversalGraphManager] ENHANCED DELEGATION - getShouldRenderLinks():', shouldRender);
-        return shouldRender;
+        return this.opacityController.getShouldRenderLinks();
     }
 
-    /**
-     * Enable/disable batch rendering
-     */
     public enableBatchRendering(
         enable: boolean = true, 
         maxBatches: number = UNIVERSAL_LAYOUT.LIMITS.MAX_BATCHES, 
@@ -182,26 +139,13 @@ export class UniversalGraphManager {
         });
     }
 
-   /**
-     * ENHANCED: Gentle data sync that preserves settled simulation state
-     */
     public syncDataGently(newData: Partial<GraphData>): void {
         if (!newData) return;
         
         const isSettled = this.d3Simulation?.isDormantState?.() === true;
         const hasSettledPositions = this.finalPositionCache.size > 0;
         
-        console.log('[UniversalGraphManager] ENHANCED syncDataGently:', {
-            isSettled,
-            hasSettledPositions,
-            newNodeCount: newData.nodes?.length || 0,
-            newLinkCount: newData.links?.length || 0,
-            cachedPositions: this.finalPositionCache.size
-        });
-        
         if (isSettled || hasSettledPositions) {
-            console.log('[UniversalGraphManager] 🛡️ PRESERVING SETTLED STATE - gentle sync only');
-            
             if (newData.nodes) {
                 const currentNodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
                 const updatedNodes = this.mergeNodeDataOnly(currentNodes, newData.nodes);
@@ -217,7 +161,6 @@ export class UniversalGraphManager {
                 this.d3Simulation.updateLinks(transformedLinks);
                 this.updatePerformanceMetrics(transformedLinks);
                 
-                // ENHANCED: Register updated links with opacity controller
                 const renderableLinks = this.createRenderableLinks(
                     this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[],
                     transformedLinks,
@@ -226,24 +169,17 @@ export class UniversalGraphManager {
                 this.opacityController.registerLinks(renderableLinks);
             }
             
-            // Apply stored visibility preferences
             this.applyStoredVisibilityPreferences();
-            
             this.forceUpdateCounter.update(n => n + 1);
-            console.log('[UniversalGraphManager] 🛡️ ENHANCED gentle sync complete - simulation state preserved');
             return;
         }
         
-        console.log('[UniversalGraphManager] Simulation not settled, using normal update');
         this.updateState(newData, 0.2);
     }
-    /**
-     * ENHANCED: setData with proper opacity controller reset and link registration
-     */
+
     public async setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): Promise<void> {
         const startTime = performance.now();
         
-        // ENHANCED: Reset opacity controller - disables phantom links and clears caches
         this.opacityController.reset();
         
         const currentNodes = this.d3Simulation?.getSimulation()?.nodes() as EnhancedNode[] || [];
@@ -258,66 +194,39 @@ export class UniversalGraphManager {
         
         const shouldUseGentleSync = isSameDataSet && isSimulationSettled && !forceRestart;
         
-        console.log('[UniversalGraphManager] ENHANCED setData analysis:', {
-            isSameDataSet,
-            isSimulationSettled,
-            hasStablePositions,
-            shouldUseGentleSync,
-            forceRestart,
-            currentNodes: currentNodes.length,
-            newNodes: data.nodes.length
-        });
-        
         if (shouldUseGentleSync) {
-            console.log('[UniversalGraphManager] 🛡️ USING ENHANCED GENTLE SYNC - preserving settled state');
             this.syncDataGently(data);
             this.performanceMetrics.renderTime = performance.now() - startTime;
             return;
         }
         
-        console.log('[UniversalGraphManager] Full restart required');
-        
-        // Clear position cache since we're restarting
         this.finalPositionCache.clear();
         
         if (forceRestart || !isSameDataSet) {
-            console.log('[UniversalGraphManager] Stopping existing simulation for restart');
             this.stop();
         } else if (currentNodes.length > 0) {
-            console.log('[UniversalGraphManager] Gentle wake for active simulation');
             this.d3Simulation.wakeSimulation(0.1);
             this.simulationActive = true;
         }
         
         this.performanceMetrics.totalNodeCount = data.nodes.length;
         
-        // Start full rendering process
         this.renderingStrategy.startRendering(
             data,
             (nodes) => this.transformNodes(nodes),
             (links) => this.transformLinks(links)
         );
         
-        // Apply visibility preferences after data is set
         await this.applyStoredVisibilityPreferences();
         
         this.performanceMetrics.renderTime = performance.now() - startTime;
     }
 
-    /**
-     * Apply stored visibility preferences from visibilityStore
-     */
     private async applyStoredVisibilityPreferences(): Promise<void> {
         try {
-            // Get all preferences from the visibility store
             const preferences = visibilityStore.getAllPreferences();
             
             if (Object.keys(preferences).length > 0) {
-                console.log('[UniversalGraphManager] Applying stored visibility preferences:', {
-                    count: Object.keys(preferences).length
-                });
-                
-                // Apply preferences to nodes
                 this.applyVisibilityPreferences(preferences);
             }
         } catch (error) {
@@ -325,17 +234,7 @@ export class UniversalGraphManager {
         }
     }
 
-    /**
-     * ENHANCED: Gentle update method for interactive changes
-     */
     public updateState(newData?: Partial<GraphData>, wakePower: number = 0.2): void {
-        console.log('[UniversalGraphManager] ENHANCED updateState called:', {
-            hasNewData: !!newData,
-            wakePower,
-            simulationActive: this.simulationActive,
-            isDormant: this.d3Simulation?.isDormantState?.()
-        });
-        
         if (newData) {
             if (newData.nodes) {
                 const transformedNodes = this.transformNodes(newData.nodes);
@@ -349,7 +248,6 @@ export class UniversalGraphManager {
                 this.d3Simulation.updateLinks(transformedLinks);
                 this.updatePerformanceMetrics(transformedLinks);
                 
-                // ENHANCED: Register updated links with opacity controller
                 const currentNodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
                 const renderableLinks = this.createRenderableLinks(currentNodes, transformedLinks, new Map());
                 this.opacityController.registerLinks(renderableLinks);
@@ -364,15 +262,69 @@ export class UniversalGraphManager {
         this.forceUpdateCounter.update(n => n + 1);
     }
 
-    /**
-     * ENHANCED: Start settlement monitoring
-     */
-    private startSettlementMonitoring(): void {
+    private startSizeChangeSettlementMonitoring(): void {
+        // Clear any existing settlement monitoring
         if (this.settlementCheckInterval) {
             clearInterval(this.settlementCheckInterval);
         }
         
-        console.log('[UniversalGraphManager] ENHANCED - Starting settlement monitoring');
+        let checkCount = 0;
+        const maxChecks = 30; // Maximum 30 seconds of monitoring
+        
+        this.settlementCheckInterval = window.setInterval(() => {
+            checkCount++;
+            
+            if (!this.simulationActive) return;
+            
+            const simulation = this.d3Simulation.getSimulation();
+            const currentAlpha = simulation.alpha();
+            const nodes = simulation.nodes() as EnhancedNode[];
+            
+            // Calculate average velocity for content nodes
+            const contentNodes = nodes.filter(n => 
+                (n.type === 'statement' || n.type === 'openquestion') && !n.fixed
+            );
+            
+            if (contentNodes.length === 0) {
+                this.clearSizeChangeSettlementMonitoring();
+                return;
+            }
+            
+            const totalVelocity = contentNodes.reduce((sum, node) => {
+                const vx = node.vx || 0;
+                const vy = node.vy || 0;
+                return sum + Math.sqrt(vx * vx + vy * vy);
+            }, 0);
+            
+            const avgVelocity = totalVelocity / contentNodes.length;
+            const isSettled = avgVelocity < 0.5 && currentAlpha < 0.05;
+            
+            // Check for overlapping nodes (collision detection)
+            const hasOverlaps = this.checkForNodeOverlaps(contentNodes);
+            
+            if (isSettled && !hasOverlaps) {
+                // Nodes have settled without overlaps - return to dormant state
+                this.clearSizeChangeSettlementMonitoring();
+                this.handleSizeChangeSettlementComplete();
+            } else if (checkCount >= maxChecks) {
+                // Force settlement after max time to prevent infinite monitoring
+                this.clearSizeChangeSettlementMonitoring();
+                this.handleSizeChangeSettlementComplete();
+            }
+        }, 500); // Check every 500ms for size change settlement
+    }
+
+    private clearSizeChangeSettlementMonitoring(): void {
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+            this.settlementCheckInterval = null;
+        }
+    }
+
+    private startSettlementMonitoring(): void {
+        if (this.settlementCheckInterval) {
+            clearInterval(this.settlementCheckInterval);
+        }
         
         this.settlementCheckInterval = window.setInterval(() => {
             if (!this.simulationActive) return;
@@ -381,39 +333,61 @@ export class UniversalGraphManager {
             const wasSettling = this.d3Simulation.isSettling();
             
             if (isSettled && !wasSettling) {
-                console.log('[UniversalGraphManager] ENHANCED - Settlement detected via polling');
                 this.handleSettlementComplete();
             }
         }, 1000);
     }
 
-    /**
-     * ENHANCED: Handle settlement completion
-     */
+    private handleSizeChangeSettlementComplete(): void {
+        // Preserve final positions
+        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        this.preserveFinalPositions(nodes);
+        
+        // Return simulation to dormant state
+        setTimeout(() => {
+            if (this.d3Simulation) {
+                this.d3Simulation.sleepSimulation();
+                this.simulationActive = false;
+            }
+        }, 200);
+    }
+
+    private checkForNodeOverlaps(nodes: EnhancedNode[]): boolean {
+        // Check if any nodes are overlapping based on their radii
+        for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+                const nodeA = nodes[i];
+                const nodeB = nodes[j];
+                
+                const dx = (nodeA.x || 0) - (nodeB.x || 0);
+                const dy = (nodeA.y || 0) - (nodeB.y || 0);
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                
+                const minDistance = nodeA.radius + nodeB.radius + 20; // 20px buffer
+                
+                if (distance < minDistance) {
+                    return true; // Overlap detected
+                }
+            }
+        }
+        return false;
+    }
+
     private handleSettlementComplete(): void {
         if (this.settlementCheckInterval) {
             clearInterval(this.settlementCheckInterval);
             this.settlementCheckInterval = null;
         }
         
-        console.log('[UniversalGraphManager] ENHANCED - Settlement complete');
-        
         this.simulationActive = false;
         
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         
-        // ENHANCED: Delegate settlement completion to opacity controller
-        console.log('[UniversalGraphManager] ENHANCED - Delegating settlement to opacity controller');
         this.opacityController.onSettlementComplete();
     }
 
-    /**
-     * ENHANCED: Preserve final positions without triggering store updates
-     */
     private preserveFinalPositions(nodes: EnhancedNode[]): void {
-        console.log('[UniversalGraphManager] ENHANCED - Preserving final positions for', nodes.length, 'nodes');
-        
         nodes.forEach(node => {
             if (node.x !== undefined && node.x !== null && node.y !== undefined && node.y !== null) {
                 this.finalPositionCache.set(node.id, {
@@ -423,23 +397,12 @@ export class UniversalGraphManager {
                 });
             }
         });
-        
-        console.log('[UniversalGraphManager] ENHANCED - Cached', this.finalPositionCache.size, 'settled positions');
     }
 
-    /**
-     * ENHANCED: Handle nodes ready from rendering strategy with link registration
-     */
     private handleNodesReady(nodes: EnhancedNode[], links: EnhancedLink[]): void {
-        console.log('[UniversalGraphManager] ENHANCED - Nodes ready callback triggered:', {
-            nodeCount: nodes.length,
-            linkCount: links.length
-        });
-        
         this.nodesStore.set(nodes);
         this.linksStore.set(links);
         
-        // ENHANCED: Register links with opacity controller for management
         const renderableLinks = this.createRenderableLinks(nodes, links, new Map());
         this.opacityController.registerLinks(renderableLinks);
         
@@ -449,34 +412,23 @@ export class UniversalGraphManager {
         this.d3Simulation.configureDropPhaseForces(nodes, links);
         this.d3Simulation.start(UNIVERSAL_FORCES.SIMULATION.DROP_PHASE.ALPHA);
         this.simulationActive = true;
-        
-        console.log('[UniversalGraphManager] ENHANCED - Simulation started with link opacity management');
     }
 
-    /**
-     * ENHANCED: Handle render complete with settlement monitoring
-     */
     private handleRenderComplete(): void {
-        console.log('[UniversalGraphManager] ENHANCED - Render complete callback');
-        
         if (!this.simulationActive) {
-            console.log('[UniversalGraphManager] ⚠️ Render complete called but simulation not active');
             return;
         }
         
         setTimeout(() => {
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
-                console.log('[UniversalGraphManager] ENHANCED - Starting settlement phase');
                 this.d3Simulation.startSettlementPhase();
                 
                 const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
                 const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
                 
                 if (contentNodes.length > 0) {
-                    console.log(`[UniversalGraphManager] ENHANCED - Starting node reveal for ${contentNodes.length} content nodes`);
                     this.opacityController.startRevealSequence(nodes);
                 } else {
-                    console.log('[UniversalGraphManager] ENHANCED - No content nodes, force revealing all');
                     this.opacityController.forceRevealAll(nodes);
                 }
                 
@@ -485,73 +437,42 @@ export class UniversalGraphManager {
         }, UNIVERSAL_LAYOUT.TIMING.SETTLEMENT_START_DELAY);
     }
 
-    /**
-     * Handle batch update
-     */
     private handleBatchUpdate(batchNumber: number, totalBatches: number): void {
         this.performanceMetrics.currentBatch = batchNumber;
-        console.log(`[UniversalGraphManager] ENHANCED - Batch ${batchNumber}/${totalBatches} rendered`);
     }
 
-    /**
-     * ENHANCED: Handle simulation tick
-     */
     private handleSimulationTick(nodes: EnhancedNode[]): void {
         if (this.simulationActive) {
             this.nodesStore.set([...nodes]);
         }
     }
 
-    /**
-     * Handle settlement tick
-     */
     private handleSettlementTick(nodes: EnhancedNode[], tickCount: number): void {
         if (tickCount % 3 === 0) {
             this.forceUpdateCounter.update(n => n + 1);
         }
     }
 
-    /**
-     * ENHANCED: Handle simulation end
-     */
     private handleSimulationEnd(): void {
         if (this.d3Simulation?.isDormantState?.()) {
-            console.log('[UniversalGraphManager] 🛡️ IGNORING simulation end - dormant state active');
             return;
         }
-        
-        console.log('[UniversalGraphManager] ENHANCED - Simulation ended');
         
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         this.forceUpdateCounter.update(n => n + 1);
     }
 
-    /**
-     * ENHANCED OPACITY CONTROLLER CALLBACKS
-     */
-
-    /**
-     * Handle node opacity updates from controller
-     */
     private handleNodeOpacityUpdate(nodes: EnhancedNode[]): void {
         this.nodesStore.set([...nodes]);
         this.forceUpdateCounter.update(n => n + 1);
     }
 
-    /**
-     * ENHANCED: Handle link opacity updates from controller
-     */
     private handleLinkOpacityUpdate(linkOpacities: Map<string, number>): void {
-        console.log(`[UniversalGraphManager] ENHANCED - Link opacity update for ${linkOpacities.size} links`);
-        
         this.linkOpacityStore.set(new Map(linkOpacities));
         this.forceUpdateCounter.update(n => n + 1);
     }
 
-    /**
-     * Configure link reveal timing for smoother transitions
-     */
     public configureLinkReveal(
         duration: number = 4000,
         pattern: 'staggered' | 'wave' | 'radial' | 'strength-based' = 'staggered',
@@ -559,52 +480,29 @@ export class UniversalGraphManager {
         delay: number = 500
     ): void {
         this.opacityController.configureLinkReveal(duration, pattern, staggerDuration, delay);
-        console.log(`[UniversalGraphManager] Link reveal configured:`, {
-            duration,
-            pattern,
-            staggerDuration,
-            delay
-        });
     }
 
-    /**
-     * Handle reveal sequence completion
-     */
     private handleRevealComplete(): void {
-        console.log('[UniversalGraphManager] ENHANCED - Reveal sequence complete');
-        
         setTimeout(() => {
             if (this.d3Simulation) {
                 this.d3Simulation.sleepSimulation();
                 this.simulationActive = false;
-                console.log('[UniversalGraphManager] ENHANCED - Simulation sleeping after reveal');
             }
         }, 200);
     }
 
-    /**
-     * ENHANCED: Handle phantom links enabled callback
-     */
     private handleLinkRenderingEnabled(): void {
-        console.log('[UniversalGraphManager] 🔗 ENHANCED - Phantom links enabled callback received');
-        
-        // Multiple force updates for reliability with enhanced logging
         this.forceUpdateCounter.update(n => n + 1);
         
         setTimeout(() => {
             this.forceUpdateCounter.update(n => n + 1);
-            console.log('[UniversalGraphManager] 🔗 ENHANCED - Secondary force update for phantom links');
         }, 50);
         
         setTimeout(() => {
             this.forceUpdateCounter.update(n => n + 1);
-            console.log('[UniversalGraphManager] 🔗 ENHANCED - Final force update for phantom links');
         }, 100);
     }
 
-    /**
-     * Get current links from store
-     */
     private getCurrentLinks(): EnhancedLink[] {
         let currentLinks: EnhancedLink[] = [];
         const unsubscribe = this.linksStore.subscribe(links => {
@@ -615,57 +513,24 @@ export class UniversalGraphManager {
     }
 
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
-        const timestamp = Date.now();
-        console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - updateNodeMode() called:`, {
-            nodeId: nodeId.substring(0, 8),
-            requestedMode: mode,
-            currentMode: this.nodeModes.get(nodeId) || 'not-set',
-            timestamp,
-            simulationActive: this.simulationActive
-        });
-        
-        // Update internal mode tracking
         const previousMode = this.nodeModes.get(nodeId);
         this.nodeModes.set(nodeId, mode);
         
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Mode map updated:`, {
-            nodeId: nodeId.substring(0, 8),
-            previousMode: previousMode || 'not-set',
-            newMode: mode,
-            totalTrackedModes: this.nodeModes.size
-        });
-        
-        // Get current simulation nodes
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
         if (nodeIndex === -1) {
-            console.warn(`[UniversalGraphManager] ❌ MODE AUTHORITY - Node ${nodeId.substring(0, 8)} not found in simulation`);
             return;
         }
         
         const node = nodes[nodeIndex];
         if (node.mode === mode) {
-            console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - Node ${nodeId.substring(0, 8)} already in ${mode} mode`);
             return;
         }
         
-        // Calculate the new radius based on the new mode
         const oldRadius = node.radius;
         const newRadius = this.getNodeRadius({ ...node, mode });
         
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Mode change details:`, {
-            nodeId: nodeId.substring(0, 8),
-            nodeType: node.type,
-            oldMode: node.mode,
-            newMode: mode,
-            oldRadius: oldRadius.toFixed(1),
-            newRadius: newRadius.toFixed(1),
-            radiusChange: (newRadius - oldRadius).toFixed(1),
-            position: { x: node.x?.toFixed(1), y: node.y?.toFixed(1) }
-        });
-        
-        // Update the node with new properties
         const updatedNode: EnhancedNode = {
             ...node,
             mode,
@@ -677,69 +542,32 @@ export class UniversalGraphManager {
             }
         };
         
-        // Update the node in the array
         nodes[nodeIndex] = updatedNode;
         
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Node updated in simulation array`);
-        
-        // Update collision force with new radius
         this.updateCollisionForce();
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Collision force updated`);
-        
-        // Store current positions before reheating
         this.storeCurrentPositions(nodes);
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Current positions stored`);
+        this.reheatSimulation(0.3);
         
-        // Reheat the simulation with appropriate energy
-        this.reheatSimulation(0.3); // Moderate reheat for size changes
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Simulation reheated`);
-        
-        // Update stores
         this.d3Simulation.updateNodes(nodes);
         this.nodesStore.set(nodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Stores updated, force counter incremented`);
-        
-        // Dispatch mode change event for external listeners
         this.dispatchModeChangeEvent(nodeId, mode, { x: updatedNode.x ?? 0, y: updatedNode.y ?? 0 });
-        
-        console.log(`[UniversalGraphManager] ✅ MODE AUTHORITY - Mode change complete:`, {
-            nodeId: nodeId.substring(0, 8),
-            finalMode: mode,
-            finalRadius: newRadius.toFixed(1),
-            totalDuration: `${Date.now() - timestamp}ms`
-        });
     }
 
-    /**
-     * Get current mode for a node
-     */
     public getNodeMode(nodeId: string): NodeMode {
         return this.nodeModes.get(nodeId) ?? this.defaultNodeMode;
     }
 
-        /**
-     * Get all node modes (for debugging)
-     */
     public getAllNodeModes(): Map<string, NodeMode> {
         return new Map(this.nodeModes);
     }
 
-    /**
-     * Set default mode for new nodes
-     */
     public setDefaultNodeMode(mode: NodeMode): void {
         this.defaultNodeMode = mode;
-        console.log(`[UniversalGraphManager] Default node mode set to: ${mode}`);
     }
 
-    /**
-     * Reset all nodes to preview mode
-     */
     public resetAllNodesToPreview(): void {
-        console.log('[UniversalGraphManager] Resetting all nodes to preview mode');
-        
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         let changedCount = 0;
         
@@ -760,14 +588,9 @@ export class UniversalGraphManager {
             this.d3Simulation.updateNodes(nodes);
             this.nodesStore.set(nodes);
             this.forceUpdateCounter.update(n => n + 1);
-            
-            console.log(`[UniversalGraphManager] Reset ${changedCount} nodes to preview mode`);
         }
     }
 
-    /**
-     * Dispatch mode change event for external listeners
-     */
     private dispatchModeChangeEvent(nodeId: string, mode: NodeMode, position: { x: number; y: number }): void {
         if (typeof window !== 'undefined') {
             const event = new CustomEvent('node-mode-change', {
@@ -777,78 +600,91 @@ export class UniversalGraphManager {
         }
     }
 
-    /**
-     * Update collision force to account for new node sizes
-     */
     private updateCollisionForce(): void {
         const simulation = this.d3Simulation.getSimulation();
         
         // Remove existing collision force
         simulation.force('collision', null);
         
-        // Add updated collision force with new radii
-        simulation.force('collision', d3.forceCollide()
+        // Create enhanced collision force for size changes
+        const collisionForce = d3.forceCollide()
             .radius((d: any) => {
                 const node = d as EnhancedNode;
-                // Add padding based on current phase
-                const padding = this.d3Simulation.isSettling() 
+                const basePadding = this.d3Simulation.isSettling() 
                     ? UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.SETTLEMENT_PHASE
                     : UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.DROP_PHASE;
-                return node.radius + padding;
+                
+                // Add extra padding for recently changed nodes to prevent tight clustering
+                const extraPadding = 15; // Additional padding for size changes
+                return node.radius + basePadding + extraPadding;
             })
-            .strength(0.8)
-            .iterations(2)
-        );
+            .strength(0.9) // Stronger collision avoidance for size changes
+            .iterations(3); // More iterations for better separation
+        
+        simulation.force('collision', collisionForce);
+        
+        // Also ensure the charge (repulsion) force is active to help with separation
+        this.ensureRepulsionForce();
     }
 
-     /**
-     * Store current node positions before reheating
-     */
+    private ensureRepulsionForce(): void {
+        const simulation = this.d3Simulation.getSimulation();
+        
+        // Check if charge force exists, if not add a moderate one
+        if (!simulation.force('charge')) {
+            simulation.force('charge', d3.forceManyBody()
+                .strength(-200) // Moderate repulsion
+                .distanceMin(50)
+                .distanceMax(800)
+            );
+        }
+    }
+
     private storeCurrentPositions(nodes: EnhancedNode[]): void {
         nodes.forEach(node => {
             if (node.x !== null && node.y !== null) {
-                // Store current position as fixed position temporarily
                 node.fx = node.x;
                 node.fy = node.y;
             }
         });
     }
 
-    /**
-     * Reheat simulation with controlled energy
-     */
     private reheatSimulation(alpha: number = 0.3): void {
         const simulation = this.d3Simulation.getSimulation();
         
-        console.log('[UniversalGraphManager] Reheating simulation with alpha:', alpha);
+        // Check if simulation is in dormant state and wake it properly
+        const isDormant = this.d3Simulation.isDormantState();
+        if (isDormant) {
+            // Use stronger wake-up energy for node size changes
+            this.d3Simulation.wakeSimulation(Math.max(alpha, 0.4));
+        } else {
+            // Standard alpha increase for active simulation
+            simulation.alpha(alpha);
+            simulation.alphaTarget(0);
+        }
         
-        // Set new alpha to reheat
-        simulation.alpha(alpha);
-        simulation.alphaTarget(0);
-        
-        // Gradually release fixed positions
+        // Release fixed positions after a short delay to allow collision forces to engage
         setTimeout(() => {
             const nodes = simulation.nodes() as EnhancedNode[];
             nodes.forEach(node => {
-                // Only release if not intentionally fixed
+                // Only release non-permanently fixed nodes
                 if (!node.fixed && node.fx !== null) {
                     node.fx = null;
                     node.fy = null;
                 }
             });
-            console.log('[UniversalGraphManager] Released node positions for natural adjustment');
-        }, 100);
+        }, 150); // Slightly longer delay for better collision force engagement
         
-        // Ensure simulation is running
+        // Ensure simulation is active and running
         if (!this.simulationActive) {
             simulation.restart();
             this.simulationActive = true;
         }
+        
+        // Start monitoring for settlement after size changes
+        this.startSizeChangeSettlementMonitoring();
     }
 
-    /**
-     * Update node visibility
-     */
     public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
@@ -889,9 +725,6 @@ export class UniversalGraphManager {
         this.simulationActive = true;
     }
 
-    /**
-     * Apply visibility preferences
-     */
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
         if (Object.keys(preferences).length === 0) return;
         
@@ -928,9 +761,6 @@ export class UniversalGraphManager {
         }
     }
 
-    /**
-     * Force tick updates
-     */
     public forceTick(ticks: number = 1): void {
         this.d3Simulation.forceTick(ticks);
         
@@ -939,46 +769,23 @@ export class UniversalGraphManager {
         this.forceUpdateCounter.update(n => n + 1);
     }
 
-    /**
-     * Get performance metrics
-     */
     public getPerformanceMetrics() {
         return { ...this.performanceMetrics };
     }
 
-    /**
-     * ENHANCED OPACITY CONTROLLER DELEGATION METHODS
-     */
-
-    /**
-     * Configure reveal pattern for node entrance
-     */
     public configureRevealPattern(pattern: RevealPattern): void {
         this.opacityController.configureRevealPattern(pattern);
-        console.log(`[UniversalGraphManager] ENHANCED - Reveal pattern delegated: ${pattern}`);
     }
 
-    /**
-     * Configure reveal timing
-     */
     public configureRevealTiming(duration: number): void {
         this.opacityController.configureRevealTiming(duration);
-        console.log(`[UniversalGraphManager] ENHANCED - Reveal timing delegated: ${duration}ms`);
     }
 
-    /**
-     * Force immediate reveal of all nodes (for debugging)
-     */
     public forceRevealAll(): void {
-        console.log('[UniversalGraphManager] ENHANCED - Force revealing all nodes (delegated)');
-        
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.opacityController.forceRevealAll(nodes);
     }
 
-    /**
-     * ENHANCED: Get current reveal status (for debugging)
-     */
     public getRevealStatus(): {
         nodeState: string;
         nodeProgress: number;
@@ -998,9 +805,6 @@ export class UniversalGraphManager {
         };
     }
 
-    /**
-     * ENHANCED: Get batch debug info with phantom links status
-     */
     public getBatchDebugInfo(): any {
         const renderingStats = this.renderingStrategy.getRenderingStats();
         const revealStatus = this.getRevealStatus();
@@ -1022,9 +826,6 @@ export class UniversalGraphManager {
         };
     }
 
-    /**
-     * ENHANCED: Merge new node data without changing positions
-     */
     private mergeNodeDataOnly(currentNodes: EnhancedNode[], newNodeData: GraphNode[]): EnhancedNode[] {
         const newDataMap = new Map(newNodeData.map(n => [n.id, n]));
         
@@ -1056,9 +857,6 @@ export class UniversalGraphManager {
         });
     }
 
-    /**
-     * Transform a single GraphNode to EnhancedNode
-     */
     private transformSingleNode(node: GraphNode): EnhancedNode {
         const netVotes = this.positioning.getNodeVotes(node);
         const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
@@ -1137,46 +935,34 @@ export class UniversalGraphManager {
         return enhancedNode;
     }
 
-    /**
-     * ENHANCED: Transform GraphNodes to EnhancedNodes with mode state management
-     */
     private transformNodes(nodes: GraphNode[]): EnhancedNode[] {
-        console.log(`[UniversalGraphManager] MODE AUTHORITY - Transforming ${nodes.length} nodes with mode state management`);
-        
         return nodes.map(node => {
             const netVotes = this.positioning.getNodeVotes(node);
             
-            // Check visibility preference
             const visibilityPref = visibilityStore.getPreference(node.id);
             const isHidden = visibilityPref !== undefined ? !visibilityPref : 
                             ((node.type === 'statement' || node.type === 'openquestion') && netVotes < 0);
             const hiddenReason = visibilityPref !== undefined ? 'user' : 
                                 (isHidden ? 'community' : undefined);
             
-            // MODE AUTHORITY: Get current mode from manager state, or use default/provided mode
             let nodeMode: NodeMode = this.nodeModes.get(node.id) ?? node.mode ?? this.defaultNodeMode;
             
-            // Special handling for control nodes - always detail mode
             if (node.group === 'central' && !this.nodeModes.has(node.id)) {
                 nodeMode = 'detail';
                 this.nodeModes.set(node.id, nodeMode);
-                console.log(`[UniversalGraphManager] MODE AUTHORITY - Set central node ${node.id} to detail mode`);
             }
             
-            // For regular content nodes, ensure they start in preview mode unless explicitly set
             if ((node.type === 'statement' || node.type === 'openquestion') && !this.nodeModes.has(node.id)) {
                 nodeMode = 'preview';
                 this.nodeModes.set(node.id, nodeMode);
             }
             
-            // Calculate radius based on manager-controlled mode
             const nodeRadius = this.getNodeRadius({
                 ...node,
                 mode: nodeMode,
                 isHidden: isHidden
             });
             
-            // Prepare node data based on type
             let nodeData: any = {
                 ...(node.data || {}),
                 id: node.id
@@ -1207,7 +993,6 @@ export class UniversalGraphManager {
                     votes: votes
                 };
             } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
-                // Control node data
                 nodeData = {
                     ...nodeData,
                     sub: 'universal-controls',
@@ -1220,20 +1005,18 @@ export class UniversalGraphManager {
                 };
             }
             
-            // Create enhanced node with manager-controlled mode
             const enhancedNode: EnhancedNode = {
                 id: node.id,
                 type: node.type,
                 data: nodeData,
                 group: node.group,
-                mode: nodeMode, // Use manager-controlled mode
+                mode: nodeMode,
                 radius: nodeRadius,
                 fixed: node.group === 'central',
-                expanded: nodeMode === 'detail', // Derived from manager-controlled mode
+                expanded: nodeMode === 'detail',
                 isHidden,
                 hiddenReason,
                 
-                // D3 simulation properties
                 x: null,
                 y: null,
                 vx: null,
@@ -1241,11 +1024,10 @@ export class UniversalGraphManager {
                 fx: null,
                 fy: null,
                 
-                // Enhanced metadata with mode-derived properties
                 metadata: {
                     group: this.getLayoutGroup(node),
                     fixed: node.group === 'central',
-                    isDetail: nodeMode === 'detail', // Derived from manager-controlled mode
+                    isDetail: nodeMode === 'detail',
                     votes: netVotes,
                     consensus_ratio: node.metadata?.consensus_ratio,
                     participant_count: getNeo4jNumber(node.metadata?.participant_count) || 0,
@@ -1258,10 +1040,8 @@ export class UniversalGraphManager {
                 }
             };
             
-            // Set initial opacity using opacity controller
             this.opacityController.setInitialNodeOpacity(enhancedNode);
             
-            // Set fixed positions for central/system nodes
             if (enhancedNode.fixed || enhancedNode.group === 'central') {
                 enhancedNode.fx = 0;
                 enhancedNode.fy = 0;
@@ -1269,18 +1049,10 @@ export class UniversalGraphManager {
                 enhancedNode.y = 0;
             }
             
-            // Log mode assignment for debugging
-            if (node.type === 'statement' || node.type === 'openquestion') {
-                console.log(`[UniversalGraphManager] MODE AUTHORITY - Node ${node.id.substring(0, 8)} assigned mode: ${nodeMode}`);
-            }
-            
             return enhancedNode;
         });
     }
 
-    /**
-     * ENHANCED: Transform GraphLinks to EnhancedLinks with phantom links opacity control
-     */
     private transformLinks(links: GraphLink[]): EnhancedLink[] {
         return links.map(link => {
             const sourceId = typeof link.source === 'string' ? link.source : link.source.id;
@@ -1329,16 +1101,12 @@ export class UniversalGraphManager {
                 metadata: linkMetadata
             };
             
-            // ENHANCED: Use opacity controller to set initial link opacity
             this.opacityController.setInitialLinkOpacity(enhancedLink);
             
             return enhancedLink;
         });
     }
 
-    /**
-     * ENHANCED: Create renderable links with opacity controller integration
-     */
     private createRenderableLinks(
         nodes: EnhancedNode[], 
         links: EnhancedLink[], 
@@ -1412,10 +1180,7 @@ export class UniversalGraphManager {
                 metadata: enhancedMetadata
             };
             
-            // ENHANCED: Get opacity from controller (single authority)
             const controllerOpacity = this.opacityController.calculateLinkOpacity(renderableLink);
-            
-            // Use cached opacity if available, otherwise use controller calculation
             const finalOpacity = linkOpacities.get(link.id) ?? controllerOpacity;
             
             renderableLink.opacity = finalOpacity;
@@ -1429,26 +1194,7 @@ export class UniversalGraphManager {
         return renderableLinks;
     }
 
-    /**
-     * ENHANCED: Create renderable nodes from enhanced nodes
-     */
     private createRenderableNodes(nodes: EnhancedNode[]): RenderableNode[] {
-        const contentNodeCount = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').length;
-        if (contentNodeCount > 0) {
-            const sampleNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 2);
-            const hasNullPositions = sampleNodes.some(n => n.x === null || n.y === null);
-            if (hasNullPositions) {
-                console.log('[UniversalGraphManager] ENHANCED - createRenderableNodes sample positions:', 
-                    sampleNodes.map(n => ({
-                        id: n.id.substring(0, 8),
-                        x: n.x?.toFixed(1),
-                        y: n.y?.toFixed(1),
-                        opacity: (n as any).opacity
-                    }))
-                );
-            }
-        }
-        
         return nodes.map(node => {
             const radius = node.radius;
             const x = node.x ?? 0;
@@ -1503,8 +1249,6 @@ export class UniversalGraphManager {
             };
         });
     }
-
-    // Helper methods (preserved from original)
 
     private updatePerformanceMetrics(links: EnhancedLink[]): void {
         let originalCount = 0;
@@ -1736,72 +1480,33 @@ export class UniversalGraphManager {
         }
     }
 
-    /**
-     * ENHANCED: Stop method with comprehensive cleanup including mode state
-     */
     public stop(): void {
-        console.log('[UniversalGraphManager] ⛔ ENHANCED STOP - destroying graph manager with mode cleanup');
-        console.trace('[UniversalGraphManager] Stop called from:');
-        
-        // Mark simulation as inactive immediately
         this.simulationActive = false;
         
-        // Clear settlement monitoring
         if (this.settlementCheckInterval) {
             clearInterval(this.settlementCheckInterval);
             this.settlementCheckInterval = null;
-            console.log('[UniversalGraphManager] ⛔ Settlement monitoring cleared');
         }
         
-        // Get final node positions before stopping simulation
         if (this.d3Simulation) {
             const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
-            
-            // Log final positions for debugging
-            if (import.meta.env.DEV && nodes.length > 0) {
-                const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
-                console.log('[UniversalGraphManager] ⛔ Final node positions before stop:', 
-                    contentNodes.map(n => ({
-                        id: n.id.substring(0, 8),
-                        mode: n.mode,
-                        x: n.x?.toFixed(1),
-                        y: n.y?.toFixed(1),
-                        fx: n.fx?.toFixed(1),
-                        fy: n.fy?.toFixed(1)
-                    }))
-                );
-            }
-            
-            // Preserve final positions in cache
             this.preserveFinalPositions(nodes);
-            
-            // Stop D3 simulation with proper cleanup
             this.d3Simulation.stopSimulation();
-            console.log('[UniversalGraphManager] ⛔ D3 simulation stopped');
         }
         
-        // Stop rendering strategy
         if (this.renderingStrategy) {
             this.renderingStrategy.stopRendering();
-            console.log('[UniversalGraphManager] ⛔ Rendering strategy stopped');
         }
         
-        // Dispose opacity controller with enhanced cleanup
         if (this.opacityController) {
             this.opacityController.dispose();
-            console.log('[UniversalGraphManager] ⛔ ENHANCED - OpacityController disposed');
         }
         
-        // ENHANCED: Clear mode state management
         const modeCount = this.nodeModes.size;
         this.nodeModes.clear();
-        console.log(`[UniversalGraphManager] ⛔ MODE AUTHORITY - Cleared ${modeCount} node modes`);
         
-        // Clear all caches
         this.clearCaches();
-        console.log('[UniversalGraphManager] ⛔ All caches cleared');
         
-        // Reset performance metrics
         this.performanceMetrics = {
             originalRelationshipCount: 0,
             consolidatedRelationshipCount: 0,
@@ -1814,30 +1519,14 @@ export class UniversalGraphManager {
             currentBatch: 0
         };
         
-        // Clear stores to empty state
         this.nodesStore.set([]);
         this.linksStore.set([]);
         this.linkOpacityStore.set(new Map());
         
-        // Final force update to ensure clean state
         this.forceUpdateCounter.update(n => n + 1);
         
-        // Remove window reference to opacity controller
         if (typeof window !== 'undefined' && (window as any).universalOpacityController) {
             delete (window as any).universalOpacityController;
-            console.log('[UniversalGraphManager] ⛔ ENHANCED - OpacityController removed from window');
         }
-        
-        console.log('[UniversalGraphManager] ⛔ ENHANCED STOP COMPLETE - Graph manager fully destroyed');
-        console.log('[UniversalGraphManager] ⛔ Final state:', {
-            simulationActive: this.simulationActive,
-            modeCount: this.nodeModes.size,
-            cacheSize: {
-                nodeRadius: this.nodeRadiusCache.size,
-                linkPath: this.linkPathCache.size,
-                finalPositions: this.finalPositionCache.size
-            },
-            managerId: this.managerId
-        });
     }
 }
