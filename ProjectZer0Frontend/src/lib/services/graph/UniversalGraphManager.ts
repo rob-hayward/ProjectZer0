@@ -352,6 +352,28 @@ export class UniversalGraphManager {
         }, 200);
     }
 
+    private temporarilySleepSimulationForCentering(): void {
+        // Put the simulation to sleep temporarily to avoid interfering with centering
+        console.log('[UniversalGraphManager] 😴 SLEEPING simulation for centering - current state:', {
+            simulationActive: this.simulationActive,
+            isDormant: this.d3Simulation?.isDormantState?.(),
+            isSettling: this.d3Simulation?.isSettling?.()
+        });
+        
+        if (this.simulationActive && this.d3Simulation) {
+            this.d3Simulation.sleepSimulation();
+            this.simulationActive = false;
+            
+            console.log('[UniversalGraphManager] 😴 SLEEP COMPLETE - new state:', {
+                simulationActive: this.simulationActive,
+                isDormant: this.d3Simulation?.isDormantState?.(),
+                alpha: this.d3Simulation.getSimulation().alpha()
+            });
+        } else {
+            console.log('[UniversalGraphManager] ⚠️ SLEEP SKIPPED - simulation not active or missing');
+        }
+    }
+
     private checkForNodeOverlaps(nodes: EnhancedNode[]): boolean {
         // Check if any nodes are overlapping based on their radii
         for (let i = 0; i < nodes.length; i++) {
@@ -384,7 +406,23 @@ export class UniversalGraphManager {
         const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         
+        // IMPORTANT: Remove centering forces after initial settlement
+        // They're only needed for initial layout, after that they interfere with viewport centering
+        this.removeCenteringForcesAfterInitialSettlement();
+        
         this.opacityController.onSettlementComplete();
+    }
+
+    private removeCenteringForcesAfterInitialSettlement(): void {
+        const simulation = this.d3Simulation.getSimulation();
+        
+        // Remove centering forces that pull nodes toward (0,0)
+        simulation.force('centerX', null);
+        simulation.force('centerY', null);
+        simulation.force('x', null);
+        simulation.force('y', null);
+        
+        console.log('[UniversalGraphManager] Removed centering forces after initial settlement');
     }
 
     private preserveFinalPositions(nodes: EnhancedNode[]): void {
@@ -544,15 +582,87 @@ export class UniversalGraphManager {
         
         nodes[nodeIndex] = updatedNode;
         
-        this.updateCollisionForce();
-        this.storeCurrentPositions(nodes);
-        this.reheatSimulation(0.3);
+        // Store current position but don't fix it yet if expanding to detail
+        // This allows centering animation to complete without interference
+        if (mode === 'detail') {
+            // For expansion: delay simulation reheating until after centering completes
+            this.handleNodeExpansion(updatedNode, nodes);
+        } else {
+            // For collapse: immediate reheating is fine
+            this.handleNodeCollapse(updatedNode, nodes);
+        }
         
+        // Always update stores and dispatch event
         this.d3Simulation.updateNodes(nodes);
         this.nodesStore.set(nodes);
         this.forceUpdateCounter.update(n => n + 1);
         
         this.dispatchModeChangeEvent(nodeId, mode, { x: updatedNode.x ?? 0, y: updatedNode.y ?? 0 });
+    }
+
+    private handleNodeExpansion(updatedNode: EnhancedNode, nodes: EnhancedNode[]): void {
+        // Store position but don't fix it yet - allow centering to work
+        if (updatedNode.x !== null && updatedNode.y !== null) {
+            updatedNode.fx = updatedNode.x;
+            updatedNode.fy = updatedNode.y;
+        }
+        
+        // Update collision force immediately for the new size
+        this.updateCollisionForce();
+        
+        // Delay simulation reheating to allow centering animation to complete
+        // Standard centering animation is 750ms, so wait a bit longer
+        setTimeout(() => {
+            // Now release the fixed position and allow physics to adjust other nodes
+            if (!updatedNode.fixed) {
+                updatedNode.fx = null;
+                updatedNode.fy = null;
+            }
+            
+            // Apply gentle reheating focused on other nodes, not the expanded one
+            this.reheatSimulationForExpansion(updatedNode.id);
+        }, 850); // Wait for centering animation to complete
+    }
+
+    private handleNodeCollapse(updatedNode: EnhancedNode, nodes: EnhancedNode[]): void {
+        // For collapse, immediate reheating is fine since no centering animation
+        this.updateCollisionForce();
+        this.storeCurrentPositions(nodes);
+        this.reheatSimulation(0.2); // Gentler for collapse
+    }
+
+    private reheatSimulationForExpansion(expandedNodeId: string): void {
+        const simulation = this.d3Simulation.getSimulation();
+        
+        // Check if simulation is in dormant state and wake it properly
+        const isDormant = this.d3Simulation.isDormantState();
+        if (isDormant) {
+            this.d3Simulation.wakeSimulation(0.3); // Moderate energy for expansion
+        } else {
+            simulation.alpha(0.3);
+            simulation.alphaTarget(0);
+        }
+        
+        // Release fixed positions for all nodes EXCEPT the expanded one
+        setTimeout(() => {
+            const nodes = simulation.nodes() as EnhancedNode[];
+            nodes.forEach(node => {
+                // Don't disturb the expanded node - let it stay where centering placed it
+                if (node.id !== expandedNodeId && !node.fixed && node.fx !== null) {
+                    node.fx = null;
+                    node.fy = null;
+                }
+            });
+        }, 100); // Shorter delay since centering is already complete
+        
+        // Ensure simulation is active
+        if (!this.simulationActive) {
+            simulation.restart();
+            this.simulationActive = true;
+        }
+        
+        // Start monitoring for settlement after expansion
+        this.startSizeChangeSettlementMonitoring();
     }
 
     public getNodeMode(nodeId: string): NodeMode {

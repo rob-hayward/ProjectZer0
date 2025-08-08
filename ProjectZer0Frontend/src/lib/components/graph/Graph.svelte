@@ -342,7 +342,7 @@
         centerViewportOn(node.position.x, node.position.y, undefined, duration);
     }
 
-    // CORRECTED: Mode change handler with comprehensive logging
+   // CORRECTED: Mode change handler with comprehensive logging
     function handleModeChange(event: CustomEvent<{ 
         nodeId: string; 
         mode: NodeMode;
@@ -368,13 +368,40 @@
                 graphStore.updateNodeMode(nodeId, mode);
                 console.log('[Graph] MODE ROUTING - ✅ Successfully called updateNodeMode()');
                 
-                // Optional: Center on node if position provided and mode is detail
+                // Handle centering for detail mode expansions
                 if (mode === 'detail' && position) {
-                    console.log('[Graph] MODE ROUTING - Centering on node in detail mode');
+                    console.log('[Graph] MODE ROUTING - Starting centering animation for expanded node');
+                    console.log('[Graph] MODE ROUTING - Centering target position:', {
+                        x: position.x.toFixed(1), 
+                        y: position.y.toFixed(1)
+                    });
+                    
                     setTimeout(() => {
-                        const success = centerViewportOnCoordinates(position.x, position.y, 750);
+                        console.log('[Graph] MODE ROUTING - Executing centerViewportOnCoordinates...');
+                        
+                        // Try using centerOnNodeById instead of fixed coordinates
+                        // This will find the node's current position dynamically
+                        const success = centerOnNodeById(nodeId, 750);
+                        
                         console.log('[Graph] MODE ROUTING - Centering result:', success ? 'SUCCESS' : 'FAILED');
-                    }, 100); // Small delay to let layout settle
+                        
+                        // CRITICAL: Notify graph manager when centering animation completes
+                        // Check if this is a UniversalGraphManager with the centering callback
+                        if (success && graphStore && typeof (graphStore as any).onNodeCenteringComplete === 'function') {
+                            setTimeout(() => {
+                                console.log('[Graph] MODE ROUTING - Notifying manager that centering is complete');
+                                (graphStore as any).onNodeCenteringComplete(nodeId);
+                            }, 800); // Wait for 750ms animation + 50ms buffer
+                        } else if (!success) {
+                            // If centering failed, still notify manager to reheat simulation
+                            console.warn('[Graph] MODE ROUTING - Centering failed, but still notifying manager');
+                            if (graphStore && typeof (graphStore as any).onNodeCenteringComplete === 'function') {
+                                setTimeout(() => {
+                                    (graphStore as any).onNodeCenteringComplete(nodeId);
+                                }, 100); // Short delay for failed centering
+                            }
+                        }
+                    }, 100); // Small delay to let layout settle before centering
                 }
                 
             } catch (error) {
