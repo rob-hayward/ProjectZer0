@@ -8,6 +8,7 @@ import {
 import { Neo4jService } from '../neo4j.service';
 import { UserSchema } from './user.schema';
 import { VoteSchema } from './vote.schema';
+import { VotingUtils } from '../../config/voting.config';
 import { TEXT_LIMITS } from '../../constants/validation';
 import type { VoteStatus, VoteResult } from './vote.schema';
 
@@ -47,6 +48,10 @@ export class DefinitionSchema {
 
       const result = await this.neo4jService.write(
         `
+        // Validate parent Word exists and has passed inclusion threshold
+        MATCH (w:WordNode {word: $word})
+        WHERE w.inclusionNetVotes > 0 // Must have passed inclusion
+        
         // Create User if needed (for non-API creators)
         CALL {
           WITH $createdBy as userId
@@ -56,17 +61,20 @@ export class DefinitionSchema {
           RETURN u
         }
 
-        // Match Word and Create Definition
-        MATCH (w:WordNode {word: $word})
+        // Create Definition Node with dual voting
         CREATE (d:DefinitionNode {
             id: $id,
             definitionText: $definitionText,
             createdBy: $createdBy,
             createdAt: datetime(),
             updatedAt: datetime(),
-            positiveVotes: 0,
-            negativeVotes: 0,
-            netVotes: 0,
+            // Both inclusion and content voting
+            inclusionPositiveVotes: 0,
+            inclusionNegativeVotes: 0,
+            inclusionNetVotes: 0,
+            contentPositiveVotes: 0,
+            contentNegativeVotes: 0,
+            contentNetVotes: 0,
             visibilityStatus: true
         })
         CREATE (w)-[:HAS_DEFINITION]->(d)
@@ -117,7 +125,7 @@ export class DefinitionSchema {
 
       if (!result.records || result.records.length === 0) {
         throw new Error(
-          `Failed to create definition for word: ${definitionData.word}`,
+          `Failed to create definition for word: ${definitionData.word} - parent word may not exist or have not passed inclusion threshold`,
         );
       }
 
@@ -139,8 +147,12 @@ export class DefinitionSchema {
         error.message?.includes('not found') ||
         error.message?.includes('not connected')
       ) {
-        this.logger.error(`Word not found: ${definitionData.word}`);
-        throw new NotFoundException(`Word "${definitionData.word}" not found`);
+        this.logger.error(
+          `Word not found or hasn't passed inclusion threshold: ${definitionData.word}`,
+        );
+        throw new BadRequestException(
+          `Word "${definitionData.word}" not found or hasn't passed inclusion threshold`,
+        );
       }
 
       this.logger.error(
@@ -158,9 +170,11 @@ export class DefinitionSchema {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DefinitionNode {id: $id})
+        // Get parent word
+        OPTIONAL MATCH (w:WordNode)-[:HAS_DEFINITION]->(d)
         // Get discussion
         OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN d, disc.id as discussionId
+        RETURN d, w, disc.id as discussionId
         `,
         { id },
       );
@@ -171,7 +185,24 @@ export class DefinitionSchema {
       }
 
       const definition = result.records[0].get('d').properties;
+      const parentWord = result.records[0].get('w');
+      definition.parentWord = parentWord ? parentWord.properties : null;
       definition.discussionId = result.records[0].get('discussionId');
+
+      // Convert Neo4j integers to JavaScript numbers
+      [
+        'inclusionPositiveVotes',
+        'inclusionNegativeVotes',
+        'inclusionNetVotes',
+        'contentPositiveVotes',
+        'contentNegativeVotes',
+        'contentNetVotes',
+      ].forEach((prop) => {
+        if (definition[prop] !== undefined) {
+          definition[prop] = this.toNumber(definition[prop]);
+        }
+      });
+
       this.logger.debug(`Retrieved definition: ${JSON.stringify(definition)}`);
       return definition;
     } catch (error) {
@@ -190,9 +221,11 @@ export class DefinitionSchema {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DefinitionNode {id: $id})
+        // Get parent word
+        OPTIONAL MATCH (w:WordNode)-[:HAS_DEFINITION]->(d)
         // Get discussion
         OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN d, disc
+        RETURN d, w, disc
         `,
         { id },
       );
@@ -203,12 +236,29 @@ export class DefinitionSchema {
       }
 
       const definition = result.records[0].get('d').properties;
+      const parentWord = result.records[0].get('w');
       const discussion = result.records[0].get('disc');
+
+      definition.parentWord = parentWord ? parentWord.properties : null;
 
       if (discussion) {
         definition.discussion = discussion.properties;
         definition.discussionId = discussion.properties.id;
       }
+
+      // Convert Neo4j integers to JavaScript numbers
+      [
+        'inclusionPositiveVotes',
+        'inclusionNegativeVotes',
+        'inclusionNetVotes',
+        'contentPositiveVotes',
+        'contentNegativeVotes',
+        'contentNetVotes',
+      ].forEach((prop) => {
+        if (definition[prop] !== undefined) {
+          definition[prop] = this.toNumber(definition[prop]);
+        }
+      });
 
       this.logger.debug(
         `Retrieved definition with discussion: ${JSON.stringify(definition)}`,
@@ -370,6 +420,58 @@ export class DefinitionSchema {
     }
   }
 
+  // Voting methods - BOTH INCLUSION AND CONTENT for Definitions
+
+  async voteDefinitionInclusion(
+    id: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
+    try {
+      this.logger.log(
+        `Processing inclusion vote on definition ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
+      );
+      return await this.voteSchema.vote(
+        'DefinitionNode',
+        { id },
+        sub,
+        isPositive,
+        'INCLUSION',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error voting on definition ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to vote on definition: ${error.message}`);
+    }
+  }
+
+  async voteDefinitionContent(
+    id: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
+    try {
+      this.logger.log(
+        `Processing content vote on definition ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
+      );
+      return await this.voteSchema.vote(
+        'DefinitionNode',
+        { id },
+        sub,
+        isPositive,
+        'CONTENT',
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error voting on definition content ${id}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to vote on definition content: ${error.message}`);
+    }
+  }
+
   async getDefinitionVoteStatus(
     id: string,
     sub: string,
@@ -388,34 +490,21 @@ export class DefinitionSchema {
     }
   }
 
-  async voteDefinition(
+  async removeDefinitionVote(
     id: string,
     sub: string,
-    isPositive: boolean,
+    kind: 'INCLUSION' | 'CONTENT',
   ): Promise<VoteResult> {
     try {
       this.logger.log(
-        `Processing vote on definition ${id} by user ${sub}: ${isPositive}`,
+        `Removing ${kind} vote from definition ${id} by user ${sub}`,
       );
-      return await this.voteSchema.vote(
+      return await this.voteSchema.removeVote(
         'DefinitionNode',
         { id },
         sub,
-        isPositive,
+        kind,
       );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to vote on definition: ${error.message}`);
-    }
-  }
-
-  async removeDefinitionVote(id: string, sub: string): Promise<VoteResult> {
-    try {
-      this.logger.log(`Removing vote from definition ${id} by user ${sub}`);
-      return await this.voteSchema.removeVote('DefinitionNode', { id }, sub);
     } catch (error) {
       this.logger.error(
         `Error removing vote from definition ${id}: ${error.message}`,
@@ -441,9 +530,12 @@ export class DefinitionSchema {
       }
 
       const votes = {
-        positiveVotes: voteStatus.positiveVotes,
-        negativeVotes: voteStatus.negativeVotes,
-        netVotes: voteStatus.netVotes,
+        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
+        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
+        inclusionNetVotes: voteStatus.inclusionNetVotes,
+        contentPositiveVotes: voteStatus.contentPositiveVotes,
+        contentNegativeVotes: voteStatus.contentNegativeVotes,
+        contentNetVotes: voteStatus.contentNetVotes,
       };
 
       this.logger.debug(`Votes for definition ${id}: ${JSON.stringify(votes)}`);
@@ -544,5 +636,242 @@ export class DefinitionSchema {
         `Failed to get definition visibility status: ${error.message}`,
       );
     }
+  }
+
+  /**
+   * Get all definitions for a specific word
+   */
+  async getDefinitionsForWord(
+    word: string,
+    options: {
+      sortBy?: 'newest' | 'oldest' | 'inclusion_votes' | 'content_votes';
+      sortDirection?: 'asc' | 'desc';
+      limit?: number;
+      offset?: number;
+      onlyApproved?: boolean;
+    } = {},
+  ) {
+    try {
+      const {
+        sortBy = 'content_votes',
+        sortDirection = 'desc',
+        limit = null,
+        offset = 0,
+        onlyApproved = false,
+      } = options;
+
+      this.logger.debug(`Getting definitions for word ${word}`);
+
+      let query = `
+        MATCH (w:WordNode {word: $word})
+        MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
+        WHERE d.visibilityStatus <> false OR d.visibilityStatus IS NULL
+      `;
+
+      if (onlyApproved) {
+        query += ` AND d.inclusionNetVotes > 0`;
+      }
+
+      // Add sorting
+      if (sortBy === 'newest') {
+        query += ` ORDER BY d.createdAt ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'oldest') {
+        query += ` ORDER BY d.createdAt ${sortDirection === 'desc' ? 'ASC' : 'DESC'}`;
+      } else if (sortBy === 'inclusion_votes') {
+        query += ` ORDER BY d.inclusionNetVotes ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'content_votes') {
+        query += ` ORDER BY d.contentNetVotes ${sortDirection.toUpperCase()}`;
+      }
+
+      // Add pagination
+      if (limit !== null) {
+        query += ` SKIP $offset LIMIT $limit`;
+      }
+
+      query += `
+        RETURN {
+          id: d.id,
+          definitionText: d.definitionText,
+          createdBy: d.createdBy,
+          createdAt: d.createdAt,
+          updatedAt: d.updatedAt,
+          inclusionPositiveVotes: d.inclusionPositiveVotes,
+          inclusionNegativeVotes: d.inclusionNegativeVotes,
+          inclusionNetVotes: d.inclusionNetVotes,
+          contentPositiveVotes: d.contentPositiveVotes,
+          contentNegativeVotes: d.contentNegativeVotes,
+          contentNetVotes: d.contentNetVotes
+        } as definition
+      `;
+
+      const result = await this.neo4jService.read(query, {
+        word,
+        offset,
+        limit,
+      });
+
+      const definitions = result.records.map((record) => {
+        const definition = record.get('definition');
+        // Convert Neo4j integers
+        [
+          'inclusionPositiveVotes',
+          'inclusionNegativeVotes',
+          'inclusionNetVotes',
+          'contentPositiveVotes',
+          'contentNegativeVotes',
+          'contentNetVotes',
+        ].forEach((prop) => {
+          if (definition[prop] !== undefined) {
+            definition[prop] = this.toNumber(definition[prop]);
+          }
+        });
+        return definition;
+      });
+
+      this.logger.debug(
+        `Retrieved ${definitions.length} definitions for word ${word}`,
+      );
+      return definitions;
+    } catch (error) {
+      this.logger.error(
+        `Error getting definitions for word: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get definitions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check if a definition can be created for a word (word has passed inclusion threshold)
+   */
+  async canCreateDefinitionForWord(word: string): Promise<boolean> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (w:WordNode {word: $word})
+        RETURN w.inclusionNetVotes as inclusionNetVotes
+        `,
+        { word },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return false;
+      }
+
+      const inclusionNetVotes = this.toNumber(
+        result.records[0].get('inclusionNetVotes'),
+      );
+      return VotingUtils.isDefinitionCreationAllowed(inclusionNetVotes);
+    } catch (error) {
+      this.logger.error(
+        `Error checking definition creation availability: ${error.message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Get approved definitions (have passed inclusion threshold)
+   */
+  async getApprovedDefinitions(
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'content_votes' | 'created' | 'word';
+      sortDirection?: 'asc' | 'desc';
+    } = {},
+  ): Promise<any[]> {
+    try {
+      const {
+        limit = null,
+        offset = 0,
+        sortBy = 'content_votes',
+        sortDirection = 'desc',
+      } = options;
+
+      let query = `
+        MATCH (w:WordNode)-[:HAS_DEFINITION]->(d:DefinitionNode)
+        WHERE d.inclusionNetVotes > 0 
+        AND (d.visibilityStatus <> false OR d.visibilityStatus IS NULL)
+      `;
+
+      // Add sorting
+      if (sortBy === 'content_votes') {
+        query += ` ORDER BY d.contentNetVotes ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'created') {
+        query += ` ORDER BY d.createdAt ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'word') {
+        query += ` ORDER BY w.word ${sortDirection.toUpperCase()}`;
+      }
+
+      // Add pagination
+      if (limit !== null) {
+        query += ` SKIP $offset LIMIT $limit`;
+      }
+
+      query += `
+        RETURN {
+          id: d.id,
+          definitionText: d.definitionText,
+          createdBy: d.createdBy,
+          createdAt: d.createdAt,
+          parentWord: w.word,
+          inclusionPositiveVotes: d.inclusionPositiveVotes,
+          inclusionNegativeVotes: d.inclusionNegativeVotes,
+          inclusionNetVotes: d.inclusionNetVotes,
+          contentPositiveVotes: d.contentPositiveVotes,
+          contentNegativeVotes: d.contentNegativeVotes,
+          contentNetVotes: d.contentNetVotes
+        } as definition
+      `;
+
+      const result = await this.neo4jService.read(query, { offset, limit });
+      const definitions = result.records.map((record) => {
+        const definition = record.get('definition');
+        // Convert Neo4j integers
+        [
+          'inclusionPositiveVotes',
+          'inclusionNegativeVotes',
+          'inclusionNetVotes',
+          'contentPositiveVotes',
+          'contentNegativeVotes',
+          'contentNetVotes',
+        ].forEach((prop) => {
+          if (definition[prop] !== undefined) {
+            definition[prop] = this.toNumber(definition[prop]);
+          }
+        });
+        return definition;
+      });
+
+      this.logger.debug(`Retrieved ${definitions.length} approved definitions`);
+      return definitions;
+    } catch (error) {
+      this.logger.error(
+        `Error getting approved definitions: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get approved definitions: ${error.message}`);
+    }
+  }
+
+  /**
+   * Helper method to convert Neo4j integer values to JavaScript numbers
+   */
+  private toNumber(value: any): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    // Handle Neo4j integer objects
+    if (typeof value === 'object' && value !== null) {
+      if ('low' in value && typeof value.low === 'number') {
+        return Number(value.low);
+      } else if ('valueOf' in value && typeof value.valueOf === 'function') {
+        return Number(value.valueOf());
+      }
+    }
+
+    return Number(value);
   }
 }

@@ -3,6 +3,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { UserSchema } from './user.schema';
 import { VoteSchema } from './vote.schema';
+import { VotingUtils } from '../../config/voting.config';
+import type { VoteStatus, VoteResult } from './vote.schema';
 
 @Injectable()
 export class WordSchema {
@@ -69,7 +71,7 @@ export class WordSchema {
           RETURN u
         }
 
-        // Create Word Node
+        // Create Word Node (inclusion voting only)
         CREATE (w:WordNode {
             id: apoc.create.uuid(),
             word: $word,
@@ -77,20 +79,25 @@ export class WordSchema {
             publicCredit: $publicCredit,
             createdAt: datetime(),
             updatedAt: datetime(),
-            positiveVotes: 0,
-            negativeVotes: 0,
-            netVotes: 0
+            // Inclusion voting only (no content voting)
+            inclusionPositiveVotes: 0,
+            inclusionNegativeVotes: 0,
+            inclusionNetVotes: 0
         })
 
-        // Create Definition Node
+        // Create Definition Node (this will be updated later to use new DefinitionSchema)
         CREATE (d:DefinitionNode {
             id: apoc.create.uuid(),
             definitionText: $initialDefinition,
             createdBy: $createdBy,
             createdAt: datetime(),
-            positiveVotes: 0,
-            negativeVotes: 0,
-            netVotes: 0
+            // Definition nodes will have both inclusion and content voting
+            inclusionPositiveVotes: 0,
+            inclusionNegativeVotes: 0,
+            inclusionNetVotes: 0,
+            contentPositiveVotes: 0,
+            contentNegativeVotes: 0,
+            contentNetVotes: 0
         })
 
         // Create HAS_DEFINITION relationship
@@ -140,6 +147,18 @@ export class WordSchema {
   }) {
     const standardizedWord = this.standardizeWord(wordData.word);
     this.logger.debug(`Adding definition to word: ${standardizedWord}`);
+
+    // Check if parent word has passed inclusion threshold
+    const parentWord = await this.getWord(standardizedWord);
+    if (
+      !parentWord ||
+      !VotingUtils.isDefinitionCreationAllowed(parentWord.inclusionNetVotes)
+    ) {
+      throw new Error(
+        'Parent word must pass inclusion threshold before definitions can be added',
+      );
+    }
+
     const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
     const isAICreated = wordData.createdBy === 'ProjectZeroAI';
 
@@ -152,9 +171,13 @@ export class WordSchema {
             definitionText: $definitionText,
             createdBy: $createdBy,
             createdAt: datetime(),
-            positiveVotes: 0,
-            negativeVotes: 0,
-            netVotes: 0
+            // Definition nodes have both inclusion and content voting
+            inclusionPositiveVotes: 0,
+            inclusionNegativeVotes: 0,
+            inclusionNetVotes: 0,
+            contentPositiveVotes: 0,
+            contentNegativeVotes: 0,
+            contentNetVotes: 0
         })
         CREATE (w)-[:HAS_DEFINITION]->(d)
 
@@ -219,6 +242,21 @@ export class WordSchema {
         wordNode.discussionId = discussion.properties.id;
       }
 
+      // Convert Neo4j integers to JavaScript numbers (inclusion voting only)
+      if (wordNode.inclusionPositiveVotes !== undefined) {
+        wordNode.inclusionPositiveVotes = this.toNumber(
+          wordNode.inclusionPositiveVotes,
+        );
+      }
+      if (wordNode.inclusionNegativeVotes !== undefined) {
+        wordNode.inclusionNegativeVotes = this.toNumber(
+          wordNode.inclusionNegativeVotes,
+        );
+      }
+      if (wordNode.inclusionNetVotes !== undefined) {
+        wordNode.inclusionNetVotes = this.toNumber(wordNode.inclusionNetVotes);
+      }
+
       this.logger.debug(`Fetched word node: ${JSON.stringify(wordNode)}`);
       return wordNode;
     } catch (error) {
@@ -230,11 +268,13 @@ export class WordSchema {
   async getAllWords() {
     this.logger.debug('Fetching all words from database');
     try {
-      // Use a simple and direct query
       const result = await this.neo4jService.read(
         `
         MATCH (n:WordNode) 
-        RETURN n.id AS id, n.word AS word 
+        RETURN n.id AS id, n.word AS word, 
+               n.inclusionPositiveVotes AS inclusionPositiveVotes,
+               n.inclusionNegativeVotes AS inclusionNegativeVotes,
+               n.inclusionNetVotes AS inclusionNetVotes
         ORDER BY toLower(n.word)
         `,
         {},
@@ -250,6 +290,13 @@ export class WordSchema {
         .map((record) => ({
           word: record.get('word'),
           id: record.get('id'),
+          inclusionPositiveVotes: this.toNumber(
+            record.get('inclusionPositiveVotes'),
+          ),
+          inclusionNegativeVotes: this.toNumber(
+            record.get('inclusionNegativeVotes'),
+          ),
+          inclusionNetVotes: this.toNumber(record.get('inclusionNetVotes')),
         }));
 
       this.logger.debug(`Fetched ${words.length} words from database`);
@@ -278,7 +325,7 @@ export class WordSchema {
       const result = await this.neo4jService.write(
         `
         MATCH (w:WordNode {word: $word})
-        SET w += $updateData
+        SET w += $updateData, w.updatedAt = datetime()
         RETURN w
         `,
         { word: standardizedWord, updateData },
@@ -307,7 +354,7 @@ export class WordSchema {
       const result = await this.neo4jService.write(
         `
         MATCH (w:WordNode {id: $wordId})
-        SET w.discussionId = $discussionId
+        SET w.discussionId = $discussionId, w.updatedAt = datetime()
         RETURN w
         `,
         { wordId, discussionId },
@@ -350,7 +397,12 @@ export class WordSchema {
     }
   }
 
-  async getWordVoteStatus(word: string, sub: string) {
+  // Updated voting methods - INCLUSION ONLY for Words
+
+  async getWordVoteStatus(
+    word: string,
+    sub: string,
+  ): Promise<VoteStatus | null> {
     const standardizedWord = this.standardizeWord(word);
     return this.voteSchema.getVoteStatus(
       'WordNode',
@@ -359,26 +411,38 @@ export class WordSchema {
     );
   }
 
-  async voteWord(word: string, sub: string, isPositive: boolean) {
+  async voteWordInclusion(
+    word: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
     const standardizedWord = this.standardizeWord(word);
+    this.logger.log(
+      `Processing inclusion vote on word ${standardizedWord} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
+    );
     return this.voteSchema.vote(
       'WordNode',
       { word: standardizedWord },
       sub,
       isPositive,
+      'INCLUSION',
     );
   }
 
-  async removeWordVote(word: string, sub: string) {
+  async removeWordVote(word: string, sub: string): Promise<VoteResult> {
     const standardizedWord = this.standardizeWord(word);
+    this.logger.log(
+      `Removing inclusion vote from word ${standardizedWord} by user ${sub}`,
+    );
     return this.voteSchema.removeVote(
       'WordNode',
       { word: standardizedWord },
       sub,
+      'INCLUSION',
     );
   }
 
-  async getWordVotes(word: string) {
+  async getWordVotes(word: string): Promise<VoteResult | null> {
     const standardizedWord = this.standardizeWord(word);
 
     try {
@@ -394,9 +458,13 @@ export class WordSchema {
       }
 
       const votes = {
-        positiveVotes: voteStatus.positiveVotes,
-        negativeVotes: voteStatus.negativeVotes,
-        netVotes: voteStatus.netVotes,
+        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
+        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
+        inclusionNetVotes: voteStatus.inclusionNetVotes,
+        // Words don't have content voting
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
       };
 
       this.logger.debug(
@@ -412,6 +480,8 @@ export class WordSchema {
     }
   }
 
+  // Visibility methods (preserved from original)
+
   async setVisibilityStatus(wordId: string, isVisible: boolean) {
     this.logger.debug(
       `Setting visibility status for word ${wordId}: ${isVisible}`,
@@ -421,7 +491,7 @@ export class WordSchema {
       const result = await this.neo4jService.write(
         `
         MATCH (w:WordNode {id: $wordId})
-        SET w.visibilityStatus = $isVisible
+        SET w.visibilityStatus = $isVisible, w.updatedAt = datetime()
         RETURN w
         `,
         { wordId, isVisible },
@@ -441,7 +511,7 @@ export class WordSchema {
     }
   }
 
-  async getVisibilityStatus(wordId: string) {
+  async getVisibilityStatus(wordId: string): Promise<boolean> {
     this.logger.debug(`Getting visibility status for word ${wordId}`);
 
     try {
@@ -466,5 +536,154 @@ export class WordSchema {
       );
       throw new Error(`Failed to get word visibility status: ${error.message}`);
     }
+  }
+
+  /**
+   * Check if a word can be used for category composition (has passed inclusion threshold)
+   */
+  async isWordAvailableForCategoryComposition(
+    wordId: string,
+  ): Promise<boolean> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (w:WordNode {id: $wordId})
+        RETURN w.inclusionNetVotes as inclusionNetVotes
+        `,
+        { wordId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return false;
+      }
+
+      const inclusionNetVotes = this.toNumber(
+        result.records[0].get('inclusionNetVotes'),
+      );
+      return VotingUtils.hasPassedInclusion(inclusionNetVotes);
+    } catch (error) {
+      this.logger.error(
+        `Error checking word availability for category composition: ${error.message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Check if a word can be used for definition creation (has passed inclusion threshold)
+   */
+  async isWordAvailableForDefinitionCreation(word: string): Promise<boolean> {
+    try {
+      const wordData = await this.getWord(word);
+      if (!wordData) return false;
+
+      return VotingUtils.isDefinitionCreationAllowed(
+        wordData.inclusionNetVotes,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error checking word availability for definition creation: ${error.message}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Get words that have passed inclusion threshold (for category composition)
+   */
+  async getApprovedWords(
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'alphabetical' | 'votes' | 'created';
+      sortDirection?: 'asc' | 'desc';
+    } = {},
+  ): Promise<any[]> {
+    try {
+      const {
+        limit = null,
+        offset = 0,
+        sortBy = 'alphabetical',
+        sortDirection = 'asc',
+      } = options;
+
+      let query = `
+        MATCH (w:WordNode)
+        WHERE w.inclusionNetVotes > 0 
+        AND (w.visibilityStatus <> false OR w.visibilityStatus IS NULL)
+      `;
+
+      // Add sorting
+      if (sortBy === 'alphabetical') {
+        query += ` ORDER BY w.word ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'votes') {
+        query += ` ORDER BY w.inclusionNetVotes ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'created') {
+        query += ` ORDER BY w.createdAt ${sortDirection.toUpperCase()}`;
+      }
+
+      // Add pagination
+      if (limit !== null) {
+        query += ` SKIP $offset LIMIT $limit`;
+      }
+
+      query += `
+        RETURN {
+          id: w.id,
+          word: w.word,
+          inclusionPositiveVotes: w.inclusionPositiveVotes,
+          inclusionNegativeVotes: w.inclusionNegativeVotes,
+          inclusionNetVotes: w.inclusionNetVotes,
+          createdBy: w.createdBy,
+          publicCredit: w.publicCredit,
+          createdAt: w.createdAt
+        } as word
+      `;
+
+      const result = await this.neo4jService.read(query, { offset, limit });
+      const words = result.records.map((record) => {
+        const word = record.get('word');
+        // Convert Neo4j integers
+        [
+          'inclusionPositiveVotes',
+          'inclusionNegativeVotes',
+          'inclusionNetVotes',
+        ].forEach((prop) => {
+          if (word[prop] !== undefined) {
+            word[prop] = this.toNumber(word[prop]);
+          }
+        });
+        return word;
+      });
+
+      this.logger.debug(`Retrieved ${words.length} approved words`);
+      return words;
+    } catch (error) {
+      this.logger.error(
+        `Error getting approved words: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get approved words: ${error.message}`);
+    }
+  }
+
+  /**
+   * Helper method to convert Neo4j integer values to JavaScript numbers
+   */
+  private toNumber(value: any): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    // Handle Neo4j integer objects
+    if (typeof value === 'object' && value !== null) {
+      if ('low' in value) {
+        return Number(value.low);
+      } else if ('valueOf' in value) {
+        return Number(value.valueOf());
+      }
+    }
+
+    return Number(value);
   }
 }

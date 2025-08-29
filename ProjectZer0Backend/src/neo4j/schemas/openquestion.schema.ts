@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
+import { VotingUtils } from '../../config/voting.config';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
+import type { VoteStatus, VoteResult } from './vote.schema';
 
 @Injectable()
 export class OpenQuestionSchema {
@@ -26,6 +28,7 @@ export class OpenQuestionSchema {
     sortDirection?: string;
     keywords?: string[];
     userId?: string;
+    categories?: string[];
   }): Promise<any[]> {
     try {
       const {
@@ -35,6 +38,7 @@ export class OpenQuestionSchema {
         sortDirection = 'desc',
         keywords,
         userId,
+        categories,
       } = options;
 
       this.logger.debug(
@@ -45,6 +49,7 @@ export class OpenQuestionSchema {
           sortDirection,
           keywords,
           userId,
+          categories,
         })}`,
       );
 
@@ -82,6 +87,16 @@ export class OpenQuestionSchema {
         `;
       }
 
+      // Add category filter if specified
+      if (categories && categories.length > 0) {
+        query += `
+          AND EXISTS {
+            MATCH (oq)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+            WHERE cat.id IN $categories
+          }
+        `;
+      }
+
       // Add user filter if specified
       if (userId) {
         query += `
@@ -94,6 +109,9 @@ export class OpenQuestionSchema {
         // Get keywords
         OPTIONAL MATCH (oq)-[t:TAGGED]->(w:WordNode)
         
+        // Get categories
+        OPTIONAL MATCH (oq)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        
         // Get questions with shared keywords
         OPTIONAL MATCH (oq)-[st:SHARED_TAG]->(o:OpenQuestionNode)
         WHERE o.visibilityStatus <> false OR o.visibilityStatus IS NULL
@@ -102,18 +120,23 @@ export class OpenQuestionSchema {
         OPTIONAL MATCH (oq)-[:RELATED_TO]-(r:OpenQuestionNode)
         WHERE r.visibilityStatus <> false OR r.visibilityStatus IS NULL
         
-        // Get vote counts for the question itself
-        OPTIONAL MATCH (oq)<-[pv:VOTED_ON {status: 'agree'}]-()
-        OPTIONAL MATCH (oq)<-[nv:VOTED_ON {status: 'disagree'}]-()
+        // Get inclusion vote counts for the question itself (no content voting)
+        OPTIONAL MATCH (oq)<-[pv:VOTED_ON {kind: 'INCLUSION', status: 'agree'}]-()
+        OPTIONAL MATCH (oq)<-[nv:VOTED_ON {kind: 'INCLUSION', status: 'disagree'}]-()
         
         WITH oq,
-             COUNT(DISTINCT pv) as positiveVotes,
-             COUNT(DISTINCT nv) as negativeVotes,
+             COUNT(DISTINCT pv) as inclusionPositiveVotes,
+             COUNT(DISTINCT nv) as inclusionNegativeVotes,
              collect(DISTINCT {
                word: w.word, 
                frequency: t.frequency,
                source: t.source
              }) as keywords,
+             collect(DISTINCT {
+               id: cat.id,
+               name: cat.name,
+               inclusionNetVotes: cat.inclusionNetVotes
+             }) as categories,
              collect(DISTINCT {
                nodeId: o.id,
                questionText: o.questionText,
@@ -126,52 +149,58 @@ export class OpenQuestionSchema {
                relationshipType: 'direct'
              }) as directlyRelatedQuestions
         
-        // Get answer statements separately - FIXED: Correct relationship direction (Statement -> Question)
-        OPTIONAL MATCH (ans:StatementNode)-[:ANSWERS]->(oq)
+        // Get answer nodes separately (new Answer nodes, not Statement nodes)
+        OPTIONAL MATCH (ans:AnswerNode)-[:ANSWERS]->(oq)
         WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
-        OPTIONAL MATCH (ans)<-[apv:VOTED_ON {status: 'agree'}]-()
-        OPTIONAL MATCH (ans)<-[anv:VOTED_ON {status: 'disagree'}]-()
+        OPTIONAL MATCH (ans)<-[apv:VOTED_ON {kind: 'CONTENT', status: 'agree'}]-()
+        OPTIONAL MATCH (ans)<-[anv:VOTED_ON {kind: 'CONTENT', status: 'disagree'}]-()
         
-        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+        WITH oq, inclusionPositiveVotes, inclusionNegativeVotes, keywords, categories, 
+             relatedQuestions, directlyRelatedQuestions,
              ans,
-             COUNT(DISTINCT apv) as answerPositiveVotes,
-             COUNT(DISTINCT anv) as answerNegativeVotes
+             COUNT(DISTINCT apv) as answerContentPositiveVotes,
+             COUNT(DISTINCT anv) as answerContentNegativeVotes
         
-        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+        WITH oq, inclusionPositiveVotes, inclusionNegativeVotes, keywords, categories,
+             relatedQuestions, directlyRelatedQuestions,
              collect(CASE WHEN ans IS NOT NULL THEN {
                id: ans.id,
-               statement: ans.statement,
+               answerText: ans.answerText,
                createdBy: ans.createdBy,
                createdAt: ans.createdAt,
                publicCredit: ans.publicCredit,
-               positiveVotes: answerPositiveVotes,
-               negativeVotes: answerNegativeVotes,
-               netVotes: answerPositiveVotes - answerNegativeVotes
+               inclusionPositiveVotes: ans.inclusionPositiveVotes,
+               inclusionNegativeVotes: ans.inclusionNegativeVotes,
+               inclusionNetVotes: ans.inclusionNetVotes,
+               contentPositiveVotes: answerContentPositiveVotes,
+               contentNegativeVotes: answerContentNegativeVotes,
+               contentNetVotes: answerContentPositiveVotes - answerContentNegativeVotes
              } ELSE NULL END) as answersWithNulls
         
-        WITH oq, positiveVotes, negativeVotes, keywords, relatedQuestions, directlyRelatedQuestions,
+        WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions,
+             inclusionPositiveVotes, inclusionNegativeVotes,
              [answer IN answersWithNulls WHERE answer IS NOT NULL] as answers
       `;
 
-      // Add sorting based on parameter, but keep all vote data in scope
+      // Add sorting based on parameter (inclusion votes only)
       if (sortBy === 'netPositive') {
         query += `
-          WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, answers,
-               positiveVotes, negativeVotes,
-               (positiveVotes - negativeVotes) as netVotes
-          ORDER BY netVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
+          WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, answers,
+               inclusionPositiveVotes, inclusionNegativeVotes,
+               (inclusionPositiveVotes - inclusionNegativeVotes) as inclusionNetVotes
+          ORDER BY inclusionNetVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
         `;
       } else if (sortBy === 'totalVotes') {
         query += `
-          WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, answers,
-               positiveVotes, negativeVotes,
-               (positiveVotes + negativeVotes) as totalVotes
+          WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, answers,
+               inclusionPositiveVotes, inclusionNegativeVotes,
+               (inclusionPositiveVotes + inclusionNegativeVotes) as totalVotes
           ORDER BY totalVotes ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
         `;
       } else if (sortBy === 'chronological') {
         query += `
-          WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, answers,
-               positiveVotes, negativeVotes
+          WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, answers,
+               inclusionPositiveVotes, inclusionNegativeVotes
           ORDER BY oq.createdAt ${sortDirection === 'desc' ? 'DESC' : 'ASC'}
         `;
       }
@@ -184,7 +213,7 @@ export class OpenQuestionSchema {
         `;
       }
 
-      // Return question with all its data (removed consensus_ratio)
+      // Return question with all its data (inclusion voting only)
       query += `
         RETURN {
           id: oq.id,
@@ -194,10 +223,12 @@ export class OpenQuestionSchema {
           initialComment: oq.initialComment,
           createdAt: oq.createdAt,
           updatedAt: oq.updatedAt,
-          positiveVotes: positiveVotes,
-          negativeVotes: negativeVotes,
-          netVotes: positiveVotes - negativeVotes,
+          // Inclusion voting only (no content voting)
+          inclusionPositiveVotes: inclusionPositiveVotes,
+          inclusionNegativeVotes: inclusionNegativeVotes,
+          inclusionNetVotes: inclusionPositiveVotes - inclusionNegativeVotes,
           keywords: keywords,
+          categories: categories,
           relatedQuestions: CASE 
             WHEN size(relatedQuestions) > 0 THEN relatedQuestions
             ELSE []
@@ -218,6 +249,7 @@ export class OpenQuestionSchema {
         limit,
         offset,
         keywords,
+        categories,
         userId,
       });
 
@@ -258,8 +290,12 @@ export class OpenQuestionSchema {
 
       // Convert Neo4j integers to JavaScript numbers for consistency
       openQuestions.forEach((openQuestion) => {
-        // Ensure numeric conversions for vote properties
-        ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+        // Ensure numeric conversions for inclusion vote properties only
+        [
+          'inclusionPositiveVotes',
+          'inclusionNegativeVotes',
+          'inclusionNetVotes',
+        ].forEach((prop) => {
           if (openQuestion[prop] !== undefined) {
             openQuestion[prop] = this.toNumber(openQuestion[prop]);
           }
@@ -268,7 +304,14 @@ export class OpenQuestionSchema {
         // Convert vote counts in answers as well
         if (openQuestion.answers && openQuestion.answers.length > 0) {
           openQuestion.answers.forEach((answer) => {
-            ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+            [
+              'inclusionPositiveVotes',
+              'inclusionNegativeVotes',
+              'inclusionNetVotes',
+              'contentPositiveVotes',
+              'contentNegativeVotes',
+              'contentNetVotes',
+            ].forEach((prop) => {
               if (answer[prop] !== undefined) {
                 answer[prop] = this.toNumber(answer[prop]);
               }
@@ -295,6 +338,7 @@ export class OpenQuestionSchema {
     publicCredit: boolean;
     questionText: string;
     keywords: KeywordWithFrequency[];
+    categoryIds?: string[];
     initialComment: string;
   }) {
     try {
@@ -303,6 +347,13 @@ export class OpenQuestionSchema {
         questionData.questionText.trim() === ''
       ) {
         throw new BadRequestException('Question text cannot be empty');
+      }
+
+      // Validate category count (0-3)
+      if (questionData.categoryIds && questionData.categoryIds.length > 3) {
+        throw new BadRequestException(
+          'OpenQuestion can have maximum 3 categories',
+        );
       }
 
       // Ensure question ends with '?' or add it automatically
@@ -314,9 +365,8 @@ export class OpenQuestionSchema {
       this.logger.log(`Creating open question with ID: ${questionData.id}`);
       this.logger.debug(`Question data: ${JSON.stringify(questionData)}`);
 
-      const result = await this.neo4jService.write(
-        `
-        // Create the open question node (removed consensus_ratio)
+      let query = `
+        // Create the open question node (inclusion voting only)
         CREATE (oq:OpenQuestionNode {
           id: $id,
           createdBy: $createdBy,
@@ -325,16 +375,38 @@ export class OpenQuestionSchema {
           initialComment: $initialComment,
           createdAt: datetime(),
           updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          netVotes: 0
+          // Inclusion voting only (no content voting)
+          inclusionPositiveVotes: 0,
+          inclusionNegativeVotes: 0,
+          inclusionNetVotes: 0
         })
+      `;
+
+      // Add category validation and relationships if provided
+      if (questionData.categoryIds && questionData.categoryIds.length > 0) {
+        query += `
+        // Validate categories exist and have passed inclusion threshold
+        WITH oq, $categoryIds as categoryIds
+        UNWIND categoryIds as categoryId
+        MATCH (cat:CategoryNode {id: categoryId})
+        WHERE cat.inclusionNetVotes > 0 // Must have passed inclusion
         
+        // Create CATEGORIZED_AS relationships
+        CREATE (oq)-[:CATEGORIZED_AS]->(cat)
+        
+        WITH oq, collect(cat) as validCategories, categoryIds
+        WHERE size(validCategories) = size(categoryIds)
+        `;
+      }
+
+      // Process keywords if provided
+      if (questionData.keywords && questionData.keywords.length > 0) {
+        query += `
         // Process each keyword
         WITH oq
         UNWIND $keywords as keyword
         
-        // Find word node for each keyword (don't create - already done by WordService)
+        // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
         
         // Create TAGGED relationship with frequency and source
@@ -345,13 +417,27 @@ export class OpenQuestionSchema {
         
         // Connect to other open questions that share this keyword
         WITH oq, w, keyword
-        MATCH (o:OpenQuestionNode)-[t:TAGGED]->(w)
+        OPTIONAL MATCH (o:OpenQuestionNode)-[t:TAGGED]->(w)
         WHERE o.id <> oq.id
         
         // Create SHARED_TAG relationships between questions
-        MERGE (oq)-[st:SHARED_TAG {word: w.word}]->(o)
-        ON CREATE SET st.strength = keyword.frequency * t.frequency
-        ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+        FOREACH (dummy IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (oq)-[st:SHARED_TAG {word: w.word}]->(o)
+          ON CREATE SET st.strength = keyword.frequency * t.frequency
+          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+        )
+        `;
+      }
+
+      // Create discussion and initial comment
+      query += `
+        // Create CREATED relationship for user-created content
+        WITH oq, $createdBy as userId
+        MATCH (u:User {sub: userId})
+        CREATE (u)-[:CREATED {
+            createdAt: datetime(),
+            type: 'openquestion'
+        }]->(oq)
         
         // Create discussion node automatically
         WITH DISTINCT oq
@@ -379,12 +465,26 @@ export class OpenQuestionSchema {
         CREATE (d)-[:HAS_COMMENT]->(c)
         
         RETURN oq
-        `,
-        {
-          ...questionData,
-          questionText: normalizedQuestionText,
-        },
-      );
+      `;
+
+      // Prepare parameters
+      const params: any = {
+        id: questionData.id,
+        createdBy: questionData.createdBy,
+        publicCredit: questionData.publicCredit,
+        questionText: normalizedQuestionText,
+        initialComment: questionData.initialComment || '',
+      };
+
+      if (questionData.categoryIds && questionData.categoryIds.length > 0) {
+        params.categoryIds = questionData.categoryIds;
+      }
+
+      if (questionData.keywords && questionData.keywords.length > 0) {
+        params.keywords = questionData.keywords;
+      }
+
+      const result = await this.neo4jService.write(query, params);
 
       if (!result.records || result.records.length === 0) {
         throw new Error('Failed to create open question');
@@ -411,7 +511,7 @@ export class OpenQuestionSchema {
       // Handle the specific case of missing word nodes
       if (error.message && error.message.includes('not found')) {
         throw new BadRequestException(
-          `Some keywords don't have corresponding word nodes. Ensure all keywords exist as words before creating the question.`,
+          `Some keywords or categories don't have corresponding nodes. Ensure all keywords exist as words and categories have passed inclusion threshold.`,
         );
       }
 
@@ -434,6 +534,9 @@ export class OpenQuestionSchema {
         // Get keywords
         OPTIONAL MATCH (oq)-[t:TAGGED]->(w:WordNode)
         
+        // Get categories
+        OPTIONAL MATCH (oq)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        
         // Get questions with shared keywords
         OPTIONAL MATCH (oq)-[st:SHARED_TAG]->(o:OpenQuestionNode)
         WHERE o.visibilityStatus <> false OR o.visibilityStatus IS NULL
@@ -446,53 +549,61 @@ export class OpenQuestionSchema {
         OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         
         WITH oq,
-               collect(DISTINCT {
-                 word: w.word, 
-                 frequency: t.frequency,
-                 source: t.source
-               }) as keywords,
-               collect(DISTINCT {
-                 nodeId: o.id,
-                 questionText: o.questionText,
-                 sharedWord: st.word,
-                 strength: st.strength
-               }) as relatedQuestions,
-               collect(DISTINCT {
-                 nodeId: r.id,
-                 questionText: r.questionText,
-                 relationshipType: 'direct'
-               }) as directlyRelatedQuestions,
-               d.id as discussionId
+             collect(DISTINCT {
+               word: w.word, 
+               frequency: t.frequency,
+               source: t.source
+             }) as keywords,
+             collect(DISTINCT {
+               id: cat.id,
+               name: cat.name,
+               inclusionNetVotes: cat.inclusionNetVotes
+             }) as categories,
+             collect(DISTINCT {
+               nodeId: o.id,
+               questionText: o.questionText,
+               sharedWord: st.word,
+               strength: st.strength
+             }) as relatedQuestions,
+             collect(DISTINCT {
+               nodeId: r.id,
+               questionText: r.questionText,
+               relationshipType: 'direct'
+             }) as directlyRelatedQuestions,
+             d.id as discussionId
         
-        // Get answer statements separately - FIXED: Correct relationship direction (Statement -> Question)
-        OPTIONAL MATCH (ans:StatementNode)-[:ANSWERS]->(oq)
+        // Get answer nodes separately (new Answer nodes, not Statement nodes)
+        OPTIONAL MATCH (ans:AnswerNode)-[:ANSWERS]->(oq)
         WHERE ans.visibilityStatus <> false OR ans.visibilityStatus IS NULL
         
         // Get vote counts for each answer individually
-        OPTIONAL MATCH (ans)<-[pv:VOTED_ON {status: 'agree'}]-()
-        OPTIONAL MATCH (ans)<-[nv:VOTED_ON {status: 'disagree'}]-()
+        OPTIONAL MATCH (ans)<-[pv:VOTED_ON {kind: 'CONTENT', status: 'agree'}]-()
+        OPTIONAL MATCH (ans)<-[nv:VOTED_ON {kind: 'CONTENT', status: 'disagree'}]-()
         
-        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+        WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, discussionId,
              ans,
-             COUNT(DISTINCT pv) as positiveVotes,
-             COUNT(DISTINCT nv) as negativeVotes
+             COUNT(DISTINCT pv) as answerContentPositiveVotes,
+             COUNT(DISTINCT nv) as answerContentNegativeVotes
         
-        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+        WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, discussionId,
              collect(CASE WHEN ans IS NOT NULL THEN {
                id: ans.id,
-               statement: ans.statement,
+               answerText: ans.answerText,
                createdBy: ans.createdBy,
                createdAt: ans.createdAt,
                publicCredit: ans.publicCredit,
-               positiveVotes: positiveVotes,
-               negativeVotes: negativeVotes,
-               netVotes: positiveVotes - negativeVotes
+               inclusionPositiveVotes: ans.inclusionPositiveVotes,
+               inclusionNegativeVotes: ans.inclusionNegativeVotes,
+               inclusionNetVotes: ans.inclusionNetVotes,
+               contentPositiveVotes: answerContentPositiveVotes,
+               contentNegativeVotes: answerContentNegativeVotes,
+               contentNetVotes: answerContentPositiveVotes - answerContentNegativeVotes
              } ELSE NULL END) as answersWithNulls
         
-        WITH oq, keywords, relatedQuestions, directlyRelatedQuestions, discussionId,
+        WITH oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, discussionId,
              [answer IN answersWithNulls WHERE answer IS NOT NULL] as answers
         
-        RETURN oq, keywords, relatedQuestions, directlyRelatedQuestions, answers, discussionId
+        RETURN oq, keywords, categories, relatedQuestions, directlyRelatedQuestions, answers, discussionId
         `,
         { id },
       );
@@ -504,6 +615,7 @@ export class OpenQuestionSchema {
 
       const openQuestion = result.records[0].get('oq').properties;
       openQuestion.keywords = result.records[0].get('keywords');
+      openQuestion.categories = result.records[0].get('categories');
       openQuestion.relatedQuestions = result.records[0].get('relatedQuestions');
       openQuestion.directlyRelatedQuestions = result.records[0].get(
         'directlyRelatedQuestions',
@@ -511,30 +623,43 @@ export class OpenQuestionSchema {
       openQuestion.answers = result.records[0].get('answers');
       openQuestion.discussionId = result.records[0].get('discussionId');
 
-      // Convert Neo4j integers to JavaScript numbers
-      if (openQuestion.positiveVotes !== undefined) {
-        openQuestion.positiveVotes = this.toNumber(openQuestion.positiveVotes);
+      // Convert Neo4j integers to JavaScript numbers (inclusion votes only)
+      if (openQuestion.inclusionPositiveVotes !== undefined) {
+        openQuestion.inclusionPositiveVotes = this.toNumber(
+          openQuestion.inclusionPositiveVotes,
+        );
       }
-      if (openQuestion.negativeVotes !== undefined) {
-        openQuestion.negativeVotes = this.toNumber(openQuestion.negativeVotes);
+      if (openQuestion.inclusionNegativeVotes !== undefined) {
+        openQuestion.inclusionNegativeVotes = this.toNumber(
+          openQuestion.inclusionNegativeVotes,
+        );
       }
-      if (openQuestion.netVotes !== undefined) {
-        openQuestion.netVotes = this.toNumber(openQuestion.netVotes);
+      if (openQuestion.inclusionNetVotes !== undefined) {
+        openQuestion.inclusionNetVotes = this.toNumber(
+          openQuestion.inclusionNetVotes,
+        );
       }
 
       // Convert vote counts in answers as well
       if (openQuestion.answers && openQuestion.answers.length > 0) {
         openQuestion.answers.forEach((answer) => {
-          ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
+          [
+            'inclusionPositiveVotes',
+            'inclusionNegativeVotes',
+            'inclusionNetVotes',
+            'contentPositiveVotes',
+            'contentNegativeVotes',
+            'contentNetVotes',
+          ].forEach((prop) => {
             if (answer[prop] !== undefined) {
               answer[prop] = this.toNumber(answer[prop]);
             }
           });
         });
 
-        // Sort answers by netVotes descending
+        // Sort answers by contentNetVotes descending
         openQuestion.answers.sort(
-          (a, b) => (b.netVotes || 0) - (a.netVotes || 0),
+          (a, b) => (b.contentNetVotes || 0) - (a.contentNetVotes || 0),
         );
       }
 
@@ -562,12 +687,20 @@ export class OpenQuestionSchema {
       questionText: string;
       publicCredit: boolean;
       keywords: KeywordWithFrequency[];
+      categoryIds: string[];
       discussionId: string;
     }>,
   ) {
     try {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Open question ID cannot be empty');
+      }
+
+      // Validate category count if updating categories
+      if (updateData.categoryIds && updateData.categoryIds.length > 3) {
+        throw new BadRequestException(
+          'OpenQuestion can have maximum 3 categories',
+        );
       }
 
       // Normalize question text if provided
@@ -582,32 +715,55 @@ export class OpenQuestionSchema {
       this.logger.log(`Updating open question with ID: ${id}`);
       this.logger.debug(`Update data: ${JSON.stringify(updateData)}`);
 
-      // If keywords are provided, update the relationships
-      if (updateData.keywords && updateData.keywords.length > 0) {
-        const result = await this.neo4jService.write(
-          `
+      // Complex update with keywords and/or categories
+      if (
+        (updateData.keywords && updateData.keywords.length > 0) ||
+        updateData.categoryIds !== undefined
+      ) {
+        let query = `
           // Match the question to update
           MATCH (oq:OpenQuestionNode {id: $id})
           
           // Set updated properties
           SET oq += $updateProperties,
               oq.updatedAt = datetime()
-          
-          // Remove existing TAGGED relationships
+        `;
+
+        // Handle category updates
+        if (updateData.categoryIds !== undefined) {
+          query += `
+          // Remove existing CATEGORIZED_AS relationships
           WITH oq
-          OPTIONAL MATCH (oq)-[r:TAGGED]->()
-          DELETE r
+          OPTIONAL MATCH (oq)-[catRel:CATEGORIZED_AS]->()
+          DELETE catRel
           
-          // Remove existing SHARED_TAG relationships
+          // Create new category relationships if provided
+          WITH oq, $categoryIds as categoryIds
+          WHERE size(categoryIds) > 0
+          UNWIND categoryIds as categoryId
+          MATCH (cat:CategoryNode {id: categoryId})
+          WHERE cat.inclusionNetVotes > 0
+          CREATE (oq)-[:CATEGORIZED_AS]->(cat)
+          
+          WITH oq, collect(cat) as validCategories, categoryIds
+          WHERE size(validCategories) = size(categoryIds) OR size(categoryIds) = 0
+          `;
+        }
+
+        // Handle keyword updates
+        if (updateData.keywords && updateData.keywords.length > 0) {
+          query += `
+          // Remove existing TAGGED and SHARED_TAG relationships
           WITH oq
-          OPTIONAL MATCH (oq)-[st:SHARED_TAG]->()
-          DELETE st
+          OPTIONAL MATCH (oq)-[tagRel:TAGGED]->()
+          OPTIONAL MATCH (oq)-[sharedRel:SHARED_TAG]->()
+          DELETE tagRel, sharedRel
           
           // Process updated keywords
           WITH oq
           UNWIND $keywords as keyword
           
-          // Find word node for each keyword (don't create - already done by WordService)
+          // Find word node for each keyword
           MATCH (w:WordNode {word: keyword.word})
           
           // Create new TAGGED relationship
@@ -618,26 +774,30 @@ export class OpenQuestionSchema {
           
           // Reconnect to other questions that share this keyword
           WITH oq, w, keyword
-          MATCH (o:OpenQuestionNode)-[t:TAGGED]->(w)
+          OPTIONAL MATCH (o:OpenQuestionNode)-[t:TAGGED]->(w)
           WHERE o.id <> oq.id
           
           // Create new SHARED_TAG relationships
-          MERGE (oq)-[st:SHARED_TAG {word: w.word}]->(o)
-          ON CREATE SET st.strength = keyword.frequency * t.frequency
-          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-          
-          RETURN oq
-          `,
-          {
-            id,
-            updateProperties: {
-              questionText: updateData.questionText,
-              publicCredit: updateData.publicCredit,
-              discussionId: updateData.discussionId,
-            },
-            keywords: updateData.keywords,
+          FOREACH (dummy IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
+            MERGE (oq)-[st:SHARED_TAG {word: w.word}]->(o)
+            ON CREATE SET st.strength = keyword.frequency * t.frequency
+            ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+          )
+          `;
+        }
+
+        query += ` RETURN oq`;
+
+        const result = await this.neo4jService.write(query, {
+          id,
+          updateProperties: {
+            questionText: updateData.questionText,
+            publicCredit: updateData.publicCredit,
+            discussionId: updateData.discussionId,
           },
-        );
+          categoryIds: updateData.categoryIds || [],
+          keywords: updateData.keywords || [],
+        });
 
         if (!result.records || result.records.length === 0) {
           throw new NotFoundException(`Open question with ID ${id} not found`);
@@ -696,7 +856,7 @@ export class OpenQuestionSchema {
       // Handle the specific case of missing word nodes
       if (error.message && error.message.includes('not found')) {
         throw new BadRequestException(
-          `Some keywords don't have corresponding word nodes. Ensure all keywords exist as words before updating the question.`,
+          `Some keywords or categories don't exist or haven't passed inclusion threshold.`,
         );
       }
 
@@ -723,15 +883,15 @@ export class OpenQuestionSchema {
       }
 
       // Delete question and all related nodes (discussion, comments)
-      // Note: We keep answer statements as they may be valuable independently
+      // Note: We keep answer nodes as they may be valuable independently
       await this.neo4jService.write(
         `
         MATCH (oq:OpenQuestionNode {id: $id})
         // Get associated discussion and comments to delete as well
         OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
-        // Remove ANSWERS relationships but keep the statement nodes (FIXED: Correct direction)
-        OPTIONAL MATCH (ans:StatementNode)-[answersRel:ANSWERS]->(oq)
+        // Remove ANSWERS relationships but keep the answer nodes
+        OPTIONAL MATCH (ans:AnswerNode)-[answersRel:ANSWERS]->(oq)
         DELETE answersRel
         // Delete question, discussion, and comments
         DETACH DELETE oq, d, c
@@ -745,11 +905,6 @@ export class OpenQuestionSchema {
         message: `Open question with ID ${id} successfully deleted`,
       };
     } catch (error) {
-      this.logger.error(
-        `Error deleting open question ${id}: ${error.message}`,
-        error.stack,
-      );
-
       if (
         error instanceof BadRequestException ||
         error instanceof NotFoundException
@@ -757,6 +912,10 @@ export class OpenQuestionSchema {
         throw error;
       }
 
+      this.logger.error(
+        `Error deleting open question ${id}: ${error.message}`,
+        error.stack,
+      );
       throw new Error(`Failed to delete open question: ${error.message}`);
     }
   }
@@ -851,8 +1010,13 @@ export class OpenQuestionSchema {
     }
   }
 
-  // Standardized vote methods that match the pattern used in StatementSchema
-  async voteOpenQuestion(id: string, sub: string, isPositive: boolean) {
+  // Voting methods - INCLUSION ONLY for OpenQuestions
+
+  async voteOpenQuestionInclusion(
+    id: string,
+    sub: string,
+    isPositive: boolean,
+  ): Promise<VoteResult> {
     try {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Open question ID cannot be empty');
@@ -863,7 +1027,7 @@ export class OpenQuestionSchema {
       }
 
       this.logger.log(
-        `Processing vote on open question ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
+        `Processing inclusion vote on open question ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
       );
 
       const result = await this.voteSchema.vote(
@@ -871,9 +1035,8 @@ export class OpenQuestionSchema {
         { id },
         sub,
         isPositive,
+        'INCLUSION',
       );
-
-      // No longer updating consensus ratio - it's been removed
 
       return result;
     } catch (error) {
@@ -890,7 +1053,10 @@ export class OpenQuestionSchema {
     }
   }
 
-  async getOpenQuestionVoteStatus(id: string, sub: string) {
+  async getOpenQuestionVoteStatus(
+    id: string,
+    sub: string,
+  ): Promise<VoteStatus | null> {
     try {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Open question ID cannot be empty');
@@ -925,7 +1091,7 @@ export class OpenQuestionSchema {
     }
   }
 
-  async removeOpenQuestionVote(id: string, sub: string) {
+  async removeOpenQuestionVote(id: string, sub: string): Promise<VoteResult> {
     try {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Open question ID cannot be empty');
@@ -935,15 +1101,16 @@ export class OpenQuestionSchema {
         throw new BadRequestException('User ID cannot be empty');
       }
 
-      this.logger.log(`Removing vote from open question ${id} by user ${sub}`);
+      this.logger.log(
+        `Removing inclusion vote from open question ${id} by user ${sub}`,
+      );
 
       const result = await this.voteSchema.removeVote(
         'OpenQuestionNode',
         { id },
         sub,
+        'INCLUSION',
       );
-
-      // No longer updating consensus ratio - it's been removed
 
       return result;
     } catch (error) {
@@ -960,7 +1127,7 @@ export class OpenQuestionSchema {
     }
   }
 
-  async getOpenQuestionVotes(id: string) {
+  async getOpenQuestionVotes(id: string): Promise<VoteResult | null> {
     try {
       if (!id || id.trim() === '') {
         throw new BadRequestException('Open question ID cannot be empty');
@@ -980,9 +1147,13 @@ export class OpenQuestionSchema {
       }
 
       const votes = {
-        positiveVotes: voteStatus.positiveVotes,
-        negativeVotes: voteStatus.negativeVotes,
-        netVotes: voteStatus.netVotes,
+        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
+        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
+        inclusionNetVotes: voteStatus.inclusionNetVotes,
+        // OpenQuestions don't have content voting
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
       };
 
       this.logger.debug(
@@ -1113,180 +1284,21 @@ export class OpenQuestionSchema {
   }
 
   /**
-   * Creates an ANSWERS relationship between a statement and this open question
-   * FIXED: Now creates Statement -> Question relationship (Statement ANSWERS Question)
+   * Check if an OpenQuestion can accept answers (has passed inclusion threshold)
    */
-  async linkAnswerToQuestion(questionId: string, statementId: string) {
+  async isOpenQuestionAvailableForAnswers(
+    questionId: string,
+  ): Promise<boolean> {
     try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Open question ID cannot be empty');
-      }
+      const question = await this.getOpenQuestion(questionId);
+      if (!question) return false;
 
-      if (!statementId || statementId.trim() === '') {
-        throw new BadRequestException('Statement ID cannot be empty');
-      }
-
-      this.logger.log(
-        `Linking statement ${statementId} as answer to question ${questionId}`,
-      );
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (oq:OpenQuestionNode {id: $questionId})
-        MATCH (s:StatementNode {id: $statementId})
-        
-        // Create ANSWERS relationship (Statement -> Question)
-        MERGE (s)-[r:ANSWERS]->(oq)
-        ON CREATE SET r.createdAt = datetime()
-        
-        RETURN oq, s
-        `,
-        { questionId, statementId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(
-          `Open question or statement not found: ${questionId}, ${statementId}`,
-        );
-      }
-
-      this.logger.debug(
-        `Successfully linked statement ${statementId} to question ${questionId}`,
-      );
-
-      return { success: true };
+      return VotingUtils.isAnswerCreationAllowed(question.inclusionNetVotes);
     } catch (error) {
       this.logger.error(
-        `Error linking answer to question: ${error.message}`,
-        error.stack,
+        `Error checking question availability for answers: ${error.message}`,
       );
-
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      throw new Error(`Failed to link answer to question: ${error.message}`);
-    }
-  }
-
-  /**
-   * Removes an ANSWERS relationship between a statement and this open question
-   * FIXED: Now removes Statement -> Question relationship
-   */
-  async unlinkAnswerFromQuestion(questionId: string, statementId: string) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Open question ID cannot be empty');
-      }
-
-      if (!statementId || statementId.trim() === '') {
-        throw new BadRequestException('Statement ID cannot be empty');
-      }
-
-      this.logger.log(
-        `Unlinking statement ${statementId} from question ${questionId}`,
-      );
-
-      await this.neo4jService.write(
-        `
-        MATCH (s:StatementNode {id: $statementId})-[r:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})
-        DELETE r
-        `,
-        { questionId, statementId },
-      );
-
-      this.logger.debug(
-        `Successfully unlinked statement ${statementId} from question ${questionId}`,
-      );
-
-      return { success: true };
-    } catch (error) {
-      this.logger.error(
-        `Error unlinking answer from question: ${error.message}`,
-        error.stack,
-      );
-
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      throw new Error(
-        `Failed to unlink answer from question: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Gets all statements that answer this open question
-   * FIXED: Now uses Statement -> Question relationship direction
-   */
-  async getQuestionAnswers(questionId: string) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Open question ID cannot be empty');
-      }
-
-      this.logger.debug(`Getting answers for question ${questionId}`);
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (s:StatementNode)-[:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})
-        WHERE s.visibilityStatus <> false OR s.visibilityStatus IS NULL
-        
-        // Get vote counts for each answer
-        OPTIONAL MATCH (s)<-[pv:VOTED_ON {status: 'agree'}]-()
-        OPTIONAL MATCH (s)<-[nv:VOTED_ON {status: 'disagree'}]-()
-        
-        WITH s, COUNT(DISTINCT pv) as positiveVotes, COUNT(DISTINCT nv) as negativeVotes
-        
-        RETURN collect({
-          id: s.id,
-          statement: s.statement,
-          createdBy: s.createdBy,
-          createdAt: s.createdAt,
-          publicCredit: s.publicCredit,
-          positiveVotes: positiveVotes,
-          negativeVotes: negativeVotes,
-          netVotes: positiveVotes - negativeVotes
-        }) as answers
-        ORDER BY positiveVotes - negativeVotes DESC
-        `,
-        { questionId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return [];
-      }
-
-      const answers = result.records[0].get('answers');
-
-      // Convert Neo4j integers to JavaScript numbers
-      answers.forEach((answer) => {
-        ['positiveVotes', 'negativeVotes', 'netVotes'].forEach((prop) => {
-          if (answer[prop] !== undefined) {
-            answer[prop] = this.toNumber(answer[prop]);
-          }
-        });
-      });
-
-      this.logger.debug(
-        `Found ${answers.length} answers for question ${questionId}`,
-      );
-      return answers;
-    } catch (error) {
-      this.logger.error(
-        `Error getting question answers: ${error.message}`,
-        error.stack,
-      );
-
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      throw new Error(`Failed to get question answers: ${error.message}`);
+      return false;
     }
   }
 
@@ -1308,6 +1320,226 @@ export class OpenQuestionSchema {
         error.stack,
       );
       throw new Error(`Failed to check open questions: ${error.message}`);
+    }
+  }
+
+  // DISCOVERY METHODS - New functionality for finding related content
+
+  /**
+   * Get content nodes that share categories with the given open question
+   */
+  async getRelatedContentBySharedCategories(
+    nodeId: string,
+    options: {
+      nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
+      limit?: number;
+      offset?: number;
+      sortBy?:
+        | 'category_overlap'
+        | 'created'
+        | 'inclusion_votes'
+        | 'content_votes';
+      sortDirection?: 'asc' | 'desc';
+      excludeSelf?: boolean;
+      minCategoryOverlap?: number;
+    } = {},
+  ): Promise<any[]> {
+    try {
+      const {
+        nodeTypes,
+        limit = 10,
+        offset = 0,
+        sortBy = 'category_overlap',
+        sortDirection = 'desc',
+        excludeSelf = true,
+        minCategoryOverlap = 1,
+      } = options;
+
+      this.logger.debug(
+        `Getting related content by shared categories for open question node ${nodeId}`,
+      );
+
+      let query = `
+        MATCH (current:OpenQuestionNode {id: $nodeId})
+        MATCH (current)-[:CATEGORIZED_AS]->(sharedCat:CategoryNode)
+        MATCH (related)-[:CATEGORIZED_AS]->(sharedCat)
+        WHERE (related.visibilityStatus <> false OR related.visibilityStatus IS NULL)
+      `;
+
+      // Exclude self if requested
+      if (excludeSelf) {
+        query += ` AND related.id <> $nodeId`;
+      }
+
+      // Add node type filter if specified
+      if (nodeTypes && nodeTypes.length > 0) {
+        const nodeLabels = nodeTypes
+          .map((type) => {
+            switch (type) {
+              case 'statement':
+                return 'StatementNode';
+              case 'answer':
+                return 'AnswerNode';
+              case 'openquestion':
+                return 'OpenQuestionNode';
+              case 'quantity':
+                return 'QuantityNode';
+              default:
+                return null;
+            }
+          })
+          .filter(Boolean);
+
+        if (nodeLabels.length > 0) {
+          query += ` AND (${nodeLabels.map((label) => `related:${label}`).join(' OR ')})`;
+        }
+      } else {
+        query += ` AND (related:StatementNode OR related:AnswerNode OR related:OpenQuestionNode OR related:QuantityNode)`;
+      }
+
+      // Group by related node and count category overlaps
+      query += `
+        WITH related,
+             count(DISTINCT sharedCat) as categoryOverlap,
+             collect(DISTINCT {
+               id: sharedCat.id, 
+               name: sharedCat.name
+             }) as sharedCategories
+        WHERE categoryOverlap >= $minCategoryOverlap
+      `;
+
+      // Add sorting
+      if (sortBy === 'category_overlap') {
+        query += ` ORDER BY categoryOverlap ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'created') {
+        query += ` ORDER BY related.createdAt ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'inclusion_votes') {
+        query += ` ORDER BY related.inclusionNetVotes ${sortDirection.toUpperCase()}`;
+      } else if (sortBy === 'content_votes') {
+        query += ` ORDER BY COALESCE(related.contentNetVotes, 0) ${sortDirection.toUpperCase()}`;
+      }
+
+      // Add pagination
+      query += ` SKIP $offset LIMIT $limit`;
+
+      // Return formatted results
+      query += `
+        RETURN {
+          id: related.id,
+          type: CASE 
+            WHEN related:StatementNode THEN 'statement'
+            WHEN related:AnswerNode THEN 'answer' 
+            WHEN related:OpenQuestionNode THEN 'openquestion'
+            WHEN related:QuantityNode THEN 'quantity'
+            ELSE 'unknown'
+          END,
+          content: CASE
+            WHEN related:StatementNode THEN related.statement
+            WHEN related:AnswerNode THEN related.answerText
+            WHEN related:OpenQuestionNode THEN related.questionText  
+            WHEN related:QuantityNode THEN related.question
+            ELSE null
+          END,
+          createdBy: related.createdBy,
+          createdAt: related.createdAt,
+          inclusionNetVotes: related.inclusionNetVotes,
+          contentNetVotes: COALESCE(related.contentNetVotes, 0),
+          categoryOverlap: categoryOverlap,
+          sharedCategories: sharedCategories
+        } as relatedNode
+      `;
+
+      const result = await this.neo4jService.read(query, {
+        nodeId,
+        offset,
+        limit,
+        minCategoryOverlap,
+      });
+
+      const relatedNodes = result.records.map((record) => {
+        const node = record.get('relatedNode');
+        // Convert Neo4j integers
+        ['inclusionNetVotes', 'contentNetVotes', 'categoryOverlap'].forEach(
+          (prop) => {
+            if (node[prop] !== undefined) {
+              node[prop] = this.toNumber(node[prop]);
+            }
+          },
+        );
+        return node;
+      });
+
+      this.logger.debug(
+        `Found ${relatedNodes.length} related nodes by shared categories for open question node ${nodeId}`,
+      );
+      return relatedNodes;
+    } catch (error) {
+      this.logger.error(
+        `Error getting related content by shared categories for open question node ${nodeId}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to get related content: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get all categories associated with this open question
+   */
+  async getNodeCategories(nodeId: string): Promise<any[]> {
+    try {
+      this.logger.debug(`Getting categories for open question node ${nodeId}`);
+
+      const result = await this.neo4jService.read(
+        `
+        MATCH (oq:OpenQuestionNode {id: $nodeId})
+        MATCH (oq)-[:CATEGORIZED_AS]->(c:CategoryNode)
+        
+        // Get parent hierarchy for each category
+        OPTIONAL MATCH path = (root:CategoryNode)-[:PARENT_OF*]->(c)
+        WHERE NOT EXISTS((other:CategoryNode)-[:PARENT_OF]->(root))
+        
+        RETURN collect({
+          id: c.id,
+          name: c.name,
+          description: c.description,
+          inclusionNetVotes: c.inclusionNetVotes,
+          path: CASE 
+            WHEN path IS NOT NULL 
+            THEN [node IN nodes(path) | {id: node.id, name: node.name}]
+            ELSE [{id: c.id, name: c.name}]
+          END
+        }) as categories
+        `,
+        { nodeId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return [];
+      }
+
+      const categories = result.records[0].get('categories');
+
+      // Convert Neo4j integers
+      categories.forEach((category) => {
+        if (category.inclusionNetVotes !== undefined) {
+          category.inclusionNetVotes = this.toNumber(
+            category.inclusionNetVotes,
+          );
+        }
+      });
+
+      this.logger.debug(
+        `Retrieved ${categories.length} categories for open question node ${nodeId}`,
+      );
+      return categories;
+    } catch (error) {
+      this.logger.error(
+        `Error getting categories for open question node ${nodeId}: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(
+        `Failed to get open question categories: ${error.message}`,
+      );
     }
   }
 
