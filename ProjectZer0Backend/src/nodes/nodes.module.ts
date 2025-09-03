@@ -7,6 +7,8 @@ import { OpenQuestionModule } from './openquestion/openquestion.module';
 import { DiscussionModule } from './discussion/discussion.module';
 import { CommentModule } from './comment/comment.module';
 import { QuantityModule } from './quantity/quantity.module';
+import { CategoryModule } from './category/category.module';
+import { AnswerModule } from './answer/answer.module'; // NEW: Added AnswerModule
 
 @Module({
   imports: [
@@ -17,6 +19,8 @@ import { QuantityModule } from './quantity/quantity.module';
     DiscussionModule,
     CommentModule,
     QuantityModule,
+    CategoryModule,
+    AnswerModule, // NEW: Added AnswerModule
   ],
   exports: [
     WordModule,
@@ -26,6 +30,8 @@ import { QuantityModule } from './quantity/quantity.module';
     DiscussionModule,
     CommentModule,
     QuantityModule,
+    CategoryModule,
+    AnswerModule, // NEW: Added AnswerModule export
   ],
 })
 export class NodesModule {}
