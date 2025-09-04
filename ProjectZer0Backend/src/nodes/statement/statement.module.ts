@@ -1,27 +1,28 @@
 // src/nodes/statement/statement.module.ts
-import { Module } from '@nestjs/common';
+
+import { Module, Logger } from '@nestjs/common';
 import { StatementController } from './statement.controller';
 import { StatementService } from './statement.service';
 import { StatementSchema } from '../../neo4j/schemas/statement.schema';
-import { KeywordExtractionModule } from '../../services/keyword-extraction/keyword-extraction.module';
-import { WordModule } from '../word/word.module';
-import { VoteModule } from '../../neo4j/vote/vote.module';
 import { VoteSchema } from '../../neo4j/schemas/vote.schema';
+import { VoteModule } from '../../neo4j/vote/vote.module';
+import { CategoryModule } from '../category/category.module'; // NEW: Added CategoryModule for validation and discovery
 import { DiscussionModule } from '../discussion/discussion.module';
 import { CommentModule } from '../comment/comment.module';
-import { Neo4jModule } from '../../neo4j/neo4j.module'; // Add this
+import { KeywordExtractionModule } from '../../services/keyword-extraction/keyword-extraction.module';
+import { WordModule } from '../word/word.module';
 
 @Module({
   imports: [
-    KeywordExtractionModule,
-    WordModule,
-    VoteModule,
-    DiscussionModule,
-    CommentModule,
-    Neo4jModule, // Add this
+    VoteModule, // For dual voting (inclusion + content)
+    CategoryModule, // NEW: For category validation and discovery
+    DiscussionModule, // For discussion integration
+    CommentModule, // For comment integration
+    KeywordExtractionModule, // For keyword processing
+    WordModule, // For creating missing word nodes
   ],
   controllers: [StatementController],
-  providers: [StatementService, StatementSchema, VoteSchema],
-  exports: [StatementService],
+  providers: [StatementService, StatementSchema, VoteSchema, Logger],
+  exports: [StatementService, StatementSchema], // Export both Service and Schema for external use
 })
 export class StatementModule {}
