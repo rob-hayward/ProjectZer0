@@ -615,7 +615,6 @@ export class CategoryService {
 
   /**
    * Get related content that shares categories with the given category
-   * Note: This method will be fully implemented when CategorySchema discovery methods are complete
    */
   async getRelatedContentBySharedCategories(
     categoryId: string,
@@ -630,17 +629,11 @@ export class CategoryService {
         `Getting related content for category ${categoryId} with options: ${JSON.stringify(options)}`,
       );
 
-      // TODO: Implement when CategorySchema.getRelatedContentBySharedCategories is available
-      // return await this.categorySchema.getRelatedContentBySharedCategories(
-      //   categoryId,
-      //   options,
-      // );
-
-      // Temporary placeholder - return empty array until schema method is implemented
-      this.logger.warn(
-        `getRelatedContentBySharedCategories not yet implemented in CategorySchema`,
+      // Now implemented: Use CategorySchema discovery method
+      return await this.categorySchema.getRelatedContentBySharedCategories(
+        categoryId,
+        options,
       );
-      return [];
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
@@ -658,7 +651,6 @@ export class CategoryService {
 
   /**
    * Get categories associated with a specific node
-   * Note: This method will be fully implemented when CategorySchema discovery methods are complete
    */
   async getNodeCategories(nodeId: string) {
     try {
@@ -668,14 +660,8 @@ export class CategoryService {
 
       this.logger.debug(`Getting categories for node ${nodeId}`);
 
-      // TODO: Implement when CategorySchema.getNodeCategories is available
-      // return await this.categorySchema.getNodeCategories(nodeId);
-
-      // Temporary placeholder - return empty array until schema method is implemented
-      this.logger.warn(
-        `getNodeCategories not yet implemented in CategorySchema`,
-      );
-      return [];
+      // Now implemented: Use CategorySchema discovery method
+      return await this.categorySchema.getNodeCategories(nodeId);
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
