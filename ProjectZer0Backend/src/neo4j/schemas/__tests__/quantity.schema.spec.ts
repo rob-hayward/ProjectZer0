@@ -1,21 +1,78 @@
 // src/neo4j/schemas/__tests__/quantity.schema.spec.ts
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { QuantitySchema } from '../quantity.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema } from '../vote.schema';
 import { UnitService } from '../../../units/unit.service';
-import { Record, Result } from 'neo4j-driver';
-import { Logger } from '@nestjs/common';
+import { Record, Result, Integer } from 'neo4j-driver';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { KeywordWithFrequency } from '../../../services/keyword-extraction/keyword-extraction.interface';
+import type { VoteStatus, VoteResult } from '../vote.schema';
 import {
   UnitCategory,
   UnitCategoryId,
 } from '../../../units/interfaces/unit.interface';
 
 describe('QuantitySchema', () => {
-  let quantitySchema: QuantitySchema;
+  let schema: QuantitySchema;
   let neo4jService: jest.Mocked<Neo4jService>;
+  let voteSchema: jest.Mocked<VoteSchema>;
   let unitService: jest.Mocked<UnitService>;
+
+  // Mock data constants
+  const mockQuantityData = {
+    id: 'quantity-123',
+    createdBy: 'user-456',
+    publicCredit: true,
+    question: 'What is the optimal temperature for brewing coffee?',
+    unitCategoryId: 'temperature',
+    defaultUnitId: 'celsius',
+    categoryIds: ['coffee-category', 'brewing-category'],
+    keywords: [
+      { word: 'coffee', frequency: 8, source: 'ai' as const },
+      { word: 'temperature', frequency: 6, source: 'ai' as const },
+      { word: 'brewing', frequency: 4, source: 'user' as const },
+    ] as KeywordWithFrequency[],
+    initialComment: 'This depends on the type of coffee beans used',
+  };
+
+  const mockVoteResult: VoteResult = {
+    inclusionPositiveVotes: 12,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 10,
+    contentPositiveVotes: 8,
+    contentNegativeVotes: 1,
+    contentNetVotes: 7,
+  };
+
+  const mockVoteStatus: VoteStatus = {
+    inclusionStatus: 'agree',
+    inclusionPositiveVotes: 12,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 10,
+    contentStatus: 'agree',
+    contentPositiveVotes: 8,
+    contentNegativeVotes: 1,
+    contentNetVotes: 7,
+  };
+
+  const mockUnitCategory: UnitCategory = {
+    id: UnitCategoryId.TEMPERATURE,
+    name: 'Temperature',
+    description: 'Temperature measurements',
+    baseUnit: 'kelvin',
+    defaultUnit: 'celsius',
+    units: [
+      { id: 'celsius', name: 'Celsius', symbol: '°C', conversionFactor: 1 },
+      {
+        id: 'fahrenheit',
+        name: 'Fahrenheit',
+        symbol: '°F',
+        conversionFactor: 1.8,
+      },
+    ],
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -44,178 +101,216 @@ describe('QuantitySchema', () => {
             getCategory: jest.fn(),
           },
         },
-        {
-          provide: Logger,
-          useValue: {
-            log: jest.fn(),
-            error: jest.fn(),
-            warn: jest.fn(),
-            debug: jest.fn(),
-          },
-        },
       ],
     }).compile();
 
-    quantitySchema = module.get<QuantitySchema>(QuantitySchema);
+    schema = module.get<QuantitySchema>(QuantitySchema);
     neo4jService = module.get(Neo4jService);
+    voteSchema = module.get(VoteSchema);
     unitService = module.get(UnitService);
   });
 
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('should be defined', () => {
-    expect(quantitySchema).toBeDefined();
+    expect(schema).toBeDefined();
   });
 
   describe('createQuantityNode', () => {
-    it('should create a quantity node with keywords', async () => {
-      // Mock unit validation
+    const mockRecord = {
+      get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
+    } as unknown as Record;
+    const mockResult = {
+      records: [mockRecord],
+    } as unknown as Result;
+
+    beforeEach(() => {
       unitService.validateUnitInCategory.mockReturnValue(true);
-
-      // Mock data for the quantity node
-      const quantityData = {
-        id: 'test-id',
-        createdBy: 'user-id',
-        publicCredit: true,
-        question: 'What is the optimal temperature for brewing coffee?',
-        unitCategoryId: 'temperature',
-        defaultUnitId: 'celsius',
-        keywords: [
-          { word: 'coffee', frequency: 1, source: 'ai' as const },
-          { word: 'temperature', frequency: 2, source: 'ai' as const },
-        ] as KeywordWithFrequency[],
-        initialComment: 'I think it depends on the type of coffee',
-      };
-
-      // Mock Neo4j response
-      const mockQuantityNode = {
-        id: 'test-id',
-        question: 'What is the optimal temperature for brewing coffee?',
-      };
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockQuantityNode }),
-      } as unknown as Record;
-      const mockResult = {
-        records: [mockRecord],
-      } as unknown as Result;
-
       neo4jService.write.mockResolvedValue(mockResult);
+    });
 
-      // Execute the method
-      const result = await quantitySchema.createQuantityNode(quantityData);
+    it('should create a quantity node successfully', async () => {
+      const result = await schema.createQuantityNode(mockQuantityData);
 
-      // Verify Neo4j was called correctly
       expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
         'temperature',
         'celsius',
       );
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('CREATE (q:QuantityNode'),
-        expect.objectContaining(quantityData),
+        expect.objectContaining({
+          id: mockQuantityData.id,
+          question: mockQuantityData.question,
+          unitCategoryId: mockQuantityData.unitCategoryId,
+          defaultUnitId: mockQuantityData.defaultUnitId,
+          categoryIds: mockQuantityData.categoryIds,
+          keywords: mockQuantityData.keywords,
+        }),
       );
-
-      // Verify the result
-      expect(result).toEqual(mockQuantityNode);
+      expect(result).toEqual(mockQuantityData);
     });
 
-    it('should throw an error if unit validation fails', async () => {
-      // Mock unit validation to fail
+    it('should create a quantity node without categories', async () => {
+      const quantityDataNoCategories = {
+        ...mockQuantityData,
+        categoryIds: undefined,
+      };
+
+      const result = await schema.createQuantityNode(quantityDataNoCategories);
+
+      expect(neo4jService.write).toHaveBeenCalled();
+      expect(result).toBeDefined();
+    });
+
+    it('should create a quantity node without keywords', async () => {
+      const quantityDataNoKeywords = {
+        ...mockQuantityData,
+        keywords: undefined,
+      };
+
+      await schema.createQuantityNode(quantityDataNoKeywords);
+
+      expect(neo4jService.write).toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when unit validation fails', async () => {
       unitService.validateUnitInCategory.mockReturnValue(false);
 
-      // Execute and expect error
-      await expect(
-        quantitySchema.createQuantityNode({
-          id: 'test-id',
-          createdBy: 'user-id',
-          publicCredit: true,
-          question: 'What is the optimal temperature for brewing coffee?',
-          unitCategoryId: 'temperature',
-          defaultUnitId: 'invalid-unit',
-          keywords: [],
-        }),
-      ).rejects.toThrow();
-
-      // Verify Neo4j was not called
+      await expect(schema.createQuantityNode(mockQuantityData)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(neo4jService.write).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when more than 3 categories provided', async () => {
+      const invalidData = {
+        ...mockQuantityData,
+        categoryIds: ['cat1', 'cat2', 'cat3', 'cat4'],
+      };
+
+      await expect(schema.createQuantityNode(invalidData)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(unitService.validateUnitInCategory).not.toHaveBeenCalled();
+      expect(neo4jService.write).not.toHaveBeenCalled();
+    });
+
+    it('should handle keyword/category validation errors gracefully', async () => {
+      neo4jService.write.mockRejectedValue(new Error('Category not found'));
+
+      await expect(schema.createQuantityNode(mockQuantityData)).rejects.toThrow(
+        'Failed to create quantity node: Category not found',
+      );
+    });
+
+    it('should handle Neo4j errors gracefully', async () => {
+      neo4jService.write.mockRejectedValue(
+        new Error('Database connection failed'),
+      );
+
+      await expect(schema.createQuantityNode(mockQuantityData)).rejects.toThrow(
+        'Failed to create quantity node: Database connection failed',
+      );
     });
   });
 
   describe('getQuantityNode', () => {
-    it('should return a quantity node when found', async () => {
-      // Mock data
-      const mockQuantityNode = {
-        id: 'test-id',
-        question: 'What is the optimal temperature for brewing coffee?',
-        unitCategoryId: 'temperature',
-        defaultUnitId: 'celsius',
-        responseCount: 5,
-      };
-      const mockKeywords = [
-        { word: 'coffee', frequency: 1, source: 'ai' as const },
-      ];
-      const mockDiscussionId = 'discussion-id';
+    const mockQuantityRecord = {
+      get: jest.fn().mockImplementation((key: string) => {
+        const mockData = {
+          q: {
+            properties: {
+              ...mockQuantityData,
+              inclusionPositiveVotes: Integer.fromNumber(12),
+              inclusionNegativeVotes: Integer.fromNumber(2),
+              inclusionNetVotes: Integer.fromNumber(10),
+              contentPositiveVotes: Integer.fromNumber(8),
+              contentNegativeVotes: Integer.fromNumber(1),
+              contentNetVotes: Integer.fromNumber(7),
+              responseCount: Integer.fromNumber(25),
+            },
+          },
+          keywords: [
+            { word: 'coffee', frequency: 8, source: 'ai' },
+            { word: 'temperature', frequency: 6, source: 'ai' },
+          ],
+          discussionId: 'discussion-123',
+        };
+        return mockData[key];
+      }),
+    } as unknown as Record;
 
-      // Mock Neo4j record with the expected properties and returns
-      const mockRecord = {
-        get: jest.fn((key) => {
-          if (key === 'q') return { properties: mockQuantityNode };
-          if (key === 'keywords') return mockKeywords;
-          if (key === 'discussionId') return mockDiscussionId;
-          return null;
+    const mockResult = {
+      records: [mockQuantityRecord],
+    } as unknown as Result;
+
+    it('should get a quantity node successfully', async () => {
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await schema.getQuantityNode('quantity-123');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (q:QuantityNode {id: $id})'),
+        { id: 'quantity-123' },
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: mockQuantityData.id,
+          question: mockQuantityData.question,
+          inclusionPositiveVotes: 12,
+          inclusionNegativeVotes: 2,
+          inclusionNetVotes: 10,
+          contentPositiveVotes: 8,
+          contentNegativeVotes: 1,
+          contentNetVotes: 7,
+          responseCount: 25,
+          keywords: expect.arrayContaining([
+            expect.objectContaining({ word: 'coffee' }),
+            expect.objectContaining({ word: 'temperature' }),
+          ]),
+          discussionId: 'discussion-123',
         }),
-      } as unknown as Record;
+      );
+    });
 
+    it('should return null when quantity node does not exist', async () => {
       const mockResult = {
-        records: [mockRecord],
+        records: [],
       } as unknown as Result;
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.getQuantityNode('test-id');
+      const result = await schema.getQuantityNode('nonexistent-id');
 
-      // Verify
-      expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (q:QuantityNode {id: $id})'),
-        { id: 'test-id' },
-      );
-      expect(result).toEqual({
-        ...mockQuantityNode,
-        keywords: mockKeywords,
-        discussionId: mockDiscussionId,
-      });
+      expect(result).toBeNull();
     });
 
-    it('should return null when quantity node is not found', async () => {
-      // Mock empty result
-      const mockResult = { records: [] } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
+    it('should handle Neo4j errors gracefully', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Database error'));
 
-      // Execute
-      const result = await quantitySchema.getQuantityNode('nonexistent-id');
-
-      // Verify
-      expect(result).toBeNull();
+      await expect(schema.getQuantityNode('quantity-123')).rejects.toThrow(
+        'Failed to get quantity node: Database error',
+      );
     });
   });
 
   describe('updateQuantityNode', () => {
-    it('should update a quantity node', async () => {
-      // Mock unit validation
+    const updateData = {
+      question: 'What is the ideal brewing temperature for espresso?',
+      unitCategoryId: 'temperature',
+      defaultUnitId: 'fahrenheit',
+      publicCredit: false,
+    };
+
+    it('should update a quantity node successfully', async () => {
       unitService.validateUnitInCategory.mockReturnValue(true);
 
-      // Mock update data
-      const updateData = {
-        question: 'Updated question about coffee temperature?',
-        unitCategoryId: 'temperature',
-        defaultUnitId: 'celsius',
-      };
-
-      // Mock Neo4j response
-      const mockUpdatedNode = {
-        id: 'test-id',
-        ...updateData,
-      };
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockUpdatedNode }),
+        get: jest.fn().mockReturnValue({
+          properties: { ...mockQuantityData, ...updateData },
+        }),
       } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
@@ -223,179 +318,169 @@ describe('QuantitySchema', () => {
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.updateQuantityNode(
-        'test-id',
+      const result = await schema.updateQuantityNode(
+        'quantity-123',
         updateData,
       );
 
-      // Verify
+      expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
+        'temperature',
+        'fahrenheit',
+      );
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (q:QuantityNode {id: $id})'),
         expect.objectContaining({
-          id: 'test-id',
-          updateProperties: updateData,
+          id: 'quantity-123',
+          updateProperties: expect.objectContaining({
+            question: updateData.question,
+            unitCategoryId: updateData.unitCategoryId,
+            defaultUnitId: updateData.defaultUnitId,
+            publicCredit: updateData.publicCredit,
+          }),
         }),
       );
-      expect(result).toEqual(mockUpdatedNode);
+      expect(result).toEqual({ ...mockQuantityData, ...updateData });
     });
 
-    it('should update a quantity node with keywords', async () => {
-      // Mock unit validation
+    it('should throw BadRequestException when unit validation fails', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(false);
+
+      await expect(
+        schema.updateQuantityNode('quantity-123', updateData),
+      ).rejects.toThrow(BadRequestException);
+      expect(neo4jService.write).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when quantity node does not exist', async () => {
       unitService.validateUnitInCategory.mockReturnValue(true);
 
-      // Mock update data with keywords
-      const updateData = {
-        question: 'Updated question about coffee temperature?',
-        keywords: [
-          { word: 'updated', frequency: 1, source: 'ai' as const },
-        ] as KeywordWithFrequency[],
-      };
-
-      // Mock Neo4j response
-      const mockUpdatedNode = {
-        id: 'test-id',
-        question: updateData.question,
-      };
-      const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockUpdatedNode }),
-      } as unknown as Record;
       const mockResult = {
-        records: [mockRecord],
+        records: [],
       } as unknown as Result;
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.updateQuantityNode(
-        'test-id',
-        updateData,
-      );
+      await expect(
+        schema.updateQuantityNode('nonexistent-id', updateData),
+      ).rejects.toThrow(NotFoundException);
+    });
 
-      // Verify the query and parameters are correct - just check each independently
-      expect(neo4jService.write).toHaveBeenCalled();
-      expect(neo4jService.write.mock.calls[0][0]).toContain(
-        'OPTIONAL MATCH (q)-[r:TAGGED]->()',
-      );
-      expect(neo4jService.write.mock.calls[0][1].id).toBe('test-id');
-      expect(neo4jService.write.mock.calls[0][1].keywords).toEqual(
-        updateData.keywords,
-      );
-      expect(result).toEqual(mockUpdatedNode);
+    it('should handle Neo4j errors gracefully', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+      neo4jService.write.mockRejectedValue(new Error('Update failed'));
+
+      await expect(
+        schema.updateQuantityNode('quantity-123', updateData),
+      ).rejects.toThrow('Failed to update quantity node: Update failed');
     });
   });
 
   describe('deleteQuantityNode', () => {
-    it('should delete a quantity node', async () => {
-      // Mock check for existence
-      const mockCheckRecord = {
-        get: jest.fn().mockReturnValue({ properties: { id: 'test-id' } }),
-      } as unknown as Record;
-      const mockCheckResult = {
-        records: [mockCheckRecord],
+    it('should delete a quantity node successfully', async () => {
+      // Mock existence check
+      const checkResult = {
+        records: [{ get: jest.fn().mockReturnValue(mockQuantityData) }],
       } as unknown as Result;
 
-      // Mock successful deletion
-      const mockDeleteResult = {
-        records: [],
-      } as unknown as Result;
+      neo4jService.read.mockResolvedValue(checkResult);
+      neo4jService.write.mockResolvedValue({} as Result);
 
-      // Set up sequential mocks
-      neo4jService.read.mockResolvedValueOnce(mockCheckResult);
-      neo4jService.write.mockResolvedValueOnce(mockDeleteResult);
+      const result = await schema.deleteQuantityNode('quantity-123');
 
-      // Execute
-      const result = await quantitySchema.deleteQuantityNode('test-id');
-
-      // Verify
-      expect(neo4jService.read).toHaveBeenCalledWith(expect.any(String), {
-        id: 'test-id',
-      });
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (q:QuantityNode {id: $id}) RETURN q'),
+        { id: 'quantity-123' },
+      );
       expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (q:QuantityNode {id: $id})'),
-        { id: 'test-id' },
+        expect.stringContaining('DETACH DELETE q, d, c, r'),
+        { id: 'quantity-123' },
       );
       expect(result).toEqual({
         success: true,
-        message: expect.stringContaining('test-id'),
+        message: 'Quantity node with ID quantity-123 successfully deleted',
       });
     });
 
-    it('should throw error when quantity node to delete is not found', async () => {
-      // Mock node not found
-      const mockCheckResult = { records: [] } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockCheckResult);
+    it('should throw NotFoundException when quantity node does not exist', async () => {
+      const checkResult = {
+        records: [],
+      } as unknown as Result;
 
-      // Execute and expect error
-      await expect(
-        quantitySchema.deleteQuantityNode('nonexistent-id'),
-      ).rejects.toThrow();
+      neo4jService.read.mockResolvedValue(checkResult);
 
-      // Verify write was not called
+      await expect(schema.deleteQuantityNode('nonexistent-id')).rejects.toThrow(
+        NotFoundException,
+      );
       expect(neo4jService.write).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when ID is empty', async () => {
+      await expect(schema.deleteQuantityNode('')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(neo4jService.read).not.toHaveBeenCalled();
+    });
+
+    it('should handle Neo4j errors gracefully', async () => {
+      const checkResult = {
+        records: [{ get: jest.fn().mockReturnValue(mockQuantityData) }],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(checkResult);
+      neo4jService.write.mockRejectedValue(new Error('Delete failed'));
+
+      await expect(schema.deleteQuantityNode('quantity-123')).rejects.toThrow(
+        'Failed to delete quantity node: Delete failed',
+      );
     });
   });
 
   describe('submitResponse', () => {
+    const responseData = {
+      userId: 'user-456',
+      quantityNodeId: 'quantity-123',
+      value: 95,
+      unitId: 'celsius',
+    };
+
+    const mockQuantityNode = {
+      id: 'quantity-123',
+      unitCategoryId: 'temperature',
+      defaultUnitId: 'celsius',
+      inclusionNetVotes: 5, // > 0, allows responses
+    };
+
     beforeEach(() => {
-      // Mock data for testing responses
-      const mockQuantityNode = {
-        id: 'quantity-id',
-        unitCategoryId: 'temperature',
-        defaultUnitId: 'celsius',
-      };
-
-      // Mock getQuantityNode to return the test node
-      jest
-        .spyOn(quantitySchema, 'getQuantityNode')
-        .mockResolvedValue(mockQuantityNode);
-
-      // Mock unit validation and conversion
+      // Mock successful setup
+      jest.spyOn(schema, 'getQuantityNode').mockResolvedValue(mockQuantityNode);
       unitService.validateUnitInCategory.mockReturnValue(true);
-      unitService.convert.mockReturnValue(100); // Mock conversion to base unit
-
-      // Mock getCategory with proper UnitCategory structure
-      const mockCategory: UnitCategory = {
-        id: UnitCategoryId.TEMPERATURE,
-        name: 'Temperature',
-        description: 'Temperature measurements',
-        baseUnit: 'kelvin',
-        defaultUnit: 'celsius',
-        units: [],
-      };
-      unitService.getCategory.mockReturnValue(mockCategory);
+      unitService.convert.mockReturnValue(368.15); // Celsius to Kelvin conversion
+      unitService.getCategory.mockReturnValue(mockUnitCategory);
 
       // Mock recalculateStatistics
       jest
-        .spyOn(quantitySchema as any, 'recalculateStatistics')
+        .spyOn(schema as any, 'recalculateStatistics')
         .mockImplementation(() => Promise.resolve());
     });
 
     it('should create a new response for a user', async () => {
-      // Mock getUserResponse to return null (no existing response)
-      jest.spyOn(quantitySchema, 'getUserResponse').mockResolvedValue(null);
+      // Mock no existing response
+      jest.spyOn(schema, 'getUserResponse').mockResolvedValue(null);
 
-      const responseData = {
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
-        value: 95,
-        unitId: 'celsius',
-      };
-
-      // Mock Neo4j response for creating new response
-      const mockResponse = {
-        id: 'response-id',
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
+      const mockNewResponse = {
+        id: 'response-456',
+        userId: 'user-456',
+        quantityNodeId: 'quantity-123',
         value: 95,
         unitId: 'celsius',
         categoryId: 'temperature',
         createdAt: new Date(),
         updatedAt: new Date(),
-        normalizedValue: 100, // Converted to base unit
+        normalizedValue: 368.15,
       };
+
       const mockRecord = {
-        get: jest.fn().mockReturnValue(mockResponse),
+        get: jest.fn().mockReturnValue(mockNewResponse),
       } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
@@ -403,71 +488,54 @@ describe('QuantitySchema', () => {
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.submitResponse(responseData);
+      const result = await schema.submitResponse(responseData);
 
-      // Verify
+      expect(schema.getQuantityNode).toHaveBeenCalledWith('quantity-123');
       expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
         'temperature',
         'celsius',
       );
       expect(unitService.convert).toHaveBeenCalledWith(
-        'temperature',
         95,
         'celsius',
         'kelvin',
+        'temperature',
       );
       expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('CREATE (u)-[r:RESPONSE_TO'),
+        expect.stringContaining('CREATE (r:QuantityResponseNode'),
         expect.objectContaining({
-          userId: 'user-id',
-          quantityNodeId: 'quantity-id',
+          userId: 'user-456',
+          quantityNodeId: 'quantity-123',
           value: 95,
           unitId: 'celsius',
-          normalizedValue: 100,
+          normalizedValue: 368.15,
         }),
       );
-      expect(result).toEqual(mockResponse);
+      expect(result).toEqual(mockNewResponse);
     });
 
-    it('should update an existing response', async () => {
-      // Mock existing response
+    it('should update existing response for a user', async () => {
+      // Mock existing response with complete QuantityNodeResponse interface
       const existingResponse = {
-        id: 'response-id',
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
-        value: 90,
+        id: 'existing-response',
+        userId: 'user-456',
+        quantityNodeId: 'quantity-123',
+        value: 85,
         unitId: 'celsius',
         categoryId: 'temperature',
         createdAt: new Date(),
         updatedAt: new Date(),
-        normalizedValue: 95,
+        normalizedValue: 358.15,
       };
+      jest.spyOn(schema, 'getUserResponse').mockResolvedValue(existingResponse);
 
-      // Mock getUserResponse to return existing response
-      jest
-        .spyOn(quantitySchema, 'getUserResponse')
-        .mockResolvedValue(existingResponse);
-
-      const responseData = {
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
-        value: 95,
-        unitId: 'celsius',
-      };
-
-      // Mock Neo4j response for updating response
       const mockUpdatedResponse = {
-        id: 'response-id',
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
+        ...existingResponse,
         value: 95,
-        unitId: 'celsius',
-        categoryId: 'temperature',
-        createdAt: new Date(),
+        normalizedValue: 368.15,
         updatedAt: new Date(),
-        normalizedValue: 100, // Converted to base unit
       };
+
       const mockRecord = {
         get: jest.fn().mockReturnValue(mockUpdatedResponse),
       } as unknown as Record;
@@ -477,40 +545,78 @@ describe('QuantitySchema', () => {
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.submitResponse(responseData);
+      const result = await schema.submitResponse(responseData);
 
-      // Verify
       expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (u:User {sub: $userId})'),
+        expect.stringContaining('SET r.value = $value'),
         expect.objectContaining({
-          userId: 'user-id',
-          quantityNodeId: 'quantity-id',
+          userId: 'user-456',
+          quantityNodeId: 'quantity-123',
           value: 95,
-          unitId: 'celsius',
-          normalizedValue: 100,
+          normalizedValue: 368.15,
         }),
       );
       expect(result).toEqual(mockUpdatedResponse);
+    });
+
+    it('should throw NotFoundException when quantity node does not exist', async () => {
+      jest.spyOn(schema, 'getQuantityNode').mockResolvedValue(null);
+
+      await expect(schema.submitResponse(responseData)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(unitService.validateUnitInCategory).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when quantity node has not passed inclusion threshold', async () => {
+      const rejectedQuantityNode = {
+        ...mockQuantityNode,
+        inclusionNetVotes: -1, // <= 0, rejected
+      };
+      jest
+        .spyOn(schema, 'getQuantityNode')
+        .mockResolvedValue(rejectedQuantityNode);
+
+      await expect(schema.submitResponse(responseData)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(unitService.validateUnitInCategory).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException when unit validation fails', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(false);
+
+      await expect(schema.submitResponse(responseData)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(unitService.convert).not.toHaveBeenCalled();
+    });
+
+    it('should handle unit conversion errors gracefully', async () => {
+      unitService.convert.mockImplementation(() => {
+        throw new Error('Conversion failed');
+      });
+
+      await expect(schema.submitResponse(responseData)).rejects.toThrow(
+        'Failed to submit response: Conversion failed',
+      );
     });
   });
 
   describe('getUserResponse', () => {
     it('should get a user response when it exists', async () => {
-      // Mock response data
       const mockResponse = {
-        id: 'response-id',
-        userId: 'user-id',
-        quantityNodeId: 'quantity-id',
+        id: 'response-456',
+        userId: 'user-456',
+        quantityNodeId: 'quantity-123',
         value: 95,
         unitId: 'celsius',
         categoryId: 'temperature',
         createdAt: new Date(),
         updatedAt: new Date(),
-        normalizedValue: 100,
+        normalizedValue: 368.15,
       };
 
-      // Mock Neo4j response
       const mockRecord = {
         get: jest.fn().mockReturnValue(mockResponse),
       } as unknown as Record;
@@ -520,142 +626,188 @@ describe('QuantitySchema', () => {
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.getUserResponse(
-        'user-id',
-        'quantity-id',
-      );
+      const result = await schema.getUserResponse('user-456', 'quantity-123');
 
-      // Verify
       expect(neo4jService.read).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (u:User {sub: $userId})'),
-        { userId: 'user-id', quantityNodeId: 'quantity-id' },
+        { userId: 'user-456', quantityNodeId: 'quantity-123' },
       );
       expect(result).toEqual(mockResponse);
     });
 
     it('should return null when no response exists', async () => {
-      // Mock empty result (no response)
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(null),
+      } as unknown as Record;
       const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(null) }],
+        records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.getUserResponse(
-        'user-id',
-        'quantity-id',
-      );
+      const result = await schema.getUserResponse('user-456', 'quantity-123');
 
-      // Verify
       expect(result).toBeNull();
+    });
+
+    it('should handle Neo4j errors gracefully', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Database error'));
+
+      await expect(
+        schema.getUserResponse('user-456', 'quantity-123'),
+      ).rejects.toThrow('Failed to get user response: Database error');
     });
   });
 
   describe('deleteUserResponse', () => {
+    beforeEach(() => {
+      // Mock recalculateStatistics
+      jest
+        .spyOn(schema as any, 'recalculateStatistics')
+        .mockImplementation(() => Promise.resolve());
+    });
+
     it('should delete a user response and recalculate statistics', async () => {
-      // Mock successful deletion
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(true), // Response was deleted
+      } as unknown as Record;
       const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(true) }],
+        records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Mock recalculateStatistics
-      jest
-        .spyOn(quantitySchema as any, 'recalculateStatistics')
-        .mockImplementation(() => Promise.resolve());
-
-      // Execute
-      const result = await quantitySchema.deleteUserResponse(
-        'user-id',
-        'quantity-id',
+      const result = await schema.deleteUserResponse(
+        'user-456',
+        'quantity-123',
       );
 
-      // Verify
       expect(neo4jService.write).toHaveBeenCalledWith(
         expect.stringContaining('DELETE r'),
-        { userId: 'user-id', quantityNodeId: 'quantity-id' },
+        { userId: 'user-456', quantityNodeId: 'quantity-123' },
       );
       expect(result).toBe(true);
-      expect(quantitySchema['recalculateStatistics']).toHaveBeenCalledWith(
-        'quantity-id',
+      expect((schema as any).recalculateStatistics).toHaveBeenCalledWith(
+        'quantity-123',
       );
     });
 
     it('should return false when no response exists to delete', async () => {
-      // Mock no deletion (no existing response)
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(false), // No response was deleted
+      } as unknown as Record;
       const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(false) }],
+        records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Mock recalculateStatistics
-      jest
-        .spyOn(quantitySchema as any, 'recalculateStatistics')
-        .mockImplementation(() => Promise.resolve());
-
-      // Execute
-      const result = await quantitySchema.deleteUserResponse(
-        'user-id',
-        'quantity-id',
+      const result = await schema.deleteUserResponse(
+        'user-456',
+        'quantity-123',
       );
 
-      // Verify
       expect(result).toBe(false);
-      // We don't test that recalculateStatistics was not called since we're now just mocking its implementation
+    });
+
+    it('should handle Neo4j errors gracefully', async () => {
+      neo4jService.write.mockRejectedValue(new Error('Delete failed'));
+
+      await expect(
+        schema.deleteUserResponse('user-456', 'quantity-123'),
+      ).rejects.toThrow('Failed to delete user response: Delete failed');
+    });
+  });
+
+  describe('getAllResponses', () => {
+    it('should get all responses for a quantity node', async () => {
+      const mockResponses = [
+        { id: 'response-1', value: 85, normalizedValue: 358.15 },
+        { id: 'response-2', value: 95, normalizedValue: 368.15 },
+        { id: 'response-3', value: 90, normalizedValue: 363.15 },
+      ];
+
+      const mockRecords = mockResponses.map((response) => ({
+        get: jest.fn().mockReturnValue(response),
+      })) as unknown as Record[];
+      const mockResult = {
+        records: mockRecords,
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await schema.getAllResponses('quantity-123');
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (q:QuantityNode {id: $quantityNodeId})'),
+        { quantityNodeId: 'quantity-123' },
+      );
+      expect(result).toEqual(mockResponses);
+    });
+
+    it('should return empty array when no responses exist', async () => {
+      const mockResult = {
+        records: [],
+      } as unknown as Result;
+
+      neo4jService.read.mockResolvedValue(mockResult);
+
+      const result = await schema.getAllResponses('quantity-123');
+
+      expect(result).toEqual([]);
+    });
+
+    it('should handle Neo4j errors gracefully', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Query failed'));
+
+      await expect(schema.getAllResponses('quantity-123')).rejects.toThrow(
+        'Failed to get all responses: Query failed',
+      );
     });
   });
 
   describe('getStatistics', () => {
-    it('should calculate statistics from responses', async () => {
-      // Mock getAllResponses to return test data
-      const mockResponses = [
-        { normalizedValue: 10 },
-        { normalizedValue: 20 },
-        { normalizedValue: 30 },
-      ];
+    const mockResponses = [
+      { normalizedValue: 358.15 }, // 85°C
+      { normalizedValue: 368.15 }, // 95°C
+      { normalizedValue: 363.15 }, // 90°C
+    ];
+
+    beforeEach(() => {
       jest
-        .spyOn(quantitySchema, 'getAllResponses')
+        .spyOn(schema, 'getAllResponses')
         .mockResolvedValue(mockResponses as any);
 
       // Mock generateNormalDistributionCurve
-      const mockCurve = [
-        [0, 0.1],
-        [10, 0.2],
-        [20, 0.3],
-      ];
       jest
-        .spyOn(quantitySchema as any, 'generateNormalDistributionCurve')
-        .mockReturnValue(mockCurve);
+        .spyOn(schema as any, 'generateNormalDistributionCurve')
+        .mockReturnValue([[363.15, 0.5]]);
+    });
 
-      // Execute
-      const result = await quantitySchema.getStatistics('quantity-id');
+    it('should calculate statistics from responses', async () => {
+      const result = await schema.getStatistics('quantity-123');
 
-      // Verify - updated to expect responses property
-      expect(result).toEqual({
-        responseCount: 3,
-        min: 10,
-        max: 30,
-        mean: 20,
-        median: 20,
-        standardDeviation: expect.any(Number),
-        percentiles: expect.any(Object),
-        distributionCurve: mockCurve,
-        responses: mockResponses, // Include the responses array in expectations
-      });
+      expect(schema.getAllResponses).toHaveBeenCalledWith('quantity-123');
+      expect(result).toEqual(
+        expect.objectContaining({
+          responseCount: 3,
+          min: 358.15,
+          max: 368.15,
+          mean: 363.15,
+          median: 363.15,
+          standardDeviation: expect.any(Number),
+          percentiles: expect.any(Object),
+          distributionCurve: [[363.15, 0.5]],
+          responses: mockResponses,
+        }),
+      );
     });
 
     it('should return zero values when there are no responses', async () => {
-      // Mock empty responses
-      jest.spyOn(quantitySchema, 'getAllResponses').mockResolvedValue([]);
+      jest.spyOn(schema, 'getAllResponses').mockResolvedValue([]);
 
-      // Execute
-      const result = await quantitySchema.getStatistics('quantity-id');
+      const result = await schema.getStatistics('quantity-123');
 
-      // Verify - updated to expect empty responses array
       expect(result).toEqual({
         responseCount: 0,
         min: 0,
@@ -665,63 +817,272 @@ describe('QuantitySchema', () => {
         standardDeviation: 0,
         percentiles: {},
         distributionCurve: [],
-        responses: [], // Include empty responses array in expectations
+        responses: [],
       });
     });
-  });
 
-  describe('getAllResponses', () => {
-    it('should get all responses for a quantity node', async () => {
-      // Mock responses
-      const mockResponses = [
-        { id: 'response1', value: 10 },
-        { id: 'response2', value: 20 },
-      ];
+    it('should handle single response correctly', async () => {
+      const singleResponse = [{ normalizedValue: 363.15 }];
+      jest
+        .spyOn(schema, 'getAllResponses')
+        .mockResolvedValue(singleResponse as any);
 
-      // Mock Neo4j response
-      const mockRecords = mockResponses.map((response) => ({
-        get: jest.fn().mockReturnValue(response),
-      })) as unknown as Record[];
+      const result = await schema.getStatistics('quantity-123');
 
-      const mockResult = {
-        records: mockRecords,
-      } as unknown as Result;
-
-      neo4jService.read.mockResolvedValue(mockResult);
-
-      // Execute
-      const result = await quantitySchema.getAllResponses('quantity-id');
-
-      // Verify
-      expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (q:QuantityNode {id: $quantityNodeId})'),
-        { quantityNodeId: 'quantity-id' },
+      expect(result).toEqual(
+        expect.objectContaining({
+          responseCount: 1,
+          min: 363.15,
+          max: 363.15,
+          mean: 363.15,
+          median: 363.15,
+          standardDeviation: 0,
+        }),
       );
-      expect(result).toEqual(mockResponses);
     });
 
-    it('should return empty array when no responses exist', async () => {
-      // Mock empty result
-      const mockResult = { records: [] } as unknown as Result;
-      neo4jService.read.mockResolvedValue(mockResult);
+    it('should handle errors gracefully', async () => {
+      jest
+        .spyOn(schema, 'getAllResponses')
+        .mockRejectedValue(new Error('Query failed'));
 
-      // Execute
-      const result = await quantitySchema.getAllResponses('quantity-id');
-
-      // Verify
-      expect(result).toEqual([]);
+      await expect(schema.getStatistics('quantity-123')).rejects.toThrow(
+        'Failed to get quantity statistics: Query failed',
+      );
     });
   });
 
-  describe('visibility methods', () => {
-    it('should set visibility status for a quantity node', async () => {
-      // Mock Neo4j response
-      const mockUpdatedNode = {
-        id: 'quantity-id',
-        visibilityStatus: false,
-      };
+  describe('voteQuantityInclusion', () => {
+    it('should vote positively on quantity inclusion', async () => {
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.voteQuantityInclusion(
+        'quantity-123',
+        'user-456',
+        true,
+      );
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        true,
+        'INCLUSION',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should vote negatively on quantity inclusion', async () => {
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.voteQuantityInclusion(
+        'quantity-123',
+        'user-456',
+        false,
+      );
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        false,
+        'INCLUSION',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should handle voting errors gracefully', async () => {
+      voteSchema.vote.mockRejectedValue(new Error('Vote failed'));
+
+      await expect(
+        schema.voteQuantityInclusion('quantity-123', 'user-456', true),
+      ).rejects.toThrow('Failed to vote on quantity node: Vote failed');
+    });
+  });
+
+  describe('voteQuantityContent', () => {
+    it('should vote positively on quantity content', async () => {
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.voteQuantityContent(
+        'quantity-123',
+        'user-456',
+        true,
+      );
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        true,
+        'CONTENT',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should vote negatively on quantity content', async () => {
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.voteQuantityContent(
+        'quantity-123',
+        'user-456',
+        false,
+      );
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        false,
+        'CONTENT',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should handle voting errors gracefully', async () => {
+      voteSchema.vote.mockRejectedValue(new Error('Content vote failed'));
+
+      await expect(
+        schema.voteQuantityContent('quantity-123', 'user-456', true),
+      ).rejects.toThrow(
+        'Failed to vote on quantity node content: Content vote failed',
+      );
+    });
+  });
+
+  describe('getQuantityVoteStatus', () => {
+    it('should get vote status for a quantity node', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await schema.getQuantityVoteStatus(
+        'quantity-123',
+        'user-456',
+      );
+
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+      );
+      expect(result).toEqual(mockVoteStatus);
+    });
+
+    it('should return null when no vote status exists', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(null);
+
+      const result = await schema.getQuantityVoteStatus(
+        'quantity-123',
+        'user-456',
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it('should handle vote status errors gracefully', async () => {
+      voteSchema.getVoteStatus.mockRejectedValue(
+        new Error('Vote status failed'),
+      );
+
+      await expect(
+        schema.getQuantityVoteStatus('quantity-123', 'user-456'),
+      ).rejects.toThrow(
+        'Failed to get quantity node vote status: Vote status failed',
+      );
+    });
+  });
+
+  describe('removeQuantityVote', () => {
+    it('should remove inclusion vote', async () => {
+      voteSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.removeQuantityVote(
+        'quantity-123',
+        'user-456',
+        'INCLUSION',
+      );
+
+      expect(voteSchema.removeVote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        'INCLUSION',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should remove content vote', async () => {
+      voteSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+      const result = await schema.removeQuantityVote(
+        'quantity-123',
+        'user-456',
+        'CONTENT',
+      );
+
+      expect(voteSchema.removeVote).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        'user-456',
+        'CONTENT',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should handle remove vote errors gracefully', async () => {
+      voteSchema.removeVote.mockRejectedValue(new Error('Remove vote failed'));
+
+      await expect(
+        schema.removeQuantityVote('quantity-123', 'user-456', 'INCLUSION'),
+      ).rejects.toThrow(
+        'Failed to remove quantity node vote: Remove vote failed',
+      );
+    });
+  });
+
+  describe('getQuantityVotes', () => {
+    it('should get votes for a quantity node', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await schema.getQuantityVotes('quantity-123');
+
+      expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
+        'QuantityNode',
+        { id: 'quantity-123' },
+        '',
+      );
+      expect(result).toEqual({
+        inclusionPositiveVotes: mockVoteStatus.inclusionPositiveVotes,
+        inclusionNegativeVotes: mockVoteStatus.inclusionNegativeVotes,
+        inclusionNetVotes: mockVoteStatus.inclusionNetVotes,
+        contentPositiveVotes: mockVoteStatus.contentPositiveVotes,
+        contentNegativeVotes: mockVoteStatus.contentNegativeVotes,
+        contentNetVotes: mockVoteStatus.contentNetVotes,
+      });
+    });
+
+    it('should return null when no vote status exists', async () => {
+      voteSchema.getVoteStatus.mockResolvedValue(null);
+
+      const result = await schema.getQuantityVotes('quantity-123');
+
+      expect(result).toBeNull();
+    });
+
+    it('should handle get votes errors gracefully', async () => {
+      voteSchema.getVoteStatus.mockRejectedValue(new Error('Get votes failed'));
+
+      await expect(schema.getQuantityVotes('quantity-123')).rejects.toThrow(
+        'Failed to get quantity node votes: Get votes failed',
+      );
+    });
+  });
+
+  describe('setVisibilityStatus', () => {
+    it('should set visibility status to true', async () => {
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockUpdatedNode }),
+        get: jest.fn().mockReturnValue({
+          properties: { ...mockQuantityData, visibilityStatus: true },
+        }),
       } as unknown as Record;
       const mockResult = {
         records: [mockRecord],
@@ -729,171 +1090,128 @@ describe('QuantitySchema', () => {
 
       neo4jService.write.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.setVisibilityStatus(
-        'quantity-id',
-        false,
-      );
+      const result = await schema.setVisibilityStatus('quantity-123', true);
 
-      // Verify
       expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (q:QuantityNode {id: $quantityNodeId})'),
-        { quantityNodeId: 'quantity-id', isVisible: false },
+        expect.stringContaining('SET q.visibilityStatus = $isVisible'),
+        { quantityNodeId: 'quantity-123', isVisible: true },
       );
-      expect(result).toEqual(mockUpdatedNode);
+      expect(result).toEqual({ ...mockQuantityData, visibilityStatus: true });
     });
 
-    it('should get visibility status for a quantity node', async () => {
-      // Mock Neo4j response
+    it('should set visibility status to false', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({
+          properties: { ...mockQuantityData, visibilityStatus: false },
+        }),
+      } as unknown as Record;
       const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(false) }],
+        records: [mockRecord],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      const result = await schema.setVisibilityStatus('quantity-123', false);
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('SET q.visibilityStatus = $isVisible'),
+        { quantityNodeId: 'quantity-123', isVisible: false },
+      );
+      expect(result).toEqual({ ...mockQuantityData, visibilityStatus: false });
+    });
+
+    it('should throw NotFoundException when quantity node does not exist', async () => {
+      const mockResult = {
+        records: [],
+      } as unknown as Result;
+
+      neo4jService.write.mockResolvedValue(mockResult);
+
+      await expect(
+        schema.setVisibilityStatus('nonexistent-id', true),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException when ID is empty', async () => {
+      await expect(schema.setVisibilityStatus('', true)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(neo4jService.write).not.toHaveBeenCalled();
+    });
+
+    it('should handle visibility errors gracefully', async () => {
+      neo4jService.write.mockRejectedValue(
+        new Error('Visibility update failed'),
+      );
+
+      await expect(
+        schema.setVisibilityStatus('quantity-123', true),
+      ).rejects.toThrow(
+        'Failed to set visibility status: Visibility update failed',
+      );
+    });
+  });
+
+  describe('getVisibilityStatus', () => {
+    it('should get visibility status for a quantity node', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(true),
+      } as unknown as Record;
+      const mockResult = {
+        records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.getVisibilityStatus('quantity-id');
+      const result = await schema.getVisibilityStatus('quantity-123');
 
-      // Verify
       expect(neo4jService.read).toHaveBeenCalledWith(
         expect.stringContaining('MATCH (q:QuantityNode {id: $quantityNodeId})'),
-        { quantityNodeId: 'quantity-id' },
+        { quantityNodeId: 'quantity-123' },
       );
-      expect(result).toBe(false);
+      expect(result).toBe(true);
     });
 
-    it('should default to true for visibility status when not set', async () => {
-      // Mock Neo4j response with null visibility status
+    it('should default to true when visibility status is null', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(null),
+      } as unknown as Record;
       const mockResult = {
-        records: [{ get: jest.fn().mockReturnValue(null) }],
+        records: [mockRecord],
       } as unknown as Result;
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      // Execute
-      const result = await quantitySchema.getVisibilityStatus('quantity-id');
+      const result = await schema.getVisibilityStatus('quantity-123');
 
-      // Verify
-      expect(result).toBe(true);
-    });
-  });
-
-  describe('generateNormalDistributionCurve', () => {
-    it('should generate normal distribution curve data points', () => {
-      // Access the private method using type assertion
-      const generateCurve = (
-        quantitySchema as any
-      ).generateNormalDistributionCurve.bind(quantitySchema);
-
-      // Test with sample mean and standard deviation
-      const result = generateCurve(50, 10, 5);
-
-      // Verify structure and basic properties
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBe(5); // 5 points as requested
-
-      // Each point should be an [x, y] array
-      result.forEach((point) => {
-        expect(Array.isArray(point)).toBe(true);
-        expect(point.length).toBe(2);
-        expect(typeof point[0]).toBe('number'); // x value
-        expect(typeof point[1]).toBe('number'); // y value
-        expect(point[1]).toBeGreaterThan(0); // y value should be positive
-      });
-
-      // The highest point should be near the mean
-      const yValues = result.map((point) => point[1]);
-      const maxY = Math.max(...yValues);
-      const maxYIndex = yValues.indexOf(maxY);
-      const xAtMaxY = result[maxYIndex][0];
-
-      // The x value at maximum y should be close to the mean
-      expect(Math.abs(xAtMaxY - 50)).toBeLessThan(10);
+      expect(result).toBe(true); // Should default to true
     });
 
-    it('should handle special case for zero standard deviation', () => {
-      // Access the private method using type assertion
-      const generateCurve = (
-        quantitySchema as any
-      ).generateNormalDistributionCurve.bind(quantitySchema);
+    it('should throw NotFoundException when quantity node does not exist', async () => {
+      const mockResult = {
+        records: [],
+      } as unknown as Result;
 
-      // Test with zero standard deviation
-      const result = generateCurve(50, 0);
+      neo4jService.read.mockResolvedValue(mockResult);
 
-      // Should return single point at mean with y=1
-      expect(result.length).toBe(1);
-      expect(result[0][0]).toBe(50); // x should be the mean
-      expect(result[0][1]).toBe(1); // y should be 1
+      await expect(
+        schema.getVisibilityStatus('nonexistent-id'),
+      ).rejects.toThrow(NotFoundException);
     });
-  });
 
-  describe('recalculateStatistics', () => {
-    it('should update statistics on the quantity node', async () => {
-      // Mock getStatistics to return sample stats
-      const mockStats = {
-        responseCount: 3,
-        min: 10,
-        max: 30,
-        mean: 20,
-        median: 20,
-        standardDeviation: 8.16,
-        percentiles: {},
-        distributionCurve: [],
-      };
-
-      jest.spyOn(quantitySchema, 'getStatistics').mockResolvedValue(mockStats);
-
-      // Execute the private method
-      await (quantitySchema as any).recalculateStatistics('quantity-id');
-
-      // Verify that write was called with correct parameters
-      expect(neo4jService.write).toHaveBeenCalledWith(
-        expect.stringContaining('MATCH (q:QuantityNode {id: $quantityNodeId})'),
-        expect.objectContaining({
-          quantityNodeId: 'quantity-id',
-          min: mockStats.min,
-          max: mockStats.max,
-          mean: mockStats.mean,
-          median: mockStats.median,
-          standardDeviation: mockStats.standardDeviation,
-        }),
+    it('should throw BadRequestException when ID is empty', async () => {
+      await expect(schema.getVisibilityStatus('')).rejects.toThrow(
+        BadRequestException,
       );
+      expect(neo4jService.read).not.toHaveBeenCalled();
     });
 
-    // SIMPLIFIED TEST that just checks it doesn't throw
-    it('should handle errors gracefully without throwing', async () => {
-      // Mock getStatistics to throw an error
-      jest.spyOn(quantitySchema, 'getStatistics').mockImplementation(() => {
-        throw new Error('Test error');
-      });
+    it('should handle get visibility errors gracefully', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Get visibility failed'));
 
-      // This should not throw an error, which indicates the error was caught properly
-      await expect(async () => {
-        await (quantitySchema as any).recalculateStatistics('quantity-id');
-      }).not.toThrow();
-    });
-  });
-
-  describe('toNumber', () => {
-    it('should convert Neo4j integer objects to JavaScript numbers', () => {
-      // Access the private method using type assertion
-      const toNumber = (quantitySchema as any).toNumber.bind(quantitySchema);
-
-      // Test with Neo4j-like integer object
-      expect(toNumber({ low: 42, high: 0 })).toBe(42);
-
-      // Test with object that has valueOf
-      expect(toNumber({ valueOf: () => 42 })).toBe(42);
-
-      // Test with regular number
-      expect(toNumber(42)).toBe(42);
-
-      // Test with string
-      expect(toNumber('42')).toBe(42);
-
-      // Test with null/undefined
-      expect(toNumber(null)).toBe(0);
-      expect(toNumber(undefined)).toBe(0);
+      await expect(schema.getVisibilityStatus('quantity-123')).rejects.toThrow(
+        'Failed to get visibility status: Get visibility failed',
+      );
     });
   });
 });
