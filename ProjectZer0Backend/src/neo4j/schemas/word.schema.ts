@@ -668,6 +668,27 @@ export class WordSchema {
   }
 
   /**
+   * Check total word count for admin/stats purposes
+   */
+  async checkWords(): Promise<{ count: number }> {
+    try {
+      this.logger.debug('Getting total word count');
+
+      const result = await this.neo4jService.read(
+        'MATCH (w:WordNode) RETURN count(w) as count',
+      );
+
+      const count = this.toNumber(result.records[0].get('count'));
+      this.logger.debug(`Total words found: ${count}`);
+
+      return { count };
+    } catch (error) {
+      this.logger.error(`Error checking words: ${error.message}`, error.stack);
+      throw new Error(`Failed to check words: ${error.message}`);
+    }
+  }
+
+  /**
    * Helper method to convert Neo4j integer values to JavaScript numbers
    */
   private toNumber(value: any): number {

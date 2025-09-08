@@ -856,6 +856,30 @@ export class DefinitionSchema {
   }
 
   /**
+   * Check total definition count for admin/stats purposes
+   */
+  async checkDefinitions(): Promise<{ count: number }> {
+    try {
+      this.logger.debug('Getting total definition count');
+
+      const result = await this.neo4jService.read(
+        'MATCH (d:DefinitionNode) RETURN count(d) as count',
+      );
+
+      const count = this.toNumber(result.records[0].get('count'));
+      this.logger.debug(`Total definitions found: ${count}`);
+
+      return { count };
+    } catch (error) {
+      this.logger.error(
+        `Error checking definitions: ${error.message}`,
+        error.stack,
+      );
+      throw new Error(`Failed to check definitions: ${error.message}`);
+    }
+  }
+
+  /**
    * Helper method to convert Neo4j integer values to JavaScript numbers
    */
   private toNumber(value: any): number {
