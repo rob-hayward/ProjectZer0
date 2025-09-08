@@ -793,7 +793,7 @@ describe('WordSchema', () => {
 
       neo4jService.read.mockResolvedValue(mockResult);
 
-      await wordSchema.checkWordExistence('   ');
+      const result = await wordSchema.checkWordExistence('   ');
 
       // Should be trimmed and standardized
       expect(neo4jService.read).toHaveBeenCalledWith(

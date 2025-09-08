@@ -1,4 +1,4 @@
-// src/users/visibility/visibility.service.ts
+// src/users/visibility/visibility.service.ts - MINIMAL CHANGES ONLY
 import { Injectable, Logger } from '@nestjs/common';
 import { VisibilitySchema } from '../../neo4j/schemas/visibility.schema';
 import { VisibilityPreference } from '../dto/visibility.dto';
@@ -10,14 +10,15 @@ export class VisibilityService {
   constructor(private readonly visibilitySchema: VisibilitySchema) {}
 
   /**
+   * ENHANCED: Primary visibility method for all node types
    * Determines visibility for an object based on both community status and user preferences
-   * @param userId The user ID
+   * @param userId The user ID (null for anonymous users)
    * @param objectId The object/node ID
    * @param communityVisibility Community visibility status or vote-based status
    * @returns The final visibility status
    */
   async getObjectVisibility(
-    userId: string,
+    userId: string | null, // ⬅️ ONLY CHANGE: Allow null for anonymous users
     objectId: string,
     communityVisibility: {
       netVotes?: number;
@@ -84,6 +85,8 @@ export class VisibilityService {
     // Default to visible if no information is available
     return true;
   }
+
+  // ALL OTHER METHODS STAY EXACTLY THE SAME
 
   /**
    * Set a user's visibility preference for a specific node

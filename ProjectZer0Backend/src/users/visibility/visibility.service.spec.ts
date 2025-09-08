@@ -47,6 +47,69 @@ describe('VisibilityService', () => {
       );
     });
 
+    describe('Anonymous Users', () => {
+      it('should return community visibility for null userId', async () => {
+        const result = await service.getObjectVisibility(null, 'object1', {
+          isVisible: true,
+        });
+
+        expect(result).toBe(true);
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+
+      it('should hide content with negative votes for anonymous users', async () => {
+        const result = await service.getObjectVisibility(null, 'object1', {
+          netVotes: -5,
+        });
+
+        expect(result).toBe(false);
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+
+      it('should show content with positive votes for anonymous users', async () => {
+        const result = await service.getObjectVisibility(null, 'object1', {
+          netVotes: 3,
+        });
+
+        expect(result).toBe(true);
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+
+      it('should show content with zero votes for anonymous users', async () => {
+        const result = await service.getObjectVisibility(null, 'object1', {
+          netVotes: 0,
+        });
+
+        expect(result).toBe(true);
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+
+      it('should prioritize explicit isVisible over netVotes for anonymous users', async () => {
+        // Explicit false should override positive votes
+        let result = await service.getObjectVisibility(null, 'object1', {
+          netVotes: 10,
+          isVisible: false,
+        });
+        expect(result).toBe(false);
+
+        // Explicit true should override negative votes
+        result = await service.getObjectVisibility(null, 'object2', {
+          netVotes: -10,
+          isVisible: true,
+        });
+        expect(result).toBe(true);
+
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+
+      it('should default to visible when no data provided for anonymous users', async () => {
+        const result = await service.getObjectVisibility(null, 'object1', {});
+
+        expect(result).toBe(true);
+        expect(visibilitySchema.getVisibilityPreference).not.toHaveBeenCalled();
+      });
+    });
+
     it('should return community isVisible when user preference does not exist', async () => {
       visibilitySchema.getVisibilityPreference.mockResolvedValue(undefined);
 
