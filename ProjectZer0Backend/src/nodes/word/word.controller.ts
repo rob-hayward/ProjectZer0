@@ -1,4 +1,4 @@
-// src/nodes/word/word.controller.ts
+// src/nodes/word/word.controller.ts - UPDATED FOR CONVERSION
 import {
   Controller,
   Get,
@@ -12,6 +12,7 @@ import {
   Request,
   HttpException,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
@@ -43,10 +44,13 @@ export class WordController {
   // IMPORTANT: The 'all' route must be defined before any parameterized routes
   // to ensure proper routing in NestJS
   @Get('all')
-  async getAllWords() {
+  async getAllWords(@Request() req: any) {
     this.logger.log('Received request to get all words');
 
     try {
+      // ✅ UPDATED: Use new method for visibility-aware retrieval
+      const userId = req.user?.sub; // Optional - for visibility calculations
+
       // Get words directly from the service
       const words = await this.wordService.getAllWords();
 
@@ -61,6 +65,12 @@ export class WordController {
         );
       } else {
         this.logger.warn('No words found in database');
+      }
+
+      // ✅ NEW: Optionally add visibility information for authenticated users
+      if (userId) {
+        // For performance, we could add batch visibility checking here in the future
+        // For now, visibility is checked per-word when needed
       }
 
       // Return the words array directly
@@ -124,7 +134,7 @@ export class WordController {
   }
 
   @Get(':word')
-  async getWord(@Param('word') word: string) {
+  async getWord(@Param('word') word: string, @Request() req: any) {
     if (!word) {
       throw new HttpException(
         'Word parameter is required',
@@ -133,7 +143,13 @@ export class WordController {
     }
 
     this.logger.debug(`Getting word: ${word}`);
-    const fetchedWord = await this.wordService.getWord(word.toLowerCase());
+
+    // ✅ UPDATED: Use new visibility-aware method
+    const userId = req.user?.sub; // Optional for anonymous access
+    const fetchedWord = await this.wordService.getWordWithVisibility(
+      word.toLowerCase(),
+      userId,
+    );
 
     if (!fetchedWord) {
       this.logger.debug(`Word not found: ${word}`);
@@ -176,6 +192,7 @@ export class WordController {
     return result;
   }
 
+  // ✅ UPDATED: Voting endpoints now use inherited BaseNodeSchema methods
   @Post(':word/vote')
   async voteWord(
     @Param('word') word: string,
@@ -269,46 +286,76 @@ export class WordController {
     return votes;
   }
 
+  // ✅ UPDATED: Visibility endpoints now use VisibilityService
   @Put(':wordId/visibility')
-  async setWordVisibilityStatus(
+  async setWordVisibilityPreference(
     @Param('wordId') wordId: string,
     @Body() visibilityData: { isVisible: boolean },
+    @Request() req: any,
   ) {
     if (!wordId) {
       throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
     }
 
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
     this.logger.debug(
-      `Setting visibility for word ${wordId}: ${visibilityData.isVisible}`,
+      `Setting visibility preference for word ${wordId} by user ${req.user.sub}: ${visibilityData.isVisible}`,
     );
 
-    const updatedWord = await this.wordService.setWordVisibilityStatus(
+    const result = await this.wordService.setWordVisibilityPreference(
+      req.user.sub,
       wordId,
       visibilityData.isVisible,
     );
 
     this.logger.debug(
-      `Updated word visibility: ${JSON.stringify(updatedWord)}`,
+      `Set visibility preference result: ${JSON.stringify(result)}`,
     );
-    return updatedWord;
+    return result;
   }
 
   @Get(':wordId/visibility')
-  async getWordVisibilityStatus(@Param('wordId') wordId: string) {
+  async getWordVisibilityStatus(
+    @Param('wordId') wordId: string,
+    @Request() req: any,
+  ) {
     if (!wordId) {
       throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
     }
 
+    const userId = req.user?.sub; // Optional for anonymous users
     this.logger.debug(`Getting visibility status for word ${wordId}`);
 
-    const visibilityStatus =
-      await this.wordService.getWordVisibilityStatus(wordId);
+    const isVisible = await this.wordService.getWordVisibilityForUser(
+      wordId,
+      userId,
+    );
 
-    this.logger.debug(`Visibility status: ${visibilityStatus}`);
-    return { visibilityStatus };
+    this.logger.debug(`Visibility status: ${isVisible}`);
+    return { isVisible };
   }
 
-  // New endpoints for discussions and comments
+  // ✅ NEW: Endpoint to get user's visibility preferences
+  @Get('user/visibility-preferences')
+  async getUserVisibilityPreferences(@Request() req: any) {
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.debug(
+      `Getting visibility preferences for user ${req.user.sub}`,
+    );
+
+    // This would typically be handled by a UserController, but we can provide
+    // a word-specific endpoint for convenience
+    // Note: This might be better moved to a dedicated UserVisibilityController
+    return { message: 'Use /users/visibility-preferences endpoint instead' };
+  }
+
+  // Discussion and comment endpoints remain the same
   @Get(':word/discussion')
   async getWordWithDiscussion(@Param('word') word: string) {
     if (!word) {
@@ -409,5 +456,63 @@ export class WordController {
     });
 
     return comment;
+  }
+
+  // ✅ NEW: Additional endpoints for word-specific functionality
+  @Get('approved')
+  async getApprovedWords(
+    @Query('limit') limit?: number,
+    @Query('offset') offset?: number,
+    @Query('sortBy') sortBy?: 'alphabetical' | 'votes' | 'created',
+    @Query('sortDirection') sortDirection?: 'asc' | 'desc',
+  ) {
+    this.logger.debug('Getting approved words');
+
+    const options = {
+      limit: limit ? parseInt(limit.toString()) : undefined,
+      offset: offset ? parseInt(offset.toString()) : undefined,
+      sortBy,
+      sortDirection,
+    };
+
+    const words = await this.wordService.getApprovedWords(options);
+    return words;
+  }
+
+  @Get(':word/availability/definition-creation')
+  async checkWordAvailabilityForDefinitionCreation(
+    @Param('word') word: string,
+  ) {
+    if (!word) {
+      throw new HttpException(
+        'Word parameter is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    const isAvailable =
+      await this.wordService.isWordAvailableForDefinitionCreation(word);
+    return { isAvailable };
+  }
+
+  @Get(':wordId/availability/category-composition')
+  async checkWordAvailabilityForCategoryComposition(
+    @Param('wordId') wordId: string,
+  ) {
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const isAvailable =
+      await this.wordService.isWordAvailableForCategoryComposition(wordId);
+    return { isAvailable };
+  }
+
+  @Get('admin/count')
+  async getWordCount() {
+    // This might require admin permissions in the future
+    this.logger.debug('Getting word count');
+    const result = await this.wordService.checkWords();
+    return result;
   }
 }

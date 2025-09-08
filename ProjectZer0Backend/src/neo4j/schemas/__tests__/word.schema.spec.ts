@@ -1,4 +1,4 @@
-// src/neo4j/schemas/__tests__/word.schema.spec.ts
+// src/neo4j/schemas/__tests__/word.schema.spec.ts - MINOR UPDATES TO EXISTING
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordSchema } from '../word.schema';
@@ -76,44 +76,6 @@ describe('WordSchema with BaseNodeSchema', () => {
 
   // INHERITED BASE FUNCTIONALITY TESTS
   describe('Inherited Base Functionality', () => {
-    describe('findById (inherited)', () => {
-      it('should find word by word identifier using inherited method', async () => {
-        const mockWordData = {
-          word: 'test',
-          createdBy: 'user-123',
-          publicCredit: true,
-          inclusionPositiveVotes: Integer.fromNumber(5),
-          inclusionNegativeVotes: Integer.fromNumber(2),
-          inclusionNetVotes: Integer.fromNumber(3),
-        };
-
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: mockWordData }),
-        } as unknown as Record;
-        const mockResult = { records: [mockRecord] } as unknown as Result;
-
-        neo4jService.read.mockResolvedValue(mockResult);
-
-        const result = await wordSchema.findById('test');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          'MATCH (n:WordNode {word: $id}) RETURN n',
-          { id: 'test' },
-        );
-        expect(result?.word).toBe('test');
-        expect(result?.inclusionPositiveVotes).toBe(5); // Neo4j Integer converted
-      });
-
-      it('should return null when word not found', async () => {
-        const mockResult = { records: [] } as unknown as Result;
-        neo4jService.read.mockResolvedValue(mockResult);
-
-        const result = await wordSchema.findById('nonexistent');
-
-        expect(result).toBeNull();
-      });
-    });
-
     describe('voteInclusion (inherited)', () => {
       it('should vote on word inclusion using inherited method', async () => {
         voteSchema.vote.mockResolvedValue(mockVoteResult);
@@ -218,6 +180,44 @@ describe('WordSchema with BaseNodeSchema', () => {
           contentNegativeVotes: 0,
           contentNetVotes: 0,
         });
+      });
+    });
+
+    describe('findById (inherited)', () => {
+      it('should find word by word identifier using inherited method', async () => {
+        const mockWordData = {
+          word: 'test',
+          createdBy: 'user-123',
+          publicCredit: true,
+          inclusionPositiveVotes: Integer.fromNumber(5),
+          inclusionNegativeVotes: Integer.fromNumber(2),
+          inclusionNetVotes: Integer.fromNumber(3),
+        };
+
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockWordData }),
+        } as unknown as Record;
+        const mockResult = { records: [mockRecord] } as unknown as Result;
+
+        neo4jService.read.mockResolvedValue(mockResult);
+
+        const result = await wordSchema.findById('test');
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          'MATCH (n:WordNode {word: $id}) RETURN n',
+          { id: 'test' },
+        );
+        expect(result?.word).toBe('test');
+        expect(result?.inclusionPositiveVotes).toBe(5); // Neo4j Integer converted
+      });
+
+      it('should return null when word not found', async () => {
+        const mockResult = { records: [] } as unknown as Result;
+        neo4jService.read.mockResolvedValue(mockResult);
+
+        const result = await wordSchema.findById('nonexistent');
+
+        expect(result).toBeNull();
       });
     });
 
@@ -442,14 +442,14 @@ describe('WordSchema with BaseNodeSchema', () => {
       const mockDefinitionData = {
         word: 'test',
         createdBy: 'user-123',
-        definition: 'A new definition',
+        definitionText: 'A new definition',
         publicCredit: true,
       };
 
       it('should add definition to existing word', async () => {
         const mockCreatedDefinition = {
           id: 'def-456',
-          definition: 'A new definition',
+          definitionText: 'A new definition',
           createdBy: 'user-123',
         };
 
@@ -469,7 +469,7 @@ describe('WordSchema with BaseNodeSchema', () => {
           expect.stringContaining('MATCH (w:WordNode {word: $word})'),
           expect.objectContaining({
             word: 'test',
-            definition: 'A new definition',
+            definitionText: 'A new definition',
             createdBy: 'user-123',
             publicCredit: true,
           }),
@@ -595,6 +595,7 @@ describe('WordSchema with BaseNodeSchema', () => {
       });
     });
 
+    // Other word-specific methods...
     describe('checkWords', () => {
       it('should return word count', async () => {
         const mockRecord = {

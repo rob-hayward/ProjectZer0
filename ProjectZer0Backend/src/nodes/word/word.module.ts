@@ -1,4 +1,4 @@
-// src/nodes/word/word.module.ts
+// src/nodes/word/word.module.ts - UPDATED FOR CONVERSION
 
 import { Module, Logger } from '@nestjs/common';
 import { WordController } from './word.controller';
@@ -10,7 +10,8 @@ import { DictionaryModule } from '../../dictionary/dictionary.module';
 import { DiscussionModule } from '../discussion/discussion.module';
 import { CommentModule } from '../comment/comment.module';
 import { VoteModule } from '../../neo4j/vote/vote.module';
-import { CategoryModule } from '../category/category.module'; // NEW: Added CategoryModule for future word categorization
+import { CategoryModule } from '../category/category.module';
+import { VisibilityModule } from '../../users/visibility/visibility.module'; // ✅ NEW: Added VisibilityModule
 
 @Module({
   imports: [
@@ -18,10 +19,15 @@ import { CategoryModule } from '../category/category.module'; // NEW: Added Cate
     DiscussionModule,
     CommentModule,
     VoteModule,
-    CategoryModule, // NEW: Added for future word-to-category relationships
+    CategoryModule,
+    VisibilityModule, // ✅ NEW: Import VisibilityModule for centralized visibility management
   ],
   controllers: [WordController],
   providers: [WordService, WordSchema, UserSchema, VoteSchema, Logger],
-  exports: [WordService, WordSchema], // Enhanced exports to include WordSchema
+  exports: [
+    WordService,
+    WordSchema, // Enhanced exports to include WordSchema for other modules
+    WordModule, // ✅ NEW: Export the module itself for potential future use
+  ],
 })
 export class WordModule {}

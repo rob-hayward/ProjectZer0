@@ -1,31 +1,100 @@
-// src/nodes/word/word.controller.spec.ts
+// src/nodes/word/word.controller.spec.ts - TYPE FIXES FOR COMMENT/DISCUSSION INTERFACES
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordController } from './word.controller';
 import { WordService } from './word.service';
 import { DiscussionService } from '../discussion/discussion.service';
 import { CommentService } from '../comment/comment.service';
 import { HttpException } from '@nestjs/common';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
+import type { DiscussionData } from '../../neo4j/schemas/discussion.schema';
+import type { CommentData } from '../../neo4j/schemas/comment.schema';
 
-describe('WordController', () => {
+describe('WordController with BaseNodeSchema + VisibilityService Integration', () => {
   let controller: WordController;
   let wordService: jest.Mocked<WordService>;
   let discussionService: jest.Mocked<DiscussionService>;
   let commentService: jest.Mocked<CommentService>;
+
+  const mockVoteResult: VoteResult = {
+    inclusionPositiveVotes: 6,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 4,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+  };
+
+  const mockVoteStatus: VoteStatus = {
+    inclusionStatus: 'agree',
+    inclusionPositiveVotes: 6,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 4,
+    contentStatus: null,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+  };
+
+  const mockWordData = {
+    id: 'word-123',
+    word: 'test',
+    createdBy: 'user-123',
+    publicCredit: true,
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 3,
+    definitions: [{ id: 'def-1', definitionText: 'First definition' }],
+  };
+
+  // ✅ FIXED: Complete CommentData objects
+  const mockCommentData: CommentData = {
+    id: 'comment-1',
+    createdBy: 'user-123',
+    discussionId: 'discussion-123',
+    commentText: 'Test comment',
+    parentCommentId: undefined,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    // BaseNodeData properties
+    inclusionPositiveVotes: 0,
+    inclusionNegativeVotes: 0,
+    inclusionNetVotes: 0,
+    contentPositiveVotes: 2,
+    contentNegativeVotes: 1,
+    contentNetVotes: 1,
+  };
+
+  // ✅ FIXED: Complete DiscussionData objects
+  const mockDiscussionData: DiscussionData = {
+    id: 'discussion-123',
+    createdBy: 'user-123',
+    associatedNodeId: 'word-123',
+    associatedNodeType: 'WordNode',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
   beforeEach(async () => {
     wordService = {
       checkWordExistence: jest.fn(),
       createWord: jest.fn(),
       getWord: jest.fn(),
+      getWordWithVisibility: jest.fn(),
+      getAllWords: jest.fn(),
       updateWord: jest.fn(),
       deleteWord: jest.fn(),
       voteWord: jest.fn(),
       getWordVotes: jest.fn(),
-      setWordVisibilityStatus: jest.fn(),
-      getWordVisibilityStatus: jest.fn(),
-      getAllWords: jest.fn(),
       getWordVoteStatus: jest.fn(),
       removeWordVote: jest.fn(),
+      setWordVisibilityPreference: jest.fn(),
+      getWordVisibilityForUser: jest.fn(),
+      addDefinition: jest.fn(),
+      isWordAvailableForDefinitionCreation: jest.fn(),
+      isWordAvailableForCategoryComposition: jest.fn(),
+      getApprovedWords: jest.fn(),
+      checkWords: jest.fn(),
     } as any;
 
     discussionService = {
@@ -57,6 +126,10 @@ describe('WordController', () => {
     }).compile();
 
     controller = module.get<WordController>(WordController);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
   it('should be defined', () => {
@@ -119,34 +192,127 @@ describe('WordController', () => {
   });
 
   describe('getWord', () => {
-    it('should call service.getWord with correct parameters', async () => {
-      const mockWord = { id: 'word1', word: 'test' };
-      wordService.getWord.mockResolvedValue(mockWord);
+    it('should call service.getWordWithVisibility for authenticated users', async () => {
+      const mockReq = { user: { sub: 'user-456' } };
+      const mockWordWithVisibility = { ...mockWordData, isVisible: true };
+      wordService.getWordWithVisibility.mockResolvedValue(
+        mockWordWithVisibility,
+      );
 
-      const result = await controller.getWord('test');
+      const result = await controller.getWord('test', mockReq);
 
-      expect(wordService.getWord).toHaveBeenCalledWith('test');
-      expect(result).toEqual(mockWord);
+      expect(wordService.getWordWithVisibility).toHaveBeenCalledWith(
+        'test',
+        'user-456',
+      );
+      expect(result).toEqual(mockWordWithVisibility);
+    });
+
+    it('should call service.getWordWithVisibility for anonymous users', async () => {
+      const mockReq = {};
+      const mockWordWithVisibility = { ...mockWordData, isVisible: true };
+      wordService.getWordWithVisibility.mockResolvedValue(
+        mockWordWithVisibility,
+      );
+
+      const result = await controller.getWord('test', mockReq);
+
+      expect(wordService.getWordWithVisibility).toHaveBeenCalledWith(
+        'test',
+        undefined,
+      );
+      expect(result).toEqual(mockWordWithVisibility);
     });
 
     it('should handle case when word is not found', async () => {
-      wordService.getWord.mockResolvedValue(null);
+      const mockReq = { user: { sub: 'user-456' } };
+      wordService.getWordWithVisibility.mockResolvedValue(null);
 
-      const result = await controller.getWord('nonexistent');
+      const result = await controller.getWord('nonexistent', mockReq);
 
       expect(result).toBeNull();
+    });
+
+    it('should throw exception for empty word parameter', async () => {
+      const mockReq = { user: { sub: 'user-456' } };
+
+      await expect(controller.getWord('', mockReq)).rejects.toThrow(
+        HttpException,
+      );
     });
   });
 
   describe('getAllWords', () => {
-    it('should call service.getAllWords', async () => {
-      const mockWords = [{ id: 'word1', word: 'test' }];
+    it('should call service.getAllWords and return words', async () => {
+      const mockReq = { user: { sub: 'user-456' } };
+      const mockWords = [mockWordData, { ...mockWordData, word: 'test2' }];
       wordService.getAllWords.mockResolvedValue(mockWords);
 
-      const result = await controller.getAllWords();
+      const result = await controller.getAllWords(mockReq);
 
       expect(wordService.getAllWords).toHaveBeenCalled();
       expect(result).toEqual(mockWords);
+    });
+
+    it('should work for anonymous users', async () => {
+      const mockReq = {};
+      const mockWords = [mockWordData];
+      wordService.getAllWords.mockResolvedValue(mockWords);
+
+      const result = await controller.getAllWords(mockReq);
+
+      expect(wordService.getAllWords).toHaveBeenCalled();
+      expect(result).toEqual(mockWords);
+    });
+  });
+
+  describe('updateWord', () => {
+    it('should call service.updateWord with correct parameters', async () => {
+      // ✅ FIX 1: Complete WordNode object with all required properties
+      const mockUpdatedWord = {
+        id: 'word1',
+        word: 'test',
+        createdBy: 'user-123', // ✅ Added required property
+        publicCredit: true, // ✅ Added required property
+        liveDefinition: 'Updated definition',
+        inclusionPositiveVotes: 0, // ✅ Added voting properties
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+      };
+      wordService.updateWord.mockResolvedValue(mockUpdatedWord);
+
+      const result = await controller.updateWord('test', {
+        liveDefinition: 'Updated definition',
+      });
+
+      expect(wordService.updateWord).toHaveBeenCalledWith('test', {
+        liveDefinition: 'Updated definition',
+      });
+      expect(result).toEqual(mockUpdatedWord);
+    });
+
+    it('should throw exception for empty word parameter', async () => {
+      await expect(
+        controller.updateWord('', { liveDefinition: 'test' }),
+      ).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('deleteWord', () => {
+    it('should call service.deleteWord', async () => {
+      wordService.deleteWord.mockResolvedValue({ success: true });
+
+      const result = await controller.deleteWord('test');
+
+      expect(wordService.deleteWord).toHaveBeenCalledWith('test');
+      expect(result).toEqual({ success: true });
+    });
+
+    it('should throw exception for empty word parameter', async () => {
+      await expect(controller.deleteWord('')).rejects.toThrow(HttpException);
     });
   });
 
@@ -154,66 +320,268 @@ describe('WordController', () => {
     it('should call service.voteWord with correct parameters', async () => {
       const mockReq = { user: { sub: 'user1' } };
       const voteData = { isPositive: true };
-      const mockResult = { positiveVotes: 1, negativeVotes: 0, netVotes: 1 };
-
-      wordService.voteWord.mockResolvedValue(mockResult);
+      wordService.voteWord.mockResolvedValue(mockVoteResult);
 
       const result = await controller.voteWord('test', voteData, mockReq);
 
       expect(wordService.voteWord).toHaveBeenCalledWith('test', 'user1', true);
-      expect(result).toEqual(mockResult);
+      expect(result).toEqual(mockVoteResult);
     });
 
     it('should throw exception when user is not authenticated', async () => {
-      const mockReq = { user: {} }; // No sub
+      const mockReq = { user: {} };
       const voteData = { isPositive: true };
 
       await expect(
         controller.voteWord('test', voteData, mockReq),
       ).rejects.toThrow(HttpException);
     });
+
+    it('should throw exception for empty word parameter', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      const voteData = { isPositive: true };
+
+      await expect(controller.voteWord('', voteData, mockReq)).rejects.toThrow(
+        HttpException,
+      );
+    });
   });
 
-  describe('setWordVisibilityStatus', () => {
-    it('should call service.setWordVisibilityStatus', async () => {
-      const mockResult = { id: 'word1', visibilityStatus: false };
-      wordService.setWordVisibilityStatus.mockResolvedValue(mockResult);
+  describe('getWordVoteStatus', () => {
+    it('should call service.getWordVoteStatus', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      wordService.getWordVoteStatus.mockResolvedValue(mockVoteStatus);
 
-      const result = await controller.setWordVisibilityStatus('word1', {
+      const result = await controller.getWordVoteStatus('test', mockReq);
+
+      expect(wordService.getWordVoteStatus).toHaveBeenCalledWith(
+        'test',
+        'user1',
+      );
+      expect(result).toEqual(mockVoteStatus);
+    });
+
+    it('should throw exception when user is not authenticated', async () => {
+      const mockReq = { user: {} };
+
+      await expect(
+        controller.getWordVoteStatus('test', mockReq),
+      ).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('removeWordVote', () => {
+    it('should call service.removeWordVote', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      wordService.removeWordVote.mockResolvedValue(mockVoteResult);
+
+      const result = await controller.removeWordVote('test', mockReq);
+
+      expect(wordService.removeWordVote).toHaveBeenCalledWith('test', 'user1');
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw exception when user is not authenticated', async () => {
+      const mockReq = { user: {} };
+
+      await expect(controller.removeWordVote('test', mockReq)).rejects.toThrow(
+        HttpException,
+      );
+    });
+  });
+
+  describe('getWordVotes', () => {
+    it('should call service.getWordVotes', async () => {
+      wordService.getWordVotes.mockResolvedValue(mockVoteResult);
+
+      const result = await controller.getWordVotes('test');
+
+      expect(wordService.getWordVotes).toHaveBeenCalledWith('test');
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw exception for empty word parameter', async () => {
+      await expect(controller.getWordVotes('')).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('setWordVisibilityPreference', () => {
+    it('should call service.setWordVisibilityPreference', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      const visibilityData = { isVisible: false };
+      // ✅ FIX 2: Use correct 'user' literal type instead of string
+      const mockResult = {
         isVisible: false,
-      });
+        source: 'user' as const, // ✅ Fixed: Use literal type
+        timestamp: Date.now(),
+      };
+      wordService.setWordVisibilityPreference.mockResolvedValue(mockResult);
 
-      expect(wordService.setWordVisibilityStatus).toHaveBeenCalledWith(
+      const result = await controller.setWordVisibilityPreference(
+        'word1',
+        visibilityData,
+        mockReq,
+      );
+
+      expect(wordService.setWordVisibilityPreference).toHaveBeenCalledWith(
+        'user1',
         'word1',
         false,
       );
       expect(result).toEqual(mockResult);
     });
-  });
 
-  describe('getWordVisibilityStatus', () => {
-    it('should call service.getWordVisibilityStatus', async () => {
-      wordService.getWordVisibilityStatus.mockResolvedValue(true);
+    it('should throw exception when user is not authenticated', async () => {
+      const mockReq = { user: {} };
+      const visibilityData = { isVisible: false };
 
-      const result = await controller.getWordVisibilityStatus('word1');
+      await expect(
+        controller.setWordVisibilityPreference(
+          'word1',
+          visibilityData,
+          mockReq,
+        ),
+      ).rejects.toThrow(HttpException);
+    });
 
-      expect(wordService.getWordVisibilityStatus).toHaveBeenCalledWith('word1');
-      expect(result).toEqual({ visibilityStatus: true });
+    it('should throw exception for empty word ID', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      const visibilityData = { isVisible: false };
+
+      await expect(
+        controller.setWordVisibilityPreference('', visibilityData, mockReq),
+      ).rejects.toThrow(HttpException);
     });
   });
 
-  // New tests for discussion functionality
+  describe('getWordVisibilityStatus', () => {
+    it('should call service.getWordVisibilityForUser for authenticated users', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+      wordService.getWordVisibilityForUser.mockResolvedValue(true);
+
+      const result = await controller.getWordVisibilityStatus('word1', mockReq);
+
+      expect(wordService.getWordVisibilityForUser).toHaveBeenCalledWith(
+        'word1',
+        'user1',
+      );
+      expect(result).toEqual({ isVisible: true });
+    });
+
+    it('should call service.getWordVisibilityForUser for anonymous users', async () => {
+      const mockReq = {};
+      wordService.getWordVisibilityForUser.mockResolvedValue(false);
+
+      const result = await controller.getWordVisibilityStatus('word1', mockReq);
+
+      expect(wordService.getWordVisibilityForUser).toHaveBeenCalledWith(
+        'word1',
+        undefined,
+      );
+      expect(result).toEqual({ isVisible: false });
+    });
+
+    it('should throw exception for empty word ID', async () => {
+      const mockReq = { user: { sub: 'user1' } };
+
+      await expect(
+        controller.getWordVisibilityStatus('', mockReq),
+      ).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('getApprovedWords', () => {
+    it('should call service.getApprovedWords with query parameters', async () => {
+      const mockWords = [mockWordData];
+      wordService.getApprovedWords.mockResolvedValue(mockWords);
+
+      const result = await controller.getApprovedWords(50, 10, 'votes', 'desc');
+
+      expect(wordService.getApprovedWords).toHaveBeenCalledWith({
+        limit: 50,
+        offset: 10,
+        sortBy: 'votes',
+        sortDirection: 'desc',
+      });
+      expect(result).toEqual(mockWords);
+    });
+
+    it('should work without query parameters', async () => {
+      const mockWords = [mockWordData];
+      wordService.getApprovedWords.mockResolvedValue(mockWords);
+
+      const result = await controller.getApprovedWords();
+
+      expect(wordService.getApprovedWords).toHaveBeenCalledWith({
+        limit: undefined,
+        offset: undefined,
+        sortBy: undefined,
+        sortDirection: undefined,
+      });
+      expect(result).toEqual(mockWords);
+    });
+  });
+
+  describe('checkWordAvailabilityForDefinitionCreation', () => {
+    it('should call service.isWordAvailableForDefinitionCreation', async () => {
+      wordService.isWordAvailableForDefinitionCreation.mockResolvedValue(true);
+
+      const result =
+        await controller.checkWordAvailabilityForDefinitionCreation('test');
+
+      expect(
+        wordService.isWordAvailableForDefinitionCreation,
+      ).toHaveBeenCalledWith('test');
+      expect(result).toEqual({ isAvailable: true });
+    });
+
+    it('should throw exception for empty word parameter', async () => {
+      await expect(
+        controller.checkWordAvailabilityForDefinitionCreation(''),
+      ).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('checkWordAvailabilityForCategoryComposition', () => {
+    it('should call service.isWordAvailableForCategoryComposition', async () => {
+      wordService.isWordAvailableForCategoryComposition.mockResolvedValue(
+        false,
+      );
+
+      const result =
+        await controller.checkWordAvailabilityForCategoryComposition('word1');
+
+      expect(
+        wordService.isWordAvailableForCategoryComposition,
+      ).toHaveBeenCalledWith('word1');
+      expect(result).toEqual({ isAvailable: false });
+    });
+
+    it('should throw exception for empty word ID parameter', async () => {
+      await expect(
+        controller.checkWordAvailabilityForCategoryComposition(''),
+      ).rejects.toThrow(HttpException);
+    });
+  });
+
+  describe('getWordCount', () => {
+    it('should call service.checkWords', async () => {
+      wordService.checkWords.mockResolvedValue({ count: 42 });
+
+      const result = await controller.getWordCount();
+
+      expect(wordService.checkWords).toHaveBeenCalled();
+      expect(result).toEqual({ count: 42 });
+    });
+  });
+
   describe('getWordWithDiscussion', () => {
     it('should call service.getWord and return word with discussion', async () => {
       const mockWordWithDiscussion = {
         id: 'word1',
         word: 'test',
         discussionId: 'disc1',
-        discussion: {
-          id: 'disc1',
-          createdBy: 'user1',
-          createdAt: new Date().toISOString(),
-        },
+        discussion: mockDiscussionData,
       };
 
       wordService.getWord.mockResolvedValue(mockWordWithDiscussion);
@@ -241,15 +609,35 @@ describe('WordController', () => {
 
   describe('getWordComments', () => {
     it('should get comments for a word with discussion', async () => {
+      // ✅ FIX 3: Complete WordNode object with all required properties
       const mockWord = {
         id: 'word1',
         word: 'test',
+        createdBy: 'user-123', // ✅ Added required property
+        publicCredit: true, // ✅ Added required property
+        inclusionPositiveVotes: 0, // ✅ Added voting properties
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
         discussionId: 'disc1',
       };
 
-      const mockComments = [
-        { id: 'comment1', commentText: 'Comment 1', createdBy: 'user1' },
-        { id: 'comment2', commentText: 'Comment 2', createdBy: 'user2' },
+      // ✅ FIXED: Complete CommentData array
+      const mockComments: CommentData[] = [
+        {
+          ...mockCommentData,
+          id: 'comment1',
+          commentText: 'Comment 1',
+          createdBy: 'user1',
+        },
+        {
+          ...mockCommentData,
+          id: 'comment2',
+          commentText: 'Comment 2',
+          createdBy: 'user2',
+        },
       ];
 
       wordService.getWord.mockResolvedValue(mockWord);
@@ -268,7 +656,6 @@ describe('WordController', () => {
       const mockWord = {
         id: 'word1',
         word: 'test',
-        // No discussionId
       };
 
       wordService.getWord.mockResolvedValue(mockWord);
@@ -308,12 +695,14 @@ describe('WordController', () => {
         discussionId: 'disc1',
       };
 
-      const mockCreatedComment = {
+      // ✅ FIXED: Complete CommentData object
+      const mockCreatedComment: CommentData = {
+        ...mockCommentData,
         id: 'comment1',
         createdBy: 'user1',
         discussionId: 'disc1',
         commentText: 'Test comment',
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(),
       };
 
       wordService.getWord.mockResolvedValue(mockWord);
@@ -336,25 +725,39 @@ describe('WordController', () => {
     });
 
     it('should create discussion and add comment if word has no discussion', async () => {
+      // ✅ FIX 3: Complete WordNode object with all required properties
       const mockWord = {
         id: 'word1',
         word: 'test',
+        createdBy: 'user-123', // ✅ Added required property
+        publicCredit: true, // ✅ Added required property
+        inclusionPositiveVotes: 0, // ✅ Added voting properties
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
         // No discussionId
       };
 
-      const mockCreatedDiscussion = {
+      // ✅ FIXED: Complete DiscussionData object
+      const mockCreatedDiscussion: DiscussionData = {
         id: 'new-disc1',
         createdBy: 'user1',
         associatedNodeId: 'word1',
         associatedNodeType: 'WordNode',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
-      const mockCreatedComment = {
+      // ✅ FIXED: Complete CommentData object
+      const mockCreatedComment: CommentData = {
+        ...mockCommentData,
         id: 'comment1',
         createdBy: 'user1',
         discussionId: 'new-disc1',
         commentText: 'Test comment',
-        createdAt: new Date().toISOString(),
+        createdAt: new Date(),
       };
 
       wordService.getWord.mockResolvedValue(mockWord);

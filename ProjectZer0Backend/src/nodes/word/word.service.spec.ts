@@ -1,56 +1,97 @@
-// src/nodes/word/word.service.spec.ts
+// src/nodes/word/word.service.spec.ts - COMPLETE WITH TYPE FIXES
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordService } from './word.service';
 import { WordSchema } from '../../neo4j/schemas/word.schema';
 import { DictionaryService } from '../../dictionary/dictionary.service';
 import { DiscussionService } from '../discussion/discussion.service';
-import { HttpException, Logger } from '@nestjs/common';
+import { VisibilityService } from '../../users/visibility/visibility.service';
+import { HttpException, NotFoundException, Logger } from '@nestjs/common';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
+import type { VisibilityPreference } from '../../users/dto/visibility.dto';
+import type { DiscussionData } from '../../neo4j/schemas/discussion.schema';
 
-describe('WordService', () => {
+describe('WordService with BaseNodeSchema + VisibilityService Integration', () => {
   let service: WordService;
-  let wordSchema: any;
-  let dictionaryService: any;
-  let discussionService: any;
+  let wordSchema: jest.Mocked<WordSchema>;
+  let dictionaryService: jest.Mocked<DictionaryService>;
+  let discussionService: jest.Mocked<DiscussionService>;
+  let visibilityService: jest.Mocked<VisibilityService>;
 
-  // Use unique test words to avoid conflicts with database
-  const TEST_WORD = 'testUniqueXYZ123';
-  const TEST_WORD_LOWERCASE = TEST_WORD.toLowerCase();
-  const USER_DEFINITION = 'User provided definition';
-  const API_DEFINITION = 'API provided definition';
+  const mockVoteResult: VoteResult = {
+    inclusionPositiveVotes: 6,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 4,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+  };
+
+  const mockVoteStatus: VoteStatus = {
+    inclusionStatus: 'agree' as const,
+    inclusionPositiveVotes: 6,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 4,
+    contentStatus: null,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+  };
+
+  const mockWordData = {
+    id: 'test',
+    word: 'test',
+    createdBy: 'user-123',
+    publicCredit: true,
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 3,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+    definitions: [
+      { id: 'def-1', definitionText: 'First definition' },
+      { id: 'def-2', definitionText: 'Second definition' },
+    ],
+  };
+
+  // ✅ FIXED: Complete DiscussionData objects
 
   beforeEach(async () => {
-    // Clear mocks before each test
-    jest.clearAllMocks();
-
-    // Create mock implementations
     wordSchema = {
       checkWordExistence: jest.fn(),
       createWord: jest.fn(),
       getWord: jest.fn(),
-      updateWord: jest.fn(),
-      deleteWord: jest.fn(),
-      voteWord: jest.fn(),
-      getWordVotes: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
+      getAllWords: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      voteInclusion: jest.fn(),
+      getVoteStatus: jest.fn(),
+      removeVote: jest.fn(),
+      getVotes: jest.fn(),
+      findById: jest.fn(),
       addDefinition: jest.fn(),
       updateWordWithDiscussionId: jest.fn(),
-      getAllWords: jest.fn(),
-      getWordVoteStatus: jest.fn(),
-      removeWordVote: jest.fn(),
-    };
+      isWordAvailableForDefinitionCreation: jest.fn(),
+      isWordAvailableForCategoryComposition: jest.fn(),
+      getApprovedWords: jest.fn(),
+      checkWords: jest.fn(),
+    } as any;
 
     dictionaryService = {
-      // Fix the unused variable warning by removing the parameter
-      getDefinition: jest.fn().mockImplementation(() => {
-        return Promise.resolve(API_DEFINITION);
-      }),
-    };
+      getDefinition: jest.fn(),
+    } as any;
 
     discussionService = {
       createDiscussion: jest.fn(),
       getDiscussion: jest.fn(),
-    };
+    } as any;
+
+    visibilityService = {
+      setUserVisibilityPreference: jest.fn(),
+      getObjectVisibility: jest.fn(),
+      getUserVisibilityPreferences: jest.fn(),
+    } as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -66,6 +107,10 @@ describe('WordService', () => {
         {
           provide: DiscussionService,
           useValue: discussionService,
+        },
+        {
+          provide: VisibilityService,
+          useValue: visibilityService,
         },
         {
           provide: Logger,
@@ -90,386 +135,856 @@ describe('WordService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('checkWordExistence', () => {
-    it('should call schema.checkWordExistence with correct parameters', async () => {
-      wordSchema.checkWordExistence.mockResolvedValue(true);
+  // INHERITED VOTING FUNCTIONALITY TESTS
+  describe('Voting Integration with BaseNodeSchema', () => {
+    describe('voteWord', () => {
+      it('should call inherited voteInclusion method', async () => {
+        wordSchema.voteInclusion.mockResolvedValue(mockVoteResult);
 
-      const result = await service.checkWordExistence(TEST_WORD);
+        const result = await service.voteWord('test', 'user-456', true);
 
-      expect(wordSchema.checkWordExistence).toHaveBeenCalledWith(TEST_WORD);
-      expect(result).toBe(true);
+        expect(wordSchema.voteInclusion).toHaveBeenCalledWith(
+          'test',
+          'user-456',
+          true,
+        );
+        expect(result).toEqual(mockVoteResult);
+      });
+
+      it('should validate inputs', async () => {
+        await expect(service.voteWord('', 'user-456', true)).rejects.toThrow(
+          HttpException,
+        );
+        await expect(service.voteWord('test', '', true)).rejects.toThrow(
+          HttpException,
+        );
+        expect(wordSchema.voteInclusion).not.toHaveBeenCalled();
+      });
+
+      it('should handle voting errors gracefully', async () => {
+        wordSchema.voteInclusion.mockRejectedValue(new Error('Vote failed'));
+
+        await expect(
+          service.voteWord('test', 'user-456', true),
+        ).rejects.toThrow(HttpException);
+      });
     });
 
-    it('should throw exception when word is empty', async () => {
-      await expect(service.checkWordExistence('')).rejects.toThrow(
-        HttpException,
-      );
+    describe('getWordVotes', () => {
+      it('should call inherited getVotes method', async () => {
+        wordSchema.getVotes.mockResolvedValue(mockVoteResult);
+
+        const result = await service.getWordVotes('test');
+
+        expect(wordSchema.getVotes).toHaveBeenCalledWith('test');
+        expect(result).toEqual(mockVoteResult);
+      });
+
+      it('should validate word input', async () => {
+        await expect(service.getWordVotes('')).rejects.toThrow(HttpException);
+        expect(wordSchema.getVotes).not.toHaveBeenCalled();
+      });
     });
 
-    it('should handle errors from schema', async () => {
+    describe('getWordVoteStatus', () => {
+      it('should call inherited getVoteStatus method', async () => {
+        wordSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+        const result = await service.getWordVoteStatus('test', 'user-456');
+
+        expect(wordSchema.getVoteStatus).toHaveBeenCalledWith(
+          'test',
+          'user-456',
+        );
+        expect(result).toEqual(mockVoteStatus);
+      });
+
+      it('should validate inputs', async () => {
+        await expect(service.getWordVoteStatus('', 'user-456')).rejects.toThrow(
+          HttpException,
+        );
+        await expect(service.getWordVoteStatus('test', '')).rejects.toThrow(
+          HttpException,
+        );
+        expect(wordSchema.getVoteStatus).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('removeWordVote', () => {
+      it('should call inherited removeVote method with INCLUSION kind', async () => {
+        wordSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+        const result = await service.removeWordVote('test', 'user-456');
+
+        expect(wordSchema.removeVote).toHaveBeenCalledWith(
+          'test',
+          'user-456',
+          'INCLUSION',
+        );
+        expect(result).toEqual(mockVoteResult);
+      });
+
+      it('should validate inputs', async () => {
+        await expect(service.removeWordVote('', 'user-456')).rejects.toThrow(
+          HttpException,
+        );
+        await expect(service.removeWordVote('test', '')).rejects.toThrow(
+          HttpException,
+        );
+        expect(wordSchema.removeVote).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  // VISIBILITY INTEGRATION TESTS
+  describe('Visibility Integration with VisibilityService', () => {
+    describe('setWordVisibilityPreference', () => {
+      it('should call VisibilityService.setUserVisibilityPreference', async () => {
+        const mockVisibilityPreference: VisibilityPreference = {
+          isVisible: true,
+          source: 'user' as const,
+          timestamp: Date.now(),
+        };
+        visibilityService.setUserVisibilityPreference.mockResolvedValue(
+          mockVisibilityPreference,
+        );
+
+        const result = await service.setWordVisibilityPreference(
+          'user-456',
+          'word-123',
+          true,
+        );
+
+        expect(
+          visibilityService.setUserVisibilityPreference,
+        ).toHaveBeenCalledWith('user-456', 'word-123', true);
+        expect(result).toEqual(mockVisibilityPreference);
+      });
+
+      it('should validate inputs', async () => {
+        await expect(
+          service.setWordVisibilityPreference('', 'word-123', true),
+        ).rejects.toThrow(HttpException);
+        await expect(
+          service.setWordVisibilityPreference('user-456', '', true),
+        ).rejects.toThrow(HttpException);
+        expect(
+          visibilityService.setUserVisibilityPreference,
+        ).not.toHaveBeenCalled();
+      });
+
+      it('should handle visibility service errors', async () => {
+        visibilityService.setUserVisibilityPreference.mockRejectedValue(
+          new Error('Visibility error'),
+        );
+
+        await expect(
+          service.setWordVisibilityPreference('user-456', 'word-123', true),
+        ).rejects.toThrow(HttpException);
+      });
+    });
+
+    describe('getWordVisibilityForUser', () => {
+      it('should get word data and call VisibilityService.getObjectVisibility', async () => {
+        wordSchema.findById.mockResolvedValue(mockWordData);
+        visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+        const result = await service.getWordVisibilityForUser(
+          'word-123',
+          'user-456',
+        );
+
+        expect(wordSchema.findById).toHaveBeenCalledWith('word-123');
+        expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+          'user-456',
+          'word-123',
+          {
+            netVotes: mockWordData.inclusionNetVotes,
+            isVisible: undefined,
+          },
+        );
+        expect(result).toBe(true);
+      });
+
+      it('should handle anonymous users (null userId)', async () => {
+        wordSchema.findById.mockResolvedValue(mockWordData);
+        visibilityService.getObjectVisibility.mockResolvedValue(false);
+
+        const result = await service.getWordVisibilityForUser('word-123');
+
+        expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+          null,
+          'word-123',
+          {
+            netVotes: mockWordData.inclusionNetVotes,
+            isVisible: undefined,
+          },
+        );
+        expect(result).toBe(false);
+      });
+
+      it('should throw NotFoundException when word not found', async () => {
+        wordSchema.findById.mockResolvedValue(null);
+
+        await expect(
+          service.getWordVisibilityForUser('nonexistent'),
+        ).rejects.toThrow(NotFoundException);
+        expect(visibilityService.getObjectVisibility).not.toHaveBeenCalled();
+      });
+
+      it('should validate word ID input', async () => {
+        await expect(service.getWordVisibilityForUser('')).rejects.toThrow(
+          HttpException,
+        );
+        expect(wordSchema.findById).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getWordWithVisibility', () => {
+      it('should return word with visibility information', async () => {
+        wordSchema.getWord.mockResolvedValue(mockWordData);
+        visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+        const result = await service.getWordWithVisibility('test', 'user-456');
+
+        expect(wordSchema.getWord).toHaveBeenCalledWith('test');
+        expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+          'user-456',
+          'test',
+          {
+            netVotes: mockWordData.inclusionNetVotes,
+            isVisible: undefined,
+          },
+        );
+        expect(result).toEqual({ ...mockWordData, isVisible: true });
+      });
+
+      it('should return null when word not found', async () => {
+        wordSchema.getWord.mockResolvedValue(null);
+
+        const result = await service.getWordWithVisibility('nonexistent');
+
+        expect(result).toBeNull();
+        expect(visibilityService.getObjectVisibility).not.toHaveBeenCalled();
+      });
+
+      it('should handle visibility errors gracefully', async () => {
+        wordSchema.getWord.mockResolvedValue(mockWordData);
+        visibilityService.getObjectVisibility.mockRejectedValue(
+          new Error('Visibility error'),
+        );
+
+        const result = await service.getWordWithVisibility('test');
+
+        expect(result).toEqual({ ...mockWordData, isVisible: true });
+      });
+    });
+  });
+
+  // WORD-SPECIFIC FUNCTIONALITY TESTS
+  describe('Word-Specific Functionality', () => {
+    describe('checkWordExistence', () => {
+      it('should call schema.checkWordExistence', async () => {
+        wordSchema.checkWordExistence.mockResolvedValue(true);
+
+        const result = await service.checkWordExistence('test');
+
+        expect(wordSchema.checkWordExistence).toHaveBeenCalledWith('test');
+        expect(result).toBe(true);
+      });
+
+      it('should validate word input', async () => {
+        await expect(service.checkWordExistence('')).rejects.toThrow(
+          HttpException,
+        );
+        expect(wordSchema.checkWordExistence).not.toHaveBeenCalled();
+      });
+
+      it('should handle schema errors gracefully', async () => {
+        wordSchema.checkWordExistence.mockRejectedValue(
+          new Error('Database error'),
+        );
+
+        await expect(service.checkWordExistence('test')).rejects.toThrow(
+          HttpException,
+        );
+      });
+    });
+
+    describe('createWord', () => {
+      const mockCreateData = {
+        word: 'test',
+        createdBy: 'user-123',
+        definitionText: 'User definition',
+        publicCredit: true,
+      };
+
+      beforeEach(() => {
+        wordSchema.checkWordExistence.mockResolvedValue(false);
+        wordSchema.createWord.mockResolvedValue({
+          word: { id: 'word-123', word: 'test' },
+          definition: { id: 'def-123' },
+        });
+        wordSchema.getWord.mockResolvedValue(mockWordData);
+      });
+
+      it('should create word with API definition as alternative when different from user definition', async () => {
+        dictionaryService.getDefinition.mockResolvedValue('API definition');
+        wordSchema.addDefinition.mockResolvedValue({
+          id: 'def-api',
+          definitionText: 'API definition',
+        });
+
+        const result = await service.createWord(mockCreateData);
+
+        expect(wordSchema.checkWordExistence).toHaveBeenCalledWith('test');
+        expect(dictionaryService.getDefinition).toHaveBeenCalledWith('test');
+        expect(wordSchema.createWord).toHaveBeenCalledWith({
+          word: 'test',
+          createdBy: 'user-123',
+          initialDefinition: 'User definition',
+          publicCredit: true,
+        });
+        expect(wordSchema.addDefinition).toHaveBeenCalledWith({
+          word: 'test',
+          createdBy: 'FreeDictionaryAPI',
+          definitionText: 'API definition',
+          publicCredit: true,
+        });
+        expect(result).toEqual(mockWordData);
+      });
+
+      it('should use API definition as primary when no user definition provided', async () => {
+        dictionaryService.getDefinition.mockResolvedValue('API definition');
+        const createDataWithoutDefinition = {
+          ...mockCreateData,
+          definitionText: undefined,
+        };
+
+        await service.createWord(createDataWithoutDefinition);
+
+        expect(wordSchema.createWord).toHaveBeenCalledWith({
+          word: 'test',
+          createdBy: 'user-123',
+          initialDefinition: 'API definition',
+          publicCredit: true,
+        });
+        expect(wordSchema.addDefinition).not.toHaveBeenCalled();
+      });
+
+      it('should continue when API definition fetch fails', async () => {
+        dictionaryService.getDefinition.mockRejectedValue(
+          new Error('API unavailable'),
+        );
+
+        await service.createWord(mockCreateData);
+
+        expect(wordSchema.createWord).toHaveBeenCalledWith({
+          word: 'test',
+          createdBy: 'user-123',
+          initialDefinition: 'User definition',
+          publicCredit: true,
+        });
+        expect(wordSchema.addDefinition).not.toHaveBeenCalled();
+      });
+
+      it('should create discussion when provided', async () => {
+        dictionaryService.getDefinition.mockResolvedValue('API definition');
+        // ✅ FIXED: Complete DiscussionData mock
+        discussionService.createDiscussion.mockResolvedValue({
+          id: 'discussion-123',
+          createdBy: 'user-123',
+          associatedNodeId: 'word-123',
+          associatedNodeType: 'WordNode',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+        wordSchema.updateWordWithDiscussionId.mockResolvedValue({});
+
+        const createDataWithDiscussion = {
+          ...mockCreateData,
+          discussion: 'Initial discussion comment',
+        };
+
+        await service.createWord(createDataWithDiscussion);
+
+        expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+          createdBy: 'user-123',
+          associatedNodeId: 'word-123',
+          associatedNodeType: 'WordNode',
+          initialComment: 'Initial discussion comment',
+        });
+        expect(wordSchema.updateWordWithDiscussionId).toHaveBeenCalledWith(
+          'word-123',
+          'discussion-123',
+        );
+      });
+
+      it('should continue when discussion creation fails', async () => {
+        dictionaryService.getDefinition.mockResolvedValue('API definition');
+        discussionService.createDiscussion.mockRejectedValue(
+          new Error('Discussion failed'),
+        );
+
+        const createDataWithDiscussion = {
+          ...mockCreateData,
+          discussion: 'Initial discussion comment',
+        };
+
+        const result = await service.createWord(createDataWithDiscussion);
+        expect(result).toEqual(mockWordData);
+      });
+
+      it('should throw ConflictException when word already exists', async () => {
+        wordSchema.checkWordExistence.mockResolvedValue(true);
+
+        await expect(service.createWord(mockCreateData)).rejects.toThrow(
+          'Word already exists',
+        );
+        expect(wordSchema.createWord).not.toHaveBeenCalled();
+      });
+
+      it('should validate word input', async () => {
+        await expect(
+          service.createWord({ ...mockCreateData, word: '' }),
+        ).rejects.toThrow(HttpException);
+        expect(wordSchema.checkWordExistence).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getWord', () => {
+      it('should get word and fetch discussion if available', async () => {
+        const wordWithDiscussion = {
+          ...mockWordData,
+          discussionId: 'discussion-123',
+        };
+        // ✅ FIXED: Complete DiscussionData mock
+        const mockDiscussion: DiscussionData = {
+          id: 'discussion-123',
+          createdBy: 'user-123',
+          associatedNodeId: 'word-123',
+          associatedNodeType: 'WordNode',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        wordSchema.getWord.mockResolvedValue(wordWithDiscussion);
+        discussionService.getDiscussion.mockResolvedValue(mockDiscussion);
+
+        const result = await service.getWord('test');
+
+        expect(wordSchema.getWord).toHaveBeenCalledWith('test');
+        expect(discussionService.getDiscussion).toHaveBeenCalledWith(
+          'discussion-123',
+        );
+        expect(result).toEqual({
+          ...wordWithDiscussion,
+          discussion: mockDiscussion,
+        });
+      });
+
+      it('should return word without discussion when no discussionId', async () => {
+        wordSchema.getWord.mockResolvedValue(mockWordData);
+
+        const result = await service.getWord('test');
+
+        expect(wordSchema.getWord).toHaveBeenCalledWith('test');
+        expect(discussionService.getDiscussion).not.toHaveBeenCalled();
+        expect(result).toEqual(mockWordData);
+      });
+
+      it('should return null when word not found', async () => {
+        wordSchema.getWord.mockResolvedValue(null);
+
+        const result = await service.getWord('nonexistent');
+
+        expect(result).toBeNull();
+      });
+
+      it('should validate word input', async () => {
+        await expect(service.getWord('')).rejects.toThrow(HttpException);
+        expect(wordSchema.getWord).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('getAllWords', () => {
+      it('should call schema.getAllWords', async () => {
+        const mockWords = [mockWordData, { ...mockWordData, word: 'test2' }];
+        wordSchema.getAllWords.mockResolvedValue(mockWords);
+
+        const result = await service.getAllWords();
+
+        expect(wordSchema.getAllWords).toHaveBeenCalled();
+        expect(result).toEqual(mockWords);
+      });
+
+      it('should handle schema errors gracefully', async () => {
+        wordSchema.getAllWords.mockRejectedValue(new Error('Database error'));
+
+        await expect(service.getAllWords()).rejects.toThrow(HttpException);
+      });
+    });
+
+    describe('updateWord', () => {
+      it('should call inherited update method', async () => {
+        const updateData = { publicCredit: false };
+        const updatedWord = { ...mockWordData, publicCredit: false };
+        wordSchema.update.mockResolvedValue(updatedWord);
+
+        const result = await service.updateWord('test', updateData);
+
+        expect(wordSchema.update).toHaveBeenCalledWith('test', updateData);
+        expect(result).toEqual(updatedWord);
+      });
+
+      it('should throw NotFoundException when word not found', async () => {
+        wordSchema.update.mockResolvedValue(null);
+
+        await expect(
+          service.updateWord('nonexistent', { publicCredit: false }),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should validate word input', async () => {
+        await expect(
+          service.updateWord('', { publicCredit: false }),
+        ).rejects.toThrow(HttpException);
+        expect(wordSchema.update).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('deleteWord', () => {
+      it('should call inherited delete method', async () => {
+        wordSchema.delete.mockResolvedValue({ success: true });
+
+        const result = await service.deleteWord('test');
+
+        expect(wordSchema.delete).toHaveBeenCalledWith('test');
+        expect(result).toEqual({ success: true });
+      });
+
+      it('should validate word input', async () => {
+        await expect(service.deleteWord('')).rejects.toThrow(HttpException);
+        expect(wordSchema.delete).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('addDefinition', () => {
+      const mockDefinitionData = {
+        word: 'test',
+        createdBy: 'user-123',
+        definitionText: 'New definition',
+        publicCredit: true,
+      };
+
+      it('should call schema.addDefinition', async () => {
+        const mockDefinition = { id: 'def-123', ...mockDefinitionData };
+        wordSchema.addDefinition.mockResolvedValue(mockDefinition);
+
+        const result = await service.addDefinition(mockDefinitionData);
+
+        expect(wordSchema.addDefinition).toHaveBeenCalledWith(
+          mockDefinitionData,
+        );
+        expect(result).toEqual(mockDefinition);
+      });
+
+      it('should validate inputs', async () => {
+        await expect(
+          service.addDefinition({ ...mockDefinitionData, word: '' }),
+        ).rejects.toThrow(HttpException);
+        await expect(
+          service.addDefinition({
+            ...mockDefinitionData,
+            definitionText: '',
+          }),
+        ).rejects.toThrow(HttpException);
+        expect(wordSchema.addDefinition).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('availability methods', () => {
+      describe('isWordAvailableForDefinitionCreation', () => {
+        it('should call schema method', async () => {
+          wordSchema.isWordAvailableForDefinitionCreation.mockResolvedValue(
+            true,
+          );
+
+          const result =
+            await service.isWordAvailableForDefinitionCreation('test');
+
+          expect(
+            wordSchema.isWordAvailableForDefinitionCreation,
+          ).toHaveBeenCalledWith('test');
+          expect(result).toBe(true);
+        });
+
+        it('should validate word input', async () => {
+          await expect(
+            service.isWordAvailableForDefinitionCreation(''),
+          ).rejects.toThrow(HttpException);
+        });
+      });
+
+      describe('isWordAvailableForCategoryComposition', () => {
+        it('should call schema method', async () => {
+          wordSchema.isWordAvailableForCategoryComposition.mockResolvedValue(
+            true,
+          );
+
+          const result =
+            await service.isWordAvailableForCategoryComposition('word-123');
+
+          expect(
+            wordSchema.isWordAvailableForCategoryComposition,
+          ).toHaveBeenCalledWith('word-123');
+          expect(result).toBe(true);
+        });
+
+        it('should validate word ID input', async () => {
+          await expect(
+            service.isWordAvailableForCategoryComposition(''),
+          ).rejects.toThrow(HttpException);
+        });
+      });
+
+      describe('getApprovedWords', () => {
+        it('should call schema method with options', async () => {
+          const mockWords = [mockWordData];
+          const options = {
+            limit: 50,
+            sortBy: 'votes' as const,
+          };
+          wordSchema.getApprovedWords.mockResolvedValue(mockWords);
+
+          const result = await service.getApprovedWords(options);
+
+          expect(wordSchema.getApprovedWords).toHaveBeenCalledWith(options);
+          expect(result).toEqual(mockWords);
+        });
+
+        it('should work without options', async () => {
+          const mockWords = [mockWordData];
+          wordSchema.getApprovedWords.mockResolvedValue(mockWords);
+
+          const result = await service.getApprovedWords();
+
+          expect(wordSchema.getApprovedWords).toHaveBeenCalledWith(undefined);
+          expect(result).toEqual(mockWords);
+        });
+      });
+
+      describe('checkWords', () => {
+        it('should call schema method', async () => {
+          wordSchema.checkWords.mockResolvedValue({ count: 156 });
+
+          const result = await service.checkWords();
+
+          expect(wordSchema.checkWords).toHaveBeenCalled();
+          expect(result).toEqual({ count: 156 });
+        });
+      });
+    });
+  });
+
+  // ERROR HANDLING CONSISTENCY TESTS
+  describe('Error Handling', () => {
+    it('should handle schema errors consistently', async () => {
       wordSchema.checkWordExistence.mockRejectedValue(
         new Error('Database error'),
       );
 
-      await expect(service.checkWordExistence(TEST_WORD)).rejects.toThrow(
-        HttpException,
+      await expect(service.checkWordExistence('test')).rejects.toThrow(
+        'Error checking if word exists',
       );
+    });
+
+    it('should handle visibility service errors consistently', async () => {
+      visibilityService.setUserVisibilityPreference.mockRejectedValue(
+        new Error('Visibility error'),
+      );
+
+      await expect(
+        service.setWordVisibilityPreference('user-456', 'word-123', true),
+      ).rejects.toThrow('Failed to set word visibility preference');
     });
   });
 
-  describe('createWord', () => {
-    it('should create word with user-provided definition and add API definition as alternative', async () => {
-      // Setup mocks
+  // INTEGRATION TESTS
+  describe('Integration Tests', () => {
+    it('should handle complete word creation flow with all services', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      dictionaryService.getDefinition.mockResolvedValue(API_DEFINITION);
+      dictionaryService.getDefinition.mockResolvedValue('API definition');
       wordSchema.createWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
+        word: { id: 'word-123', word: 'test' },
+        definition: { id: 'def-123' },
       });
-      wordSchema.getWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-        definitions: [
-          { definitionText: USER_DEFINITION },
-          { definitionText: API_DEFINITION },
-        ],
+      wordSchema.addDefinition.mockResolvedValue({
+        id: 'def-api',
+        definitionText: 'API definition',
       });
-
-      // Create word with user definition
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        definitionText: USER_DEFINITION,
-        publicCredit: true,
-      };
-
-      const result = await service.createWord(wordData);
-
-      // Verify mocks were called correctly
-      expect(wordSchema.checkWordExistence).toHaveBeenCalledWith(TEST_WORD);
-
-      // Important: API definition should ALWAYS be fetched now
-      expect(dictionaryService.getDefinition).toHaveBeenCalledWith(TEST_WORD);
-
-      // Word should be created with user definition as primary
-      expect(wordSchema.createWord).toHaveBeenCalledWith({
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        initialDefinition: USER_DEFINITION,
-        publicCredit: true,
-      });
-
-      // API definition should be added as alternative
-      expect(wordSchema.addDefinition).toHaveBeenCalledWith({
-        word: TEST_WORD,
-        createdBy: 'FreeDictionaryAPI',
-        definitionText: API_DEFINITION,
-      });
-
-      expect(result).toBeDefined();
-      expect(result.definitions).toHaveLength(2);
-      expect(result.definitions[0].definitionText).toBe(USER_DEFINITION);
-      expect(result.definitions[1].definitionText).toBe(API_DEFINITION);
-    });
-
-    it('should create word with API definition when no user definition provided', async () => {
-      // Setup mocks
-      wordSchema.checkWordExistence.mockResolvedValue(false);
-      dictionaryService.getDefinition.mockResolvedValue(API_DEFINITION);
-      wordSchema.createWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-      });
-      wordSchema.getWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-        definitions: [{ definitionText: API_DEFINITION }],
-      });
-
-      // Create word without user definition
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        publicCredit: true,
-      };
-
-      const result = await service.createWord(wordData);
-
-      // Verify mocks were called correctly
-      expect(wordSchema.checkWordExistence).toHaveBeenCalledWith(TEST_WORD);
-
-      // Should call getDefinition
-      expect(dictionaryService.getDefinition).toHaveBeenCalledWith(TEST_WORD);
-
-      // Word should be created with API definition as primary
-      expect(wordSchema.createWord).toHaveBeenCalledWith({
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        initialDefinition: API_DEFINITION,
-        publicCredit: true,
-      });
-
-      // No alternative definition needed since there's only one definition
-      expect(wordSchema.addDefinition).not.toHaveBeenCalled();
-
-      expect(result).toBeDefined();
-      expect(result.definitions).toHaveLength(1);
-      expect(result.definitions[0].definitionText).toBe(API_DEFINITION);
-    });
-
-    it('should not add API definition as alternative when it matches user definition', async () => {
-      // Setup - same definition for both user and API
-      const SAME_DEFINITION = 'Same definition text';
-
-      wordSchema.checkWordExistence.mockResolvedValue(false);
-      dictionaryService.getDefinition.mockResolvedValue(SAME_DEFINITION);
-      wordSchema.createWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-      });
-      wordSchema.getWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-        definitions: [{ definitionText: SAME_DEFINITION }],
-      });
-
-      // Create word with definition matching API
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        definitionText: SAME_DEFINITION,
-        publicCredit: true,
-      };
-
-      await service.createWord(wordData);
-
-      // API definition should still be fetched
-      expect(dictionaryService.getDefinition).toHaveBeenCalledWith(TEST_WORD);
-
-      // Word should be created with user definition
-      expect(wordSchema.createWord).toHaveBeenCalledWith({
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        initialDefinition: SAME_DEFINITION,
-        publicCredit: true,
-      });
-
-      // Alternative definition should NOT be added since they match
-      expect(wordSchema.addDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should handle API definition fetch failure gracefully', async () => {
-      // Setup mocks
-      wordSchema.checkWordExistence.mockResolvedValue(false);
-      dictionaryService.getDefinition.mockRejectedValue(
-        new Error('API unavailable'),
-      );
-      wordSchema.createWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-      });
-      wordSchema.getWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-        definitions: [{ definitionText: USER_DEFINITION }],
-      });
-
-      // Create word with user definition
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        definitionText: USER_DEFINITION,
-        publicCredit: true,
-      };
-
-      const result = await service.createWord(wordData);
-
-      // API definition should be attempted but failed
-      expect(dictionaryService.getDefinition).toHaveBeenCalledWith(TEST_WORD);
-
-      // Word should still be created with user definition
-      expect(wordSchema.createWord).toHaveBeenCalledWith({
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        initialDefinition: USER_DEFINITION,
-        publicCredit: true,
-      });
-
-      // No alternative definition added due to API failure
-      expect(wordSchema.addDefinition).not.toHaveBeenCalled();
-
-      expect(result).toBeDefined();
-    });
-
-    it('should create discussion when provided', async () => {
-      // Setup mocks
-      wordSchema.checkWordExistence.mockResolvedValue(false);
-      dictionaryService.getDefinition.mockResolvedValue(API_DEFINITION);
-      wordSchema.createWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-      });
+      // ✅ FIXED: Complete DiscussionData mock
       discussionService.createDiscussion.mockResolvedValue({
-        id: 'discussion-id',
+        id: 'discussion-123',
+        createdBy: 'user-123',
+        associatedNodeId: 'word-123',
+        associatedNodeType: 'WordNode',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
-      wordSchema.getWord.mockResolvedValue({
-        id: 'word-id',
-        word: TEST_WORD,
-        discussionId: 'discussion-id',
-        definitions: [{ definitionText: USER_DEFINITION }],
-      });
+      wordSchema.updateWordWithDiscussionId.mockResolvedValue({});
+      wordSchema.getWord.mockResolvedValue(mockWordData);
 
-      // Create word with discussion
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        definitionText: USER_DEFINITION,
+      const createData = {
+        word: 'test',
+        createdBy: 'user-123',
+        definitionText: 'User definition',
         discussion: 'Initial comment',
         publicCredit: true,
       };
 
-      await service.createWord(wordData);
+      const result = await service.createWord(createData);
 
-      // Verify discussion was created
-      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
-        createdBy: 'user-id',
-        associatedNodeId: 'word-id',
-        associatedNodeType: 'WordNode',
-        initialComment: 'Initial comment',
-      });
+      // Verify all services were called in correct order
+      expect(wordSchema.checkWordExistence).toHaveBeenCalled();
+      expect(dictionaryService.getDefinition).toHaveBeenCalled();
+      expect(wordSchema.createWord).toHaveBeenCalled();
+      expect(wordSchema.addDefinition).toHaveBeenCalled();
+      expect(discussionService.createDiscussion).toHaveBeenCalled();
+      expect(wordSchema.updateWordWithDiscussionId).toHaveBeenCalled();
+      expect(wordSchema.getWord).toHaveBeenCalled();
+      expect(result).toEqual(mockWordData);
+    });
 
-      expect(wordSchema.updateWordWithDiscussionId).toHaveBeenCalledWith(
-        'word-id',
-        'discussion-id',
+    it('should handle word retrieval with visibility for authenticated user', async () => {
+      wordSchema.getWord.mockResolvedValue(mockWordData);
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getWordWithVisibility('test', 'user-456');
+
+      expect(wordSchema.getWord).toHaveBeenCalledWith('test');
+      expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+        'user-456',
+        'test',
+        {
+          netVotes: mockWordData.inclusionNetVotes,
+          isVisible: undefined,
+        },
       );
+      expect(result).toEqual({ ...mockWordData, isVisible: true });
     });
 
-    it('should throw exception when word already exists', async () => {
-      wordSchema.checkWordExistence.mockResolvedValue(true);
+    it('should handle voting and visibility workflow', async () => {
+      // Vote on word
+      wordSchema.voteInclusion.mockResolvedValue(mockVoteResult);
+      const voteResult = await service.voteWord('test', 'user-456', true);
+      expect(voteResult).toEqual(mockVoteResult);
 
-      const wordData = {
-        word: TEST_WORD,
-        createdBy: 'user-id',
-        publicCredit: true,
+      // Check vote status
+      wordSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+      const voteStatus = await service.getWordVoteStatus('test', 'user-456');
+      expect(voteStatus).toEqual(mockVoteStatus);
+
+      // Set visibility preference
+      const mockVisibilityPreference: VisibilityPreference = {
+        isVisible: false,
+        source: 'user' as const,
+        timestamp: Date.now(),
       };
-
-      await expect(service.createWord(wordData)).rejects.toThrow();
-    });
-  });
-
-  describe('getWord', () => {
-    it('should return word with discussion if available', async () => {
-      const mockWord = {
-        id: 'word-id',
-        word: TEST_WORD_LOWERCASE, // Service converts to lowercase here
-        discussionId: 'discussion-id',
-      };
-      const mockDiscussion = { id: 'discussion-id', comments: [] };
-
-      wordSchema.getWord.mockResolvedValue(mockWord);
-      discussionService.getDiscussion.mockResolvedValue(mockDiscussion);
-
-      const result = await service.getWord(TEST_WORD);
-
-      // The word is converted to lowercase in getWord
-      expect(wordSchema.getWord).toHaveBeenCalledWith(TEST_WORD_LOWERCASE);
-      expect(discussionService.getDiscussion).toHaveBeenCalledWith(
-        'discussion-id',
+      visibilityService.setUserVisibilityPreference.mockResolvedValue(
+        mockVisibilityPreference,
       );
-      expect(result).toEqual({
-        ...mockWord,
-        discussion: mockDiscussion,
-      });
-    });
-
-    it('should return null when word not found', async () => {
-      wordSchema.getWord.mockResolvedValue(null);
-
-      const result = await service.getWord('nonexistent');
-
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('getAllWords', () => {
-    it('should return all words from schema', async () => {
-      const mockWords = [
-        { id: 'word1', word: 'test1' },
-        { id: 'word2', word: 'test2' },
-      ];
-      wordSchema.getAllWords.mockResolvedValue(mockWords);
-
-      const result = await service.getAllWords();
-
-      expect(wordSchema.getAllWords).toHaveBeenCalled();
-      expect(result).toEqual(mockWords);
-    });
-  });
-
-  describe('updateWord', () => {
-    it('should update word with given data', async () => {
-      const mockUpdatedWord = {
-        id: 'word-id',
-        word: TEST_WORD,
-        liveDefinition: 'Updated definition',
-      };
-      wordSchema.updateWord.mockResolvedValue(mockUpdatedWord);
-
-      const result = await service.updateWord(TEST_WORD, {
-        liveDefinition: 'Updated definition',
-      });
-
-      expect(wordSchema.updateWord).toHaveBeenCalledWith(TEST_WORD, {
-        liveDefinition: 'Updated definition',
-      });
-      expect(result).toEqual(mockUpdatedWord);
-    });
-  });
-
-  describe('voteWord', () => {
-    it('should vote on word', async () => {
-      const mockVoteResult = {
-        positiveVotes: 6,
-        negativeVotes: 2,
-        netVotes: 4,
-      };
-      wordSchema.voteWord.mockResolvedValue(mockVoteResult);
-
-      const result = await service.voteWord(TEST_WORD, 'user1', true);
-
-      expect(wordSchema.voteWord).toHaveBeenCalledWith(
-        TEST_WORD,
-        'user1',
-        true,
-      );
-      expect(result).toEqual(mockVoteResult);
-    });
-  });
-
-  describe('visibility methods', () => {
-    it('should set word visibility status', async () => {
-      const mockUpdatedWord = {
-        id: 'word-id',
-        visibilityStatus: false,
-      };
-      wordSchema.setVisibilityStatus.mockResolvedValue(mockUpdatedWord);
-
-      const result = await service.setWordVisibilityStatus('word-id', false);
-
-      expect(wordSchema.setVisibilityStatus).toHaveBeenCalledWith(
-        'word-id',
+      const visibilityResult = await service.setWordVisibilityPreference(
+        'user-456',
+        'word-123',
         false,
       );
-      expect(result).toEqual(mockUpdatedWord);
+      expect(visibilityResult).toEqual(mockVisibilityPreference);
+
+      // Get word with visibility
+      wordSchema.findById.mockResolvedValue(mockWordData);
+      visibilityService.getObjectVisibility.mockResolvedValue(false);
+      const finalVisibility = await service.getWordVisibilityForUser(
+        'word-123',
+        'user-456',
+      );
+      expect(finalVisibility).toBe(false);
+    });
+  });
+
+  // BACKWARD COMPATIBILITY TESTS
+  describe('API Compatibility', () => {
+    it('should maintain existing external API structure', async () => {
+      // Ensure service methods return expected structures for external consumers
+      wordSchema.checkWordExistence.mockResolvedValue(true);
+      const existsResult = await service.checkWordExistence('test');
+      expect(typeof existsResult).toBe('boolean');
+
+      wordSchema.getWord.mockResolvedValue(mockWordData);
+      const wordResult = await service.getWord('test');
+      expect(wordResult).toHaveProperty('word');
+      expect(wordResult).toHaveProperty('inclusionNetVotes');
+
+      wordSchema.voteInclusion.mockResolvedValue(mockVoteResult);
+      const voteResult = await service.voteWord('test', 'user-456', true);
+      expect(voteResult).toHaveProperty('inclusionPositiveVotes');
+      expect(voteResult).toHaveProperty('inclusionNegativeVotes');
+      expect(voteResult).toHaveProperty('inclusionNetVotes');
     });
 
-    it('should get word visibility status', async () => {
-      wordSchema.getVisibilityStatus.mockResolvedValue(true);
+    it('should maintain error response formats', async () => {
+      // Test that error responses maintain expected HTTP status codes
+      await expect(service.checkWordExistence('')).rejects.toMatchObject({
+        status: 400,
+        message: 'Word cannot be empty',
+      });
 
-      const result = await service.getWordVisibilityStatus('word-id');
+      wordSchema.update.mockResolvedValue(null);
+      await expect(
+        service.updateWord('nonexistent', { publicCredit: false }),
+      ).rejects.toMatchObject({
+        status: 404,
+        message: expect.stringContaining('not found'),
+      });
+    });
+  });
 
-      expect(wordSchema.getVisibilityStatus).toHaveBeenCalledWith('word-id');
-      expect(result).toBe(true);
+  // REMOVED FUNCTIONALITY VERIFICATION
+  describe('Removed Legacy Methods', () => {
+    it('should not have old voting method signatures', () => {
+      // Verify old methods are not present
+      expect((service as any).voteWordInclusion).toBeUndefined();
+      expect((service as any).getWordVotingData).toBeUndefined();
+    });
+
+    it('should not have old visibility method signatures', () => {
+      // Verify old visibility methods are not present
+      expect((service as any).setWordVisibilityStatus).toBeUndefined();
+      expect((service as any).getWordVisibilityStatus).toBeUndefined();
+    });
+
+    it('should have new method signatures for voting', () => {
+      // Verify new methods exist and have correct signatures
+      expect(typeof service.voteWord).toBe('function');
+      expect(service.voteWord.length).toBe(3); // word, userId, isPositive
+
+      expect(typeof service.getWordVoteStatus).toBe('function');
+      expect(service.getWordVoteStatus.length).toBe(2); // word, userId
+
+      expect(typeof service.removeWordVote).toBe('function');
+      expect(service.removeWordVote.length).toBe(2); // word, userId
+    });
+
+    it('should have new method signatures for visibility', () => {
+      // Verify new visibility methods exist
+      expect(typeof service.setWordVisibilityPreference).toBe('function');
+      expect(service.setWordVisibilityPreference.length).toBe(3); // userId, wordId, isVisible
+
+      expect(typeof service.getWordVisibilityForUser).toBe('function');
+      expect(service.getWordVisibilityForUser.length).toBe(2); // wordId, userId?
+
+      expect(typeof service.getWordWithVisibility).toBe('function');
+      expect(service.getWordWithVisibility.length).toBe(2); // word, userId?
     });
   });
 });

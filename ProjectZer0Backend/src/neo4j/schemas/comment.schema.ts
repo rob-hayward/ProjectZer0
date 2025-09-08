@@ -1,19 +1,73 @@
-// src/neo4j/schemas/comment.schema.ts - ENHANCED VERSION with User Vote Retrieval
+// src/neo4j/schemas/comment.schema.ts - CONVERTED TO BaseNodeSchema
+
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
-import { TEXT_LIMITS } from '../../constants/validation';
 import { VoteSchema } from './vote.schema';
-import type { VoteStatus, VoteResult } from './vote.schema';
-import { NotFoundException, Logger } from '@nestjs/common';
+import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { TEXT_LIMITS } from '../../constants/validation';
+import { Record } from 'neo4j-driver';
+
+// Comment-specific data interface extending BaseNodeData
+export interface CommentData extends BaseNodeData {
+  createdBy: string;
+  discussionId: string;
+  commentText: string;
+  parentCommentId?: string; // For hierarchical structure
+}
 
 @Injectable()
-export class CommentSchema {
-  private readonly logger = new Logger(CommentSchema.name);
+export class CommentSchema extends BaseNodeSchema<CommentData> {
+  protected readonly nodeLabel = 'CommentNode';
+  protected readonly idField = 'id'; // Comments use standard 'id' field
 
-  constructor(
-    private readonly neo4jService: Neo4jService,
-    private readonly voteSchema: VoteSchema,
-  ) {}
+  constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
+    super(neo4jService, voteSchema, CommentSchema.name);
+  }
+
+  // IMPLEMENT: Abstract methods from BaseNodeSchema
+
+  protected supportsContentVoting(): boolean {
+    return true; // Comments support content voting (quality assessment)
+  }
+
+  protected mapNodeFromRecord(record: Record): CommentData {
+    const props = record.get('n').properties;
+    return {
+      id: props.id,
+      createdBy: props.createdBy,
+      discussionId: props.discussionId,
+      commentText: props.commentText,
+      parentCommentId: props.parentCommentId,
+      createdAt: props.createdAt,
+      updatedAt: props.updatedAt,
+      // Comments don't have inclusion voting (all comments are included by default)
+      inclusionPositiveVotes: 0,
+      inclusionNegativeVotes: 0,
+      inclusionNetVotes: 0,
+      // Comments have content voting for quality assessment
+      contentPositiveVotes: this.toNumber(props.contentPositiveVotes),
+      contentNegativeVotes: this.toNumber(props.contentNegativeVotes),
+      contentNetVotes: this.toNumber(props.contentNetVotes),
+    };
+  }
+
+  protected buildUpdateQuery(id: string, data: Partial<CommentData>) {
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'id') // Don't update the id field
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
+
+    return {
+      cypher: `
+        MATCH (n:CommentNode {id: $id})
+        SET ${setClause}, n.updatedAt = datetime()
+        RETURN n
+      `,
+      params: { id, updateData: data },
+    };
+  }
+
+  // COMMENT-SPECIFIC METHODS - Keep all unique functionality
 
   async createComment(commentData: {
     id: string;
@@ -21,369 +75,363 @@ export class CommentSchema {
     discussionId: string;
     commentText: string;
     parentCommentId?: string;
-  }) {
+  }): Promise<CommentData> {
+    // Validate comment text length
     if (commentData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
       throw new BadRequestException(
         `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
       );
     }
 
-    console.log(
-      `Creating comment with data:`,
-      JSON.stringify(commentData, null, 2),
-    );
+    this.logger.debug(`Creating comment: ${commentData.id}`);
 
-    // 🔧 CRITICAL FIX: Store parentCommentId as a property AND create the relationship
-    const query = `
-      MATCH (d:DiscussionNode {id: $discussionId})
-      CREATE (c:CommentNode {
-        id: $id,
-        createdBy: $createdBy,
-        commentText: $commentText,
-        createdAt: datetime(),
-        updatedAt: datetime(),
-        positiveVotes: 0,
-        negativeVotes: 0,
-        netVotes: 0,
-        visibilityStatus: true,
-        parentCommentId: $parentCommentId
-      })
-      CREATE (d)-[:HAS_COMMENT]->(c)
-      WITH c, d
-      OPTIONAL MATCH (parent:CommentNode {id: $parentCommentId})
-      FOREACH (p IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
-        CREATE (parent)-[:HAS_REPLY]->(c)
-      )
-      RETURN c
-    `;
+    try {
+      const query = `
+        MATCH (d:DiscussionNode {id: $discussionId})
+        CREATE (c:CommentNode {
+          id: $id,
+          createdBy: $createdBy,
+          discussionId: $discussionId,
+          commentText: $commentText,
+          parentCommentId: $parentCommentId,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          // Content voting only (no inclusion voting)
+          contentPositiveVotes: 0,
+          contentNegativeVotes: 0,
+          contentNetVotes: 0,
+          inclusionPositiveVotes: 0,
+          inclusionNegativeVotes: 0,
+          inclusionNetVotes: 0
+        })
+        CREATE (d)-[:HAS_COMMENT]->(c)
+        WITH c
+        OPTIONAL MATCH (parent:CommentNode {id: $parentCommentId})
+        FOREACH (p IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
+          CREATE (parent)-[:HAS_REPLY]->(c)
+        )
+        RETURN c
+      `;
 
-    // 🔧 CRITICAL FIX: Ensure parentCommentId is properly passed (null becomes null, not undefined)
-    const queryParams = {
-      ...commentData,
-      parentCommentId: commentData.parentCommentId || null,
-    };
+      const queryParams = {
+        ...commentData,
+        parentCommentId: commentData.parentCommentId || null,
+      };
 
-    console.log('Query parameters:', JSON.stringify(queryParams, null, 2));
+      const result = await this.neo4jService.write(query, queryParams);
+      const createdComment = this.mapNodeFromRecord(result.records[0]);
 
-    const result = await this.neo4jService.write(query, queryParams);
-    const createdComment = result.records[0].get('c').properties;
+      this.logger.log(`Successfully created comment: ${commentData.id}`);
 
-    console.log(`Created comment:`, JSON.stringify(createdComment, null, 2));
+      if (commentData.parentCommentId) {
+        this.logger.debug(
+          `Reply comment created with parent: ${commentData.parentCommentId}`,
+        );
+      }
 
-    // 🔧 VERIFICATION: Log the parentCommentId to ensure it was stored
-    if (commentData.parentCommentId) {
-      console.log(
-        `✅ Reply comment created with parentCommentId: ${createdComment.parentCommentId}`,
+      return createdComment;
+    } catch (error) {
+      this.logger.error(
+        `Error creating comment: ${error.message}`,
+        error.stack,
       );
-    } else {
-      console.log(`✅ Root comment created (no parent)`);
+      throw this.standardError('create comment', error);
+    }
+  }
+
+  async getCommentsByDiscussionId(
+    discussionId: string,
+  ): Promise<CommentData[]> {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
     }
 
-    return createdComment;
+    this.logger.debug(`Getting comments for discussion: ${discussionId}`);
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
+        RETURN c
+        ORDER BY c.createdAt ASC
+        `,
+        { discussionId },
+      );
+
+      const comments = result.records.map((record) => {
+        return this.mapNodeFromRecord(record);
+      });
+
+      this.logger.debug(
+        `Retrieved ${comments.length} comments for discussion: ${discussionId}`,
+      );
+      return comments;
+    } catch (error) {
+      this.logger.error(
+        `Error getting comments for discussion: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get comments for discussion', error);
+    }
   }
 
-  async getComment(id: string) {
-    const result = await this.neo4jService.read(
-      `
-      MATCH (c:CommentNode {id: $id})
-      RETURN c
-      `,
-      { id },
+  async getRepliesForComment(commentId: string): Promise<CommentData[]> {
+    if (!commentId || commentId.trim() === '') {
+      throw new BadRequestException('Comment ID is required');
+    }
+
+    this.logger.debug(`Getting replies for comment: ${commentId}`);
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (reply:CommentNode)
+        WHERE reply.parentCommentId = $commentId
+        RETURN reply
+        ORDER BY reply.createdAt ASC
+        `,
+        { commentId },
+      );
+
+      const replies = result.records.map((record) => {
+        // Need to adjust the record mapping since we're selecting 'reply', not 'n'
+        const adjustedRecord = {
+          get: (key: string) => {
+            if (key === 'n') {
+              return record.get('reply');
+            }
+            return record.get(key);
+          },
+        } as Record;
+        return this.mapNodeFromRecord(adjustedRecord);
+      });
+
+      this.logger.debug(
+        `Retrieved ${replies.length} replies for comment: ${commentId}`,
+      );
+      return replies;
+    } catch (error) {
+      this.logger.error(
+        `Error getting replies for comment: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get replies for comment', error);
+    }
+  }
+
+  async getCommentHierarchy(discussionId: string): Promise<
+    {
+      comment: CommentData;
+      replies: CommentData[];
+    }[]
+  > {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    this.logger.debug(
+      `Getting comment hierarchy for discussion: ${discussionId}`,
     );
-    return result.records.length > 0
-      ? result.records[0].get('c').properties
-      : null;
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
+        WHERE c.parentCommentId IS NULL
+        OPTIONAL MATCH (reply:CommentNode)
+        WHERE reply.parentCommentId = c.id
+        RETURN c, collect(reply) as replies
+        ORDER BY c.createdAt ASC
+        `,
+        { discussionId },
+      );
+
+      const hierarchy = result.records.map((record) => {
+        // Map the main comment
+        const commentRecord = {
+          get: (key: string) => {
+            if (key === 'n') {
+              return record.get('c');
+            }
+            return record.get(key);
+          },
+        } as Record;
+        const comment = this.mapNodeFromRecord(commentRecord);
+
+        // Map the replies
+        const replyNodes = record.get('replies');
+        const replies = replyNodes.map((replyNode: any) => {
+          const replyRecord = {
+            get: (key: string) => {
+              if (key === 'n') {
+                return { properties: replyNode.properties };
+              }
+              return null;
+            },
+          } as Record;
+          return this.mapNodeFromRecord(replyRecord);
+        });
+
+        return { comment, replies };
+      });
+
+      this.logger.debug(
+        `Retrieved comment hierarchy with ${hierarchy.length} root comments`,
+      );
+      return hierarchy;
+    } catch (error) {
+      this.logger.error(
+        `Error getting comment hierarchy: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get comment hierarchy', error);
+    }
   }
 
-  async updateComment(
-    id: string,
-    updateData: {
-      commentText?: string;
-    },
-  ) {
-    if (
-      updateData.commentText &&
-      updateData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH
-    ) {
+  async getCommentCount(discussionId: string): Promise<number> {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
+        RETURN COUNT(c) as count
+        `,
+        { discussionId },
+      );
+
+      return this.toNumber(result.records[0].get('count'));
+    } catch (error) {
+      this.logger.error(
+        `Error getting comment count: ${error.message}`,
+        error.stack,
+      );
+      return 0; // Return 0 on error rather than throwing
+    }
+  }
+
+  // ❌ REMOVED: All voting methods now inherited from BaseNodeSchema
+  // - voteComment() -> use inherited voteContent()
+  // - getCommentVoteStatus() -> use inherited getVoteStatus()
+  // - removeCommentVote() -> use inherited removeVote()
+  // - getCommentVotes() -> use inherited getVotes()
+
+  // ❌ REMOVED: All visibility methods now delegated to VisibilityService
+  // - setVisibilityStatus() -> VisibilityService.setUserVisibilityPreference()
+  // - getVisibilityStatus() -> VisibilityService.getObjectVisibility()
+
+  // ❌ REMOVED: Legacy voting methods that bypassed VoteSchema
+  // - updateVisibilityBasedOnVotes() -> handled by VisibilityService
+  // - getUserCommentVotes() -> use inherited getVoteStatus() per comment
+
+  /**
+   * Check if a comment can be edited (by original author within time limit)
+   */
+  async canEditComment(commentId: string, userId: string): Promise<boolean> {
+    try {
+      const comment = await this.findById(commentId);
+      if (!comment) return false;
+
+      // Only original author can edit
+      if (comment.createdBy !== userId) return false;
+
+      // Check if within edit time limit (e.g., 15 minutes)
+      const EDIT_TIME_LIMIT_MINUTES = 15;
+      const createdAt = new Date(comment.createdAt);
+      const now = new Date();
+      const timeDiff = now.getTime() - createdAt.getTime();
+      const minutesDiff = timeDiff / (1000 * 60);
+
+      return minutesDiff <= EDIT_TIME_LIMIT_MINUTES;
+    } catch (error) {
+      this.logger.error(
+        `Error checking edit permission: ${error.message}`,
+        error.stack,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Update comment text (with edit restrictions)
+   */
+  async updateCommentText(
+    commentId: string,
+    userId: string,
+    newText: string,
+  ): Promise<CommentData> {
+    if (newText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
       throw new BadRequestException(
         `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
       );
     }
 
-    const result = await this.neo4jService.write(
-      `
-      MATCH (c:CommentNode {id: $id})
-      SET c += $updateData, c.updatedAt = datetime()
-      RETURN c
-      `,
-      { id, updateData },
-    );
-    return result.records[0].get('c').properties;
-  }
-
-  async deleteComment(id: string) {
-    await this.neo4jService.write(
-      `
-      MATCH (c:CommentNode {id: $id})
-      DETACH DELETE c
-      `,
-      { id },
-    );
-  }
-
-  async getCommentsByDiscussionId(discussionId: string) {
-    const result = await this.neo4jService.read(
-      `
-      MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
-      RETURN c
-      ORDER BY c.createdAt ASC
-      `,
-      { discussionId },
-    );
-    return result.records.map((record) => record.get('c').properties);
-  }
-
-  // 🔧 CRITICAL FIX: Improved query that correctly handles parentCommentId
-  async getCommentsByDiscussionIdWithSorting(
-    discussionId: string,
-    sortBy: 'popularity' | 'newest' | 'oldest' = 'popularity',
-  ): Promise<any[]> {
-    let orderByClause: string;
-
-    switch (sortBy) {
-      case 'popularity':
-        orderByClause = 'ORDER BY c.netVotes DESC, c.createdAt DESC';
-        break;
-      case 'newest':
-        orderByClause = 'ORDER BY c.createdAt DESC';
-        break;
-      case 'oldest':
-        orderByClause = 'ORDER BY c.createdAt ASC';
-        break;
-      default:
-        orderByClause = 'ORDER BY c.netVotes DESC, c.createdAt DESC';
+    const canEdit = await this.canEditComment(commentId, userId);
+    if (!canEdit) {
+      throw new BadRequestException('Comment cannot be edited');
     }
 
-    // 🔧 CRITICAL FIX: Simplified query that relies on the stored parentCommentId property
-    const result = await this.neo4jService.read(
-      `
-      MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
-      RETURN c {
-        .*,
-        isRootComment: c.parentCommentId IS NULL,
-        parentCommentId: c.parentCommentId
-      } as comment
-      ${orderByClause}
-      `,
-      { discussionId },
-    );
-
-    const comments = result.records.map((record) => record.get('comment'));
-
-    // 🔧 DEBUG: Log comment structure for verification
-    console.log(
-      `Retrieved ${comments.length} comments for discussion ${discussionId}`,
-    );
-    comments.forEach((comment) => {
-      console.log(
-        `Comment ${comment.id}: parentCommentId=${comment.parentCommentId}, isRoot=${comment.isRootComment}`,
-      );
-    });
-
-    return comments;
-  }
-
-  async getRepliesForComment(commentId: string) {
-    // 🔧 ALTERNATIVE: Can also query by relationship OR by parentCommentId property
-    const result = await this.neo4jService.read(
-      `
-      MATCH (reply:CommentNode)
-      WHERE reply.parentCommentId = $commentId
-      RETURN reply
-      ORDER BY reply.createdAt ASC
-      `,
-      { commentId },
-    );
-    return result.records.map((record) => record.get('reply').properties);
-  }
-
-  async getCommentHierarchy(discussionId: string) {
-    // 🔧 IMPROVED: Query using the stored parentCommentId property
-    const result = await this.neo4jService.read(
-      `
-      MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
-      WHERE c.parentCommentId IS NULL
-      OPTIONAL MATCH (reply:CommentNode)
-      WHERE reply.parentCommentId = c.id
-      RETURN c, collect(reply) as replies
-      ORDER BY c.createdAt ASC
-      `,
-      { discussionId },
-    );
-    return result.records.map((record) => ({
-      comment: record.get('c').properties,
-      replies: record.get('replies').map((r) => r.properties),
-    }));
-  }
-
-  async setVisibilityStatus(commentId: string, isVisible: boolean) {
-    const result = await this.neo4jService.write(
-      `
-      MATCH (c:CommentNode {id: $commentId})
-      SET c.visibilityStatus = $isVisible,
-          c.updatedAt = datetime()
-      RETURN c
-      `,
-      { commentId, isVisible },
-    );
-    return result.records[0].get('c').properties;
-  }
-
-  async getVisibilityStatus(commentId: string) {
-    const result = await this.neo4jService.read(
-      `
-      MATCH (c:CommentNode {id: $commentId})
-      RETURN c.visibilityStatus
-      `,
-      { commentId },
-    );
-    return result.records[0]?.get('c.visibilityStatus') ?? true;
-  }
-
-  // Add new methods for vote handling
-  async voteComment(
-    id: string,
-    sub: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
-    return this.voteSchema.vote('CommentNode', { id }, sub, isPositive);
-  }
-
-  async getCommentVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
-    return this.voteSchema.getVoteStatus('CommentNode', { id }, sub);
-  }
-
-  async removeCommentVote(id: string, sub: string): Promise<VoteResult> {
-    return this.voteSchema.removeVote('CommentNode', { id }, sub);
-  }
-
-  async getCommentVotes(id: string): Promise<VoteResult | null> {
     try {
-      const voteStatus = await this.voteSchema.getVoteStatus(
-        'CommentNode',
-        { id },
-        '', // Empty string as we don't need user-specific status
-      );
+      const updatedComment = await this.update(commentId, {
+        commentText: newText,
+      });
 
-      if (!voteStatus) {
-        return null;
+      if (!updatedComment) {
+        throw new Error(`Comment with ID ${commentId} not found`);
       }
 
-      return {
-        positiveVotes: voteStatus.positiveVotes,
-        negativeVotes: voteStatus.negativeVotes,
-        netVotes: voteStatus.netVotes,
-      };
+      this.logger.log(`Updated comment text: ${commentId}`);
+      return updatedComment;
     } catch (error) {
       this.logger.error(
-        `Error getting votes for comment ${id}: ${error.message}`,
+        `Error updating comment text: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get comment votes: ${error.message}`);
+      throw this.standardError('update comment text', error);
     }
   }
 
   /**
-   * ENHANCED: Get all comment votes for a specific user
+   * Get comment statistics for a discussion
    */
-  async getUserCommentVotes(
-    userId: string,
-  ): Promise<Record<string, 'agree' | 'disagree' | 'none'>> {
-    try {
-      this.logger.debug(`Getting all comment votes for user: ${userId}`);
+  async getDiscussionCommentStats(discussionId: string): Promise<{
+    totalComments: number;
+    rootComments: number;
+    replies: number;
+    averageContentScore: number;
+  }> {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
 
+    try {
       const result = await this.neo4jService.read(
         `
-        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(c:CommentNode)
-        RETURN c.id as commentId, v.status as voteStatus
+        MATCH (d:DiscussionNode {id: $discussionId})-[:HAS_COMMENT]->(c:CommentNode)
+        RETURN 
+          COUNT(c) as totalComments,
+          COUNT(CASE WHEN c.parentCommentId IS NULL THEN 1 END) as rootComments,
+          COUNT(CASE WHEN c.parentCommentId IS NOT NULL THEN 1 END) as replies,
+          AVG(c.contentNetVotes) as averageContentScore
         `,
-        { userId },
+        { discussionId },
       );
 
-      const userVotes: Record<string, 'agree' | 'disagree' | 'none'> = {};
-
-      result.records.forEach((record) => {
-        const commentId = record.get('commentId');
-        const voteStatus = record.get('voteStatus');
-
-        // Map the vote status to our expected format
-        if (voteStatus === 'agree' || voteStatus === 'disagree') {
-          userVotes[commentId] = voteStatus;
-        } else {
-          userVotes[commentId] = 'none';
-        }
-      });
-
-      this.logger.debug(
-        `Retrieved votes for ${Object.keys(userVotes).length} comments for user ${userId}`,
-      );
-      return userVotes;
+      const record = result.records[0];
+      return {
+        totalComments: this.toNumber(record.get('totalComments')),
+        rootComments: this.toNumber(record.get('rootComments')),
+        replies: this.toNumber(record.get('replies')),
+        averageContentScore: this.toNumber(record.get('averageContentScore')),
+      };
     } catch (error) {
       this.logger.error(
-        `Error getting user comment votes: ${error.message}`,
+        `Error getting discussion comment stats: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get user comment votes: ${error.message}`);
-    }
-  }
-
-  async updateVisibilityBasedOnVotes(
-    commentId: string,
-    voteThreshold: number = -5,
-  ): Promise<boolean> {
-    try {
-      this.logger.debug(
-        `Updating visibility based on votes for comment ${commentId}`,
-      );
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (c:CommentNode {id: $commentId})
-        WITH c, c.netVotes < $voteThreshold as shouldHide
-        SET c.visibilityStatus = NOT shouldHide,
-            c.updatedAt = datetime()
-        RETURN c.visibilityStatus as visibilityStatus
-        `,
-        { commentId, voteThreshold },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        this.logger.warn(
-          `Comment not found for visibility update: ${commentId}`,
-        );
-        throw new NotFoundException(`Comment with ID ${commentId} not found`);
-      }
-
-      const visibilityStatus = result.records[0].get('visibilityStatus');
-      this.logger.debug(
-        `Updated comment ${commentId} visibility status to: ${visibilityStatus} based on votes`,
-      );
-      return visibilityStatus;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error updating visibility based on votes for comment ${commentId}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to update comment visibility based on votes: ${error.message}`,
-      );
+      throw this.standardError('get discussion comment stats', error);
     }
   }
 }

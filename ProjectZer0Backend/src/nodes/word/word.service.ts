@@ -10,6 +10,7 @@ import {
 import { WordSchema } from '../../neo4j/schemas/word.schema';
 import { DictionaryService } from '../../dictionary/dictionary.service';
 import { DiscussionService } from '../discussion/discussion.service';
+import { VisibilityService } from '../../users/visibility/visibility.service';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class WordService {
     private readonly wordSchema: WordSchema,
     private readonly dictionaryService: DictionaryService,
     private readonly discussionService: DiscussionService,
+    private readonly visibilityService: VisibilityService,
   ) {}
 
   async checkWordExistence(word: string): Promise<boolean> {
@@ -108,6 +110,7 @@ export class WordService {
             word: wordData.word,
             createdBy: 'FreeDictionaryAPI',
             definitionText: freeDictionaryDefinition,
+            publicCredit: true,
           });
         } catch (error) {
           this.logger.warn(`Failed to add API definition: ${error.message}`);
@@ -121,13 +124,13 @@ export class WordService {
           this.logger.debug(`Creating discussion for word: ${wordData.word}`);
           const discussion = await this.discussionService.createDiscussion({
             createdBy: wordData.createdBy,
-            associatedNodeId: wordNode.id,
+            associatedNodeId: wordNode.word.id,
             associatedNodeType: 'WordNode',
             initialComment: wordData.discussion,
           });
 
           await this.wordSchema.updateWordWithDiscussionId(
-            wordNode.id,
+            wordNode.word.id,
             discussion.id,
           );
         } catch (error) {
@@ -187,6 +190,31 @@ export class WordService {
     }
   }
 
+  async getWordWithVisibility(word: string, userId?: string) {
+    const wordData = await this.getWord(word);
+    if (!wordData) return null;
+
+    try {
+      const isVisible = await this.visibilityService.getObjectVisibility(
+        userId || null,
+        wordData.word, // Use word as identifier
+        {
+          netVotes: wordData.inclusionNetVotes,
+          isVisible: undefined, // Let visibility be determined by votes
+        },
+      );
+
+      return { ...wordData, isVisible };
+    } catch (error) {
+      this.logger.error(
+        `Error getting word visibility: ${error.message}`,
+        error.stack,
+      );
+      // Return word without visibility info on error
+      return { ...wordData, isVisible: true };
+    }
+  }
+
   async getAllWords() {
     this.logger.debug('Getting all words');
     try {
@@ -212,7 +240,7 @@ export class WordService {
     );
 
     try {
-      const updatedWord = await this.wordSchema.updateWord(word, updateData);
+      const updatedWord = await this.wordSchema.update(word, updateData);
 
       if (!updatedWord) {
         throw new NotFoundException(`Word "${word}" not found`);
@@ -241,7 +269,7 @@ export class WordService {
     this.logger.debug(`Deleting word: ${word}`);
 
     try {
-      const result = await this.wordSchema.deleteWord(word);
+      const result = await this.wordSchema.delete(word);
       this.logger.debug(`Deleted word: ${word}`);
       return result;
     } catch (error) {
@@ -253,6 +281,7 @@ export class WordService {
     }
   }
 
+  // ✅ UPDATED: Use inherited schema methods for voting
   async voteWord(
     word: string,
     sub: string,
@@ -271,7 +300,7 @@ export class WordService {
     );
 
     try {
-      const result = await this.wordSchema.voteWord(word, sub, isPositive);
+      const result = await this.wordSchema.voteInclusion(word, sub, isPositive);
       this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
@@ -291,7 +320,7 @@ export class WordService {
     this.logger.debug(`Getting votes for word: ${word}`);
 
     try {
-      const votes = await this.wordSchema.getWordVotes(word);
+      const votes = await this.wordSchema.getVotes(word);
       this.logger.debug(`Votes for word ${word}: ${JSON.stringify(votes)}`);
       return votes;
     } catch (error) {
@@ -318,7 +347,7 @@ export class WordService {
     this.logger.debug(`Getting vote status for word: ${word} and user: ${sub}`);
 
     try {
-      const status = await this.wordSchema.getWordVoteStatus(word, sub);
+      const status = await this.wordSchema.getVoteStatus(word, sub);
       this.logger.debug(
         `Vote status for word ${word} and user ${sub}: ${JSON.stringify(status)}`,
       );
@@ -347,7 +376,7 @@ export class WordService {
     this.logger.debug(`Removing vote on word: ${word} by user: ${sub}`);
 
     try {
-      const result = await this.wordSchema.removeWordVote(word, sub);
+      const result = await this.wordSchema.removeVote(word, sub, 'INCLUSION');
       this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
@@ -362,59 +391,209 @@ export class WordService {
     }
   }
 
-  async setWordVisibilityStatus(wordId: string, isVisible: boolean) {
+  // ✅ NEW: Centralized visibility methods using VisibilityService
+  async setWordVisibilityPreference(
+    userId: string,
+    wordId: string,
+    isVisible: boolean,
+  ) {
+    if (!wordId) {
+      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!userId) {
+      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(
+      `Setting visibility preference for word ${wordId} by user ${userId}: ${isVisible}`,
+    );
+
+    try {
+      const result = await this.visibilityService.setUserVisibilityPreference(
+        userId,
+        wordId,
+        isVisible,
+      );
+      this.logger.debug(
+        `Set visibility preference result: ${JSON.stringify(result)}`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Error in setWordVisibilityPreference: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to set word visibility preference: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getWordVisibilityForUser(
+    wordId: string,
+    userId?: string,
+  ): Promise<boolean> {
     if (!wordId) {
       throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
     }
 
     this.logger.debug(
-      `Setting visibility status for word ${wordId}: ${isVisible}`,
+      `Getting visibility for word ${wordId} and user ${userId || 'anonymous'}`,
     );
 
     try {
-      const updatedWord = await this.wordSchema.setVisibilityStatus(
+      // Get word data to access vote counts
+      const wordData = await this.wordSchema.findById(wordId);
+      if (!wordData) {
+        throw new NotFoundException(`Word with ID ${wordId} not found`);
+      }
+
+      const isVisible = await this.visibilityService.getObjectVisibility(
+        userId || null,
         wordId,
-        isVisible,
+        {
+          netVotes: wordData.inclusionNetVotes,
+          isVisible: undefined, // Let visibility be determined by votes and user preferences
+        },
       );
-      this.logger.debug(
-        `Updated word visibility status: ${JSON.stringify(updatedWord)}`,
-      );
-      return updatedWord;
+
+      this.logger.debug(`Visibility for word ${wordId}: ${isVisible}`);
+      return isVisible;
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
       this.logger.error(
-        `Error in setWordVisibilityStatus: ${error.message}`,
+        `Error in getWordVisibilityForUser: ${error.message}`,
         error.stack,
       );
       throw new HttpException(
-        `Failed to set word visibility status: ${error.message}`,
+        `Failed to get word visibility: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
 
-  async getWordVisibilityStatus(wordId: string) {
+  // ✅ PRESERVE: All unique word-specific business logic
+  async addDefinition(wordData: {
+    word: string;
+    createdBy: string;
+    definitionText: string;
+    publicCredit: boolean;
+  }) {
+    if (!wordData.word || wordData.word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!wordData.definitionText || wordData.definitionText.trim() === '') {
+      throw new HttpException(
+        'Definition text cannot be empty',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Adding definition to word: ${wordData.word}`);
+
+    try {
+      const definition = await this.wordSchema.addDefinition(wordData);
+      this.logger.debug(`Added definition: ${JSON.stringify(definition)}`);
+      return definition;
+    } catch (error) {
+      this.logger.error(
+        `Error in addDefinition: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to add definition: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async isWordAvailableForDefinitionCreation(word: string): Promise<boolean> {
+    if (!word || word.trim() === '') {
+      throw new HttpException('Word cannot be empty', HttpStatus.BAD_REQUEST);
+    }
+
+    try {
+      return await this.wordSchema.isWordAvailableForDefinitionCreation(word);
+    } catch (error) {
+      this.logger.error(
+        `Error checking word availability for definition creation: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to check word availability: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async isWordAvailableForCategoryComposition(
+    wordId: string,
+  ): Promise<boolean> {
     if (!wordId) {
       throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
     }
 
-    this.logger.debug(`Getting visibility status for word ${wordId}`);
-
     try {
-      const visibilityStatus =
-        await this.wordSchema.getVisibilityStatus(wordId);
-      this.logger.debug(
-        `Visibility status for word ${wordId}: ${visibilityStatus}`,
+      return await this.wordSchema.isWordAvailableForCategoryComposition(
+        wordId,
       );
-      return visibilityStatus;
     } catch (error) {
       this.logger.error(
-        `Error in getWordVisibilityStatus: ${error.message}`,
+        `Error checking word availability for category composition: ${error.message}`,
         error.stack,
       );
       throw new HttpException(
-        `Failed to get word visibility status: ${error.message}`,
+        `Failed to check word availability: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
   }
+
+  async getApprovedWords(options?: {
+    limit?: number;
+    offset?: number;
+    sortBy?: 'alphabetical' | 'votes' | 'created';
+    sortDirection?: 'asc' | 'desc';
+  }) {
+    try {
+      const words = await this.wordSchema.getApprovedWords(options);
+      this.logger.debug(`Retrieved ${words.length} approved words`);
+      return words;
+    } catch (error) {
+      this.logger.error(
+        `Error in getApprovedWords: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get approved words: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async checkWords() {
+    try {
+      return await this.wordSchema.checkWords();
+    } catch (error) {
+      this.logger.error(`Error in checkWords: ${error.message}`, error.stack);
+      throw new HttpException(
+        `Failed to check words: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  // ❌ REMOVED: Old voting methods (replaced by inherited methods)
+  // - voteWordInclusion() -> now voteWord() using schema.voteInclusion()
+  // - getWordVotingData() -> now getWordVotes() using schema.getVotes()
+
+  // ❌ REMOVED: Old visibility methods (replaced by VisibilityService)
+  // - setWordVisibilityStatus() -> now setWordVisibilityPreference()
+  // - getWordVisibilityStatus() -> now getWordVisibilityForUser()
 }

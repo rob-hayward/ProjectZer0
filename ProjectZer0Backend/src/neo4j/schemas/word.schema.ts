@@ -70,6 +70,42 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
     };
   }
 
+  // OVERRIDE: Inherited methods to handle word standardization
+  async voteInclusion(word: string, userId: string, isPositive: boolean) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.voteInclusion(standardizedWord, userId, isPositive);
+  }
+
+  async getVoteStatus(word: string, userId: string) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.getVoteStatus(standardizedWord, userId);
+  }
+
+  async removeVote(word: string, userId: string, kind: any) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.removeVote(standardizedWord, userId, kind);
+  }
+
+  async getVotes(word: string) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.getVotes(standardizedWord);
+  }
+
+  async findById(word: string) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.findById(standardizedWord);
+  }
+
+  async update(word: string, updateData: Partial<WordNode>) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.update(standardizedWord, updateData);
+  }
+
+  async delete(word: string) {
+    const standardizedWord = this.standardizeWord(word);
+    return super.delete(standardizedWord);
+  }
+
   // WORD-SPECIFIC METHODS - Keep all unique functionality
 
   private standardizeWord(word: string): string {
@@ -190,7 +226,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
       const createdWord = result.records[0].get('w').properties;
       const createdDefinition = result.records[0].get('d').properties;
 
-      if (!isApiDefinition) {
+      if (!isApiDefinition && !isAICreated) {
         await this.userSchema.addCreatedNode(
           wordData.createdBy,
           createdWord.id,
@@ -220,7 +256,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
   async addDefinition(wordData: {
     word: string;
     createdBy: string;
-    definition: string;
+    definitionText: string;
     publicCredit: boolean;
   }) {
     this.logger.log(`Adding definition to word: ${wordData.word}`);
@@ -231,8 +267,8 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         `
         MATCH (w:WordNode {word: $word})
         CREATE (d:DefinitionNode {
-          id: randomUUID(),
-          definition: $definition,
+          id: apoc.create.uuid(),
+          definitionText: $definitionText,
           createdBy: $createdBy,
           publicCredit: $publicCredit,
           createdAt: datetime(),
@@ -250,7 +286,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         `,
         {
           word: standardizedWord,
-          definition: wordData.definition,
+          definitionText: wordData.definitionText,
           createdBy: wordData.createdBy,
           publicCredit: wordData.publicCredit,
         },
@@ -258,11 +294,17 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
 
       const createdDefinition = result.records[0].get('d').properties;
 
-      await this.userSchema.addCreatedNode(
-        wordData.createdBy,
-        createdDefinition.id,
-        'definition',
-      );
+      // Only add to user tracking for non-API users
+      if (
+        wordData.createdBy !== 'FreeDictionaryAPI' &&
+        wordData.createdBy !== 'ProjectZeroAI'
+      ) {
+        await this.userSchema.addCreatedNode(
+          wordData.createdBy,
+          createdDefinition.id,
+          'definition',
+        );
+      }
 
       this.logger.log(
         `Successfully added definition: ${createdDefinition.id} to word: ${standardizedWord}`,
@@ -531,7 +573,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
   }
 
   // ❌ REMOVED: All voting methods now inherited from BaseNodeSchema
-  // - voteWordInclusion() -> use inherited voteInclusion()
+  // - voteWord() -> use inherited voteInclusion()
   // - getWordVoteStatus() -> use inherited getVoteStatus()
   // - removeWordVote() -> use inherited removeVote()
   // - getWordVotes() -> use inherited getVotes()
