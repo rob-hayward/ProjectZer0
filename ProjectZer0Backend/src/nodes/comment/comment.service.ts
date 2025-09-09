@@ -1,17 +1,15 @@
-// src/nodes/comment/comment.service.ts - CONVERTED TO BaseNodeSchema + VisibilityService
+// src/nodes/comment/comment.service.ts - FIXED FOR BaseNodeSchema Integration
 
 import {
   Injectable,
   Logger,
   HttpException,
   HttpStatus,
-  BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { CommentSchema } from '../../neo4j/schemas/comment.schema';
 import { VisibilityService } from '../../users/visibility/visibility.service';
 import { v4 as uuidv4 } from 'uuid';
-import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 @Injectable()
 export class CommentService {
@@ -29,43 +27,38 @@ export class CommentService {
     parentCommentId?: string;
   }) {
     if (!commentData.createdBy || commentData.createdBy.trim() === '') {
-      throw new HttpException('Created by is required', HttpStatus.BAD_REQUEST);
+      throw new HttpException('createdBy is required', HttpStatus.BAD_REQUEST);
     }
 
     if (!commentData.discussionId || commentData.discussionId.trim() === '') {
       throw new HttpException(
-        'Discussion ID is required',
+        'discussionId is required',
         HttpStatus.BAD_REQUEST,
       );
     }
 
     if (!commentData.commentText || commentData.commentText.trim() === '') {
       throw new HttpException(
-        'Comment text is required',
+        'commentText is required',
         HttpStatus.BAD_REQUEST,
       );
     }
 
-    this.logger.log(
+    this.logger.debug(
       `Creating comment for discussion: ${commentData.discussionId}`,
     );
 
     try {
+      // ✅ FIXED: Generate id and pass it to schema
       const commentWithId = {
         ...commentData,
         id: uuidv4(),
       };
 
-      const createdComment =
-        await this.commentSchema.createComment(commentWithId);
-
-      this.logger.log(`Successfully created comment: ${createdComment.id}`);
-      return createdComment;
+      const comment = await this.commentSchema.createComment(commentWithId);
+      this.logger.log(`Created comment: ${comment.id}`);
+      return comment;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
       this.logger.error(
         `Error creating comment: ${error.message}`,
         error.stack,
@@ -86,12 +79,12 @@ export class CommentService {
 
     try {
       const comment = await this.commentSchema.findById(id);
-
       if (!comment) {
         this.logger.debug(`Comment not found: ${id}`);
         return null;
       }
 
+      this.logger.debug(`Retrieved comment: ${id}`);
       return comment;
     } catch (error) {
       this.logger.error(`Error getting comment: ${error.message}`, error.stack);
@@ -102,52 +95,25 @@ export class CommentService {
     }
   }
 
-  async getCommentWithVisibility(commentId: string, userId?: string) {
-    const comment = await this.getComment(commentId);
-    if (!comment) return null;
-
-    try {
-      const isVisible = await this.visibilityService.getObjectVisibility(
-        userId || null,
-        commentId,
-        {
-          netVotes: comment.contentNetVotes, // ✅ FIXED: Use contentNetVotes from BaseNodeData
-          isVisible: undefined, // Let visibility be determined by votes and user preferences
-        },
-      );
-
-      return { ...comment, isVisible };
-    } catch (error) {
-      this.logger.error(
-        `Error getting comment visibility: ${error.message}`,
-        error.stack,
-      );
-      // Return comment without visibility info on error
-      return { ...comment, isVisible: true };
-    }
-  }
-
-  async updateComment(id: string, updateData: any) {
+  async updateComment(id: string, updateData: { commentText: string }) {
     if (!id || id.trim() === '') {
       throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!updateData.commentText || updateData.commentText.trim() === '') {
+      throw new HttpException(
+        'Comment text is required',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     this.logger.debug(`Updating comment: ${id}`);
 
     try {
       const updatedComment = await this.commentSchema.update(id, updateData);
-
-      if (!updatedComment) {
-        throw new NotFoundException(`Comment with ID ${id} not found`);
-      }
-
-      this.logger.debug(`Updated comment: ${id}`);
+      this.logger.log(`Updated comment: ${id}`);
       return updatedComment;
     } catch (error) {
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
       this.logger.error(
         `Error updating comment: ${error.message}`,
         error.stack,
@@ -168,7 +134,6 @@ export class CommentService {
 
     try {
       const result = await this.commentSchema.delete(id);
-
       this.logger.log(`Deleted comment: ${id}`);
       return result;
     } catch (error) {
@@ -183,13 +148,9 @@ export class CommentService {
     }
   }
 
-  // ✅ UPDATED: Use inherited BaseNodeSchema voting methods
-  async voteComment(
-    id: string,
-    userId: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
-    if (!id || id.trim() === '') {
+  // ✅ NEW: Missing method for comment controller
+  async canEditComment(commentId: string, userId: string): Promise<boolean> {
+    if (!commentId || commentId.trim() === '') {
       throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
     }
 
@@ -198,19 +159,48 @@ export class CommentService {
     }
 
     this.logger.debug(
-      `Voting on comment: ${id} by user: ${userId}, isPositive: ${isPositive}`,
+      `Checking if user ${userId} can edit comment ${commentId}`,
     );
 
     try {
-      // Comments use content voting (quality assessment)
-      const result = await this.commentSchema.voteContent(
-        id,
-        userId,
-        isPositive,
+      return await this.commentSchema.canEditComment(commentId, userId);
+    } catch (error) {
+      this.logger.error(
+        `Error checking edit permission: ${error.message}`,
+        error.stack,
       );
+      return false; // Default to false on error
+    }
+  }
 
-      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
-      return result;
+  // ✅ UPDATED: Content voting only (comments don't have inclusion voting)
+  async voteComment(
+    id: string,
+    userId: string,
+    isPositive: boolean,
+    kind: 'CONTENT',
+  ) {
+    if (!id || id.trim() === '') {
+      throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    if (kind !== 'CONTENT') {
+      throw new HttpException(
+        'Comments only support CONTENT voting',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(
+      `Voting ${isPositive ? 'positive' : 'negative'} on comment content: ${id}`,
+    );
+
+    try {
+      return await this.commentSchema.voteContent(id, userId, isPositive);
     } catch (error) {
       this.logger.error(
         `Error voting on comment: ${error.message}`,
@@ -223,10 +213,7 @@ export class CommentService {
     }
   }
 
-  async getCommentVoteStatus(
-    id: string,
-    userId: string,
-  ): Promise<VoteStatus | null> {
+  async getCommentVoteStatus(id: string, userId: string) {
     if (!id || id.trim() === '') {
       throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
     }
@@ -240,12 +227,7 @@ export class CommentService {
     );
 
     try {
-      const status = await this.commentSchema.getVoteStatus(id, userId);
-
-      this.logger.debug(
-        `Vote status for comment ${id} and user ${userId}: ${JSON.stringify(status)}`,
-      );
-      return status;
+      return await this.commentSchema.getVoteStatus(id, userId);
     } catch (error) {
       this.logger.error(
         `Error getting comment vote status: ${error.message}`,
@@ -258,7 +240,7 @@ export class CommentService {
     }
   }
 
-  async removeCommentVote(id: string, userId: string): Promise<VoteResult> {
+  async removeCommentVote(id: string, userId: string, kind: 'CONTENT') {
     if (!id || id.trim() === '') {
       throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
     }
@@ -267,13 +249,17 @@ export class CommentService {
       throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
     }
 
-    this.logger.debug(`Removing vote on comment: ${id} by user: ${userId}`);
+    if (kind !== 'CONTENT') {
+      throw new HttpException(
+        'Comments only support CONTENT voting',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    this.logger.debug(`Removing content vote from comment: ${id}`);
 
     try {
-      const result = await this.commentSchema.removeVote(id, userId, 'CONTENT');
-
-      this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
-      return result;
+      return await this.commentSchema.removeVote(id, userId, 'CONTENT');
     } catch (error) {
       this.logger.error(
         `Error removing comment vote: ${error.message}`,
@@ -286,7 +272,7 @@ export class CommentService {
     }
   }
 
-  async getCommentVotes(id: string): Promise<VoteResult | null> {
+  async getCommentVotes(id: string) {
     if (!id || id.trim() === '') {
       throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
     }
@@ -294,10 +280,7 @@ export class CommentService {
     this.logger.debug(`Getting votes for comment: ${id}`);
 
     try {
-      const votes = await this.commentSchema.getVotes(id);
-
-      this.logger.debug(`Votes for comment ${id}: ${JSON.stringify(votes)}`);
-      return votes;
+      return await this.commentSchema.getVotes(id);
     } catch (error) {
       this.logger.error(
         `Error getting comment votes: ${error.message}`,
@@ -329,16 +312,11 @@ export class CommentService {
     );
 
     try {
-      const result = await this.visibilityService.setUserVisibilityPreference(
+      return await this.visibilityService.setUserVisibilityPreference(
         userId,
         commentId,
         isVisible,
       );
-
-      this.logger.debug(
-        `Set visibility preference result: ${JSON.stringify(result)}`,
-      );
-      return result;
     } catch (error) {
       this.logger.error(
         `Error setting comment visibility preference: ${error.message}`,
@@ -370,22 +348,17 @@ export class CommentService {
         throw new NotFoundException(`Comment with ID ${commentId} not found`);
       }
 
-      const isVisible = await this.visibilityService.getObjectVisibility(
+      return await this.visibilityService.getObjectVisibility(
         userId || null,
         commentId,
         {
-          netVotes: commentData.contentNetVotes, // ✅ FIXED: Use contentNetVotes
-          isVisible: undefined, // Let visibility be determined by votes and user preferences
+          netVotes: commentData.contentNetVotes, // Comments use content votes for visibility
         },
       );
-
-      this.logger.debug(`Visibility for comment ${commentId}: ${isVisible}`);
-      return isVisible;
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
       }
-
       this.logger.error(
         `Error getting comment visibility: ${error.message}`,
         error.stack,
@@ -395,6 +368,16 @@ export class CommentService {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  async getCommentWithVisibility(id: string, userId?: string) {
+    const comment = await this.getComment(id);
+    if (!comment) {
+      return null;
+    }
+
+    const isVisible = await this.getCommentVisibilityForUser(id, userId);
+    return { ...comment, isVisible };
   }
 
   // ✅ PRESERVE: Unique comment functionality
@@ -411,7 +394,6 @@ export class CommentService {
     try {
       const comments =
         await this.commentSchema.getCommentsByDiscussionId(discussionId);
-
       this.logger.debug(
         `Retrieved ${comments.length} comments for discussion: ${discussionId}`,
       );
@@ -428,104 +410,41 @@ export class CommentService {
     }
   }
 
-  async getRepliesForComment(commentId: string) {
-    if (!commentId || commentId.trim() === '') {
-      throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
-    }
+  async getCommentsByDiscussionIdWithVisibility(
+    discussionId: string,
+    userId?: string,
+    sortBy: 'popularity' | 'newest' | 'oldest' = 'popularity',
+  ) {
+    const comments = await this.getCommentsByDiscussionId(discussionId);
 
-    this.logger.debug(`Getting replies for comment: ${commentId}`);
-
-    try {
-      const replies = await this.commentSchema.getRepliesForComment(commentId);
-
-      this.logger.debug(
-        `Retrieved ${replies.length} replies for comment: ${commentId}`,
-      );
-      return replies;
-    } catch (error) {
-      this.logger.error(
-        `Error getting replies for comment: ${error.message}`,
-        error.stack,
-      );
-      throw new HttpException(
-        `Failed to get replies for comment: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async getCommentHierarchy(discussionId: string) {
-    if (!discussionId || discussionId.trim() === '') {
-      throw new HttpException(
-        'Discussion ID is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(
-      `Getting comment hierarchy for discussion: ${discussionId}`,
+    // Add visibility to each comment
+    const commentsWithVisibility = await Promise.all(
+      comments.map(async (comment) => {
+        const isVisible = await this.getCommentVisibilityForUser(
+          comment.id,
+          userId,
+        );
+        return { ...comment, isVisible };
+      }),
     );
 
-    try {
-      const hierarchy =
-        await this.commentSchema.getCommentHierarchy(discussionId);
-
-      this.logger.debug(
-        `Retrieved comment hierarchy with ${hierarchy.length} root comments`,
-      );
-      return hierarchy;
-    } catch (error) {
-      this.logger.error(
-        `Error getting comment hierarchy: ${error.message}`,
-        error.stack,
-      );
-      throw new HttpException(
-        `Failed to get comment hierarchy: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  async updateCommentText(commentId: string, userId: string, newText: string) {
-    if (!commentId || commentId.trim() === '') {
-      throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
-    }
-
-    if (!userId || userId.trim() === '') {
-      throw new HttpException('User ID is required', HttpStatus.BAD_REQUEST);
-    }
-
-    if (!newText || newText.trim() === '') {
-      throw new HttpException(
-        'Comment text is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(`Updating comment text: ${commentId}`);
-
-    try {
-      const updatedComment = await this.commentSchema.updateCommentText(
-        commentId,
-        userId,
-        newText,
-      );
-
-      this.logger.log(`Updated comment text: ${commentId}`);
-      return updatedComment;
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error updating comment text: ${error.message}`,
-        error.stack,
-      );
-      throw new HttpException(
-        `Failed to update comment text: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+    // Sort comments based on sortBy parameter
+    switch (sortBy) {
+      case 'newest':
+        return commentsWithVisibility.sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+      case 'oldest':
+        return commentsWithVisibility.sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+      case 'popularity':
+      default:
+        return commentsWithVisibility.sort(
+          (a, b) => b.contentNetVotes - a.contentNetVotes,
+        );
     }
   }
 
@@ -540,7 +459,6 @@ export class CommentService {
     try {
       const stats =
         await this.commentSchema.getDiscussionCommentStats(discussionId);
-
       this.logger.debug(
         `Comment stats for discussion ${discussionId}: ${JSON.stringify(stats)}`,
       );
@@ -557,12 +475,79 @@ export class CommentService {
     }
   }
 
-  // ❌ REMOVED: Old voting methods (replaced by inherited methods)
-  // - voteCommentInclusion() -> Comments don't use inclusion voting
-  // - getCommentVotingData() -> now getCommentVotes() using schema.getVotes()
+  // ✅ NEW: Missing methods for comment hierarchy
+  async getCommentReplies(commentId: string, userId?: string) {
+    if (!commentId || commentId.trim() === '') {
+      throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
+    }
 
-  // ❌ REMOVED: Old visibility methods (replaced by VisibilityService)
-  // - setCommentVisibilityStatus() -> now setCommentVisibilityPreference()
-  // - getCommentVisibilityStatus() -> now getCommentVisibilityForUser()
-  // - updateVisibilityBasedOnVotes() -> handled by VisibilityService automatically
+    this.logger.debug(`Getting replies for comment: ${commentId}`);
+
+    try {
+      const replies = await this.commentSchema.getRepliesForComment(commentId);
+
+      // Add visibility to each reply
+      const repliesWithVisibility = await Promise.all(
+        replies.map(async (reply) => {
+          const isVisible = await this.getCommentVisibilityForUser(
+            reply.id,
+            userId,
+          );
+          return { ...reply, isVisible };
+        }),
+      );
+
+      this.logger.debug(
+        `Retrieved ${repliesWithVisibility.length} replies for comment: ${commentId}`,
+      );
+      return repliesWithVisibility;
+    } catch (error) {
+      this.logger.error(
+        `Error getting replies for comment: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get replies for comment: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async getCommentThread(commentId: string, userId?: string) {
+    if (!commentId || commentId.trim() === '') {
+      throw new HttpException('Comment ID is required', HttpStatus.BAD_REQUEST);
+    }
+
+    this.logger.debug(`Getting comment thread for: ${commentId}`);
+
+    try {
+      const rootComment = await this.getCommentWithVisibility(
+        commentId,
+        userId,
+      );
+      if (!rootComment) {
+        throw new NotFoundException(`Comment with ID ${commentId} not found`);
+      }
+
+      const replies = await this.getCommentReplies(commentId, userId);
+
+      return {
+        rootComment,
+        replies,
+        totalCount: replies.length + 1, // +1 for root comment
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      this.logger.error(
+        `Error getting comment thread: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get comment thread: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 }
