@@ -13,6 +13,7 @@ import {
   HttpException,
   HttpStatus,
   Query,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
@@ -144,7 +145,7 @@ export class WordController {
 
     this.logger.debug(`Getting word: ${word}`);
 
-    // ✅ UPDATED: Use new visibility-aware method
+    // Use new visibility-aware method
     const userId = req.user?.sub; // Optional for anonymous access
     const fetchedWord = await this.wordService.getWordWithVisibility(
       word.toLowerCase(),
@@ -153,7 +154,8 @@ export class WordController {
 
     if (!fetchedWord) {
       this.logger.debug(`Word not found: ${word}`);
-      return null;
+      // ✅ FIXED: Throw NotFoundException instead of returning null
+      throw new NotFoundException(`Word '${word}' not found`);
     }
 
     return fetchedWord;

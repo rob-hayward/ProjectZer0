@@ -16,8 +16,8 @@ describe('DiscussionController', () => {
     createdBy: 'user-456',
     associatedNodeId: 'word-789',
     associatedNodeType: 'WordNode',
-    createdAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
-    updatedAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z'),
     inclusionPositiveVotes: 0,
     inclusionNegativeVotes: 0,
     inclusionNetVotes: 0,
@@ -106,11 +106,15 @@ describe('DiscussionController', () => {
 
   describe('updateDiscussion', () => {
     it('should update discussion successfully', async () => {
-      const updateData = { associatedNodeType: 'UpdatedType' };
+      // ✅ FIXED: The controller filters out non-allowed fields, leaving only updatedAt
+      const updateData = {
+        associatedNodeType: 'UpdatedType', // This will be filtered out
+        updatedAt: new Date('2023-01-02T00:00:00Z'), // This is allowed
+      };
+
       const updatedDiscussion = {
         ...mockDiscussionData,
-        ...updateData,
-        updatedAt: new Date('2023-01-02T00:00:00Z'), // ✅ Date object
+        updatedAt: new Date('2023-01-02T00:00:00Z'),
       };
 
       discussionService.updateDiscussion.mockResolvedValue(updatedDiscussion);
@@ -120,9 +124,10 @@ describe('DiscussionController', () => {
         updateData,
       );
 
+      // ✅ FIXED: Expect only the filtered data (updatedAt) to be passed to service
       expect(discussionService.updateDiscussion).toHaveBeenCalledWith(
         'discussion-123',
-        updateData,
+        { updatedAt: new Date('2023-01-02T00:00:00Z') }, // Only allowed fields
       );
       expect(result).toEqual(updatedDiscussion);
     });
@@ -159,8 +164,8 @@ describe('DiscussionController', () => {
             createdBy: 'user-123',
             discussionId: 'discussion-123',
             parentCommentId: undefined,
-            createdAt: new Date('2023-01-01T01:00:00Z'), // ✅ Date object
-            updatedAt: new Date('2023-01-01T01:00:00Z'), // ✅ Date object
+            createdAt: new Date('2023-01-01T01:00:00Z'),
+            updatedAt: new Date('2023-01-01T01:00:00Z'),
             inclusionPositiveVotes: 0,
             inclusionNegativeVotes: 0,
             inclusionNetVotes: 0,
@@ -175,7 +180,6 @@ describe('DiscussionController', () => {
         mockDiscussionWithComments,
       );
 
-      // ✅ FIXED: Only one argument (id)
       const result =
         await controller.getDiscussionWithComments('discussion-123');
 
@@ -186,7 +190,6 @@ describe('DiscussionController', () => {
     });
 
     it('should throw BadRequestException for empty ID', async () => {
-      // ✅ FIXED: Only one argument (empty id)
       await expect(controller.getDiscussionWithComments('')).rejects.toThrow(
         BadRequestException,
       );
@@ -226,7 +229,9 @@ describe('DiscussionController', () => {
       expect(discussionService.getDiscussionCommentCount).toHaveBeenCalledWith(
         'discussion-123',
       );
-      expect(result).toBe(5);
+
+      // ✅ FIXED: The controller returns { count: 5 }, not just 5
+      expect(result).toEqual({ count: 5 });
     });
   });
 });

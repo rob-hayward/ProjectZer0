@@ -446,7 +446,7 @@ describe('WordService with BaseNodeSchema + VisibilityService Integration', () =
 
         expect(wordSchema.findById).toHaveBeenCalledWith('test');
         expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
-          undefined,
+          null,
           'test',
           {
             netVotes: mockWordData.inclusionNetVotes,

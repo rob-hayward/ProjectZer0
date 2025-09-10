@@ -1,6 +1,6 @@
-// src/neo4j/schemas/discussion.schema.ts - CONVERTED TO BaseNodeSchema
+// src/neo4j/schemas/discussion.schema.ts - FIXED VALIDATION ISSUES
 
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
 import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
@@ -71,6 +71,26 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     associatedNodeId: string;
     associatedNodeType: string;
   }): Promise<DiscussionData> {
+    // ✅ FIXED: Proper validation with BadRequestException
+    if (!discussionData.id || discussionData.id.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+    if (!discussionData.createdBy || discussionData.createdBy.trim() === '') {
+      throw new BadRequestException('Created by is required');
+    }
+    if (
+      !discussionData.associatedNodeId ||
+      discussionData.associatedNodeId.trim() === ''
+    ) {
+      throw new BadRequestException('Associated node ID is required');
+    }
+    if (
+      !discussionData.associatedNodeType ||
+      discussionData.associatedNodeType.trim() === ''
+    ) {
+      throw new BadRequestException('Associated node type is required');
+    }
+
     this.logger.log(`Creating discussion: ${discussionData.id}`);
 
     try {
@@ -83,6 +103,7 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
           associatedNodeType: $associatedNodeType,
           createdAt: datetime(),
           updatedAt: datetime(),
+          // Discussions don't have voting
           inclusionPositiveVotes: 0,
           inclusionNegativeVotes: 0,
           inclusionNetVotes: 0,
@@ -90,34 +111,20 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
           contentNegativeVotes: 0,
           contentNetVotes: 0
         })
-        RETURN d
+        RETURN d as n
         `,
         discussionData,
       );
 
-      const createdDiscussion = result.records[0].get('d').properties;
+      const createdDiscussion = this.mapNodeFromRecord(result.records[0]);
       this.logger.log(`Successfully created discussion: ${discussionData.id}`);
-
-      return {
-        id: createdDiscussion.id,
-        createdBy: createdDiscussion.createdBy,
-        associatedNodeId: createdDiscussion.associatedNodeId,
-        associatedNodeType: createdDiscussion.associatedNodeType,
-        createdAt: createdDiscussion.createdAt,
-        updatedAt: createdDiscussion.updatedAt,
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
+      return createdDiscussion;
     } catch (error) {
       this.logger.error(
         `Error creating discussion: ${error.message}`,
         error.stack,
       );
-      throw this.standardError('create', error);
+      throw this.standardError('create discussion', error);
     }
   }
 
@@ -125,8 +132,12 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     nodeId: string,
     nodeType: string,
   ): Promise<DiscussionData[]> {
-    if (!nodeId || !nodeType) {
-      throw new Error('Node ID and type are required');
+    // ✅ FIXED: Proper validation with BadRequestException
+    if (!nodeId || nodeId.trim() === '') {
+      throw new BadRequestException('Node ID is required');
+    }
+    if (!nodeType || nodeType.trim() === '') {
+      throw new BadRequestException('Node type is required');
     }
 
     this.logger.debug(`Getting discussions for ${nodeType}: ${nodeId}`);
@@ -135,14 +146,14 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DiscussionNode {associatedNodeId: $nodeId, associatedNodeType: $nodeType})
-        RETURN d
+        RETURN d as n
         ORDER BY d.createdAt DESC
         `,
         { nodeId, nodeType },
       );
 
       return result.records.map((record) => {
-        const discussion = record.get('d').properties;
+        const discussion = record.get('n').properties;
         return {
           id: discussion.id,
           createdBy: discussion.createdBy,
@@ -168,8 +179,9 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
   }
 
   async getDiscussionCommentCount(id: string): Promise<number> {
+    // ✅ FIXED: Proper validation with BadRequestException
     if (!id || id.trim() === '') {
-      throw new Error('Discussion ID is required');
+      throw new BadRequestException('Discussion ID is required');
     }
 
     try {
@@ -178,7 +190,7 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
         MATCH (d:DiscussionNode {id: $id})-[:HAS_COMMENT]->(c:CommentNode)
         RETURN COUNT(c) as commentCount
         `,
-        { id },
+        { id }, // ✅ FIXED: Parameter name should be 'id', not 'discussionId'
       );
 
       return parseInt(result.records[0].get('commentCount').toString());

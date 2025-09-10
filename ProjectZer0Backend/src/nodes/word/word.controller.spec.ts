@@ -1,4 +1,4 @@
-// src/nodes/word/word.controller.spec.ts - FIXED FOR NEW DiscussionData INTERFACE
+// src/nodes/word/word.controller.spec.ts - COMPLETE FIXED VERSION
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordController } from './word.controller';
@@ -45,18 +45,18 @@ describe('WordController with BaseNodeSchema Integration', () => {
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 3,
     definitions: [{ id: 'def-1', definitionText: 'First definition' }],
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z'),
   };
 
-  // ✅ FIXED: Complete CommentData with BaseNodeData properties
   const mockCommentData: CommentData = {
     id: 'comment-1',
     createdBy: 'user-123',
     discussionId: 'discussion-123',
     commentText: 'Test comment',
     parentCommentId: undefined,
-    createdAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
-    updatedAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
-    // BaseNodeData properties
+    createdAt: new Date('2023-01-01T00:00:00Z'),
+    updatedAt: new Date('2023-01-01T00:00:00Z'),
     inclusionPositiveVotes: 0,
     inclusionNegativeVotes: 0,
     inclusionNetVotes: 0,
@@ -66,10 +66,12 @@ describe('WordController with BaseNodeSchema Integration', () => {
   };
 
   beforeEach(async () => {
-    wordService = {
+    // ✅ FIXED: Complete mock setup with all required methods
+    const mockWordService = {
       checkWordExistence: jest.fn(),
       createWord: jest.fn(),
       getWord: jest.fn(),
+      getWordWithVisibility: jest.fn(), // ✅ ADDED: Missing method
       getAllWords: jest.fn(),
       updateWord: jest.fn(),
       deleteWord: jest.fn(),
@@ -78,11 +80,10 @@ describe('WordController with BaseNodeSchema Integration', () => {
       removeWordVote: jest.fn(),
       getWordVotes: jest.fn(),
       setWordVisibilityPreference: jest.fn(),
-      getWordVisibility: jest.fn(),
-      getUserWordVisibilityPreferences: jest.fn(),
-    } as any;
+      getWordVisibilityForUser: jest.fn(),
+    };
 
-    discussionService = {
+    const mockDiscussionService = {
       createDiscussion: jest.fn(),
       getDiscussion: jest.fn(),
       updateDiscussion: jest.fn(),
@@ -90,9 +91,9 @@ describe('WordController with BaseNodeSchema Integration', () => {
       getDiscussionsByAssociatedNode: jest.fn(),
       getDiscussionWithComments: jest.fn(),
       getDiscussionCommentCount: jest.fn(),
-    } as any;
+    };
 
-    commentService = {
+    const mockCommentService = {
       createComment: jest.fn(),
       getCommentsByDiscussionId: jest.fn(),
       updateComment: jest.fn(),
@@ -103,22 +104,22 @@ describe('WordController with BaseNodeSchema Integration', () => {
       getCommentVotes: jest.fn(),
       setCommentVisibilityPreference: jest.fn(),
       getCommentVisibility: jest.fn(),
-    } as any;
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WordController],
       providers: [
         {
           provide: WordService,
-          useValue: wordService,
+          useValue: mockWordService,
         },
         {
           provide: DiscussionService,
-          useValue: discussionService,
+          useValue: mockDiscussionService,
         },
         {
           provide: CommentService,
-          useValue: commentService,
+          useValue: mockCommentService,
         },
       ],
     }).compile();
@@ -186,22 +187,26 @@ describe('WordController with BaseNodeSchema Integration', () => {
   });
 
   describe('getWord', () => {
-    const mockReq = { user: { sub: 'user-123' } }; // ✅ Add request object
+    const mockReq = { user: { sub: 'user-123' } };
 
     it('should get word successfully', async () => {
-      wordService.getWord.mockResolvedValue(mockWordData);
+      // ✅ FIXED: Use getWordWithVisibility method
+      wordService.getWordWithVisibility.mockResolvedValue(mockWordData);
 
-      // ✅ Add mockReq parameter
       const result = await controller.getWord('test', mockReq);
 
-      expect(wordService.getWord).toHaveBeenCalledWith('test');
+      // ✅ FIXED: Expect getWordWithVisibility to be called with word and userId
+      expect(wordService.getWordWithVisibility).toHaveBeenCalledWith(
+        'test',
+        'user-123',
+      );
       expect(result).toEqual(mockWordData);
     });
 
     it('should throw HttpException when word not found', async () => {
-      wordService.getWord.mockResolvedValue(null);
+      // ✅ FIXED: Use getWordWithVisibility method
+      wordService.getWordWithVisibility.mockResolvedValue(null);
 
-      // ✅ Add mockReq parameter
       await expect(controller.getWord('nonexistent', mockReq)).rejects.toThrow(
         HttpException,
       );
@@ -234,14 +239,12 @@ describe('WordController with BaseNodeSchema Integration', () => {
   });
 
   describe('voteWord', () => {
-    // ✅ Change from 'voteWordInclusion' to 'voteWord'
     const mockReq = { user: { sub: 'user-456' } };
     const voteData = { isPositive: true };
 
     it('should vote on word inclusion successfully', async () => {
       wordService.voteWord.mockResolvedValue(mockVoteResult);
 
-      // ✅ Change method name from voteWordInclusion to voteWord
       const result = await controller.voteWord('test', voteData, mockReq);
 
       expect(wordService.voteWord).toHaveBeenCalledWith(
@@ -310,8 +313,8 @@ describe('WordController with BaseNodeSchema Integration', () => {
         createdBy: 'user-123',
         associatedNodeId: 'word-123',
         associatedNodeType: 'WordNode',
-        createdAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
-        updatedAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
+        createdAt: new Date('2023-01-01T00:00:00Z'),
+        updatedAt: new Date('2023-01-01T00:00:00Z'),
         inclusionPositiveVotes: 0,
         inclusionNegativeVotes: 0,
         inclusionNetVotes: 0,
@@ -320,15 +323,14 @@ describe('WordController with BaseNodeSchema Integration', () => {
         contentNetVotes: 0,
       };
 
-      // ✅ FIXED: Complete CommentData with proper Date objects
       const mockCreatedComment: CommentData = {
         ...mockCommentData,
         id: 'new-comment-123',
         createdBy: 'user-123',
         discussionId: 'new-discussion-123',
         commentText: 'Test comment',
-        createdAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
-        updatedAt: new Date('2023-01-01T00:00:00Z'), // ✅ Date object
+        createdAt: new Date('2023-01-01T00:00:00Z'),
+        updatedAt: new Date('2023-01-01T00:00:00Z'),
       };
 
       wordService.getWord.mockResolvedValue(mockWordWithoutDiscussion);
