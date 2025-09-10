@@ -1,26 +1,78 @@
-// src/neo4j/schemas/definition.schema.ts
-import {
-  Injectable,
-  BadRequestException,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common';
+// src/neo4j/schemas/definition.schema.ts - CONVERTED TO BaseNodeSchema
+
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
-import { UserSchema } from './user.schema';
 import { VoteSchema } from './vote.schema';
+import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { UserSchema } from './user.schema';
 import { VotingUtils } from '../../config/voting.config';
 import { TEXT_LIMITS } from '../../constants/validation';
-import type { VoteStatus, VoteResult } from './vote.schema';
+import { Record } from 'neo4j-driver';
+
+// Definition-specific data interface extending BaseNodeData
+export interface DefinitionData extends BaseNodeData {
+  word: string; // The word this definition belongs to
+  createdBy: string;
+  definitionText: string;
+  discussion?: string; // Optional discussion text
+}
 
 @Injectable()
-export class DefinitionSchema {
-  private readonly logger = new Logger(DefinitionSchema.name);
+export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
+  protected readonly nodeLabel = 'DefinitionNode';
+  protected readonly idField = 'id'; // Definitions use standard 'id' field
 
   constructor(
-    private readonly neo4jService: Neo4jService,
+    neo4jService: Neo4jService,
+    voteSchema: VoteSchema,
     private readonly userSchema: UserSchema,
-    private readonly voteSchema: VoteSchema,
-  ) {}
+  ) {
+    super(neo4jService, voteSchema, DefinitionSchema.name);
+  }
+
+  // IMPLEMENT: Abstract methods from BaseNodeSchema
+
+  protected supportsContentVoting(): boolean {
+    return true; // Definitions support both inclusion and content voting
+  }
+
+  protected mapNodeFromRecord(record: Record): DefinitionData {
+    const props = record.get('n').properties;
+    return {
+      id: props.id,
+      word: props.word,
+      createdBy: props.createdBy,
+      definitionText: props.definitionText,
+      discussion: props.discussion,
+      createdAt: props.createdAt,
+      updatedAt: props.updatedAt,
+      // Both inclusion and content voting
+      inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
+      inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
+      inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
+      contentPositiveVotes: this.toNumber(props.contentPositiveVotes),
+      contentNegativeVotes: this.toNumber(props.contentNegativeVotes),
+      contentNetVotes: this.toNumber(props.contentNetVotes),
+    };
+  }
+
+  protected buildUpdateQuery(id: string, data: Partial<DefinitionData>) {
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'id') // Don't update the id field
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
+
+    return {
+      cypher: `
+        MATCH (n:DefinitionNode {id: $id})
+        SET ${setClause}, n.updatedAt = datetime()
+        RETURN n
+      `,
+      params: { id, updateData: data },
+    };
+  }
+
+  // DEFINITION-SPECIFIC METHODS - Keep all unique functionality
 
   async createDefinition(definitionData: {
     id: string;
@@ -28,21 +80,28 @@ export class DefinitionSchema {
     createdBy: string;
     definitionText: string;
     discussion?: string;
-  }) {
+  }): Promise<DefinitionData> {
+    // Validate definition text length
+    if (
+      definitionData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
+    ) {
+      const errorMsg = `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`;
+      this.logger.warn(`Definition validation failed: ${errorMsg}`);
+      throw new BadRequestException(errorMsg);
+    }
+
+    // Additional definition-specific validations
+    if (
+      !definitionData.definitionText ||
+      definitionData.definitionText.trim() === ''
+    ) {
+      throw new BadRequestException('Definition text cannot be empty');
+    }
+
+    this.logger.log(`Creating definition for word: ${definitionData.word}`);
+    this.logger.debug(`Definition data: ${JSON.stringify(definitionData)}`);
+
     try {
-      // Validate definition text length
-      if (
-        definitionData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
-      ) {
-        const errorMsg = `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`;
-        this.logger.warn(`Definition validation failed: ${errorMsg}`);
-        throw new BadRequestException(errorMsg);
-      }
-
-      // Log the creation attempt
-      this.logger.log(`Creating definition for word: ${definitionData.word}`);
-      this.logger.debug(`Definition data: ${JSON.stringify(definitionData)}`);
-
       const isApiDefinition = definitionData.createdBy === 'FreeDictionaryAPI';
       const isAICreated = definitionData.createdBy === 'ProjectZeroAI';
 
@@ -64,6 +123,7 @@ export class DefinitionSchema {
         // Create Definition Node with dual voting
         CREATE (d:DefinitionNode {
             id: $id,
+            word: $word,
             definitionText: $definitionText,
             createdBy: $createdBy,
             createdAt: datetime(),
@@ -74,828 +134,174 @@ export class DefinitionSchema {
             inclusionNetVotes: 0,
             contentPositiveVotes: 0,
             contentNegativeVotes: 0,
-            contentNetVotes: 0,
-            visibilityStatus: true
+            contentNetVotes: 0
         })
-        CREATE (w)-[:HAS_DEFINITION]->(d)
-
-        // Create CREATED relationship only (no initial vote)
+        
+        // Create relationship to parent word
+        CREATE (d)-[:DEFINES]->(w)
+        
+        // Create user relationship for non-API definitions
         WITH d, $createdBy as userId
-        WHERE NOT $isApiDefinition AND NOT $isAICreated
+        WHERE userId <> 'FreeDictionaryAPI' AND userId <> 'ProjectZeroAI'
         MATCH (u:User {sub: userId})
         CREATE (u)-[:CREATED {
             createdAt: datetime(),
             type: 'definition'
         }]->(d)
-
-        // Create discussion node automatically
-        WITH DISTINCT d
+        
+        // Create discussion if provided
+        WITH d
+        WHERE $discussion IS NOT NULL AND size($discussion) > 0
         CREATE (disc:DiscussionNode {
           id: apoc.create.uuid(),
-          createdAt: datetime(),
           createdBy: $createdBy,
-          visibilityStatus: true
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          associatedNodeId: $id,
+          associatedNodeType: 'DefinitionNode'
         })
         CREATE (d)-[:HAS_DISCUSSION]->(disc)
         
-        // Create initial comment only if provided
-        WITH d, disc, $discussion as initialComment
-        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
-        CREATE (c:CommentNode {
-          id: apoc.create.uuid(),
-          createdBy: $createdBy,
-          commentText: initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          visibilityStatus: true,
-          parentCommentId: null
-        })
-        CREATE (disc)-[:HAS_COMMENT]->(c)
-
-        RETURN d
+        RETURN d as n
         `,
         {
           ...definitionData,
-          isApiDefinition,
-          isAICreated,
+          discussion: definitionData.discussion || null,
         },
       );
 
       if (!result.records || result.records.length === 0) {
         throw new Error(
-          `Failed to create definition for word: ${definitionData.word} - parent word may not exist or have not passed inclusion threshold`,
+          'Parent word not found or has not passed inclusion threshold',
         );
       }
 
-      const createdDefinition = result.records[0].get('d').properties;
-      this.logger.log(`Created definition with ID: ${createdDefinition.id}`);
-      this.logger.debug(
-        `Definition details: ${JSON.stringify(createdDefinition)}`,
-      );
+      const createdDefinition = this.mapNodeFromRecord(result.records[0]);
 
+      // Track user creation for non-API definitions
+      if (!isApiDefinition && !isAICreated) {
+        try {
+          await this.userSchema.addCreatedNode(
+            definitionData.createdBy,
+            definitionData.id,
+            'definition',
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Could not track user creation for definition ${definitionData.id}: ${error.message}`,
+          );
+        }
+      }
+
+      this.logger.log(`Successfully created definition: ${definitionData.id}`);
       return createdDefinition;
     } catch (error) {
-      // Re-throw BadRequestException since it's an expected error
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      // Handle Neo4j specific error for word not found
-      if (
-        error.message?.includes('not found') ||
-        error.message?.includes('not connected')
-      ) {
-        this.logger.error(
-          `Word not found or hasn't passed inclusion threshold: ${definitionData.word}`,
-        );
-        throw new BadRequestException(
-          `Word "${definitionData.word}" not found or hasn't passed inclusion threshold`,
-        );
-      }
-
       this.logger.error(
         `Error creating definition: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to create definition: ${error.message}`);
+      throw this.standardError('create definition', error);
     }
   }
 
-  async getDefinition(id: string) {
-    try {
-      this.logger.debug(`Retrieving definition: ${id}`);
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (d:DefinitionNode {id: $id})
-        // Get parent word
-        OPTIONAL MATCH (w:WordNode)-[:HAS_DEFINITION]->(d)
-        // Get discussion
-        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN d, w, disc.id as discussionId
-        `,
-        { id },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        this.logger.debug(`Definition not found: ${id}`);
-        return null;
-      }
-
-      const definition = result.records[0].get('d').properties;
-      const parentWord = result.records[0].get('w');
-      definition.parentWord = parentWord ? parentWord.properties : null;
-      definition.discussionId = result.records[0].get('discussionId');
-
-      // Convert Neo4j integers to JavaScript numbers
-      [
-        'inclusionPositiveVotes',
-        'inclusionNegativeVotes',
-        'inclusionNetVotes',
-        'contentPositiveVotes',
-        'contentNegativeVotes',
-        'contentNetVotes',
-      ].forEach((prop) => {
-        if (definition[prop] !== undefined) {
-          definition[prop] = this.toNumber(definition[prop]);
-        }
-      });
-
-      this.logger.debug(`Retrieved definition: ${JSON.stringify(definition)}`);
-      return definition;
-    } catch (error) {
-      this.logger.error(
-        `Error retrieving definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to retrieve definition: ${error.message}`);
-    }
-  }
-
-  async getDefinitionWithDiscussion(id: string) {
-    try {
-      this.logger.debug(`Retrieving definition with discussion: ${id}`);
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (d:DefinitionNode {id: $id})
-        // Get parent word
-        OPTIONAL MATCH (w:WordNode)-[:HAS_DEFINITION]->(d)
-        // Get discussion
-        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN d, w, disc
-        `,
-        { id },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        this.logger.debug(`Definition not found: ${id}`);
-        return null;
-      }
-
-      const definition = result.records[0].get('d').properties;
-      const parentWord = result.records[0].get('w');
-      const discussion = result.records[0].get('disc');
-
-      definition.parentWord = parentWord ? parentWord.properties : null;
-
-      if (discussion) {
-        definition.discussion = discussion.properties;
-        definition.discussionId = discussion.properties.id;
-      }
-
-      // Convert Neo4j integers to JavaScript numbers
-      [
-        'inclusionPositiveVotes',
-        'inclusionNegativeVotes',
-        'inclusionNetVotes',
-        'contentPositiveVotes',
-        'contentNegativeVotes',
-        'contentNetVotes',
-      ].forEach((prop) => {
-        if (definition[prop] !== undefined) {
-          definition[prop] = this.toNumber(definition[prop]);
-        }
-      });
-
-      this.logger.debug(
-        `Retrieved definition with discussion: ${JSON.stringify(definition)}`,
-      );
-      return definition;
-    } catch (error) {
-      this.logger.error(
-        `Error retrieving definition with discussion ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to retrieve definition with discussion: ${error.message}`,
-      );
-    }
-  }
-
-  async updateDefinition(
+  // Content voting with business logic validation
+  async voteContent(
     id: string,
-    updateData: {
-      definitionText?: string;
-      discussionId?: string;
-    },
-  ) {
-    try {
-      // Validate definition text length if provided
-      if (
-        updateData.definitionText &&
-        updateData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
-      ) {
-        const errorMsg = `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`;
-        this.logger.warn(`Definition update validation failed: ${errorMsg}`);
-        throw new BadRequestException(errorMsg);
-      }
-
-      this.logger.log(`Updating definition ${id}`);
-      this.logger.debug(`Update data: ${JSON.stringify(updateData)}`);
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (d:DefinitionNode {id: $id})
-        SET d += $updateData, d.updatedAt = datetime()
-        RETURN d
-        `,
-        { id, updateData },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        this.logger.warn(`Definition not found for update: ${id}`);
-        throw new NotFoundException(`Definition with ID ${id} not found`);
-      }
-
-      const updatedDefinition = result.records[0].get('d').properties;
-      this.logger.log(`Updated definition ${id}`);
-      this.logger.debug(
-        `Updated definition: ${JSON.stringify(updatedDefinition)}`,
-      );
-      return updatedDefinition;
-    } catch (error) {
-      // Re-throw BadRequestException and NotFoundException as they're expected errors
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error updating definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to update definition: ${error.message}`);
-    }
-  }
-
-  async updateDefinitionWithDiscussionId(
-    definitionId: string,
-    discussionId: string,
-  ) {
-    try {
-      this.logger.debug(
-        `Updating definition ${definitionId} with discussion ID ${discussionId}`,
-      );
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (d:DefinitionNode {id: $definitionId})
-        SET d.discussionId = $discussionId,
-            d.updatedAt = datetime()
-        RETURN d
-        `,
-        { definitionId, discussionId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(
-          `Definition with ID ${definitionId} not found`,
-        );
-      }
-
-      const updatedDefinition = result.records[0].get('d').properties;
-      this.logger.debug(
-        `Updated definition with discussion ID: ${JSON.stringify(updatedDefinition)}`,
-      );
-      return updatedDefinition;
-    } catch (error) {
-      this.logger.error(
-        `Error updating definition with discussion ID: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    }
-  }
-
-  async deleteDefinition(id: string) {
-    try {
-      this.logger.log(`Deleting definition: ${id}`);
-
-      const checkResult = await this.neo4jService.read(
-        `
-        MATCH (d:DefinitionNode {id: $id})
-        RETURN d
-        `,
-        { id },
-      );
-
-      if (!checkResult.records || checkResult.records.length === 0) {
-        this.logger.warn(`Definition not found for deletion: ${id}`);
-        throw new NotFoundException(`Definition with ID ${id} not found`);
-      }
-
-      // Delete definition and all related nodes (discussion, comments)
-      await this.neo4jService.write(
-        `
-        MATCH (d:DefinitionNode {id: $id})
-        // Get associated discussion and comments to delete as well
-        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        OPTIONAL MATCH (disc)-[:HAS_COMMENT]->(c:CommentNode)
-        // Delete everything
-        DETACH DELETE d, disc, c
-        `,
-        { id },
-      );
-
-      this.logger.log(`Successfully deleted definition: ${id}`);
-      return {
-        success: true,
-        message: `Definition ${id} deleted successfully`,
-      };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error deleting definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to delete definition: ${error.message}`);
-    }
-  }
-
-  // Voting methods - BOTH INCLUSION AND CONTENT for Definitions
-
-  async voteDefinitionInclusion(
-    id: string,
-    sub: string,
+    userId: string,
     isPositive: boolean,
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Processing inclusion vote on definition ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-      return await this.voteSchema.vote(
-        'DefinitionNode',
-        { id },
-        sub,
-        isPositive,
-        'INCLUSION',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to vote on definition: ${error.message}`);
-    }
-  }
+  ): Promise<any> {
+    this.validateId(id);
+    this.validateUserId(userId);
 
-  async voteDefinitionContent(
-    id: string,
-    sub: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Processing content vote on definition ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-      return await this.voteSchema.vote(
-        'DefinitionNode',
-        { id },
-        sub,
-        isPositive,
-        'CONTENT',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on definition content ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to vote on definition content: ${error.message}`);
-    }
-  }
-
-  async getDefinitionVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
-    try {
-      this.logger.debug(
-        `Getting vote status for definition ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.getVoteStatus('DefinitionNode', { id }, sub);
-    } catch (error) {
-      this.logger.error(
-        `Error getting vote status for definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get definition vote status: ${error.message}`);
-    }
-  }
-
-  async removeDefinitionVote(
-    id: string,
-    sub: string,
-    kind: 'INCLUSION' | 'CONTENT',
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Removing ${kind} vote from definition ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.removeVote(
-        'DefinitionNode',
-        { id },
-        sub,
-        kind,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error removing vote from definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to remove definition vote: ${error.message}`);
-    }
-  }
-
-  async getDefinitionVotes(id: string): Promise<VoteResult | null> {
-    try {
-      this.logger.debug(`Getting votes for definition ${id}`);
-
-      const voteStatus = await this.voteSchema.getVoteStatus(
-        'DefinitionNode',
-        { id },
-        '', // Empty string as we don't need user-specific status
-      );
-
-      if (!voteStatus) {
-        this.logger.debug(`No votes found for definition: ${id}`);
-        return null;
-      }
-
-      const votes = {
-        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
-        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
-        inclusionNetVotes: voteStatus.inclusionNetVotes,
-        contentPositiveVotes: voteStatus.contentPositiveVotes,
-        contentNegativeVotes: voteStatus.contentNegativeVotes,
-        contentNetVotes: voteStatus.contentNetVotes,
-      };
-
-      this.logger.debug(`Votes for definition ${id}: ${JSON.stringify(votes)}`);
-      return votes;
-    } catch (error) {
-      this.logger.error(
-        `Error getting votes for definition ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get definition votes: ${error.message}`);
-    }
-  }
-
-  async setVisibilityStatus(definitionId: string, isVisible: boolean) {
-    try {
-      this.logger.log(
-        `Setting visibility status for definition ${definitionId}: ${isVisible}`,
-      );
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (d:DefinitionNode {id: $definitionId})
-        SET d.visibilityStatus = $isVisible, d.updatedAt = datetime()
-        RETURN d
-        `,
-        { definitionId, isVisible },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        this.logger.warn(
-          `Definition not found for visibility update: ${definitionId}`,
-        );
-        throw new NotFoundException(
-          `Definition with ID ${definitionId} not found`,
-        );
-      }
-
-      const updatedDefinition = result.records[0].get('d').properties;
-      this.logger.log(`Updated definition visibility status to ${isVisible}`);
-      this.logger.debug(
-        `Updated definition: ${JSON.stringify(updatedDefinition)}`,
-      );
-      return updatedDefinition;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error setting visibility status for definition ${definitionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to set definition visibility status: ${error.message}`,
+    // Check if definition has passed inclusion threshold before allowing content voting
+    const definition = await this.findById(id);
+    if (
+      !definition ||
+      !VotingUtils.hasPassedInclusion(definition.inclusionNetVotes)
+    ) {
+      throw new BadRequestException(
+        'Definition must pass inclusion threshold before content voting is allowed',
       );
     }
+
+    // Call parent implementation
+    return super.voteContent(id, userId, isPositive);
   }
 
-  async getVisibilityStatus(definitionId: string): Promise<boolean> {
-    try {
-      this.logger.debug(
-        `Getting visibility status for definition ${definitionId}`,
-      );
+  // Additional definition-specific methods
+  async getDefinitionsByWord(word: string): Promise<DefinitionData[]> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word cannot be empty');
+    }
 
+    this.logger.debug(`Getting definitions for word: ${word}`);
+
+    try {
       const result = await this.neo4jService.read(
         `
-        MATCH (d:DefinitionNode {id: $definitionId})
-        RETURN d.visibilityStatus
+        MATCH (d:DefinitionNode {word: $word})
+        RETURN d as n
+        ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
-        { definitionId },
+        { word: word.toLowerCase() },
       );
 
-      if (!result.records || result.records.length === 0) {
-        this.logger.warn(
-          `Definition not found for visibility check: ${definitionId}`,
-        );
-        throw new NotFoundException(
-          `Definition with ID ${definitionId} not found`,
-        );
-      }
-
-      const visibilityStatus =
-        result.records[0]?.get('d.visibilityStatus') ?? true;
-      this.logger.debug(
-        `Visibility status for definition ${definitionId}: ${visibilityStatus}`,
-      );
-      return visibilityStatus;
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting visibility status for definition ${definitionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to get definition visibility status: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get all definitions for a specific word
-   */
-  async getDefinitionsForWord(
-    word: string,
-    options: {
-      sortBy?: 'newest' | 'oldest' | 'inclusion_votes' | 'content_votes';
-      sortDirection?: 'asc' | 'desc';
-      limit?: number;
-      offset?: number;
-      onlyApproved?: boolean;
-    } = {},
-  ) {
-    try {
-      const {
-        sortBy = 'content_votes',
-        sortDirection = 'desc',
-        limit = null,
-        offset = 0,
-        onlyApproved = false,
-      } = options;
-
-      this.logger.debug(`Getting definitions for word ${word}`);
-
-      let query = `
-        MATCH (w:WordNode {word: $word})
-        MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
-        WHERE d.visibilityStatus <> false OR d.visibilityStatus IS NULL
-      `;
-
-      if (onlyApproved) {
-        query += ` AND d.inclusionNetVotes > 0`;
-      }
-
-      // Add sorting
-      if (sortBy === 'newest') {
-        query += ` ORDER BY d.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'oldest') {
-        query += ` ORDER BY d.createdAt ${sortDirection === 'desc' ? 'ASC' : 'DESC'}`;
-      } else if (sortBy === 'inclusion_votes') {
-        query += ` ORDER BY d.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'content_votes') {
-        query += ` ORDER BY d.contentNetVotes ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      if (limit !== null) {
-        query += ` SKIP $offset LIMIT $limit`;
-      }
-
-      query += `
-        RETURN {
-          id: d.id,
-          definitionText: d.definitionText,
-          createdBy: d.createdBy,
-          createdAt: d.createdAt,
-          updatedAt: d.updatedAt,
-          inclusionPositiveVotes: d.inclusionPositiveVotes,
-          inclusionNegativeVotes: d.inclusionNegativeVotes,
-          inclusionNetVotes: d.inclusionNetVotes,
-          contentPositiveVotes: d.contentPositiveVotes,
-          contentNegativeVotes: d.contentNegativeVotes,
-          contentNetVotes: d.contentNetVotes
-        } as definition
-      `;
-
-      const result = await this.neo4jService.read(query, {
-        word,
-        offset,
-        limit,
-      });
-
-      const definitions = result.records.map((record) => {
-        const definition = record.get('definition');
-        // Convert Neo4j integers
-        [
-          'inclusionPositiveVotes',
-          'inclusionNegativeVotes',
-          'inclusionNetVotes',
-          'contentPositiveVotes',
-          'contentNegativeVotes',
-          'contentNetVotes',
-        ].forEach((prop) => {
-          if (definition[prop] !== undefined) {
-            definition[prop] = this.toNumber(definition[prop]);
-          }
-        });
-        return definition;
-      });
-
-      this.logger.debug(
-        `Retrieved ${definitions.length} definitions for word ${word}`,
-      );
-      return definitions;
+      return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
       this.logger.error(
         `Error getting definitions for word: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get definitions: ${error.message}`);
+      throw this.standardError('get definitions for word', error);
     }
   }
 
-  /**
-   * Check if a definition can be created for a word (word has passed inclusion threshold)
-   */
-  async canCreateDefinitionForWord(word: string): Promise<boolean> {
+  async getApprovedDefinitions(word: string): Promise<DefinitionData[]> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word cannot be empty');
+    }
+
+    this.logger.debug(`Getting approved definitions for word: ${word}`);
+
     try {
       const result = await this.neo4jService.read(
         `
-        MATCH (w:WordNode {word: $word})
-        RETURN w.inclusionNetVotes as inclusionNetVotes
+        MATCH (d:DefinitionNode {word: $word})
+        WHERE d.inclusionNetVotes > 0
+        RETURN d as n
+        ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
-        { word },
+        { word: word.toLowerCase() },
       );
 
-      if (!result.records || result.records.length === 0) {
-        return false;
-      }
-
-      const inclusionNetVotes = this.toNumber(
-        result.records[0].get('inclusionNetVotes'),
-      );
-      return VotingUtils.isDefinitionCreationAllowed(inclusionNetVotes);
-    } catch (error) {
-      this.logger.error(
-        `Error checking definition creation availability: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Get approved definitions (have passed inclusion threshold)
-   */
-  async getApprovedDefinitions(
-    options: {
-      limit?: number;
-      offset?: number;
-      sortBy?: 'content_votes' | 'created' | 'word';
-      sortDirection?: 'asc' | 'desc';
-    } = {},
-  ): Promise<any[]> {
-    try {
-      const {
-        limit = null,
-        offset = 0,
-        sortBy = 'content_votes',
-        sortDirection = 'desc',
-      } = options;
-
-      let query = `
-        MATCH (w:WordNode)-[:HAS_DEFINITION]->(d:DefinitionNode)
-        WHERE d.inclusionNetVotes > 0 
-        AND (d.visibilityStatus <> false OR d.visibilityStatus IS NULL)
-      `;
-
-      // Add sorting
-      if (sortBy === 'content_votes') {
-        query += ` ORDER BY d.contentNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'created') {
-        query += ` ORDER BY d.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'word') {
-        query += ` ORDER BY w.word ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      if (limit !== null) {
-        query += ` SKIP $offset LIMIT $limit`;
-      }
-
-      query += `
-        RETURN {
-          id: d.id,
-          definitionText: d.definitionText,
-          createdBy: d.createdBy,
-          createdAt: d.createdAt,
-          parentWord: w.word,
-          inclusionPositiveVotes: d.inclusionPositiveVotes,
-          inclusionNegativeVotes: d.inclusionNegativeVotes,
-          inclusionNetVotes: d.inclusionNetVotes,
-          contentPositiveVotes: d.contentPositiveVotes,
-          contentNegativeVotes: d.contentNegativeVotes,
-          contentNetVotes: d.contentNetVotes
-        } as definition
-      `;
-
-      const result = await this.neo4jService.read(query, { offset, limit });
-      const definitions = result.records.map((record) => {
-        const definition = record.get('definition');
-        // Convert Neo4j integers
-        [
-          'inclusionPositiveVotes',
-          'inclusionNegativeVotes',
-          'inclusionNetVotes',
-          'contentPositiveVotes',
-          'contentNegativeVotes',
-          'contentNetVotes',
-        ].forEach((prop) => {
-          if (definition[prop] !== undefined) {
-            definition[prop] = this.toNumber(definition[prop]);
-          }
-        });
-        return definition;
-      });
-
-      this.logger.debug(`Retrieved ${definitions.length} approved definitions`);
-      return definitions;
+      return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
       this.logger.error(
         `Error getting approved definitions: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get approved definitions: ${error.message}`);
+      throw this.standardError('get approved definitions', error);
     }
   }
 
-  /**
-   * Check total definition count for admin/stats purposes
-   */
-  async checkDefinitions(): Promise<{ count: number }> {
-    try {
-      this.logger.debug('Getting total definition count');
+  // ✅ INHERITED FROM BaseNodeSchema (No need to implement):
+  // - findById() -> replaces getDefinition()
+  // - update() -> replaces updateDefinition()
+  // - delete() -> replaces deleteDefinition()
+  // - voteInclusion() -> replaces voteDefinitionInclusion()
+  // - voteContent() -> replaces voteDefinitionContent() (with business logic override above)
+  // - getVoteStatus() -> replaces getDefinitionVoteStatus()
+  // - removeVote() -> replaces removeDefinitionVote()
+  // - getVotes() -> replaces getDefinitionVotes()
+  // - Standard validation, error handling, Neo4j utilities
 
-      const result = await this.neo4jService.read(
-        'MATCH (d:DefinitionNode) RETURN count(d) as count',
-      );
-
-      const count = this.toNumber(result.records[0].get('count'));
-      this.logger.debug(`Total definitions found: ${count}`);
-
-      return { count };
-    } catch (error) {
-      this.logger.error(
-        `Error checking definitions: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to check definitions: ${error.message}`);
-    }
-  }
-
-  /**
-   * Helper method to convert Neo4j integer values to JavaScript numbers
-   */
-  private toNumber(value: any): number {
-    if (value === null || value === undefined) {
-      return 0;
-    }
-
-    // Handle Neo4j integer objects
-    if (typeof value === 'object' && value !== null) {
-      if ('low' in value && typeof value.low === 'number') {
-        return Number(value.low);
-      } else if ('valueOf' in value && typeof value.valueOf === 'function') {
-        return Number(value.valueOf());
-      }
-    }
-
-    return Number(value);
-  }
+  // ❌ REMOVED METHODS (replaced by inherited BaseNodeSchema methods):
+  // - getDefinition() -> use findById()
+  // - updateDefinition() -> use update()
+  // - deleteDefinition() -> use delete()
+  // - voteDefinitionInclusion() -> use voteInclusion()
+  // - voteDefinitionContent() -> use voteContent()
+  // - getDefinitionVoteStatus() -> use getVoteStatus()
+  // - removeDefinitionVote() -> use removeVote()
+  // - getDefinitionVotes() -> use getVotes()
 }
