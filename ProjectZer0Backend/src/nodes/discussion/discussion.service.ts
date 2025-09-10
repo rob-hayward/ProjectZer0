@@ -1,4 +1,4 @@
-// src/nodes/discussion/discussion.service.ts - SIMPLIFIED CONTAINER
+// src/nodes/discussion/discussion.service.ts - UPDATED FOR BaseNodeSchema
 
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
@@ -101,6 +101,7 @@ export class DiscussionService {
     }
   }
 
+  // ✅ UPDATED: Use inherited findById() instead of getDiscussion()
   async getDiscussion(id: string) {
     if (!id || id.trim() === '') {
       throw new HttpException(
@@ -112,7 +113,7 @@ export class DiscussionService {
     this.logger.debug(`Getting discussion: ${id}`);
 
     try {
-      const discussion = await this.discussionSchema.getDiscussion(id);
+      const discussion = await this.discussionSchema.findById(id);
 
       if (!discussion) {
         this.logger.debug(`Discussion not found: ${id}`);
@@ -134,6 +135,7 @@ export class DiscussionService {
     }
   }
 
+  // ✅ UPDATED: Use inherited update() instead of updateDiscussion()
   async updateDiscussion(id: string, updateData: any) {
     if (!id || id.trim() === '') {
       throw new HttpException(
@@ -145,12 +147,19 @@ export class DiscussionService {
     this.logger.debug(`Updating discussion: ${id}`);
 
     try {
-      const updatedDiscussion = await this.discussionSchema.updateDiscussion(
+      const updatedDiscussion = await this.discussionSchema.update(
         id,
         updateData,
       );
 
-      this.logger.debug(`Updated discussion: ${id}`);
+      if (!updatedDiscussion) {
+        throw new HttpException(
+          `Discussion with ID ${id} not found`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+
+      this.logger.log(`Updated discussion: ${id}`);
       return updatedDiscussion;
     } catch (error) {
       this.logger.error(
@@ -158,11 +167,8 @@ export class DiscussionService {
         error.stack,
       );
 
-      if (error.message.includes('not found')) {
-        throw new HttpException(
-          `Discussion with ID ${id} not found`,
-          HttpStatus.NOT_FOUND,
-        );
+      if (error instanceof HttpException) {
+        throw error;
       }
 
       throw new HttpException(
@@ -172,6 +178,7 @@ export class DiscussionService {
     }
   }
 
+  // ✅ UPDATED: Use inherited delete() instead of deleteDiscussion()
   async deleteDiscussion(id: string) {
     if (!id || id.trim() === '') {
       throw new HttpException(
@@ -183,7 +190,7 @@ export class DiscussionService {
     this.logger.debug(`Deleting discussion: ${id}`);
 
     try {
-      const result = await this.discussionSchema.deleteDiscussion(id);
+      const result = await this.discussionSchema.delete(id);
 
       this.logger.log(`Deleted discussion: ${id}`);
       return result;
@@ -200,6 +207,7 @@ export class DiscussionService {
     }
   }
 
+  // ✅ PRESERVED: Unique container methods
   async getDiscussionsByAssociatedNode(nodeId: string, nodeType: string) {
     if (!nodeId || nodeId.trim() === '') {
       throw new HttpException('Node ID is required', HttpStatus.BAD_REQUEST);
@@ -246,12 +254,17 @@ export class DiscussionService {
     this.logger.debug(`Getting discussion with comments: ${id}`);
 
     try {
-      const discussion = await this.getDiscussion(id);
+      // Get the discussion using inherited method
+      const discussion = await this.discussionSchema.findById(id);
 
       if (!discussion) {
-        return null;
+        throw new HttpException(
+          `Discussion with ID ${id} not found`,
+          HttpStatus.NOT_FOUND,
+        );
       }
 
+      // Get comments for this discussion
       const comments = await this.commentService.getCommentsByDiscussionId(id);
 
       return {
@@ -264,6 +277,10 @@ export class DiscussionService {
         error.stack,
       );
 
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
       throw new HttpException(
         `Failed to get discussion with comments: ${error.message}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -271,7 +288,8 @@ export class DiscussionService {
     }
   }
 
-  async getDiscussionCommentCount(id: string): Promise<number> {
+  // ✅ PRESERVED: Comment count utility
+  async getDiscussionCommentCount(id: string) {
     if (!id || id.trim() === '') {
       throw new HttpException(
         'Discussion ID is required',
@@ -286,22 +304,15 @@ export class DiscussionService {
         `Error getting discussion comment count: ${error.message}`,
         error.stack,
       );
-      return 0; // Return 0 on error rather than throwing
+
+      throw new HttpException(
+        `Failed to get discussion comment count: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
-  // ❌ REMOVED: All voting methods - discussions don't need voting
-  // - voteDiscussion()
-  // - getDiscussionVoteStatus()
-  // - removeDiscussionVote()
-  // - getDiscussionVotes()
-
-  // ❌ REMOVED: All visibility methods - discussions don't need user visibility preferences
+  // ❌ REMOVED: Visibility methods are not needed for discussions
   // - setVisibilityStatus()
   // - getVisibilityStatus()
-
-  // Discussions are simple containers:
-  // - Visibility determined by associated node (e.g., if word is visible, its discussions are visible)
-  // - No community voting needed (discussions are just organizational containers)
-  // - User preferences handled at comment level, not discussion level
 }
