@@ -1,18 +1,31 @@
-// src/neo4j/schemas/quantity.schema.ts
+// src/neo4j/schemas/quantity.schema.ts - CONVERTED TO BaseNodeSchema
+
 import {
   Injectable,
-  Logger,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { VotingUtils } from '../../config/voting.config';
+import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
 import { UnitService } from '../../units/unit.service';
+import { VotingUtils } from '../../config/voting.config';
 import { v4 as uuidv4 } from 'uuid';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
-import type { VoteStatus, VoteResult } from './vote.schema';
+import { Record } from 'neo4j-driver';
 
+// Quantity-specific data interface extending BaseNodeData
+export interface QuantityData extends BaseNodeData {
+  createdBy: string;
+  publicCredit: boolean;
+  question: string;
+  unitCategoryId: string;
+  defaultUnitId: string;
+  responseCount: number;
+  // Note: Only inclusion voting, no content voting (uses quantity responses instead)
+}
+
+// Quantity response interface (separate from voting)
 export interface QuantityNodeResponse {
   id: string;
   userId: string;
@@ -25,6 +38,7 @@ export interface QuantityNodeResponse {
   normalizedValue: number;
 }
 
+// Statistics interface for quantity analysis - FIXED TYPE ISSUES
 export interface QuantityNodeStats {
   responseCount: number;
   min: number;
@@ -32,24 +46,71 @@ export interface QuantityNodeStats {
   mean: number;
   median: number;
   standardDeviation: number;
-  percentiles: Record<number, number>;
+  percentiles: { [key: number]: number }; // Fixed: Simple object type instead of Record
   distributionCurve: number[][];
   responses?: QuantityNodeResponse[];
 }
 
 @Injectable()
-export class QuantitySchema {
-  private readonly logger = new Logger(QuantitySchema.name);
+export class QuantitySchema extends BaseNodeSchema<QuantityData> {
+  protected readonly nodeLabel = 'QuantityNode';
+  protected readonly idField = 'id'; // Quantities use standard 'id' field
 
   constructor(
-    private readonly neo4jService: Neo4jService,
-    private readonly voteSchema: VoteSchema,
+    neo4jService: Neo4jService,
+    voteSchema: VoteSchema,
     private readonly unitService: UnitService,
-  ) {}
+  ) {
+    super(neo4jService, voteSchema, QuantitySchema.name);
+  }
 
-  /**
-   * Create a new quantity node
-   */
+  // IMPLEMENT: Abstract methods from BaseNodeSchema
+
+  protected supportsContentVoting(): boolean {
+    return false; // Quantities use numeric responses, not binary content voting
+  }
+
+  protected mapNodeFromRecord(record: Record): QuantityData {
+    const props = record.get('n').properties;
+    return {
+      id: props.id,
+      createdBy: props.createdBy,
+      publicCredit: props.publicCredit,
+      question: props.question,
+      unitCategoryId: props.unitCategoryId,
+      defaultUnitId: props.defaultUnitId,
+      responseCount: this.toNumber(props.responseCount),
+      createdAt: props.createdAt,
+      updatedAt: props.updatedAt,
+      // Only inclusion voting (no content voting)
+      inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
+      inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
+      inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
+      // Content voting disabled for quantities
+      contentPositiveVotes: 0,
+      contentNegativeVotes: 0,
+      contentNetVotes: 0,
+    };
+  }
+
+  protected buildUpdateQuery(id: string, data: Partial<QuantityData>) {
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'id') // Don't update the id field
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
+
+    return {
+      cypher: `
+        MATCH (n:QuantityNode {id: $id})
+        SET ${setClause}, n.updatedAt = datetime()
+        RETURN n
+      `,
+      params: { id, updateData: data },
+    };
+  }
+
+  // QUANTITY-SPECIFIC METHODS - Keep all unique functionality
+
   async createQuantityNode(quantityData: {
     id: string;
     createdBy: string;
@@ -60,7 +121,7 @@ export class QuantitySchema {
     categoryIds?: string[];
     keywords?: KeywordWithFrequency[];
     initialComment?: string;
-  }) {
+  }): Promise<QuantityData> {
     try {
       // Validate unit category and default unit
       if (
@@ -85,7 +146,7 @@ export class QuantitySchema {
       this.logger.debug(`Quantity data: ${JSON.stringify(quantityData)}`);
 
       let query = `
-        // Create the quantity node with both inclusion and content voting
+        // Create the quantity node with inclusion voting only (no content voting)
         CREATE (q:QuantityNode {
           id: $id,
           createdBy: $createdBy,
@@ -96,13 +157,10 @@ export class QuantitySchema {
           createdAt: datetime(),
           updatedAt: datetime(),
           responseCount: 0,
-          // Both inclusion and content voting
+          // Only inclusion voting
           inclusionPositiveVotes: 0,
           inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0
+          inclusionNetVotes: 0
         })
       `;
 
@@ -138,76 +196,54 @@ export class QuantitySchema {
           source: keyword.source
         }]->(w)
         
-        // Connect to other quantity nodes that share this keyword
-        WITH q, w, keyword
-        OPTIONAL MATCH (o:QuantityNode)-[t:TAGGED]->(w)
-        WHERE o.id <> q.id
-        
-        // Create SHARED_TAG relationships between quantity nodes
-        FOREACH (dummy IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
-          MERGE (q)-[st:SHARED_TAG {word: w.word}]->(o)
-          ON CREATE SET st.strength = keyword.frequency * t.frequency
-          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-        )
+        // Create SHARED_TAG relationship to enable discovery
+        CREATE (q)-[:SHARED_TAG]->(w)
         `;
       }
 
-      // Create discussion node and initial comment if provided
-      query += `
-        // Create CREATED relationship for user-created content
-        WITH q, $createdBy as userId
-        MATCH (u:User {sub: userId})
-        CREATE (u)-[:CREATED {
-            createdAt: datetime(),
-            type: 'quantity'
-        }]->(q)
-        
-        // Create discussion node automatically
-        WITH DISTINCT q
-        CREATE (d:DiscussionNode {
-          id: apoc.create.uuid(),
+      // Always create discussion if comment provided
+      if (quantityData.initialComment) {
+        query += `
+        WITH q
+        CREATE (q)-[:HAS_DISCUSSION]->(d:DiscussionNode {
+          id: 'discussion-' + q.id,
+          createdBy: $createdBy,
+          associatedNodeId: q.id,
+          associatedNodeType: 'QuantityNode',
           createdAt: datetime(),
-          createdBy: $createdBy,
-          visibilityStatus: true
+          updatedAt: datetime()
         })
-        CREATE (q)-[:HAS_DISCUSSION]->(d)
         
-        // Create initial comment only if provided
-        WITH q, d, $initialComment as initialComment
-        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
-        CREATE (c:CommentNode {
-          id: apoc.create.uuid(),
+        CREATE (d)-[:HAS_COMMENT]->(c:CommentNode {
+          id: 'comment-' + apoc.create.uuid(),
           createdBy: $createdBy,
-          commentText: initialComment,
+          discussionId: d.id,
+          commentText: $initialComment,
           createdAt: datetime(),
           updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          visibilityStatus: true
+          contentPositiveVotes: 0,
+          contentNegativeVotes: 0,
+          contentNetVotes: 0
         })
-        CREATE (d)-[:HAS_COMMENT]->(c)
-        
+        `;
+      }
+
+      query += `
+        WITH q
         RETURN q
       `;
 
-      // Prepare parameters
-      const params: any = {
+      const params = {
         id: quantityData.id,
         createdBy: quantityData.createdBy,
         publicCredit: quantityData.publicCredit,
         question: quantityData.question,
         unitCategoryId: quantityData.unitCategoryId,
         defaultUnitId: quantityData.defaultUnitId,
-        initialComment: quantityData.initialComment || null,
+        categoryIds: quantityData.categoryIds || [],
+        keywords: quantityData.keywords || [],
+        initialComment: quantityData.initialComment,
       };
-
-      if (quantityData.categoryIds && quantityData.categoryIds.length > 0) {
-        params.categoryIds = quantityData.categoryIds;
-      }
-
-      if (quantityData.keywords && quantityData.keywords.length > 0) {
-        params.keywords = quantityData.keywords;
-      }
 
       const result = await this.neo4jService.write(query, params);
 
@@ -217,27 +253,19 @@ export class QuantitySchema {
         );
       }
 
-      const createdQuantityNode = result.records[0].get('q').properties;
-      this.logger.log(
-        `Successfully created quantity node with ID: ${createdQuantityNode.id}`,
-      );
-      this.logger.debug(
-        `Created quantity node: ${JSON.stringify(createdQuantityNode)}`,
-      );
-
-      return createdQuantityNode;
+      const createdNode = this.mapNodeFromRecord(result.records[0]);
+      this.logger.log(`Successfully created quantity node: ${createdNode.id}`);
+      return createdNode;
     } catch (error) {
       this.logger.error(
         `Error creating quantity node: ${error.message}`,
         error.stack,
       );
 
-      // Handle specific error cases
       if (error instanceof BadRequestException) {
         throw error;
       }
 
-      // Handle the specific case of missing dependencies
       if (
         error.message &&
         error.message.includes('some dependencies may not exist')
@@ -247,36 +275,31 @@ export class QuantitySchema {
         );
       }
 
-      throw new Error(`Failed to create quantity node: ${error.message}`);
+      throw this.standardError('create quantity node', error);
     }
   }
 
-  /**
-   * Get a quantity node by ID
-   */
-  async getQuantityNode(id: string) {
+  // Override findById to include quantity-specific data
+  async findById(id: string): Promise<QuantityData | null> {
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID cannot be empty');
-      }
+      this.validateId(id);
 
       this.logger.debug(`Retrieving quantity node with ID: ${id}`);
 
       const result = await this.neo4jService.read(
         `
-        MATCH (q:QuantityNode {id: $id})
+        MATCH (n:QuantityNode {id: $id})
         
         // Get keywords
-        OPTIONAL MATCH (q)-[t:TAGGED]->(w:WordNode)
+        OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)
         
         // Get categories
-        OPTIONAL MATCH (q)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode)
         
         // Get discussion
-        OPTIONAL MATCH (q)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         
-        // Get statistics
-        WITH q, d, 
+        WITH n, d, 
              collect(DISTINCT {
                word: w.word, 
                frequency: t.frequency,
@@ -288,7 +311,7 @@ export class QuantitySchema {
                inclusionNetVotes: cat.inclusionNetVotes
              }) as categories
         
-        RETURN q,
+        RETURN n,
                keywords,
                categories,
                d.id as discussionId
@@ -301,25 +324,12 @@ export class QuantitySchema {
         return null;
       }
 
-      const quantityNode = result.records[0].get('q').properties;
-      quantityNode.keywords = result.records[0].get('keywords');
-      quantityNode.categories = result.records[0].get('categories');
-      quantityNode.discussionId = result.records[0].get('discussionId');
-
-      // Convert Neo4j integers to JavaScript numbers
-      [
-        'responseCount',
-        'inclusionPositiveVotes',
-        'inclusionNegativeVotes',
-        'inclusionNetVotes',
-        'contentPositiveVotes',
-        'contentNegativeVotes',
-        'contentNetVotes',
-      ].forEach((prop) => {
-        if (quantityNode[prop] !== undefined) {
-          quantityNode[prop] = this.toNumber(quantityNode[prop]);
-        }
-      });
+      const quantityNode = this.mapNodeFromRecord(result.records[0]);
+      // Attach additional data from the query
+      (quantityNode as any).keywords = result.records[0].get('keywords');
+      (quantityNode as any).categories = result.records[0].get('categories');
+      (quantityNode as any).discussionId =
+        result.records[0].get('discussionId');
 
       this.logger.debug(`Retrieved quantity node with ID: ${id}`);
       return quantityNode;
@@ -328,18 +338,11 @@ export class QuantitySchema {
         `Error retrieving quantity node ${id}: ${error.message}`,
         error.stack,
       );
-
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      throw new Error(`Failed to retrieve quantity node: ${error.message}`);
+      throw this.standardError('retrieve quantity node', error);
     }
   }
 
-  /**
-   * Update a quantity node
-   */
+  // Complex update with unit validation
   async updateQuantityNode(
     id: string,
     updateData: Partial<{
@@ -350,11 +353,9 @@ export class QuantitySchema {
       categoryIds: string[];
       keywords: KeywordWithFrequency[];
     }>,
-  ) {
+  ): Promise<QuantityData> {
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID cannot be empty');
-      }
+      this.validateId(id);
 
       // Validate category count if updating categories
       if (updateData.categoryIds && updateData.categoryIds.length > 3) {
@@ -380,7 +381,7 @@ export class QuantitySchema {
         }
       } else if (updateData.unitCategoryId) {
         // If only category is changing, need to get current default unit to validate
-        const currentNode = await this.getQuantityNode(id);
+        const currentNode = await this.findById(id);
         if (!currentNode) {
           throw new NotFoundException(`Quantity node with ID ${id} not found`);
         }
@@ -397,7 +398,7 @@ export class QuantitySchema {
         }
       } else if (updateData.defaultUnitId) {
         // If only default unit is changing, need to get current category to validate
-        const currentNode = await this.getQuantityNode(id);
+        const currentNode = await this.findById(id);
         if (!currentNode) {
           throw new NotFoundException(`Quantity node with ID ${id} not found`);
         }
@@ -414,135 +415,93 @@ export class QuantitySchema {
         }
       }
 
-      // Complex update with keywords and/or categories
+      // For simple property updates, use the base class update method
       if (
-        (updateData.keywords && updateData.keywords.length > 0) ||
-        updateData.categoryIds !== undefined
+        !updateData.keywords?.length &&
+        updateData.categoryIds === undefined
       ) {
-        let query = `
-          // Match the quantity node to update
-          MATCH (q:QuantityNode {id: $id})
-          
-          // Set updated properties
-          SET q += $updateProperties,
-              q.updatedAt = datetime()
-        `;
-
-        // Handle category updates
-        if (updateData.categoryIds !== undefined) {
-          query += `
-          // Remove existing CATEGORIZED_AS relationships
-          WITH q
-          OPTIONAL MATCH (q)-[catRel:CATEGORIZED_AS]->()
-          DELETE catRel
-          
-          // Create new category relationships if provided
-          WITH q, $categoryIds as categoryIds
-          WHERE size(categoryIds) > 0
-          UNWIND categoryIds as categoryId
-          MATCH (cat:CategoryNode {id: categoryId})
-          WHERE cat.inclusionNetVotes > 0
-          CREATE (q)-[:CATEGORIZED_AS]->(cat)
-          
-          WITH q, collect(cat) as validCategories, categoryIds
-          WHERE size(validCategories) = size(categoryIds) OR size(categoryIds) = 0
-          `;
-        }
-
-        // Handle keyword updates
-        if (updateData.keywords && updateData.keywords.length > 0) {
-          query += `
-          // Remove existing TAGGED and SHARED_TAG relationships
-          WITH q
-          OPTIONAL MATCH (q)-[tagRel:TAGGED]->()
-          OPTIONAL MATCH (q)-[sharedRel:SHARED_TAG]->()
-          DELETE tagRel, sharedRel
-          
-          // Process updated keywords
-          WITH q
-          UNWIND $keywords as keyword
-          
-          // Find word node for each keyword
-          MATCH (w:WordNode {word: keyword.word})
-          
-          // Create new TAGGED relationship
-          CREATE (q)-[:TAGGED {
-            frequency: keyword.frequency,
-            source: keyword.source
-          }]->(w)
-          
-          // Reconnect to other quantity nodes that share this keyword
-          WITH q, w, keyword
-          OPTIONAL MATCH (o:QuantityNode)-[t:TAGGED]->(w)
-          WHERE o.id <> q.id
-          
-          // Create new SHARED_TAG relationships
-          FOREACH (dummy IN CASE WHEN o IS NOT NULL THEN [1] ELSE [] END |
-            MERGE (q)-[st:SHARED_TAG {word: w.word}]->(o)
-            ON CREATE SET st.strength = keyword.frequency * t.frequency
-            ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
-          )
-          `;
-        }
-
-        query += ` RETURN q`;
-
-        const result = await this.neo4jService.write(query, {
-          id,
-          updateProperties: {
-            question: updateData.question,
-            unitCategoryId: updateData.unitCategoryId,
-            defaultUnitId: updateData.defaultUnitId,
-            publicCredit: updateData.publicCredit,
-            updatedAt: new Date().toISOString(),
-          },
-          categoryIds: updateData.categoryIds || [],
-          keywords: updateData.keywords || [],
-        });
-
-        if (!result.records || result.records.length === 0) {
-          throw new NotFoundException(`Quantity node with ID ${id} not found`);
-        }
-
-        const updatedQuantityNode = result.records[0].get('q').properties;
-        this.logger.log(`Successfully updated quantity node with ID: ${id}`);
-        this.logger.debug(
-          `Updated quantity node: ${JSON.stringify(updatedQuantityNode)}`,
-        );
-
-        return updatedQuantityNode;
-      } else {
-        // Simple update without changing relationships
-        const result = await this.neo4jService.write(
-          `
-          MATCH (q:QuantityNode {id: $id})
-          SET q += $updateProperties,
-              q.updatedAt = datetime()
-          RETURN q
-          `,
-          {
-            id,
-            updateProperties: {
-              question: updateData.question,
-              unitCategoryId: updateData.unitCategoryId,
-              defaultUnitId: updateData.defaultUnitId,
-              publicCredit: updateData.publicCredit,
-            },
-          },
-        );
-
-        if (!result.records || result.records.length === 0) {
-          throw new NotFoundException(`Quantity node with ID ${id} not found`);
-        }
-
-        const updatedQuantityNode = result.records[0].get('q').properties;
-        this.logger.log(`Successfully updated quantity node with ID: ${id}`);
-        this.logger.debug(
-          `Updated quantity node: ${JSON.stringify(updatedQuantityNode)}`,
-        );
-
-        return updatedQuantityNode;
+        return await this.update(id, updateData);
       }
+
+      // Complex update with keywords and/or categories
+      let query = `
+        // Match the quantity node to update
+        MATCH (q:QuantityNode {id: $id})
+        
+        // Set updated properties
+        SET q += $updateProperties,
+            q.updatedAt = datetime()
+      `;
+
+      // Handle category updates
+      if (updateData.categoryIds !== undefined) {
+        query += `
+        // Remove existing CATEGORIZED_AS relationships
+        WITH q
+        OPTIONAL MATCH (q)-[catRel:CATEGORIZED_AS]->()
+        DELETE catRel
+        
+        // Create new category relationships if provided
+        WITH q, $categoryIds as categoryIds
+        WHERE size(categoryIds) > 0
+        UNWIND categoryIds as categoryId
+        MATCH (cat:CategoryNode {id: categoryId})
+        WHERE cat.inclusionNetVotes > 0
+        CREATE (q)-[:CATEGORIZED_AS]->(cat)
+        
+        WITH q, collect(cat) as validCategories, categoryIds
+        WHERE size(validCategories) = size(categoryIds) OR size(categoryIds) = 0
+        `;
+      }
+
+      // Handle keyword updates
+      if (updateData.keywords && updateData.keywords.length > 0) {
+        query += `
+        // Remove existing TAGGED and SHARED_TAG relationships
+        WITH q
+        OPTIONAL MATCH (q)-[tagRel:TAGGED]->()
+        DELETE tagRel
+        OPTIONAL MATCH (q)-[shareRel:SHARED_TAG]->()
+        DELETE shareRel
+        
+        // Create new keyword relationships
+        WITH q
+        UNWIND $keywords as keyword
+        MATCH (w:WordNode {word: keyword.word})
+        CREATE (q)-[:TAGGED {
+          frequency: keyword.frequency,
+          source: keyword.source
+        }]->(w)
+        CREATE (q)-[:SHARED_TAG]->(w)
+        `;
+      }
+
+      query += `
+        WITH q
+        RETURN q as n
+      `;
+
+      // Prepare update properties (exclude complex fields)
+      const updateProperties = { ...updateData };
+      delete updateProperties.categoryIds;
+      delete updateProperties.keywords;
+
+      const params = {
+        id,
+        updateProperties,
+        categoryIds: updateData.categoryIds || [],
+        keywords: updateData.keywords || [],
+      };
+
+      const result = await this.neo4jService.write(query, params);
+
+      if (!result.records || result.records.length === 0) {
+        throw new NotFoundException(`Quantity node with ID ${id} not found`);
+      }
+
+      const updatedNode = this.mapNodeFromRecord(result.records[0]);
+      this.logger.log(`Successfully updated quantity node: ${id}`);
+      return updatedNode;
     } catch (error) {
       this.logger.error(
         `Error updating quantity node ${id}: ${error.message}`,
@@ -556,70 +515,11 @@ export class QuantitySchema {
         throw error;
       }
 
-      throw new Error(`Failed to update quantity node: ${error.message}`);
+      throw this.standardError('update quantity node', error);
     }
   }
 
-  /**
-   * Delete a quantity node
-   */
-  async deleteQuantityNode(id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID cannot be empty');
-      }
-
-      this.logger.log(`Deleting quantity node with ID: ${id}`);
-
-      // First check if the quantity node exists
-      const checkResult = await this.neo4jService.read(
-        `MATCH (q:QuantityNode {id: $id}) RETURN q`,
-        { id },
-      );
-
-      if (!checkResult.records || checkResult.records.length === 0) {
-        throw new NotFoundException(`Quantity node with ID ${id} not found`);
-      }
-
-      // Delete the quantity node and all its relationships
-      await this.neo4jService.write(
-        `
-        MATCH (q:QuantityNode {id: $id})
-        
-        // Get associated discussion and comments to delete as well
-        OPTIONAL MATCH (q)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
-        
-        // Also get all responses to delete
-        OPTIONAL MATCH (q)<-[:RESPONSE_TO]-(r:QuantityResponseNode)
-        
-        // Delete everything
-        DETACH DELETE q, d, c, r
-        `,
-        { id },
-      );
-
-      this.logger.log(`Successfully deleted quantity node with ID: ${id}`);
-      return {
-        success: true,
-        message: `Quantity node with ID ${id} successfully deleted`,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Error deleting quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      throw new Error(`Failed to delete quantity node: ${error.message}`);
-    }
-  }
+  // QUANTITY RESPONSE METHODS - Core unique functionality
 
   /**
    * Submit a response to a quantity node (requires inclusion threshold)
@@ -637,19 +537,15 @@ export class QuantitySchema {
       this.logger.debug(`Response data: ${JSON.stringify(responseData)}`);
 
       // First validate that the quantity node exists and get its category
-      const quantityNode = await this.getQuantityNode(
-        responseData.quantityNodeId,
-      );
+      const quantityNode = await this.findById(responseData.quantityNodeId);
       if (!quantityNode) {
         throw new NotFoundException(
           `Quantity node with ID ${responseData.quantityNodeId} not found`,
         );
       }
 
-      // Check if quantity node has passed inclusion threshold
-      if (
-        !VotingUtils.isNumericResponseAllowed(quantityNode.inclusionNetVotes)
-      ) {
+      // Check if quantity node has passed inclusion threshold - FIXED
+      if (!VotingUtils.hasPassedInclusion(quantityNode.inclusionNetVotes)) {
         throw new BadRequestException(
           'Quantity node must pass inclusion threshold before numeric responses are allowed',
         );
@@ -800,7 +696,7 @@ export class QuantitySchema {
   }
 
   /**
-   * Get a user's response to a quantity node
+   * Get user's response to a quantity node
    */
   async getUserResponse(
     userId: string,
@@ -808,7 +704,7 @@ export class QuantitySchema {
   ): Promise<QuantityNodeResponse | null> {
     try {
       this.logger.debug(
-        `Getting response for user ${userId} on quantity node ${quantityNodeId}`,
+        `Getting user response for user ${userId} on quantity node ${quantityNodeId}`,
       );
 
       const result = await this.neo4jService.read(
@@ -832,15 +728,12 @@ export class QuantitySchema {
         { userId, quantityNodeId },
       );
 
-      if (
-        !result.records ||
-        result.records.length === 0 ||
-        !result.records[0].get('response')
-      ) {
+      if (!result.records || result.records.length === 0) {
         return null;
       }
 
-      return result.records[0].get('response');
+      const response = result.records[0].get('response');
+      return response || null;
     } catch (error) {
       this.logger.error(
         `Error getting user response: ${error.message}`,
@@ -851,7 +744,7 @@ export class QuantitySchema {
   }
 
   /**
-   * Delete a user's response to a quantity node
+   * Delete user's response to a quantity node
    */
   async deleteUserResponse(
     userId: string,
@@ -859,7 +752,7 @@ export class QuantitySchema {
   ): Promise<boolean> {
     try {
       this.logger.log(
-        `Deleting response for user ${userId} on quantity node ${quantityNodeId}`,
+        `Deleting user response for user ${userId} on quantity node ${quantityNodeId}`,
       );
 
       const result = await this.neo4jService.write(
@@ -868,22 +761,31 @@ export class QuantitySchema {
         MATCH (q:QuantityNode {id: $quantityNodeId})
         OPTIONAL MATCH (u)-[r:RESPONSE_TO]->(q)
         
-        WITH u, q, r
-        WHERE r IS NOT NULL
+        WITH r, q, CASE WHEN r IS NOT NULL THEN true ELSE false END as found
         
+        // Delete the response if it exists
         DELETE r
         
-        // Decrement response count on the quantity node
-        SET q.responseCount = COALESCE(q.responseCount, 1) - 1
+        // Decrement response count on the quantity node if response was found
+        SET q.responseCount = CASE 
+          WHEN found THEN COALESCE(q.responseCount, 1) - 1 
+          ELSE COALESCE(q.responseCount, 0) 
+        END
         
-        RETURN count(r) > 0 as deleted
+        RETURN found
         `,
         { userId, quantityNodeId },
       );
 
-      const deleted = result.records[0].get('deleted');
+      const deleted =
+        result.records && result.records.length > 0
+          ? result.records[0].get('found')
+          : false;
 
       if (deleted) {
+        this.logger.log(
+          `Successfully deleted user response for user ${userId} on quantity node ${quantityNodeId}`,
+        );
         // Recalculate statistics for the quantity node
         await this.recalculateStatistics(quantityNodeId);
       }
@@ -940,7 +842,7 @@ export class QuantitySchema {
         `Error getting all responses: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get responses: ${error.message}`);
+      throw new Error(`Failed to get all responses: ${error.message}`);
     }
   }
 
@@ -964,7 +866,7 @@ export class QuantitySchema {
           mean: 0,
           median: 0,
           standardDeviation: 0,
-          percentiles: {},
+          percentiles: {}, // Fixed: Simple object instead of Record type
           distributionCurve: [],
           responses: [], // Include empty responses array
         };
@@ -987,22 +889,29 @@ export class QuantitySchema {
           : sorted[Math.floor(sorted.length / 2)];
 
       // Calculate standard deviation
-      const squaredDifferences = normalizedValues.map((v) =>
-        Math.pow(v - mean, 2),
-      );
       const variance =
-        squaredDifferences.reduce((acc, val) => acc + val, 0) /
-        normalizedValues.length;
+        normalizedValues.reduce(
+          (acc, val) => acc + Math.pow(val - mean, 2),
+          0,
+        ) / normalizedValues.length;
       const standardDeviation = Math.sqrt(variance);
 
-      // Calculate percentiles (25th, 50th, 75th, 90th, 95th, 99th)
-      const percentiles: Record<number, number> = {};
-      [25, 50, 75, 90, 95, 99].forEach((p) => {
-        const index = Math.ceil((p / 100) * sorted.length) - 1;
-        percentiles[p] = sorted[Math.min(index, sorted.length - 1)];
+      // Calculate percentiles - FIXED TYPE
+      const percentiles: { [key: number]: number } = {};
+      [10, 25, 50, 75, 90, 95, 99].forEach((p) => {
+        const index = (p / 100) * (sorted.length - 1);
+        if (Number.isInteger(index)) {
+          percentiles[p] = sorted[index];
+        } else {
+          const lower = Math.floor(index);
+          const upper = Math.ceil(index);
+          const weight = index - lower;
+          percentiles[p] =
+            sorted[lower] * (1 - weight) + sorted[upper] * weight;
+        }
       });
 
-      // Generate distribution curve data
+      // Generate distribution curve
       const distributionCurve = this.generateNormalDistributionCurve(
         mean,
         standardDeviation,
@@ -1017,42 +926,48 @@ export class QuantitySchema {
         standardDeviation,
         percentiles,
         distributionCurve,
-        responses: responses, // Include the raw responses array
+        responses, // Include all responses
       };
     } catch (error) {
       this.logger.error(
         `Error getting statistics: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get statistics: ${error.message}`);
+      throw new Error(`Failed to get quantity statistics: ${error.message}`);
     }
   }
 
   /**
-   * Recalculate and store statistics for a quantity node
+   * Recalculate and update statistics for a quantity node
    */
   private async recalculateStatistics(quantityNodeId: string): Promise<void> {
     try {
-      const stats = await this.getStatistics(quantityNodeId);
+      this.logger.debug(
+        `Recalculating statistics for quantity node ${quantityNodeId}`,
+      );
 
-      // Store basic statistics directly on the quantity node for quick access
+      // Get all responses and calculate new statistics
+      const responses = await this.getAllResponses(quantityNodeId);
+
+      if (responses.length === 0) {
+        // If no responses, reset statistics
+        await this.neo4jService.write(
+          `
+          MATCH (q:QuantityNode {id: $quantityNodeId})
+          SET q.responseCount = 0
+          `,
+          { quantityNodeId },
+        );
+        return;
+      }
+
+      // Update response count (should already be accurate, but ensure consistency)
       await this.neo4jService.write(
         `
         MATCH (q:QuantityNode {id: $quantityNodeId})
-        SET q.min = $min,
-            q.max = $max,
-            q.mean = $mean,
-            q.median = $median,
-            q.standardDeviation = $standardDeviation
+        SET q.responseCount = $responseCount
         `,
-        {
-          quantityNodeId,
-          min: stats.min,
-          max: stats.max,
-          mean: stats.mean,
-          median: stats.median,
-          standardDeviation: stats.standardDeviation,
-        },
+        { quantityNodeId, responseCount: responses.length },
       );
 
       this.logger.debug(
@@ -1060,15 +975,15 @@ export class QuantitySchema {
       );
     } catch (error) {
       this.logger.error(
-        `Error recalculating statistics: ${error.message}`,
+        `Error recalculating statistics for quantity node ${quantityNodeId}: ${error.message}`,
         error.stack,
       );
-      // Don't throw, as this is a background operation
+      // Don't throw - this is a background operation
     }
   }
 
   /**
-   * Generate data points for a normal distribution curve based on statistics
+   * Generate normal distribution curve based on statistics
    */
   private generateNormalDistributionCurve(
     mean: number,
@@ -1098,244 +1013,15 @@ export class QuantitySchema {
     return result;
   }
 
-  // Voting methods - BOTH INCLUSION AND CONTENT for Quantity nodes
-
-  async voteQuantityInclusion(
-    id: string,
-    sub: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Processing inclusion vote on quantity node ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-      return await this.voteSchema.vote(
-        'QuantityNode',
-        { id },
-        sub,
-        isPositive,
-        'INCLUSION',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to vote on quantity node: ${error.message}`);
-    }
-  }
-
-  async voteQuantityContent(
-    id: string,
-    sub: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Processing content vote on quantity node ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-      return await this.voteSchema.vote(
-        'QuantityNode',
-        { id },
-        sub,
-        isPositive,
-        'CONTENT',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on quantity node content ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to vote on quantity node content: ${error.message}`,
-      );
-    }
-  }
-
-  async getQuantityVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
-    try {
-      this.logger.debug(
-        `Getting vote status for quantity node ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.getVoteStatus('QuantityNode', { id }, sub);
-    } catch (error) {
-      this.logger.error(
-        `Error getting vote status for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(
-        `Failed to get quantity node vote status: ${error.message}`,
-      );
-    }
-  }
-
-  async removeQuantityVote(
-    id: string,
-    sub: string,
-    kind: 'INCLUSION' | 'CONTENT',
-  ): Promise<VoteResult> {
-    try {
-      this.logger.log(
-        `Removing ${kind} vote from quantity node ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.removeVote(
-        'QuantityNode',
-        { id },
-        sub,
-        kind,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error removing vote from quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to remove quantity node vote: ${error.message}`);
-    }
-  }
-
-  async getQuantityVotes(id: string): Promise<VoteResult | null> {
-    try {
-      this.logger.debug(`Getting votes for quantity node ${id}`);
-
-      const voteStatus = await this.voteSchema.getVoteStatus(
-        'QuantityNode',
-        { id },
-        '',
-      );
-      if (!voteStatus) {
-        return null;
-      }
-
-      return {
-        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
-        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
-        inclusionNetVotes: voteStatus.inclusionNetVotes,
-        contentPositiveVotes: voteStatus.contentPositiveVotes,
-        contentNegativeVotes: voteStatus.contentNegativeVotes,
-        contentNetVotes: voteStatus.contentNetVotes,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Error getting votes for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get quantity node votes: ${error.message}`);
-    }
-  }
-
-  // Visibility methods
-
-  async setVisibilityStatus(quantityNodeId: string, isVisible: boolean) {
-    try {
-      if (!quantityNodeId || quantityNodeId.trim() === '') {
-        throw new BadRequestException('Quantity node ID cannot be empty');
-      }
-
-      this.logger.log(
-        `Setting visibility for quantity node ${quantityNodeId}: ${isVisible}`,
-      );
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (q:QuantityNode {id: $quantityNodeId})
-        SET q.visibilityStatus = $isVisible,
-            q.updatedAt = datetime()
-        RETURN q
-        `,
-        { quantityNodeId, isVisible },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(
-          `Quantity node with ID ${quantityNodeId} not found`,
-        );
-      }
-
-      const updatedNode = result.records[0].get('q').properties;
-      this.logger.log(
-        `Successfully updated visibility for quantity node ${quantityNodeId}`,
-      );
-
-      return updatedNode;
-    } catch (error) {
-      this.logger.error(
-        `Error setting visibility for quantity node ${quantityNodeId}: ${error.message}`,
-        error.stack,
-      );
-
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      throw new Error(`Failed to set visibility status: ${error.message}`);
-    }
-  }
-
-  async getVisibilityStatus(quantityNodeId: string) {
-    try {
-      if (!quantityNodeId || quantityNodeId.trim() === '') {
-        throw new BadRequestException('Quantity node ID cannot be empty');
-      }
-
-      this.logger.debug(
-        `Getting visibility status for quantity node ${quantityNodeId}`,
-      );
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (q:QuantityNode {id: $quantityNodeId})
-        RETURN q.visibilityStatus
-        `,
-        { quantityNodeId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(
-          `Quantity node with ID ${quantityNodeId} not found`,
-        );
-      }
-
-      const visibilityStatus =
-        result.records[0]?.get('q.visibilityStatus') ?? true;
-      this.logger.debug(
-        `Visibility status for quantity node ${quantityNodeId}: ${visibilityStatus}`,
-      );
-
-      return visibilityStatus;
-    } catch (error) {
-      this.logger.error(
-        `Error getting visibility status for quantity node ${quantityNodeId}: ${error.message}`,
-        error.stack,
-      );
-
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      throw new Error(`Failed to get visibility status: ${error.message}`);
-    }
-  }
-
   /**
    * Check if numeric responses are allowed (quantity node has passed inclusion threshold)
    */
   async isNumericResponseAllowed(quantityNodeId: string): Promise<boolean> {
     try {
-      const quantityNode = await this.getQuantityNode(quantityNodeId);
+      const quantityNode = await this.findById(quantityNodeId);
       if (!quantityNode) return false;
 
-      return VotingUtils.isNumericResponseAllowed(
-        quantityNode.inclusionNetVotes,
-      );
+      return VotingUtils.hasPassedInclusion(quantityNode.inclusionNetVotes);
     } catch (error) {
       this.logger.error(
         `Error checking numeric response availability: ${error.message}`,
@@ -1352,148 +1038,66 @@ export class QuantitySchema {
   async getRelatedContentBySharedCategories(
     nodeId: string,
     options: {
-      nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
+      nodeTypes?: string[];
       limit?: number;
-      offset?: number;
-      sortBy?:
-        | 'category_overlap'
-        | 'created'
-        | 'inclusion_votes'
-        | 'content_votes';
-      sortDirection?: 'asc' | 'desc';
-      excludeSelf?: boolean;
-      minCategoryOverlap?: number;
+      includeStats?: boolean;
     } = {},
   ): Promise<any[]> {
     try {
       const {
-        nodeTypes,
+        nodeTypes = ['QuantityNode'],
         limit = 10,
-        offset = 0,
-        sortBy = 'category_overlap',
-        sortDirection = 'desc',
-        excludeSelf = true,
-        minCategoryOverlap = 1,
+        includeStats = false,
       } = options;
 
       this.logger.debug(
         `Getting related content by shared categories for quantity node ${nodeId}`,
       );
 
-      let query = `
-        MATCH (current:QuantityNode {id: $nodeId})
-        MATCH (current)-[:CATEGORIZED_AS]->(sharedCat:CategoryNode)
-        MATCH (related)-[:CATEGORIZED_AS]->(sharedCat)
-        WHERE (related.visibilityStatus <> false OR related.visibilityStatus IS NULL)
-      `;
-
-      // Exclude self if requested
-      if (excludeSelf) {
-        query += ` AND related.id <> $nodeId`;
+      let nodeTypeFilter = '';
+      if (nodeTypes.length > 0) {
+        const labels = nodeTypes
+          .map((type) => `labels(related) CONTAINS '${type}'`)
+          .join(' OR ');
+        nodeTypeFilter = `WHERE (${labels}) AND related.id <> $nodeId`;
       }
 
-      // Add node type filter if specified
-      if (nodeTypes && nodeTypes.length > 0) {
-        const nodeLabels = nodeTypes
-          .map((type) => {
-            switch (type) {
-              case 'statement':
-                return 'StatementNode';
-              case 'answer':
-                return 'AnswerNode';
-              case 'openquestion':
-                return 'OpenQuestionNode';
-              case 'quantity':
-                return 'QuantityNode';
-              default:
-                return null;
-            }
-          })
-          .filter(Boolean);
-
-        if (nodeLabels.length > 0) {
-          query += ` AND (${nodeLabels.map((label) => `related:${label}`).join(' OR ')})`;
+      const query = `
+        MATCH (q:QuantityNode {id: $nodeId})-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        MATCH (related)-[:CATEGORIZED_AS]->(cat)
+        ${nodeTypeFilter}
+        
+        // Count shared categories
+        WITH related, COUNT(DISTINCT cat) as sharedCategoryCount
+        
+        ${
+          includeStats
+            ? `
+        // Get statistics if requested
+        OPTIONAL MATCH (related:QuantityNode)
+        WITH related, sharedCategoryCount, related.responseCount as responseCount
+        `
+            : `
+        WITH related, sharedCategoryCount
+        `
         }
-      } else {
-        query += ` AND (related:StatementNode OR related:AnswerNode OR related:OpenQuestionNode OR related:QuantityNode)`;
-      }
-
-      // Group by related node and count category overlaps
-      query += `
-        WITH related,
-             count(DISTINCT sharedCat) as categoryOverlap,
-             collect(DISTINCT {
-               id: sharedCat.id, 
-               name: sharedCat.name
-             }) as sharedCategories
-        WHERE categoryOverlap >= $minCategoryOverlap
+        
+        RETURN related, 
+               sharedCategoryCount
+               ${includeStats ? ', responseCount' : ''}
+        ORDER BY sharedCategoryCount DESC, related.inclusionNetVotes DESC
+        LIMIT $limit
       `;
 
-      // Add sorting
-      if (sortBy === 'category_overlap') {
-        query += ` ORDER BY categoryOverlap ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'created') {
-        query += ` ORDER BY related.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'inclusion_votes') {
-        query += ` ORDER BY related.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'content_votes') {
-        query += ` ORDER BY COALESCE(related.contentNetVotes, 0) ${sortDirection.toUpperCase()}`;
-      }
+      const result = await this.neo4jService.read(query, { nodeId, limit });
 
-      // Add pagination
-      query += ` SKIP $offset LIMIT $limit`;
-
-      // Return formatted results
-      query += `
-        RETURN {
-          id: related.id,
-          type: CASE 
-            WHEN related:StatementNode THEN 'statement'
-            WHEN related:AnswerNode THEN 'answer' 
-            WHEN related:OpenQuestionNode THEN 'openquestion'
-            WHEN related:QuantityNode THEN 'quantity'
-            ELSE 'unknown'
-          END,
-          content: CASE
-            WHEN related:StatementNode THEN related.statement
-            WHEN related:AnswerNode THEN related.answerText
-            WHEN related:OpenQuestionNode THEN related.questionText  
-            WHEN related:QuantityNode THEN related.question
-            ELSE null
-          END,
-          createdBy: related.createdBy,
-          createdAt: related.createdAt,
-          inclusionNetVotes: related.inclusionNetVotes,
-          contentNetVotes: COALESCE(related.contentNetVotes, 0),
-          categoryOverlap: categoryOverlap,
-          sharedCategories: sharedCategories
-        } as relatedNode
-      `;
-
-      const result = await this.neo4jService.read(query, {
-        nodeId,
-        offset,
-        limit,
-        minCategoryOverlap,
-      });
-
-      const relatedNodes = result.records.map((record) => {
-        const node = record.get('relatedNode');
-        // Convert Neo4j integers
-        ['inclusionNetVotes', 'contentNetVotes', 'categoryOverlap'].forEach(
-          (prop) => {
-            if (node[prop] !== undefined) {
-              node[prop] = this.toNumber(node[prop]);
-            }
-          },
-        );
-        return node;
-      });
-
-      this.logger.debug(
-        `Found ${relatedNodes.length} related nodes by shared categories`,
-      );
-      return relatedNodes;
+      return result.records.map((record) => ({
+        node: record.get('related').properties,
+        sharedCategoryCount: this.toNumber(record.get('sharedCategoryCount')),
+        ...(includeStats && {
+          responseCount: this.toNumber(record.get('responseCount')) || 0,
+        }),
+      }));
     } catch (error) {
       this.logger.error(
         `Error getting related content by shared categories: ${error.message}`,
@@ -1504,84 +1108,93 @@ export class QuantitySchema {
   }
 
   /**
-   * Get all categories associated with this quantity node
+   * Get quantity nodes by unit category
    */
-  async getNodeCategories(quantityNodeId: string): Promise<any[]> {
+  async getQuantityNodesByUnitCategory(
+    unitCategoryId: string,
+    options: {
+      limit?: number;
+      sortBy?: 'netVotes' | 'responseCount' | 'recent';
+      includeStats?: boolean;
+    } = {},
+  ): Promise<any[]> {
     try {
+      const { limit = 20, sortBy = 'netVotes', includeStats = false } = options;
+
       this.logger.debug(
-        `Getting categories for quantity node ${quantityNodeId}`,
+        `Getting quantity nodes by unit category: ${unitCategoryId}`,
       );
 
-      const result = await this.neo4jService.read(
-        `
-        MATCH (q:QuantityNode {id: $quantityNodeId})
-        MATCH (q)-[:CATEGORIZED_AS]->(c:CategoryNode)
-        
-        // Get parent hierarchy for each category
-        OPTIONAL MATCH path = (root:CategoryNode)-[:PARENT_OF*]->(c)
-        WHERE NOT EXISTS((other:CategoryNode)-[:PARENT_OF]->(root))
-        
-        RETURN collect({
-          id: c.id,
-          name: c.name,
-          description: c.description,
-          inclusionNetVotes: c.inclusionNetVotes,
-          path: CASE 
-            WHEN path IS NOT NULL 
-            THEN [node IN nodes(path) | {id: node.id, name: node.name}]
-            ELSE [{id: c.id, name: c.name}]
-          END
-        }) as categories
-        `,
-        { quantityNodeId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return [];
+      let orderClause = '';
+      switch (sortBy) {
+        case 'netVotes':
+          orderClause = 'ORDER BY q.inclusionNetVotes DESC';
+          break;
+        case 'responseCount':
+          orderClause = 'ORDER BY q.responseCount DESC';
+          break;
+        case 'recent':
+          orderClause = 'ORDER BY q.createdAt DESC';
+          break;
       }
 
-      const categories = result.records[0].get('categories');
-
-      // Convert Neo4j integers
-      categories.forEach((category) => {
-        if (category.inclusionNetVotes !== undefined) {
-          category.inclusionNetVotes = this.toNumber(
-            category.inclusionNetVotes,
-          );
+      const query = `
+        MATCH (q:QuantityNode {unitCategoryId: $unitCategoryId})
+        WHERE q.inclusionNetVotes > 0
+        
+        ${
+          includeStats
+            ? `
+        // Get response statistics if requested
+        OPTIONAL MATCH (q)<-[r:RESPONSE_TO]-()
+        WITH q, COUNT(r) as actualResponseCount
+        `
+            : `
+        WITH q
+        `
         }
+        
+        RETURN q
+               ${includeStats ? ', actualResponseCount' : ''}
+        ${orderClause}
+        LIMIT $limit
+      `;
+
+      const result = await this.neo4jService.read(query, {
+        unitCategoryId,
+        limit,
       });
 
-      this.logger.debug(
-        `Retrieved ${categories.length} categories for quantity node ${quantityNodeId}`,
-      );
-      return categories;
+      return result.records.map((record) => {
+        const node = record.get('q').properties;
+        // Convert Neo4j integers
+        [
+          'responseCount',
+          'inclusionPositiveVotes',
+          'inclusionNegativeVotes',
+          'inclusionNetVotes',
+        ].forEach((prop) => {
+          if (node[prop] !== undefined) {
+            node[prop] = this.toNumber(node[prop]);
+          }
+        });
+
+        return {
+          ...node,
+          ...(includeStats && {
+            actualResponseCount:
+              this.toNumber(record.get('actualResponseCount')) || 0,
+          }),
+        };
+      });
     } catch (error) {
       this.logger.error(
-        `Error getting quantity node categories: ${error.message}`,
+        `Error getting quantity nodes by unit category: ${error.message}`,
         error.stack,
       );
       throw new Error(
-        `Failed to get quantity node categories: ${error.message}`,
+        `Failed to get quantity nodes by unit category: ${error.message}`,
       );
     }
-  }
-
-  /**
-   * Helper method to convert Neo4j integer values to JavaScript numbers
-   */
-  private toNumber(value: any): number {
-    if (value === null || value === undefined) {
-      return 0;
-    }
-
-    if (typeof value === 'object' && value !== null) {
-      if ('low' in value && typeof value.low === 'number') {
-        return Number(value.low);
-      } else if ('valueOf' in value && typeof value.valueOf === 'function') {
-        return Number(value.valueOf());
-      }
-    }
-
-    return Number(value);
   }
 }
