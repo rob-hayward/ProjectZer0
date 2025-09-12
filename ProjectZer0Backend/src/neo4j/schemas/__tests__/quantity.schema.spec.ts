@@ -335,17 +335,28 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
 
     describe('delete (inherited)', () => {
       it('should delete a quantity node', async () => {
-        neo4jService.write.mockResolvedValue({
-          records: [{ get: jest.fn().mockReturnValue(true) }],
+        // Mock existence check (step 1 of BaseNodeSchema delete)
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [existsRecord],
         } as unknown as Result);
+
+        // Mock the actual delete operation (step 2)
+        neo4jService.write.mockResolvedValue({} as Result);
 
         const result = await schema.delete('quantity-123');
 
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:QuantityNode {id: $id})'),
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          'MATCH (n:QuantityNode {id: $id}) RETURN COUNT(n) as count',
           { id: 'quantity-123' },
         );
-        expect(result).toBe(true);
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          'MATCH (n:QuantityNode {id: $id}) DETACH DELETE n',
+          { id: 'quantity-123' },
+        );
+        expect(result).toEqual({ success: true });
       });
     });
   });
