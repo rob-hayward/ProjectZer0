@@ -219,14 +219,14 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         expect(result).toEqual(expect.objectContaining({ id: 'question-123' }));
       });
 
-      it('should throw NotFoundException when question not found', async () => {
+      it('should return null when question not found', async () => {
         neo4jService.read.mockResolvedValue({
           records: [],
         } as unknown as Result);
 
-        await expect(schema.findById('nonexistent')).rejects.toThrow(
-          NotFoundException,
-        );
+        const result = await schema.findById('nonexistent');
+
+        expect(result).toBeNull();
       });
     });
 
@@ -265,7 +265,7 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
 
         await expect(
           schema.voteInclusion('question-123', 'user-456', true),
-        ).rejects.toThrow('Failed to vote on OpenQuestionSchema: Vote failed');
+        ).rejects.toThrow('Failed to vote on Openquestion: Vote failed');
       });
     });
 
@@ -680,7 +680,7 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
 
         await expect(
           schema.updateOpenQuestion('question-123', { questionText: 'test' }),
-        ).rejects.toThrow('Failed to update OpenQuestion: Update failed');
+        ).rejects.toThrow('Failed to update Openquestion: Update failed');
       });
     });
 

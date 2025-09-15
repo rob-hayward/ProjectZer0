@@ -262,6 +262,7 @@ export class OpenQuestionSchema extends BaseNodeSchema<OpenQuestionData> {
   }
 
   // Enhanced update method for complex updates with categories/keywords
+  // Enhanced update method for complex updates with categories/keywords
   async updateOpenQuestion(
     id: string,
     updateData: {
@@ -401,10 +402,16 @@ export class OpenQuestionSchema extends BaseNodeSchema<OpenQuestionData> {
         throw error;
       }
 
+      // For other errors, check if they're already standardized to avoid double-wrapping
+      if (error.message && error.message.startsWith('Failed to update')) {
+        throw error; // Already standardized, don't wrap again
+      }
+
       throw this.standardError('update OpenQuestion', error);
     }
   }
 
+  // Enhanced get method that includes related data
   // Enhanced get method that includes related data
   async getOpenQuestion(id: string): Promise<OpenQuestionData> {
     try {
@@ -451,7 +458,18 @@ export class OpenQuestionSchema extends BaseNodeSchema<OpenQuestionData> {
       }
 
       const record = result.records[0];
-      const questionData = this.mapNodeFromRecord(record);
+
+      // Create a temporary record structure that mapNodeFromRecord expects
+      const tempRecord = {
+        get: (key: string) => {
+          if (key === 'n') {
+            return record.get('oq'); // Map 'n' to 'oq' for compatibility with mapNodeFromRecord
+          }
+          return record.get(key);
+        },
+      } as unknown as Record;
+
+      const questionData = this.mapNodeFromRecord(tempRecord);
 
       // Add additional data
       questionData.keywords = record.get('keywords').filter((k: any) => k.word);
