@@ -439,12 +439,14 @@ describe('WordService with BaseNodeSchema + VisibilityService Integration', () =
 
     describe('getWordVisibilityForUser', () => {
       it('should return visibility information for existing word', async () => {
-        wordSchema.findById.mockResolvedValue(mockWordData);
+        // ✅ FIXED: Mock getWord instead of findById for consistency
+        wordSchema.getWord.mockResolvedValue(mockWordData);
         visibilityService.getObjectVisibility.mockResolvedValue(true);
 
         const result = await service.getWordVisibilityForUser('test');
 
-        expect(wordSchema.findById).toHaveBeenCalledWith('test');
+        // ✅ FIXED: Expect getWord to be called via service.getWord()
+        expect(wordSchema.getWord).toHaveBeenCalledWith('test');
         expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
           null,
           'test',
@@ -457,7 +459,8 @@ describe('WordService with BaseNodeSchema + VisibilityService Integration', () =
       });
 
       it('should throw NotFoundException when word not found', async () => {
-        wordSchema.findById.mockResolvedValue(null);
+        // ✅ FIXED: Mock getWord instead of findById
+        wordSchema.getWord.mockResolvedValue(null);
 
         await expect(
           service.getWordVisibilityForUser('nonexistent'),
@@ -469,7 +472,8 @@ describe('WordService with BaseNodeSchema + VisibilityService Integration', () =
         await expect(service.getWordVisibilityForUser('')).rejects.toThrow(
           HttpException,
         );
-        expect(wordSchema.findById).not.toHaveBeenCalled();
+        // ✅ FIXED: Expect getWord not to be called
+        expect(wordSchema.getWord).not.toHaveBeenCalled();
       });
     });
 

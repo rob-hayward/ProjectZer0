@@ -444,8 +444,8 @@ export class WordService {
     );
 
     try {
-      // Get word data to access vote counts
-      const wordData = await this.wordSchema.findById(wordId);
+      // ✅ FIXED: Use enhanced getWord() method for consistency
+      const wordData = await this.getWord(wordId);
       if (!wordData) {
         throw new NotFoundException(`Word with ID ${wordId} not found`);
       }
