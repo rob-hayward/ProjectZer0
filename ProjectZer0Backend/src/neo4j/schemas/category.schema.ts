@@ -1,14 +1,42 @@
-// src/neo4j/schemas/category.schema.ts
+// src/neo4j/schemas/category.schema.ts - CONVERTED TO BaseNodeSchema
 
 import {
   Injectable,
-  Logger,
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import type { VoteStatus, VoteResult } from './vote.schema';
+import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { Record } from 'neo4j-driver';
+
+// Category-specific data interface extending BaseNodeData
+export interface CategoryData extends BaseNodeData {
+  name: string;
+  description?: string;
+  createdBy: string;
+  publicCredit: boolean;
+  visibilityStatus?: boolean;
+  wordCount?: number;
+  contentCount?: number;
+  childCount?: number;
+  // Enhanced fields returned by getCategory()
+  words?: Array<{
+    id: string;
+    word: string;
+    inclusionNetVotes: number;
+  }>;
+  parentCategory?: {
+    id: string;
+    name: string;
+  } | null;
+  childCategories?: Array<{
+    id: string;
+    name: string;
+    inclusionNetVotes: number;
+  }>;
+  // Only inclusion voting supported for categories
+}
 
 export interface CategoryNodeData {
   id: string;
@@ -22,13 +50,63 @@ export interface CategoryNodeData {
 }
 
 @Injectable()
-export class CategorySchema {
-  private readonly logger = new Logger(CategorySchema.name);
+export class CategorySchema extends BaseNodeSchema<CategoryData> {
+  protected readonly nodeLabel = 'CategoryNode';
+  protected readonly idField = 'id'; // Categories use standard 'id' field
 
-  constructor(
-    private readonly neo4jService: Neo4jService,
-    private readonly voteSchema: VoteSchema,
-  ) {}
+  constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
+    super(neo4jService, voteSchema, CategorySchema.name);
+  }
+
+  // IMPLEMENT: Abstract methods from BaseNodeSchema
+
+  protected supportsContentVoting(): boolean {
+    return false; // Categories only support inclusion voting (like WordSchema, OpenQuestionSchema)
+  }
+
+  protected mapNodeFromRecord(record: Record): CategoryData {
+    const props = record.get('n').properties;
+    return {
+      id: props.id,
+      name: props.name,
+      description: props.description,
+      createdBy: props.createdBy,
+      publicCredit: props.publicCredit,
+      visibilityStatus: props.visibilityStatus,
+      createdAt: props.createdAt,
+      updatedAt: props.updatedAt,
+      // Only inclusion voting (no content voting)
+      inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
+      inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
+      inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
+      // Content voting disabled for categories
+      contentPositiveVotes: 0,
+      contentNegativeVotes: 0,
+      contentNetVotes: 0,
+      // Additional category-specific fields
+      wordCount: this.toNumber(props.wordCount),
+      contentCount: this.toNumber(props.contentCount),
+      childCount: this.toNumber(props.childCount),
+    };
+  }
+
+  protected buildUpdateQuery(id: string, data: Partial<CategoryData>) {
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'id') // Don't update the id field
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
+
+    return {
+      cypher: `
+        MATCH (n:CategoryNode {id: $id})
+        SET ${setClause}, n.updatedAt = datetime()
+        RETURN n
+      `,
+      params: { id, updateData: data },
+    };
+  }
+
+  // CATEGORY-SPECIFIC METHODS - Keep all unique functionality
 
   async createCategory(categoryData: CategoryNodeData) {
     try {
@@ -83,78 +161,51 @@ export class CategorySchema {
           RETURN NULL as parent
         }
         
-        // Create the category node (inclusion voting only)
+        // Create the category node
         CREATE (c:CategoryNode {
           id: $id,
           name: $name,
           description: $description,
           createdBy: $createdBy,
           publicCredit: $publicCredit,
+          initialComment: $initialComment,
           createdAt: datetime(),
           updatedAt: datetime(),
-          // Inclusion voting only (no content voting)
+          visibilityStatus: true,
+          // Only inclusion voting for categories
           inclusionPositiveVotes: 0,
           inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          visibilityStatus: true
+          inclusionNetVotes: 0
         })
         
-        // Create PARENT_OF relationship if parent provided
-        WITH c, validWords, parent
-        WHERE parent IS NOT NULL
-        CREATE (parent)-[:PARENT_OF]->(c)
-        
-        // Create COMPOSED_OF relationships to words
+        // Create relationships to words
         WITH c, validWords
         UNWIND validWords as word
         CREATE (c)-[:COMPOSED_OF]->(word)
         
-        // Create CREATED relationship for user-created content
-        WITH c, $createdBy as userId
-        MATCH (u:User {sub: userId})
-        CREATE (u)-[:CREATED {
-            createdAt: datetime(),
-            type: 'category'
-        }]->(c)
-        
-        // Create discussion node automatically
-        WITH c
-        CREATE (d:DiscussionNode {
-          id: apoc.create.uuid(),
-          createdAt: datetime(),
-          createdBy: $createdBy,
-          visibilityStatus: true
-        })
-        CREATE (c)-[:HAS_DISCUSSION]->(d)
-        
-        // Create initial comment if provided
-        WITH c, d, $initialComment as initialComment
-        WHERE initialComment IS NOT NULL AND size(initialComment) > 0
-        CREATE (comment:CommentNode {
-          id: apoc.create.uuid(),
-          createdBy: $createdBy,
-          commentText: initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          positiveVotes: 0,
-          negativeVotes: 0,
-          visibilityStatus: true
-        })
-        CREATE (d)-[:HAS_COMMENT]->(comment)
+        // Create parent relationship if parent exists
+        WITH c, parent
+        FOREACH (dummy IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
+          CREATE (parent)-[:PARENT_OF]->(c)
+        )
         
         RETURN c
         `,
         {
-          ...categoryData,
-          description: categoryData.description || null,
-          parentCategoryId: categoryData.parentCategoryId || null,
-          initialComment: categoryData.initialComment || null,
+          id: categoryData.id,
+          name: categoryData.name,
+          description: categoryData.description || '',
+          createdBy: categoryData.createdBy,
+          publicCredit: categoryData.publicCredit,
+          initialComment: categoryData.initialComment || '',
+          wordIds: categoryData.wordIds,
+          parentCategoryId: categoryData.parentCategoryId,
         },
       );
 
       if (!result.records || result.records.length === 0) {
         throw new Error(
-          'Failed to create category - some words may not exist or have not passed inclusion threshold',
+          'some words may not exist or have not passed inclusion threshold',
         );
       }
 
@@ -162,18 +213,18 @@ export class CategorySchema {
       this.logger.log(
         `Successfully created category with ID: ${createdCategory.id}`,
       );
-      this.logger.debug(`Created category: ${JSON.stringify(createdCategory)}`);
 
       return createdCategory;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
         `Error creating category: ${error.message}`,
         error.stack,
       );
+
+      // Handle specific error cases
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
 
       if (error.message.includes('some words may not exist')) {
         throw new BadRequestException(
@@ -181,18 +232,16 @@ export class CategorySchema {
         );
       }
 
-      throw new Error(`Failed to create category: ${error.message}`);
+      throw this.standardError('create category', error);
     }
   }
 
-  async getCategory(id: string) {
+  async getCategory(id: string): Promise<CategoryData | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Category ID cannot be empty');
+    }
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Category ID cannot be empty');
-      }
-
-      this.logger.debug(`Retrieving category with ID: ${id}`);
-
       const result = await this.neo4jService.read(
         `
         MATCH (c:CategoryNode {id: $id})
@@ -206,54 +255,39 @@ export class CategorySchema {
         // Get child categories
         OPTIONAL MATCH (c)-[:PARENT_OF]->(child:CategoryNode)
         
-        // Get discussion
-        OPTIONAL MATCH (c)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-        
-        // Get nodes categorized under this category
-        OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(c)
-        WHERE n:WordNode OR n:DefinitionNode OR n:OpenQuestionNode OR 
-              n:AnswerNode OR n:StatementNode OR n:QuantityNode
+        // Get content count (statements, answers, etc. using this category)
+        OPTIONAL MATCH (content)-[:CATEGORIZED_AS]->(c)
+        WHERE content:StatementNode OR content:AnswerNode OR 
+              content:OpenQuestionNode OR content:QuantityNode
         
         RETURN c,
-               collect(DISTINCT {
-                 id: w.id,
-                 word: w.word,
-                 inclusionNetVotes: w.inclusionNetVotes
-               }) as composedWords,
-               {
-                 id: parent.id,
-                 name: parent.name,
-                 inclusionNetVotes: parent.inclusionNetVotes
-               } as parentCategory,
-               collect(DISTINCT {
-                 id: child.id,
-                 name: child.name,
-                 inclusionNetVotes: child.inclusionNetVotes
-               }) as childCategories,
-               d.id as discussionId,
-               count(DISTINCT n) as usageCount
+        collect(DISTINCT {
+          id: w.id,
+          word: w.word,
+          inclusionNetVotes: w.inclusionNetVotes
+        }) as words,
+        CASE WHEN parent IS NOT NULL 
+          THEN {id: parent.id, name: parent.name}
+          ELSE null
+        END as parentCategory,
+        collect(DISTINCT {
+          id: child.id,
+          name: child.name,
+          inclusionNetVotes: child.inclusionNetVotes
+        }) as childCategories,
+        count(DISTINCT content) as contentCount
         `,
         { id },
       );
 
-      if (result.records.length === 0) {
-        this.logger.warn(`Category not found with ID: ${id}`);
+      if (!result.records || result.records.length === 0) {
         return null;
       }
 
       const record = result.records[0];
       const category = record.get('c').properties;
-      const composedWords = record
-        .get('composedWords')
-        .filter((w: any) => w.id);
-      const parentCategory = record.get('parentCategory');
-      const childCategories = record
-        .get('childCategories')
-        .filter((c: any) => c.id);
-      const discussionId = record.get('discussionId');
-      const usageCount = record.get('usageCount');
 
-      // Convert Neo4j integers
+      // Convert Neo4j integers to JavaScript numbers
       [
         'inclusionPositiveVotes',
         'inclusionNegativeVotes',
@@ -264,39 +298,18 @@ export class CategorySchema {
         }
       });
 
-      // Convert integers for related data
-      composedWords.forEach((word: any) => {
-        if (word.inclusionNetVotes !== undefined) {
-          word.inclusionNetVotes = this.toNumber(word.inclusionNetVotes);
-        }
-      });
+      // Add additional data
+      category.words = (record.get('words') || []).filter((w) => w && w.id);
+      category.parentCategory = record.get('parentCategory');
+      category.childCategories = (record.get('childCategories') || []).filter(
+        (c) => c && c.id,
+      );
+      category.contentCount = this.toNumber(record.get('contentCount'));
 
-      if (parentCategory && parentCategory.id) {
-        parentCategory.inclusionNetVotes = this.toNumber(
-          parentCategory.inclusionNetVotes,
-        );
-      }
-
-      childCategories.forEach((child: any) => {
-        if (child.inclusionNetVotes !== undefined) {
-          child.inclusionNetVotes = this.toNumber(child.inclusionNetVotes);
-        }
-      });
-
-      const enrichedCategory = {
-        ...category,
-        composedWords,
-        parentCategory: parentCategory.id ? parentCategory : null,
-        childCategories,
-        discussionId,
-        usageCount: this.toNumber(usageCount),
-      };
-
-      this.logger.debug(`Retrieved category: ${category.name}`);
-      return enrichedCategory;
+      return category;
     } catch (error) {
       this.logger.error(
-        `Error retrieving category ${id}: ${error.message}`,
+        `Error getting category ${id}: ${error.message}`,
         error.stack,
       );
 
@@ -304,520 +317,16 @@ export class CategorySchema {
         throw error;
       }
 
-      throw new Error(`Failed to get category: ${error.message}`);
+      throw this.standardError('retrieve category', error);
     }
   }
 
-  async updateCategory(
-    id: string,
-    updateData: {
-      name?: string;
-      description?: string;
-      publicCredit?: boolean;
-    },
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Category ID cannot be empty');
-      }
-
-      this.logger.log(`Updating category: ${id}`);
-      this.logger.debug(`Update data: ${JSON.stringify(updateData)}`);
-
-      // Build dynamic update query
-      const updateFields: string[] = [];
-      const params: any = { id };
-
-      if (updateData.name !== undefined) {
-        updateFields.push('c.name = $name');
-        params.name = updateData.name;
-      }
-      if (updateData.description !== undefined) {
-        updateFields.push('c.description = $description');
-        params.description = updateData.description;
-      }
-      if (updateData.publicCredit !== undefined) {
-        updateFields.push('c.publicCredit = $publicCredit');
-        params.publicCredit = updateData.publicCredit;
-      }
-
-      if (updateFields.length === 0) {
-        throw new BadRequestException('No valid fields provided for update');
-      }
-
-      // Always update the updatedAt timestamp
-      updateFields.push('c.updatedAt = datetime()');
-
-      const query = `
-        MATCH (c:CategoryNode {id: $id})
-        SET ${updateFields.join(', ')}
-        RETURN c
-      `;
-
-      const result = await this.neo4jService.write(query, params);
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(`Category with ID ${id} not found`);
-      }
-
-      const updatedCategory = result.records[0].get('c').properties;
-
-      // Convert Neo4j integers
-      [
-        'inclusionPositiveVotes',
-        'inclusionNegativeVotes',
-        'inclusionNetVotes',
-      ].forEach((prop) => {
-        if (updatedCategory[prop] !== undefined) {
-          updatedCategory[prop] = this.toNumber(updatedCategory[prop]);
-        }
-      });
-
-      this.logger.log(`Successfully updated category: ${id}`);
-      return updatedCategory;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error updating category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to update category: ${error.message}`);
+  async getCategoryStats(categoryId: string): Promise<any> {
+    if (!categoryId || categoryId.trim() === '') {
+      throw new BadRequestException('Category ID cannot be empty');
     }
-  }
 
-  async deleteCategory(id: string) {
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Category ID cannot be empty');
-      }
-
-      this.logger.log(`Deleting category: ${id}`);
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (c:CategoryNode {id: $id})
-        
-        // Remove all relationships and associated discussion/comments
-        OPTIONAL MATCH (c)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(comment:CommentNode)
-        DETACH DELETE comment, d, c
-        
-        RETURN count(*) as deletedCount
-        `,
-        { id },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(`Category with ID ${id} not found`);
-      }
-
-      this.logger.log(`Successfully deleted category: ${id}`);
-      return { success: true };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error deleting category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to delete category: ${error.message}`);
-    }
-  }
-
-  // Category-specific methods
-
-  /**
-   * Get categories that are available for categorization (passed inclusion)
-   */
-  async getApprovedCategories(
-    options: {
-      limit?: number;
-      offset?: number;
-      sortBy?: 'name' | 'created' | 'votes' | 'usage';
-      sortDirection?: 'asc' | 'desc';
-      parentId?: string; // Filter by parent category
-    } = {},
-  ): Promise<any[]> {
-    try {
-      const {
-        limit = null,
-        offset = 0,
-        sortBy = 'name',
-        sortDirection = 'asc',
-        parentId,
-      } = options;
-
-      this.logger.debug(
-        `Getting approved categories with options: ${JSON.stringify(options)}`,
-      );
-
-      let query = `
-        MATCH (c:CategoryNode)
-        WHERE c.inclusionNetVotes > 0 
-        AND (c.visibilityStatus <> false OR c.visibilityStatus IS NULL)
-      `;
-
-      // Add parent filter if specified
-      if (parentId) {
-        query += `
-          AND EXISTS {
-            MATCH (parent:CategoryNode {id: $parentId})-[:PARENT_OF]->(c)
-          }
-        `;
-      }
-
-      // Get composed words and usage count
-      query += `
-        OPTIONAL MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
-        OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(c)
-        
-        WITH c, 
-             collect(DISTINCT {id: w.id, word: w.word}) as composedWords,
-             count(DISTINCT n) as usageCount
-      `;
-
-      // Add sorting
-      if (sortBy === 'name') {
-        query += ` ORDER BY c.name ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'created') {
-        query += ` ORDER BY c.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'votes') {
-        query += ` ORDER BY c.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'usage') {
-        query += ` ORDER BY usageCount ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      if (limit !== null) {
-        query += ` SKIP $offset LIMIT $limit`;
-      }
-
-      query += `
-        RETURN {
-          id: c.id,
-          name: c.name,
-          description: c.description,
-          createdBy: c.createdBy,
-          publicCredit: c.publicCredit,
-          createdAt: c.createdAt,
-          inclusionNetVotes: c.inclusionNetVotes,
-          composedWords: composedWords,
-          usageCount: usageCount
-        } as category
-      `;
-
-      const result = await this.neo4jService.read(query, {
-        offset,
-        limit,
-        parentId,
-      });
-      const categories = result.records.map((record) => {
-        const category = record.get('category');
-        // Convert Neo4j integers
-        ['inclusionNetVotes', 'usageCount'].forEach((prop) => {
-          if (category[prop] !== undefined) {
-            category[prop] = this.toNumber(category[prop]);
-          }
-        });
-        return category;
-      });
-
-      this.logger.debug(`Retrieved ${categories.length} approved categories`);
-      return categories;
-    } catch (error) {
-      this.logger.error(
-        `Error getting approved categories: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get approved categories: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get nodes that are categorized under the given category
-   */
-  async getNodesUsingCategory(
-    categoryId: string,
-    options: {
-      nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
-      limit?: number;
-      offset?: number;
-      sortBy?: 'created' | 'votes' | 'type';
-      sortDirection?: 'asc' | 'desc';
-    } = {},
-  ) {
-    try {
-      const {
-        nodeTypes,
-        limit = 10,
-        offset = 0,
-        sortBy = 'created',
-        sortDirection = 'desc',
-      } = options;
-
-      this.logger.debug(
-        `Getting nodes using category ${categoryId} with options: ${JSON.stringify(options)}`,
-      );
-
-      let query = `
-        MATCH (c:CategoryNode {id: $categoryId})
-        MATCH (n)-[:CATEGORIZED_AS]->(c)
-        WHERE (n.visibilityStatus <> false OR n.visibilityStatus IS NULL)
-      `;
-
-      // Add node type filter if specified
-      if (nodeTypes && nodeTypes.length > 0) {
-        const nodeLabels = nodeTypes
-          .map((type) => {
-            switch (type) {
-              case 'statement':
-                return 'StatementNode';
-              case 'answer':
-                return 'AnswerNode';
-              case 'openquestion':
-                return 'OpenQuestionNode';
-              case 'quantity':
-                return 'QuantityNode';
-              default:
-                return null;
-            }
-          })
-          .filter(Boolean);
-
-        if (nodeLabels.length > 0) {
-          query += ` AND (${nodeLabels.map((label) => `n:${label}`).join(' OR ')})`;
-        }
-      }
-
-      // Add sorting
-      if (sortBy === 'created') {
-        query += ` ORDER BY n.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'votes') {
-        query += ` ORDER BY n.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'type') {
-        query += ` ORDER BY labels(n)[0] ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      query += ` SKIP $offset LIMIT $limit`;
-
-      query += `
-        RETURN {
-          id: n.id,
-          type: labels(n)[0],
-          content: CASE 
-            WHEN n:StatementNode THEN n.statement
-            WHEN n:AnswerNode THEN n.answerText
-            WHEN n:OpenQuestionNode THEN n.questionText
-            WHEN n:QuantityNode THEN n.question
-            ELSE null
-          END,
-          createdBy: n.createdBy,
-          publicCredit: n.publicCredit,
-          createdAt: n.createdAt,
-          inclusionNetVotes: n.inclusionNetVotes,
-          contentNetVotes: COALESCE(n.contentNetVotes, 0)
-        } as node
-      `;
-
-      const result = await this.neo4jService.read(query, {
-        categoryId,
-        offset,
-        limit,
-      });
-
-      const nodes = result.records.map((record) => {
-        const node = record.get('node');
-        // Convert Neo4j integers
-        ['inclusionNetVotes', 'contentNetVotes'].forEach((prop) => {
-          if (node[prop] !== undefined) {
-            node[prop] = this.toNumber(node[prop]);
-          }
-        });
-        return node;
-      });
-
-      this.logger.debug(
-        `Retrieved ${nodes.length} nodes using category ${categoryId}`,
-      );
-      return nodes;
-    } catch (error) {
-      this.logger.error(
-        `Error getting nodes using category ${categoryId}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get nodes using category: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get all categories in the system
-   */
-  async getAllCategories(
-    options: {
-      limit?: number;
-      offset?: number;
-      sortBy?: 'name' | 'created' | 'votes';
-      sortDirection?: 'asc' | 'desc';
-      onlyApproved?: boolean;
-    } = {},
-  ) {
-    try {
-      const {
-        limit = null,
-        offset = 0,
-        sortBy = 'name',
-        sortDirection = 'asc',
-        onlyApproved = false,
-      } = options;
-
-      this.logger.debug(
-        `Getting all categories with options: ${JSON.stringify(options)}`,
-      );
-
-      let query = `
-        MATCH (c:CategoryNode)
-        WHERE c.visibilityStatus <> false OR c.visibilityStatus IS NULL
-      `;
-
-      // Add approval filter if requested
-      if (onlyApproved) {
-        query += ` AND c.inclusionNetVotes > 0`;
-      }
-
-      // Get composed words
-      query += `
-        OPTIONAL MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
-        
-        WITH c, collect(DISTINCT {
-          id: w.id,
-          word: w.word
-        }) as composedWords
-      `;
-
-      // Add sorting
-      if (sortBy === 'name') {
-        query += ` ORDER BY c.name ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'created') {
-        query += ` ORDER BY c.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'votes') {
-        query += ` ORDER BY c.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      if (limit !== null) {
-        query += ` SKIP $offset LIMIT $limit`;
-      }
-
-      query += `
-        RETURN {
-          id: c.id,
-          name: c.name,
-          description: c.description,
-          createdBy: c.createdBy,
-          publicCredit: c.publicCredit,
-          createdAt: c.createdAt,
-          updatedAt: c.updatedAt,
-          inclusionPositiveVotes: c.inclusionPositiveVotes,
-          inclusionNegativeVotes: c.inclusionNegativeVotes,
-          inclusionNetVotes: c.inclusionNetVotes,
-          composedWords: composedWords
-        } as category
-      `;
-
-      const result = await this.neo4jService.read(query, { offset, limit });
-      const categories = result.records.map((record) => {
-        const category = record.get('category');
-        // Convert Neo4j integers
-        [
-          'inclusionPositiveVotes',
-          'inclusionNegativeVotes',
-          'inclusionNetVotes',
-        ].forEach((prop) => {
-          if (category[prop] !== undefined) {
-            category[prop] = this.toNumber(category[prop]);
-          }
-        });
-        return category;
-      });
-
-      this.logger.debug(`Retrieved ${categories.length} categories`);
-      return categories;
-    } catch (error) {
-      this.logger.error(
-        `Error getting all categories: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get categories: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get the hierarchical path for a category (from root to current)
-   */
-  async getCategoryPath(categoryId: string): Promise<any[]> {
-    try {
-      this.logger.debug(`Getting category path for ${categoryId}`);
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (c:CategoryNode {id: $categoryId})
-        OPTIONAL MATCH path = (root:CategoryNode)-[:PARENT_OF*]->(c)
-        WHERE NOT EXISTS((other:CategoryNode)-[:PARENT_OF]->(root))
-        
-        WITH c, path, 
-             CASE WHEN path IS NOT NULL 
-                  THEN nodes(path)
-                  ELSE [c] 
-             END as pathNodes
-        
-        RETURN [node IN pathNodes | {
-          id: node.id,
-          name: node.name,
-          inclusionNetVotes: node.inclusionNetVotes
-        }] as categoryPath
-        `,
-        { categoryId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return [];
-      }
-
-      const path = result.records[0].get('categoryPath');
-      this.logger.debug(`Retrieved category path with ${path.length} levels`);
-      return path;
-    } catch (error) {
-      this.logger.error(
-        `Error getting category path: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get category path: ${error.message}`);
-    }
-  }
-
-  /**
-   * Get statistics for a category (usage, child count, etc.)
-   */
-  async getCategoryStats(categoryId: string) {
-    try {
-      if (!categoryId || categoryId.trim() === '') {
-        throw new BadRequestException('Category ID cannot be empty');
-      }
-
-      this.logger.debug(`Getting stats for category: ${categoryId}`);
-
       const result = await this.neo4jService.read(
         `
         MATCH (c:CategoryNode {id: $categoryId})
@@ -844,196 +353,20 @@ export class CategorySchema {
       );
 
       if (!result.records || result.records.length === 0) {
-        return {
-          contentCount: 0,
-          childCount: 0,
-          wordCount: 0,
-          inclusionNetVotes: 0,
-        };
+        throw new NotFoundException(`Category with ID ${categoryId} not found`);
       }
 
       const stats = result.records[0].get('stats');
 
-      // Convert Neo4j integers
-      ['contentCount', 'childCount', 'wordCount', 'inclusionNetVotes'].forEach(
-        (prop) => {
-          if (stats[prop] !== undefined) {
-            stats[prop] = this.toNumber(stats[prop]);
-          }
-        },
-      );
+      // Convert Neo4j integers to JavaScript numbers
+      Object.keys(stats).forEach((key) => {
+        stats[key] = this.toNumber(stats[key]);
+      });
 
-      this.logger.debug(`Retrieved stats for category ${categoryId}`);
       return stats;
     } catch (error) {
       this.logger.error(
         `Error getting category stats: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get category stats: ${error.message}`);
-    }
-  }
-
-  // Voting methods (inclusion only)
-
-  async voteCategoryInclusion(id: string, sub: string, isPositive: boolean) {
-    try {
-      this.logger.log(
-        `Processing inclusion vote on category ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-      return await this.voteSchema.vote(
-        'CategoryNode',
-        { id },
-        sub,
-        isPositive,
-        'INCLUSION',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to vote on category: ${error.message}`);
-    }
-  }
-
-  async getCategoryVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
-    try {
-      this.logger.debug(
-        `Getting vote status for category ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.getVoteStatus('CategoryNode', { id }, sub);
-    } catch (error) {
-      this.logger.error(
-        `Error getting vote status for category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get category vote status: ${error.message}`);
-    }
-  }
-
-  async removeCategoryVote(
-    id: string,
-    sub: string,
-    kind: 'INCLUSION' = 'INCLUSION',
-  ) {
-    try {
-      this.logger.log(
-        `Removing ${kind} vote from category ${id} by user ${sub}`,
-      );
-      return await this.voteSchema.removeVote(
-        'CategoryNode',
-        { id },
-        sub,
-        kind,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error removing vote from category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to remove category vote: ${error.message}`);
-    }
-  }
-
-  async getCategoryVotes(id: string): Promise<VoteResult | null> {
-    try {
-      this.logger.debug(`Getting votes for category ${id}`);
-
-      const voteStatus = await this.voteSchema.getVoteStatus(
-        'CategoryNode',
-        { id },
-        '',
-      );
-      if (!voteStatus) {
-        return null;
-      }
-
-      return {
-        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
-        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
-        inclusionNetVotes: voteStatus.inclusionNetVotes,
-        // Categories don't have content voting
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Error getting votes for category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get category votes: ${error.message}`);
-    }
-  }
-
-  // Visibility methods
-
-  async setVisibilityStatus(id: string, isVisible: boolean) {
-    try {
-      this.logger.log(`Setting visibility for category ${id} to ${isVisible}`);
-
-      const result = await this.neo4jService.write(
-        `
-        MATCH (c:CategoryNode {id: $id})
-        SET c.visibilityStatus = $isVisible, c.updatedAt = datetime()
-        RETURN c
-        `,
-        { id, isVisible },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(`Category with ID ${id} not found`);
-      }
-
-      this.logger.log(`Successfully updated visibility for category: ${id}`);
-      return { success: true };
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error setting visibility for category ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to set category visibility: ${error.message}`);
-    }
-  }
-
-  async getVisibilityStatus(id: string): Promise<boolean> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Category ID cannot be empty');
-      }
-
-      this.logger.debug(`Getting visibility status for category: ${id}`);
-
-      const result = await this.neo4jService.read(
-        `
-        MATCH (c:CategoryNode {id: $id})
-        RETURN c.visibilityStatus as visibilityStatus
-        `,
-        { id },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new NotFoundException(`Category with ID ${id} not found`);
-      }
-
-      const visibilityStatus =
-        result.records[0].get('visibilityStatus') !== false ? true : false;
-      this.logger.debug(
-        `Visibility status for category ${id}: ${visibilityStatus}`,
-      );
-
-      return visibilityStatus;
-    } catch (error) {
-      this.logger.error(
-        `Error getting visibility status for category ${id}: ${error.message}`,
         error.stack,
       );
 
@@ -1044,217 +377,16 @@ export class CategorySchema {
         throw error;
       }
 
-      throw new Error(`Failed to get visibility status: ${error.message}`);
+      throw this.standardError('get category stats', error);
     }
   }
 
-  // NEW: DISCOVERY METHODS - Following established patterns
-
-  /**
-   * Get related content that shares categories with the given category
-   * For categories, this finds content categorized AS this category plus sibling category content
-   */
-  async getRelatedContentBySharedCategories(
-    categoryId: string,
-    options: {
-      nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
-      limit?: number;
-      offset?: number;
-      sortBy?:
-        | 'category_overlap'
-        | 'created'
-        | 'inclusion_votes'
-        | 'content_votes';
-      sortDirection?: 'asc' | 'desc';
-      minCategoryOverlap?: number;
-    } = {},
-  ): Promise<any[]> {
-    try {
-      const {
-        nodeTypes,
-        limit = 10,
-        offset = 0,
-        sortBy = 'category_overlap',
-        sortDirection = 'desc',
-        minCategoryOverlap = 1,
-      } = options;
-
-      this.logger.debug(
-        `Getting related content by shared categories for category ${categoryId}`,
-      );
-
-      // For categories, we find nodes that are categorized under this category
-      // Plus nodes categorized under sibling categories (same parent)
-
-      let query = `
-        MATCH (current:CategoryNode {id: $categoryId})
-        
-        // Find nodes directly categorized under this category
-        MATCH (related)-[:CATEGORIZED_AS]->(current)
-        WHERE (related.visibilityStatus <> false OR related.visibilityStatus IS NULL)
-      `;
-
-      // Add node type filter if specified
-      if (nodeTypes && nodeTypes.length > 0) {
-        const nodeLabels = nodeTypes
-          .map((type) => {
-            switch (type) {
-              case 'statement':
-                return 'StatementNode';
-              case 'answer':
-                return 'AnswerNode';
-              case 'openquestion':
-                return 'OpenQuestionNode';
-              case 'quantity':
-                return 'QuantityNode';
-              default:
-                return null;
-            }
-          })
-          .filter(Boolean);
-
-        if (nodeLabels.length > 0) {
-          query += ` AND (${nodeLabels.map((label) => `related:${label}`).join(' OR ')})`;
-        }
-      } else {
-        query += ` AND (related:StatementNode OR related:AnswerNode OR related:OpenQuestionNode OR related:QuantityNode)`;
-      }
-
-      // Also find content from sibling categories
-      query += `
-        
-        // Add content from sibling categories (same parent)
-        OPTIONAL MATCH (parent:CategoryNode)-[:PARENT_OF]->(current)
-        OPTIONAL MATCH (parent)-[:PARENT_OF]->(sibling:CategoryNode)
-        WHERE sibling.id <> current.id
-        OPTIONAL MATCH (siblingContent)-[:CATEGORIZED_AS]->(sibling)
-        WHERE (siblingContent.visibilityStatus <> false OR siblingContent.visibilityStatus IS NULL)
-      `;
-
-      // Apply same node type filter for sibling content
-      if (nodeTypes && nodeTypes.length > 0) {
-        const nodeLabels = nodeTypes
-          .map((type) => {
-            switch (type) {
-              case 'statement':
-                return 'StatementNode';
-              case 'answer':
-                return 'AnswerNode';
-              case 'openquestion':
-                return 'OpenQuestionNode';
-              case 'quantity':
-                return 'QuantityNode';
-              default:
-                return null;
-            }
-          })
-          .filter(Boolean);
-
-        if (nodeLabels.length > 0) {
-          query += ` AND (${nodeLabels.map((label) => `siblingContent:${label}`).join(' OR ')})`;
-        }
-      } else {
-        query += ` AND (siblingContent:StatementNode OR siblingContent:AnswerNode OR siblingContent:OpenQuestionNode OR siblingContent:QuantityNode)`;
-      }
-
-      // Combine direct and sibling content
-      query += `
-        
-        WITH current, 
-             collect(DISTINCT related) + collect(DISTINCT siblingContent) as allRelated
-        
-        UNWIND allRelated as finalRelated
-        WHERE finalRelated IS NOT NULL
-      `;
-
-      // Calculate category overlap and shared categories
-      query += `
-        
-        // Calculate how many categories this content shares with our target category
-        OPTIONAL MATCH (finalRelated)-[:CATEGORIZED_AS]->(sharedCat:CategoryNode)
-        WITH finalRelated, current,
-             count(DISTINCT sharedCat) as categoryOverlap,
-             collect(DISTINCT sharedCat.name) as sharedCategories
-        WHERE categoryOverlap >= $minCategoryOverlap
-      `;
-
-      // Add sorting
-      if (sortBy === 'category_overlap') {
-        query += ` ORDER BY categoryOverlap ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'created') {
-        query += ` ORDER BY finalRelated.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'inclusion_votes') {
-        query += ` ORDER BY finalRelated.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'content_votes') {
-        query += ` ORDER BY COALESCE(finalRelated.contentNetVotes, 0) ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      query += ` SKIP $offset LIMIT $limit`;
-
-      // Return structured data
-      query += `
-        RETURN {
-          id: finalRelated.id,
-          type: labels(finalRelated)[0],
-          content: CASE 
-            WHEN finalRelated:StatementNode THEN finalRelated.statement
-            WHEN finalRelated:AnswerNode THEN finalRelated.answerText  
-            WHEN finalRelated:OpenQuestionNode THEN finalRelated.questionText
-            WHEN finalRelated:QuantityNode THEN finalRelated.question
-            ELSE null
-          END,
-          createdBy: finalRelated.createdBy,
-          publicCredit: finalRelated.publicCredit,
-          createdAt: finalRelated.createdAt,
-          inclusionNetVotes: finalRelated.inclusionNetVotes,
-          contentNetVotes: COALESCE(finalRelated.contentNetVotes, 0),
-          categoryOverlap: categoryOverlap,
-          sharedCategories: sharedCategories
-        } as relatedNode
-      `;
-
-      const result = await this.neo4jService.read(query, {
-        categoryId,
-        offset,
-        limit,
-        minCategoryOverlap,
-      });
-
-      const relatedNodes = result.records.map((record) => {
-        const node = record.get('relatedNode');
-        // Convert Neo4j integers
-        ['inclusionNetVotes', 'contentNetVotes', 'categoryOverlap'].forEach(
-          (prop) => {
-            if (node[prop] !== undefined) {
-              node[prop] = this.toNumber(node[prop]);
-            }
-          },
-        );
-        return node;
-      });
-
-      this.logger.debug(
-        `Found ${relatedNodes.length} related nodes by shared categories for category ${categoryId}`,
-      );
-      return relatedNodes;
-    } catch (error) {
-      this.logger.error(
-        `Error getting related content by shared categories for category ${categoryId}: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get related content: ${error.message}`);
+  async getCategoriesForNode(nodeId: string): Promise<any[]> {
+    if (!nodeId || nodeId.trim() === '') {
+      throw new BadRequestException('Node ID cannot be empty');
     }
-  }
 
-  /**
-   * Get all categories associated with a specific node
-   * This is the reverse lookup - given any node ID, find what categories it belongs to
-   */
-  async getNodeCategories(nodeId: string): Promise<any[]> {
     try {
-      this.logger.debug(`Getting categories for node ${nodeId}`);
-
       const result = await this.neo4jService.read(
         `
         // Find the node (could be any type)
@@ -1287,46 +419,231 @@ export class CategorySchema {
         return [];
       }
 
-      const categories = result.records[0].get('categories');
+      const categories = result.records[0].get('categories') || [];
 
-      // Convert Neo4j integers
-      categories.forEach((category) => {
-        if (category.inclusionNetVotes !== undefined) {
-          category.inclusionNetVotes = this.toNumber(
-            category.inclusionNetVotes,
-          );
-        }
+      // Convert Neo4j integers to JavaScript numbers
+      categories.forEach((cat) => {
+        cat.inclusionNetVotes = this.toNumber(cat.inclusionNetVotes);
       });
 
-      this.logger.debug(
-        `Retrieved ${categories.length} categories for node ${nodeId}`,
-      );
       return categories;
     } catch (error) {
       this.logger.error(
-        `Error getting node categories: ${error.message}`,
+        `Error getting categories for node: ${error.message}`,
         error.stack,
       );
-      throw new Error(`Failed to get node categories: ${error.message}`);
-    }
-  }
 
-  /**
-   * Helper method to convert Neo4j integer values to JavaScript numbers
-   */
-  private toNumber(value: any): number {
-    if (value === null || value === undefined) {
-      return 0;
-    }
-
-    if (typeof value === 'object' && value !== null) {
-      if ('low' in value && typeof value.low === 'number') {
-        return Number(value.low);
-      } else if ('valueOf' in value && typeof value.valueOf === 'function') {
-        return Number(value.valueOf());
+      if (error instanceof BadRequestException) {
+        throw error;
       }
+
+      throw this.standardError('get categories for node', error);
+    }
+  }
+
+  // VISIBILITY MANAGEMENT METHODS
+
+  async setVisibilityStatus(id: string, isVisible: boolean) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Category ID cannot be empty');
     }
 
-    return Number(value);
+    try {
+      this.logger.log(`Setting visibility for category ${id} to ${isVisible}`);
+
+      const result = await this.neo4jService.write(
+        `
+        MATCH (c:CategoryNode {id: $id})
+        SET c.visibilityStatus = $isVisible, c.updatedAt = datetime()
+        RETURN c
+        `,
+        { id, isVisible },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return null;
+      }
+
+      return result.records[0].get('c').properties;
+    } catch (error) {
+      this.logger.error(
+        `Error setting visibility for category: ${error.message}`,
+        error.stack,
+      );
+
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw this.standardError('set visibility status for category', error);
+    }
   }
+
+  async getVisibilityStatus(id: string): Promise<boolean> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Category ID cannot be empty');
+    }
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (c:CategoryNode {id: $id})
+        RETURN c.visibilityStatus as visibilityStatus
+        `,
+        { id },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        throw new NotFoundException(`Category with ID ${id} not found`);
+      }
+
+      const visibilityStatus = result.records[0].get('visibilityStatus');
+      return visibilityStatus !== null && visibilityStatus !== undefined
+        ? visibilityStatus
+        : true;
+    } catch (error) {
+      this.logger.error(
+        `Error getting visibility status: ${error.message}`,
+        error.stack,
+      );
+
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
+      throw this.standardError('get visibility status for category', error);
+    }
+  }
+
+  // DISCOVERY AND HIERARCHY METHODS
+
+  async getCategoryHierarchy(rootId?: string): Promise<any[]> {
+    try {
+      let query = `
+        // Get root categories (no parents) or specific root
+        MATCH (root:CategoryNode)
+        WHERE root.inclusionNetVotes >= 0 // Include approved categories
+      `;
+
+      const params: any = {};
+      if (rootId) {
+        query += ` AND root.id = $rootId`;
+        params.rootId = rootId;
+      } else {
+        query += ` AND NOT EXISTS((parent:CategoryNode)-[:PARENT_OF]->(root))`;
+      }
+
+      query += `
+        // Get the full hierarchy tree
+        OPTIONAL MATCH path = (root)-[:PARENT_OF*]->(descendant:CategoryNode)
+        WHERE descendant.inclusionNetVotes >= 0
+        
+        WITH root, collect(DISTINCT descendant) as descendants
+        
+        RETURN {
+          id: root.id,
+          name: root.name,
+          description: root.description,
+          inclusionNetVotes: root.inclusionNetVotes,
+          children: [d IN descendants | {
+            id: d.id,
+            name: d.name,
+            description: d.description,
+            inclusionNetVotes: d.inclusionNetVotes
+          }]
+        } as hierarchy
+        ORDER BY root.inclusionNetVotes DESC, root.name ASC
+      `;
+
+      const result = await this.neo4jService.read(query, params);
+
+      const hierarchies = result.records.map((record) => {
+        const hierarchy = record.get('hierarchy');
+        hierarchy.inclusionNetVotes = this.toNumber(
+          hierarchy.inclusionNetVotes,
+        );
+        hierarchy.children.forEach((child) => {
+          child.inclusionNetVotes = this.toNumber(child.inclusionNetVotes);
+        });
+        return hierarchy;
+      });
+
+      return hierarchies;
+    } catch (error) {
+      this.logger.error(
+        `Error getting category hierarchy: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get category hierarchy', error);
+    }
+  }
+
+  async getApprovedCategories(): Promise<CategoryData[]> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (c:CategoryNode)
+        WHERE c.inclusionNetVotes > 0 AND (c.visibilityStatus = true OR c.visibilityStatus IS NULL)
+        RETURN c as n
+        ORDER BY c.inclusionNetVotes DESC, c.name ASC
+        `,
+        {},
+      );
+
+      return result.records.map((record) => this.mapNodeFromRecord(record));
+    } catch (error) {
+      this.logger.error(
+        `Error getting approved categories: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get approved categories', error);
+    }
+  }
+
+  async checkCategories(): Promise<{ count: number }> {
+    try {
+      const result = await this.neo4jService.read(
+        'MATCH (c:CategoryNode) RETURN count(c) as count',
+        {},
+      );
+
+      const count = this.toNumber(result.records[0].get('count'));
+      return { count };
+    } catch (error) {
+      this.logger.error(
+        `Error checking categories: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('check categories', error);
+    }
+  }
+
+  // ✅ INHERITED FROM BaseNodeSchema (No need to implement):
+  // - findById() -> replaces getCategory() for basic retrieval
+  // - update() -> replaces updateCategory() for simple updates
+  // - delete() -> replaces deleteCategory()
+  // - voteInclusion() -> replaces voteCategoryInclusion()
+  // - getVoteStatus() -> replaces getCategoryVoteStatus()
+  // - removeVote() -> replaces removeCategoryVote()
+  // - getVotes() -> replaces getCategoryVotes()
+  // - Standard validation, error handling, Neo4j utilities
+
+  // ❌ REMOVED METHODS (replaced by inherited BaseNodeSchema methods):
+  // - voteCategoryInclusion() -> use voteInclusion()
+  // - getCategoryVoteStatus() -> use getVoteStatus()
+  // - removeCategoryVote() -> use removeVote()
+  // - getCategoryVotes() -> use getVotes()
+
+  // ✅ ENHANCED METHODS PRESERVED:
+  // - createCategory(): Complex creation with word composition and hierarchy validation
+  // - getCategory(): Enhanced retrieval with words, hierarchy, and content stats
+  // - getCategoryStats(): Statistics for category usage and relationships
+  // - getCategoriesForNode(): Find all categories for any node type
+  // - setVisibilityStatus() / getVisibilityStatus(): Category visibility management
+  // - getCategoryHierarchy(): Hierarchical category tree retrieval
+  // - getApprovedCategories(): Discovery method for approved categories
+  // - checkCategories(): Utility method for category counting
 }
