@@ -321,6 +321,119 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
     }
   }
 
+  /**
+   * Get all categories with flexible filtering options
+   * Enhanced method to support the CategoryService getCategories functionality
+   */
+  async getAllCategories(
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'name' | 'created' | 'votes' | 'usage';
+      sortDirection?: 'asc' | 'desc';
+      onlyApproved?: boolean;
+      parentId?: string;
+      searchQuery?: string;
+    } = {},
+  ): Promise<CategoryData[]> {
+    try {
+      const {
+        limit,
+        offset = 0,
+        sortBy = 'name',
+        sortDirection = 'asc',
+        onlyApproved = false,
+        parentId,
+        searchQuery,
+      } = options;
+
+      // Build dynamic query
+      let query = 'MATCH (c:CategoryNode)';
+      const params: any = { offset, limit: limit || 1000 };
+
+      // Add parent relationship if filtering by parent
+      if (parentId) {
+        query = `
+          MATCH (parent:CategoryNode {id: $parentId})-[:PARENT_OF]->(c:CategoryNode)
+        `;
+        params.parentId = parentId;
+      }
+
+      // Build WHERE conditions
+      const whereConditions: string[] = [];
+
+      // Visibility filter
+      whereConditions.push(
+        '(c.visibilityStatus = true OR c.visibilityStatus IS NULL)',
+      );
+
+      // Approval filter
+      if (onlyApproved) {
+        whereConditions.push('c.inclusionNetVotes > 0');
+      }
+
+      // Search query filter
+      if (searchQuery) {
+        whereConditions.push(`
+          (toLower(c.name) CONTAINS toLower($searchQuery) 
+           OR toLower(c.description) CONTAINS toLower($searchQuery) 
+           OR EXISTS {
+             MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
+             WHERE toLower(w.word) CONTAINS toLower($searchQuery)
+           })
+        `);
+        params.searchQuery = searchQuery;
+      }
+
+      // Add WHERE clause if we have conditions
+      if (whereConditions.length > 0) {
+        query += ` WHERE ${whereConditions.join(' AND ')}`;
+      }
+
+      // Add sorting
+      const sortField = this.getSortFieldForQuery(sortBy);
+      query += `
+        RETURN c as n
+        ORDER BY ${sortField} ${sortDirection.toUpperCase()}
+      `;
+
+      // Add pagination
+      if (limit) {
+        query += ` SKIP $offset LIMIT $limit`;
+      } else if (offset > 0) {
+        query += ` SKIP $offset`;
+      }
+
+      this.logger.debug(`Executing getAllCategories query: ${query}`);
+
+      const result = await this.neo4jService.read(query, params);
+      return result.records.map((record) => this.mapNodeFromRecord(record));
+    } catch (error) {
+      this.logger.error(
+        `Error getting all categories: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get all categories', error);
+    }
+  }
+
+  /**
+   * Helper method to map sort field names to database fields
+   */
+  private getSortFieldForQuery(sortBy: string): string {
+    switch (sortBy) {
+      case 'votes':
+        return 'c.inclusionNetVotes';
+      case 'created':
+        return 'c.createdAt';
+      case 'usage':
+        return 'c.contentCount';
+      case 'name':
+      default:
+        return 'c.name';
+    }
+  }
+
   async getCategoryStats(categoryId: string): Promise<any> {
     if (!categoryId || categoryId.trim() === '') {
       throw new BadRequestException('Category ID cannot be empty');

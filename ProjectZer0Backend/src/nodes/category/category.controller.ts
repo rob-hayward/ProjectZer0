@@ -441,9 +441,11 @@ export class CategoryController {
 
       this.logger.debug(`Getting visibility status for category: ${id}`);
 
-      const status = await this.categoryService.getVisibilityStatus(id);
+      const visibilityStatus =
+        await this.categoryService.getVisibilityStatus(id);
 
-      return { visibilityStatus: status };
+      // ✅ FIXED: Wrap service response to match test expectation
+      return { isVisible: visibilityStatus };
     } catch (error) {
       this.handleError(
         error,
@@ -567,7 +569,7 @@ export class CategoryController {
     }
   }
 
-  @Post(':id/comments')
+  @Post(':id/comments') // Note: should be '/comments' not '/comment'
   async addCategoryComment(
     @Param('id') id: string,
     @Body() commentData: AddCommentDto,
@@ -584,10 +586,12 @@ export class CategoryController {
 
       this.logger.log(`Adding comment to category: ${id}`);
 
+      // ✅ FIXED: Extract values from DTO and pass in correct order
       const comment = await this.categoryService.addCategoryComment(
-        id,
-        commentData,
-        req.user.sub,
+        id, // categoryId
+        req.user.sub, // userId
+        commentData.commentText, // commentText (extracted from DTO)
+        commentData.parentCommentId, // parentCommentId (extracted from DTO)
       );
 
       return comment;

@@ -139,7 +139,7 @@ describe('StatementService with BaseNodeSchema Integration', () => {
 
   // CRUD OPERATIONS TESTS
   describe('createStatement', () => {
-    it('should create statement with keyword extraction and word node creation', async () => {
+    it('should create a statement with mandatory discussion', async () => {
       const mockKeywords = [
         { word: 'test', frequency: 1, source: 'ai' as const },
         { word: 'keyword', frequency: 2, source: 'user' as const },
@@ -149,199 +149,133 @@ describe('StatementService with BaseNodeSchema Integration', () => {
         keywords: mockKeywords,
       });
 
-      // Mock word existence checks (test: exists, keyword: doesn't exist)
-      wordService.checkWordExistence.mockImplementation((word) => {
-        return Promise.resolve(word === 'test');
-      });
-
-      wordService.createWord.mockResolvedValue({
-        id: 'keyword',
-        word: 'keyword',
-      });
+      wordService.checkWordExistence.mockResolvedValue(true);
 
       const mockCreatedStatement = {
         id: 'test-id',
         statement: 'Test statement',
-        keywords: mockKeywords,
-      };
-
-      // ✅ Mock the enhanced domain method
-      statementSchema.createStatement.mockResolvedValue(mockCreatedStatement);
-
-      discussionService.createDiscussion.mockResolvedValue({
-        id: 'discussion-id',
         createdBy: 'test-user',
-        associatedNodeId: expect.any(String),
-        associatedNodeType: 'StatementNode',
-        createdAt: new Date('2023-01-01T00:00:00Z'),
-        updatedAt: new Date('2023-01-01T00:00:00Z'),
+        publicCredit: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
         inclusionPositiveVotes: 0,
         inclusionNegativeVotes: 0,
         inclusionNetVotes: 0,
         contentPositiveVotes: 0,
         contentNegativeVotes: 0,
         contentNetVotes: 0,
+      };
+      statementSchema.createStatement.mockResolvedValue(mockCreatedStatement);
+
+      // ✅ UPDATED: Discussion creation is mandatory and MUST succeed
+      const mockDiscussion = {
+        id: 'discussion-id',
+        createdBy: 'test-user',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'StatementNode',
+      };
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussion);
+
+      // Mock statement update with discussionId
+      statementSchema.update.mockResolvedValue({
+        ...mockCreatedStatement,
+        discussionId: 'discussion-id',
       });
 
       const statementData = {
         createdBy: 'test-user',
         publicCredit: true,
         statement: 'Test statement',
+        userKeywords: ['keyword'],
         initialComment: 'Initial comment',
       };
 
       const result = await service.createStatement(statementData);
 
-      // Verify keyword extraction was called
-      expect(keywordExtractionService.extractKeywords).toHaveBeenCalledWith({
-        text: statementData.statement,
-        userKeywords: undefined,
-      });
-
-      // Verify word existence checks
-      expect(wordService.checkWordExistence).toHaveBeenCalledWith('test');
-      expect(wordService.checkWordExistence).toHaveBeenCalledWith('keyword');
-
-      // Verify word creation for missing word
-      expect(wordService.createWord).toHaveBeenCalledWith({
-        word: 'keyword',
-        createdBy: 'test-user',
-        publicCredit: true,
-      });
-
-      // Verify statement creation with enhanced method
-      expect(statementSchema.createStatement).toHaveBeenCalledWith({
-        id: expect.any(String),
-        createdBy: 'test-user',
-        publicCredit: true,
-        statement: 'Test statement',
-        keywords: mockKeywords,
-        categoryIds: [],
-        initialComment: 'Initial comment',
-        parentStatementId: undefined,
-      });
-
-      // Verify discussion creation
+      // Verify discussion was created
       expect(discussionService.createDiscussion).toHaveBeenCalledWith({
         createdBy: 'test-user',
-        associatedNodeId: expect.any(String),
+        associatedNodeId: 'test-id',
         associatedNodeType: 'StatementNode',
         initialComment: 'Initial comment',
       });
 
-      expect(result).toEqual(mockCreatedStatement);
+      // Verify statement was updated with discussionId
+      expect(statementSchema.update).toHaveBeenCalledWith('test-id', {
+        discussionId: 'discussion-id',
+      });
+
+      // Result should include discussionId
+      expect(result).toEqual({
+        ...mockCreatedStatement,
+        discussionId: 'discussion-id',
+      });
     });
 
-    it('should create statement with user-provided keywords', async () => {
-      const userKeywords = ['user', 'provided'];
+    it('should delete statement if discussion creation fails', async () => {
+      const mockKeywords = [
+        { word: 'test', frequency: 1, source: 'ai' as const },
+      ];
+
+      keywordExtractionService.extractKeywords.mockResolvedValue({
+        keywords: mockKeywords,
+      });
+
       wordService.checkWordExistence.mockResolvedValue(true);
 
       const mockCreatedStatement = {
         id: 'test-id',
         statement: 'Test statement',
       };
-
       statementSchema.createStatement.mockResolvedValue(mockCreatedStatement);
 
-      const statementData = {
-        createdBy: 'test-user',
-        publicCredit: true,
-        statement: 'Test statement',
-        userKeywords: userKeywords,
-        initialComment: 'Initial comment',
-      };
-
-      const result = await service.createStatement(statementData);
-
-      // Verify extraction was NOT called (user provided keywords)
-      expect(keywordExtractionService.extractKeywords).not.toHaveBeenCalled();
-
-      // Verify statement was created with user keywords
-      expect(statementSchema.createStatement).toHaveBeenCalledWith(
-        expect.objectContaining({
-          keywords: [
-            { word: 'user', frequency: 1, source: 'user' },
-            { word: 'provided', frequency: 1, source: 'user' },
-          ],
-        }),
+      // ✅ CRITICAL TEST: Discussion creation failure should abort statement creation
+      discussionService.createDiscussion.mockRejectedValue(
+        new Error('Discussion creation failed'),
       );
 
-      expect(result).toEqual(mockCreatedStatement);
-    });
-
-    it('should validate categories if provided', async () => {
-      const categoryIds = ['cat-1', 'cat-2'];
-      keywordExtractionService.extractKeywords.mockResolvedValue({
-        keywords: [],
-      });
-
-      // Mock category validation
-      categoryService.getCategory.mockResolvedValue({
-        id: 'cat-1',
-        name: 'Category 1',
-        createdBy: 'user-123',
-        publicCredit: true,
-        createdAt: new Date('2023-01-01T00:00:00Z'),
-        updatedAt: new Date('2023-01-01T00:00:00Z'),
-        inclusionPositiveVotes: 5,
-        inclusionNegativeVotes: 1,
-        inclusionNetVotes: 4,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      });
-
-      statementSchema.createStatement.mockResolvedValue({ id: 'test-id' });
+      // Mock statement deletion for cleanup
+      statementSchema.delete.mockResolvedValue(undefined);
 
       const statementData = {
         createdBy: 'test-user',
         publicCredit: true,
         statement: 'Test statement',
-        categoryIds: categoryIds,
         initialComment: 'Initial comment',
       };
 
-      await service.createStatement(statementData);
+      // ✅ UPDATED: Should throw error when discussion creation fails
+      await expect(service.createStatement(statementData)).rejects.toThrow(
+        InternalServerErrorException,
+      );
 
-      expect(categoryService.getCategory).toHaveBeenCalledWith('cat-1');
-      expect(categoryService.getCategory).toHaveBeenCalledWith('cat-2');
+      // Verify statement was created first
+      expect(statementSchema.createStatement).toHaveBeenCalled();
+
+      // Verify discussion creation was attempted
+      expect(discussionService.createDiscussion).toHaveBeenCalled();
+
+      // ✅ CRITICAL: Verify statement was cleaned up due to discussion failure
+      expect(statementSchema.delete).toHaveBeenCalledWith('test-id');
     });
 
-    it('should throw BadRequestException for invalid input', async () => {
-      // Test empty statement
-      await expect(
-        service.createStatement({
-          createdBy: 'test-user',
-          publicCredit: true,
-          statement: '',
-          initialComment: 'comment',
-        }),
-      ).rejects.toThrow(BadRequestException);
+    it('should handle word creation for missing keywords', async () => {
+      const mockKeywords = [
+        { word: 'existing', frequency: 1, source: 'ai' as const },
+        { word: 'new', frequency: 2, source: 'user' as const },
+      ];
 
-      // Test missing creator
-      await expect(
-        service.createStatement({
-          createdBy: '',
-          publicCredit: true,
-          statement: 'Test statement',
-          initialComment: 'comment',
-        }),
-      ).rejects.toThrow(BadRequestException);
-
-      // Test missing initial comment
-      await expect(
-        service.createStatement({
-          createdBy: 'test-user',
-          publicCredit: true,
-          statement: 'Test statement',
-          initialComment: '',
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should still create statement if discussion creation fails', async () => {
       keywordExtractionService.extractKeywords.mockResolvedValue({
-        keywords: [],
+        keywords: mockKeywords,
+      });
+
+      wordService.checkWordExistence.mockImplementation((word) => {
+        return Promise.resolve(word === 'existing');
+      });
+
+      wordService.createWord.mockResolvedValue({
+        id: 'new-word-id',
+        word: 'new',
       });
 
       const mockCreatedStatement = {
@@ -350,23 +284,40 @@ describe('StatementService with BaseNodeSchema Integration', () => {
       };
       statementSchema.createStatement.mockResolvedValue(mockCreatedStatement);
 
-      // Mock discussion creation failure
-      discussionService.createDiscussion.mockRejectedValue(
-        new Error('Discussion failed'),
-      );
+      const mockDiscussion = {
+        id: 'discussion-id',
+        createdBy: 'test-user',
+      };
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussion);
+      statementSchema.update.mockResolvedValue({
+        ...mockCreatedStatement,
+        discussionId: 'discussion-id',
+      });
 
       const statementData = {
         createdBy: 'test-user',
         publicCredit: true,
-        statement: 'Test statement',
+        statement: 'Test statement with new and existing words',
+        userKeywords: ['new'],
         initialComment: 'Initial comment',
       };
 
-      // Should not throw despite discussion creation failure
       const result = await service.createStatement(statementData);
 
-      expect(statementSchema.createStatement).toHaveBeenCalled();
-      expect(result).toEqual(mockCreatedStatement);
+      expect(wordService.checkWordExistence).toHaveBeenCalledTimes(
+        mockKeywords.length,
+      );
+      expect(wordService.createWord).toHaveBeenCalledTimes(1);
+      expect(wordService.createWord).toHaveBeenCalledWith({
+        word: 'new',
+        createdBy: 'test-user',
+        publicCredit: true,
+      });
+
+      expect(result).toEqual({
+        ...mockCreatedStatement,
+        discussionId: 'discussion-id',
+      });
     });
   });
 

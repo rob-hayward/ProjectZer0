@@ -721,6 +721,321 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
   });
 
+  describe('getAllCategories', () => {
+    it('should get all categories with default options', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getAllCategories();
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (c:CategoryNode)'),
+        expect.objectContaining({
+          offset: 0,
+          limit: 1000,
+        }),
+      );
+      expect(result).toHaveLength(1);
+
+      // getAllCategories uses mapNodeFromRecord, so only expect basic CategoryData
+      // not the enhanced fields (words, parentCategory, childCategories) that getCategory() adds
+      const expectedBasicData = {
+        id: mockCategoryData.id,
+        name: mockCategoryData.name,
+        description: mockCategoryData.description,
+        createdBy: mockCategoryData.createdBy,
+        publicCredit: mockCategoryData.publicCredit,
+        visibilityStatus: mockCategoryData.visibilityStatus,
+        createdAt: mockCategoryData.createdAt,
+        updatedAt: mockCategoryData.updatedAt,
+        inclusionPositiveVotes: mockCategoryData.inclusionPositiveVotes,
+        inclusionNegativeVotes: mockCategoryData.inclusionNegativeVotes,
+        inclusionNetVotes: mockCategoryData.inclusionNetVotes,
+        contentPositiveVotes: mockCategoryData.contentPositiveVotes,
+        contentNegativeVotes: mockCategoryData.contentNegativeVotes,
+        contentNetVotes: mockCategoryData.contentNetVotes,
+        wordCount: mockCategoryData.wordCount,
+        contentCount: mockCategoryData.contentCount,
+        childCount: mockCategoryData.childCount,
+      };
+      expect(result[0]).toEqual(expectedBasicData);
+    });
+
+    it('should filter by parent category', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getAllCategories({
+        parentId: 'parent-cat-123',
+        limit: 10,
+        offset: 5,
+      });
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'MATCH (parent:CategoryNode {id: $parentId})-[:PARENT_OF]->(c:CategoryNode)',
+        ),
+        expect.objectContaining({
+          parentId: 'parent-cat-123',
+          offset: 5,
+          limit: 10,
+        }),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(mockCategoryData.id);
+      expect(result[0].name).toBe(mockCategoryData.name);
+    });
+
+    it('should filter by search query', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getAllCategories({
+        searchQuery: 'technology',
+        onlyApproved: true,
+      });
+
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'toLower(c.name) CONTAINS toLower($searchQuery)',
+        ),
+        expect.objectContaining({
+          searchQuery: 'technology',
+          offset: 0,
+          limit: 1000,
+        }),
+      );
+      expect(result).toHaveLength(1);
+      expect(result[0].id).toBe(mockCategoryData.id);
+    });
+
+    it('should combine parent filtering and search query', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getAllCategories({
+        parentId: 'parent-cat-123',
+        searchQuery: 'tech',
+        onlyApproved: true,
+        sortBy: 'votes',
+        sortDirection: 'desc',
+        limit: 20,
+        offset: 10,
+      });
+
+      const query = neo4jService.read.mock.calls[0][0];
+      const params = neo4jService.read.mock.calls[0][1];
+
+      // Verify query contains parent filtering
+      expect(query).toContain(
+        'MATCH (parent:CategoryNode {id: $parentId})-[:PARENT_OF]->(c:CategoryNode)',
+      );
+      // Verify query contains search filtering
+      expect(query).toContain('toLower(c.name) CONTAINS toLower($searchQuery)');
+      // Verify query contains approval filtering
+      expect(query).toContain('c.inclusionNetVotes > 0');
+      // Verify query contains sorting
+      expect(query).toContain('ORDER BY c.inclusionNetVotes DESC');
+      // Verify query contains pagination
+      expect(query).toContain('SKIP $offset LIMIT $limit');
+
+      expect(params).toEqual({
+        parentId: 'parent-cat-123',
+        searchQuery: 'tech',
+        offset: 10,
+        limit: 20,
+      });
+      expect(result).toHaveLength(1);
+    });
+
+    it('should apply different sort options correctly', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      // Test sorting by name
+      await schema.getAllCategories({ sortBy: 'name', sortDirection: 'asc' });
+      expect(neo4jService.read).toHaveBeenLastCalledWith(
+        expect.stringContaining('ORDER BY c.name ASC'),
+        expect.any(Object),
+      );
+
+      // Test sorting by created date
+      await schema.getAllCategories({
+        sortBy: 'created',
+        sortDirection: 'desc',
+      });
+      expect(neo4jService.read).toHaveBeenLastCalledWith(
+        expect.stringContaining('ORDER BY c.createdAt DESC'),
+        expect.any(Object),
+      );
+
+      // Test sorting by usage
+      await schema.getAllCategories({ sortBy: 'usage', sortDirection: 'asc' });
+      expect(neo4jService.read).toHaveBeenLastCalledWith(
+        expect.stringContaining('ORDER BY c.contentCount ASC'),
+        expect.any(Object),
+      );
+
+      // Test sorting by votes
+      await schema.getAllCategories({ sortBy: 'votes', sortDirection: 'desc' });
+      expect(neo4jService.read).toHaveBeenLastCalledWith(
+        expect.stringContaining('ORDER BY c.inclusionNetVotes DESC'),
+        expect.any(Object),
+      );
+    });
+
+    it('should handle onlyApproved filter', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      // Test with onlyApproved: true
+      await schema.getAllCategories({ onlyApproved: true });
+      let query =
+        neo4jService.read.mock.calls[
+          neo4jService.read.mock.calls.length - 1
+        ][0];
+      expect(query).toContain('c.inclusionNetVotes > 0');
+
+      // Test with onlyApproved: false (should not have the filter)
+      await schema.getAllCategories({ onlyApproved: false });
+      query =
+        neo4jService.read.mock.calls[
+          neo4jService.read.mock.calls.length - 1
+        ][0];
+      expect(query).not.toContain('c.inclusionNetVotes > 0');
+    });
+
+    it('should handle pagination correctly', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      // Test with both limit and offset
+      await schema.getAllCategories({ limit: 25, offset: 50 });
+      let query =
+        neo4jService.read.mock.calls[
+          neo4jService.read.mock.calls.length - 1
+        ][0];
+      expect(query).toContain('SKIP $offset LIMIT $limit');
+
+      // Test with only offset (no limit)
+      await schema.getAllCategories({ offset: 10 });
+      query =
+        neo4jService.read.mock.calls[
+          neo4jService.read.mock.calls.length - 1
+        ][0];
+      expect(query).toContain('SKIP $offset');
+      expect(query).not.toContain('LIMIT');
+
+      // Test with no pagination
+      await schema.getAllCategories({});
+      query =
+        neo4jService.read.mock.calls[
+          neo4jService.read.mock.calls.length - 1
+        ][0];
+      expect(query).not.toContain('SKIP');
+      expect(query).not.toContain('LIMIT');
+    });
+
+    it('should search in category name, description, and composed words', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      await schema.getAllCategories({ searchQuery: 'AI' });
+
+      const query = neo4jService.read.mock.calls[0][0];
+
+      // Verify search looks in category name
+      expect(query).toContain('toLower(c.name) CONTAINS toLower($searchQuery)');
+      // Verify search looks in category description
+      expect(query).toContain(
+        'toLower(c.description) CONTAINS toLower($searchQuery)',
+      );
+      // Verify search looks in composed words
+      expect(query).toContain('MATCH (c)-[:COMPOSED_OF]->(w:WordNode)');
+      expect(query).toContain('toLower(w.word) CONTAINS toLower($searchQuery)');
+    });
+
+    it('should handle empty results', async () => {
+      neo4jService.read.mockResolvedValue({
+        records: [],
+      } as unknown as Result);
+
+      const result = await schema.getAllCategories({ parentId: 'nonexistent' });
+
+      expect(result).toEqual([]);
+    });
+
+    it('should handle database errors', async () => {
+      neo4jService.read.mockRejectedValue(
+        new Error('Database connection failed'),
+      );
+
+      await expect(schema.getAllCategories()).rejects.toThrow(
+        'Failed to get all categories Category: Database connection failed',
+      );
+    });
+
+    it('should use correct default values', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      await schema.getAllCategories({});
+
+      const params = neo4jService.read.mock.calls[0][1];
+      expect(params.offset).toBe(0);
+      expect(params.limit).toBe(1000);
+    });
+  });
+
+  describe('getSortFieldForQuery (private helper)', () => {
+    it('should map sort fields correctly', () => {
+      // Access private method for testing
+      const getSortField = (schema as any).getSortFieldForQuery;
+
+      expect(getSortField('name')).toBe('c.name');
+      expect(getSortField('votes')).toBe('c.inclusionNetVotes');
+      expect(getSortField('created')).toBe('c.createdAt');
+      expect(getSortField('usage')).toBe('c.contentCount');
+      expect(getSortField('unknown')).toBe('c.name'); // default
+    });
+  });
+
   describe('Error Handling Consistency', () => {
     it('should use standardized error messages from BaseNodeSchema', async () => {
       neo4jService.read.mockRejectedValue(

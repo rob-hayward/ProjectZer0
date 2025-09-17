@@ -1,4 +1,4 @@
-// src/nodes/category/category.service.ts - FIXED FOR BaseNodeSchema Integration
+// src/nodes/category/category.service.ts - UPDATED WITH COMPLETE FILTERING IMPLEMENTATION
 
 import {
   Injectable,
@@ -195,7 +195,7 @@ export class CategoryService {
     }
   }
 
-  // LISTING AND FILTERING METHODS - Uses enhanced domain methods
+  // LISTING AND FILTERING METHODS - COMPLETE IMPLEMENTATION
 
   /**
    * Get all categories with filtering and sorting options
@@ -238,20 +238,192 @@ export class CategoryService {
         );
       }
 
-      // Get categories from schema
-      if (onlyApproved) {
-        // ✅ Use enhanced domain method for approved categories
-        return await this.categorySchema.getApprovedCategories();
-      } else {
-        // For now, return all categories using a basic approach since getAllCategories doesn't exist
-        // This could be enhanced in the future with more sophisticated filtering
-        this.logger.warn(
-          'Full category filtering not yet implemented - returning approved categories',
-        );
-        return await this.categorySchema.getApprovedCategories();
+      // Validate parent exists if provided
+      if (parentId) {
+        const parentCategory = await this.categorySchema.findById(parentId);
+        if (!parentCategory) {
+          throw new NotFoundException(
+            `Parent category with ID ${parentId} not found`,
+          );
+        }
       }
+
+      // ✅ USE ENHANCED SCHEMA METHOD FOR ALL FILTERING
+      return await this.categorySchema.getAllCategories({
+        limit,
+        offset,
+        sortBy,
+        sortDirection,
+        onlyApproved,
+        parentId,
+        searchQuery,
+      });
     } catch (error) {
       this.handleError(error, 'get categories');
+    }
+  }
+
+  /**
+   * Get child categories for a specific parent (convenience method)
+   */
+  async getCategoriesByParent(
+    parentId: string,
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'name' | 'created' | 'votes' | 'usage';
+      sortDirection?: 'asc' | 'desc';
+      onlyApproved?: boolean;
+    } = {},
+  ) {
+    try {
+      this.validateId(parentId);
+
+      this.logger.debug(
+        `Getting child categories for parent: ${parentId} with options: ${JSON.stringify(options)}`,
+      );
+
+      // Use the schema method with parent filtering
+      return await this.categorySchema.getAllCategories({
+        parentId,
+        ...options,
+      });
+    } catch (error) {
+      this.handleError(error, `get categories by parent ${parentId}`);
+    }
+  }
+
+  /**
+   * Search categories by text query (convenience method)
+   */
+  async searchCategories(
+    searchQuery: string,
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'name' | 'created' | 'votes' | 'usage';
+      sortDirection?: 'asc' | 'desc';
+      onlyApproved?: boolean;
+    } = {},
+  ) {
+    try {
+      if (!searchQuery || searchQuery.trim() === '') {
+        throw new BadRequestException('Search query cannot be empty');
+      }
+
+      this.logger.debug(
+        `Searching categories for: "${searchQuery}" with options: ${JSON.stringify(options)}`,
+      );
+
+      // Use the schema method with search filtering
+      return await this.categorySchema.getAllCategories({
+        searchQuery: searchQuery.trim(),
+        ...options,
+      });
+    } catch (error) {
+      this.handleError(error, `search categories for "${searchQuery}"`);
+    }
+  }
+
+  /**
+   * Get approved categories (convenience method for controller)
+   * Uses the existing getAllCategories with onlyApproved filter
+   */
+  async getApprovedCategories(
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'name' | 'created' | 'votes' | 'usage';
+      sortDirection?: 'asc' | 'desc';
+      parentId?: string;
+    } = {},
+  ) {
+    try {
+      this.logger.debug(
+        `Getting approved categories with options: ${JSON.stringify(options)}`,
+      );
+
+      // Use existing filtering with onlyApproved = true
+      return await this.getCategories({
+        ...options,
+        onlyApproved: true,
+      });
+    } catch (error) {
+      this.handleError(error, 'get approved categories');
+    }
+  }
+
+  /**
+   * Check if a category is approved (has positive inclusion votes)
+   */
+  async isCategoryApproved(id: string): Promise<boolean> {
+    try {
+      this.validateId(id);
+
+      this.logger.debug(`Checking if category ${id} is approved`);
+
+      // Get category using BaseNodeSchema method
+      const category = await this.categorySchema.findById(id);
+
+      if (!category) {
+        throw new NotFoundException(`Category with ID ${id} not found`);
+      }
+
+      // Category is approved if it has positive inclusion votes
+      return category.inclusionNetVotes > 0;
+    } catch (error) {
+      this.handleError(error, `check if category ${id} is approved`);
+    }
+  }
+
+  /**
+   * Add comment to category (placeholder implementation)
+   */
+  async addCategoryComment(
+    categoryId: string,
+    userId: string,
+    commentText: string,
+    parentCommentId?: string,
+  ) {
+    try {
+      this.validateId(categoryId);
+      this.validateUserId(userId);
+
+      if (!commentText || commentText.trim() === '') {
+        throw new BadRequestException('Comment text is required');
+      }
+
+      this.logger.log(
+        `Adding comment to category ${categoryId} by user ${userId}`,
+      );
+
+      // Get category to ensure it exists
+      const category = await this.getCategory(categoryId);
+
+      if (!category) {
+        throw new NotFoundException(`Category with ID ${categoryId} not found`);
+      }
+
+      // For now, return a placeholder response since full comment integration is not implemented
+      this.logger.warn(
+        'Category comment integration not yet fully implemented',
+      );
+
+      // TODO: Integrate with CommentService when discussion system is implemented
+      // This would need:
+      // 1. Create discussion for category if not exists
+      // 2. Add comment to discussion
+      // 3. Update category with discussion reference
+
+      return {
+        id: `comment-${Date.now()}`,
+        text: commentText.trim(),
+        createdBy: userId,
+        parentCommentId,
+        createdAt: new Date(),
+      };
+    } catch (error) {
+      this.handleError(error, `add comment to category ${categoryId}`);
     }
   }
 

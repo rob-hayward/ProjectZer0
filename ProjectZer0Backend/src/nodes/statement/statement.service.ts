@@ -83,7 +83,7 @@ export class StatementService {
   // CRUD OPERATIONS - HYBRID PATTERN IMPLEMENTATION
 
   /**
-   * Create a new statement - Uses enhanced createStatement() method
+   * Create a new statement - UPDATED: Discussion creation is mandatory
    */
   async createStatement(statementData: CreateStatementData) {
     try {
@@ -112,55 +112,259 @@ export class StatementService {
             });
           keywords = extractionResult.keywords;
         } catch (error) {
-          this.logger.warn(`Keyword extraction failed: ${error.message}`);
-          keywords = [];
+          this.logger.error(`Keyword extraction failed: ${error.message}`);
+          throw new InternalServerErrorException(
+            `Failed to extract keywords: ${error.message}`,
+          );
         }
       }
 
-      // Process keywords to ensure Word nodes exist
-      if (keywords.length > 0) {
-        await this.processKeywordsForCreation(keywords, statementData);
+      // Create word nodes for any keywords that don't exist
+      for (const keyword of keywords) {
+        try {
+          const wordExists = await this.wordService.checkWordExistence(
+            keyword.word,
+          );
+          if (!wordExists) {
+            this.logger.debug(`Creating word node: ${keyword.word}`);
+            await this.wordService.createWord({
+              word: keyword.word,
+              createdBy: statementData.createdBy,
+              publicCredit: statementData.publicCredit,
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to create word ${keyword.word}: ${error.message}`,
+          );
+          // Continue with statement creation even if word creation fails
+        }
       }
 
       // Validate categories if provided
       if (statementData.categoryIds && statementData.categoryIds.length > 0) {
-        await this.validateCategories(statementData.categoryIds);
+        for (const categoryId of statementData.categoryIds) {
+          try {
+            const category = await this.categoryService.getCategory(categoryId);
+            if (!category) {
+              throw new BadRequestException(
+                `Category with ID ${categoryId} not found`,
+              );
+            }
+          } catch (error) {
+            if (error instanceof NotFoundException) {
+              throw new BadRequestException(
+                `Category with ID ${categoryId} not found`,
+              );
+            }
+            throw error;
+          }
+        }
       }
 
       const statementNodeData: StatementNodeData = {
         id: statementId,
         createdBy: statementData.createdBy,
         publicCredit: statementData.publicCredit,
-        statement: statementData.statement,
-        keywords: keywords,
+        statement: statementData.statement.trim(),
+        keywords,
         categoryIds: statementData.categoryIds || [],
-        initialComment: statementData.initialComment,
+        initialComment: statementData.initialComment.trim(),
         parentStatementId: statementData.parentStatementId,
       };
 
-      // ✅ Use enhanced domain method for complex creation
+      // ✅ FIXED: Create statement first
       const result =
         await this.statementSchema.createStatement(statementNodeData);
 
-      // Create discussion if initial comment provided
-      if (statementData.initialComment && statementData.initialComment.trim()) {
-        try {
-          await this.discussionService.createDiscussion({
-            createdBy: statementData.createdBy,
-            associatedNodeId: statementId,
-            associatedNodeType: 'StatementNode',
-            initialComment: statementData.initialComment,
-          });
-        } catch (error) {
-          this.logger.warn(`Discussion creation failed: ${error.message}`);
-          // Don't fail statement creation if discussion fails
-        }
-      }
+      // ✅ MANDATORY: Create discussion for statement - MUST SUCCEED
+      try {
+        this.logger.debug(
+          `Creating mandatory discussion for statement: ${result.id}`,
+        );
+        const discussion = await this.discussionService.createDiscussion({
+          createdBy: statementData.createdBy,
+          associatedNodeId: result.id,
+          associatedNodeType: 'StatementNode',
+          initialComment: statementData.initialComment,
+        });
 
-      this.logger.log(`Successfully created statement with ID: ${result.id}`);
-      return result;
+        // Update statement with discussion ID
+        const updatedStatement = await this.statementSchema.update(result.id, {
+          discussionId: discussion.id,
+        });
+
+        this.logger.log(
+          `Successfully created statement with discussion: ${result.id}`,
+        );
+
+        // Return the statement with discussionId included
+        return {
+          ...result,
+          discussionId: discussion.id,
+        };
+      } catch (error) {
+        // ✅ CRITICAL: If discussion creation fails, DELETE the statement to maintain consistency
+        this.logger.error(
+          `Failed to create mandatory discussion for statement ${result.id}: ${error.message}`,
+        );
+
+        try {
+          await this.statementSchema.delete(result.id);
+          this.logger.warn(
+            `Cleaned up statement ${result.id} due to discussion creation failure`,
+          );
+        } catch (deleteError) {
+          this.logger.error(
+            `Failed to cleanup statement ${result.id}: ${deleteError.message}`,
+          );
+        }
+
+        throw new InternalServerErrorException(
+          'Failed to create discussion for statement - statement creation aborted',
+        );
+      }
     } catch (error) {
       this.handleError(error, 'create statement');
+    }
+  }
+
+  /**
+   * Get comments for a statement
+   * UPDATED: Assumes statement always has discussionId
+   */
+  async getStatementComments(id: string) {
+    try {
+      this.validateId(id);
+
+      this.logger.log(`Getting comments for statement: ${id}`);
+
+      const statement = await this.getStatement(id);
+
+      if (!statement) {
+        throw new NotFoundException(`Statement with ID ${id} not found`);
+      }
+
+      // ✅ ARCHITECTURAL CONSTRAINT: All statements MUST have discussionId
+      if (!statement.discussionId) {
+        this.logger.error(
+          `CRITICAL: Statement ${id} missing discussionId - data integrity violation!`,
+        );
+        throw new InternalServerErrorException(
+          `Statement ${id} is in an invalid state - missing required discussion`,
+        );
+      }
+
+      try {
+        const comments = await this.commentService.getCommentsByDiscussionId(
+          statement.discussionId,
+        );
+        return { comments };
+      } catch (error) {
+        this.logger.warn(
+          `Failed to get comments for discussion ${statement.discussionId}: ${error.message}`,
+        );
+        // Return empty comments rather than fail - discussion exists but comment retrieval failed
+        return { comments: [] };
+      }
+    } catch (error) {
+      this.handleError(error, `get comments for statement ${id}`);
+    }
+  }
+
+  /**
+   * Add comment to statement
+   * UPDATED: Assumes statement always has discussionId
+   */
+  async addStatementComment(
+    statementId: string,
+    commentData: { commentText: string; parentCommentId?: string },
+    userId: string,
+  ) {
+    try {
+      this.validateId(statementId);
+      this.validateUserId(userId);
+
+      if (!commentData.commentText || commentData.commentText.trim() === '') {
+        throw new BadRequestException('Comment text is required');
+      }
+
+      this.logger.log(
+        `Adding comment to statement ${statementId} by user ${userId}`,
+      );
+
+      // Get statement to ensure it exists
+      const statement = await this.getStatement(statementId);
+
+      if (!statement) {
+        throw new NotFoundException(
+          `Statement with ID ${statementId} not found`,
+        );
+      }
+
+      // ✅ ARCHITECTURAL CONSTRAINT: All statements MUST have discussionId
+      if (!statement.discussionId) {
+        this.logger.error(
+          `CRITICAL: Statement ${statementId} missing discussionId - data integrity violation!`,
+        );
+        throw new InternalServerErrorException(
+          `Statement ${statementId} is in an invalid state - missing required discussion`,
+        );
+      }
+
+      // Create the comment (discussion is guaranteed to exist)
+      try {
+        const comment = await this.commentService.createComment({
+          createdBy: userId,
+          discussionId: statement.discussionId,
+          commentText: commentData.commentText.trim(),
+          parentCommentId: commentData.parentCommentId,
+        });
+
+        this.logger.log(
+          `Successfully added comment to statement ${statementId}`,
+        );
+        return comment;
+      } catch (error) {
+        this.logger.error(`Failed to create comment: ${error.message}`);
+        throw new InternalServerErrorException('Failed to create comment');
+      }
+    } catch (error) {
+      this.handleError(error, `add comment to statement ${statementId}`);
+    }
+  }
+
+  /**
+   * Get statement with its discussion (convenience method)
+   * UPDATED: Assumes statement always has discussionId
+   */
+  async getStatementWithDiscussion(id: string) {
+    try {
+      this.validateId(id);
+
+      this.logger.log(`Getting statement with discussion: ${id}`);
+
+      const statement = await this.getStatement(id);
+
+      if (!statement) {
+        throw new NotFoundException(`Statement with ID ${id} not found`);
+      }
+
+      // ✅ ARCHITECTURAL CONSTRAINT: All statements MUST have discussionId
+      if (!statement.discussionId) {
+        this.logger.error(
+          `CRITICAL: Statement ${id} missing discussionId - data integrity violation!`,
+        );
+        throw new InternalServerErrorException(
+          `Statement ${id} is in an invalid state - missing required discussion`,
+        );
+      }
+
+      // Statement already includes discussionId - return as-is
+      // The enhanced getStatement() method should handle any discussion integration
+      return statement;
+    } catch (error) {
+      this.handleError(error, `get statement with discussion ${id}`);
     }
   }
 
