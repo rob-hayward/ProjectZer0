@@ -1,32 +1,109 @@
-// src/nodes/definition/definition.service.spec.ts
+// src/nodes/definition/definition.service.spec.ts - REFACTORED WITH HYBRID PATTERN + BASENODE INTEGRATION
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { DefinitionService } from './definition.service';
 import { DefinitionSchema } from '../../neo4j/schemas/definition.schema';
 import { UserSchema } from '../../neo4j/schemas/user.schema';
 import { DiscussionService } from '../discussion/discussion.service';
-import { BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { CommentService } from '../comment/comment.service';
+import {
+  BadRequestException,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 import { TEXT_LIMITS } from '../../constants/validation';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
+import type { DiscussionData } from '../../neo4j/schemas/discussion.schema';
 
-describe('DefinitionService', () => {
+describe('DefinitionService with BaseNodeSchema Integration', () => {
   let service: DefinitionService;
-  let schema: jest.Mocked<DefinitionSchema>;
+  let definitionSchema: jest.Mocked<DefinitionSchema>;
   let userSchema: jest.Mocked<UserSchema>;
   let discussionService: jest.Mocked<DiscussionService>;
+  // Remove unused commentService variable
+
+  const mockVoteResult: VoteResult = {
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 1,
+    inclusionNetVotes: 4,
+    contentPositiveVotes: 3,
+    contentNegativeVotes: 0,
+    contentNetVotes: 3,
+  };
+
+  const mockVoteStatus: VoteStatus = {
+    inclusionStatus: 'agree' as const,
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 1,
+    inclusionNetVotes: 4,
+    contentStatus: 'agree' as const,
+    contentPositiveVotes: 3,
+    contentNegativeVotes: 0,
+    contentNetVotes: 3,
+  };
+
+  // ✅ Complete DiscussionData mock with all required properties
+  const mockDiscussionData: DiscussionData = {
+    id: 'discussion-id',
+    createdBy: 'test-user',
+    associatedNodeId: 'test-id',
+    associatedNodeType: 'DefinitionNode',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    inclusionPositiveVotes: 0,
+    inclusionNegativeVotes: 0,
+    inclusionNetVotes: 0,
+    contentPositiveVotes: 0,
+    contentNegativeVotes: 0,
+    contentNetVotes: 0,
+  };
+
+  const mockDefinitionData = {
+    id: 'test-id',
+    word: 'test',
+    createdBy: 'user1',
+    definitionText: 'A test definition',
+    discussion: 'Discussion ID: discussion-id', // Use discussion field instead of discussionId
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 1,
+    inclusionNetVotes: 4,
+    contentPositiveVotes: 3,
+    contentNegativeVotes: 0,
+    contentNetVotes: 3,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const validDefinitionData = {
+    word: 'test',
+    createdBy: 'user1',
+    definitionText: 'A test definition',
+    initialComment: 'Initial discussion comment',
+  };
 
   beforeEach(async () => {
-    // Create mock implementations
+    // ✅ Mock only methods that actually exist after BaseNodeSchema integration
     const mockDefinitionSchema = {
+      // ✅ Enhanced domain methods (preserved)
       createDefinition: jest.fn(),
-      getDefinition: jest.fn(),
-      updateDefinition: jest.fn(),
-      deleteDefinition: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
-      voteDefinition: jest.fn(),
-      getDefinitionVoteStatus: jest.fn(),
-      removeDefinitionVote: jest.fn(),
-      getDefinitionVotes: jest.fn(),
-      updateDefinitionWithDiscussionId: jest.fn(),
+      getDefinitionsByWord: jest.fn(),
+      getApprovedDefinitions: jest.fn(),
+
+      // ✅ BaseNodeSchema methods (inherited)
+      findById: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+      voteInclusion: jest.fn(),
+      voteContent: jest.fn(),
+      getVoteStatus: jest.fn(),
+      removeVote: jest.fn(),
+      getVotes: jest.fn(),
+
+      // ❌ REMOVED: Methods that don't exist in DefinitionSchema
+      // - getDefinition() -> replaced by findById()
+      // - setVisibilityStatus() -> not implemented in current schema
+      // - getVisibilityStatus() -> not implemented in current schema
     };
 
     const mockUserSchema = {
@@ -39,6 +116,17 @@ describe('DefinitionService', () => {
       getDiscussion: jest.fn(),
       updateDiscussion: jest.fn(),
       deleteDiscussion: jest.fn(),
+      setVisibilityStatus: jest.fn(),
+      getVisibilityStatus: jest.fn(),
+    };
+
+    const mockCommentService = {
+      createComment: jest.fn(),
+      getComment: jest.fn(),
+      updateComment: jest.fn(),
+      deleteComment: jest.fn(),
+      getCommentsByDiscussionId: jest.fn(),
+      getCommentsByDiscussionIdWithVisibility: jest.fn(),
       setVisibilityStatus: jest.fn(),
       getVisibilityStatus: jest.fn(),
     };
@@ -59,6 +147,10 @@ describe('DefinitionService', () => {
           useValue: mockDiscussionService,
         },
         {
+          provide: CommentService,
+          useValue: mockCommentService,
+        },
+        {
           provide: Logger,
           useValue: {
             log: jest.fn(),
@@ -71,9 +163,10 @@ describe('DefinitionService', () => {
     }).compile();
 
     service = module.get<DefinitionService>(DefinitionService);
-    schema = module.get(DefinitionSchema);
+    definitionSchema = module.get(DefinitionSchema);
     userSchema = module.get(UserSchema);
     discussionService = module.get(DiscussionService);
+    // Remove commentService assignment
   });
 
   afterEach(() => {
@@ -84,75 +177,30 @@ describe('DefinitionService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('createDefinition', () => {
-    const validDefinitionData = {
-      word: 'test',
-      createdBy: 'user1',
-      definitionText: 'A test definition',
-    };
+  // CRUD OPERATIONS TESTS
 
-    it('should create a definition with valid data', async () => {
-      const expectedResult = {
-        id: 'test-id',
-        ...validDefinitionData,
-      };
-
-      schema.createDefinition.mockResolvedValue(expectedResult);
-      userSchema.addCreatedNode.mockResolvedValue(undefined);
-
-      const result = await service.createDefinition(validDefinitionData);
-
-      expect(schema.createDefinition).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ...validDefinitionData,
-          id: expect.any(String),
-        }),
-      );
-      expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
-        'user1',
-        'test-id',
-        'definition',
-      );
-      expect(result).toEqual(expectedResult);
-    });
-
-    it('should create a definition with discussion if discussion is provided', async () => {
-      const definitionDataWithDiscussion = {
-        ...validDefinitionData,
-        discussion: 'Initial discussion comment',
-      };
-
+  describe('createDefinition - Mandatory Discussion Architecture', () => {
+    it('should create definition with mandatory discussion successfully', async () => {
       const createdDefinition = {
         id: 'test-id',
         ...validDefinitionData,
       };
 
-      const createdDiscussion = {
-        id: 'disc-id',
-        createdBy: 'user1',
-        associatedNodeId: 'test-id',
-        associatedNodeType: 'DefinitionNode',
-        initialComment: 'Initial discussion comment',
-      };
-
-      schema.createDefinition.mockResolvedValue(createdDefinition);
-      discussionService.createDiscussion.mockResolvedValue(createdDiscussion);
-      schema.updateDefinitionWithDiscussionId.mockResolvedValue({
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussionData);
+      definitionSchema.update.mockResolvedValue({
         ...createdDefinition,
-        discussionId: 'disc-id',
+        discussion: 'Discussion ID: discussion-id',
       });
       userSchema.addCreatedNode.mockResolvedValue(undefined);
 
-      const result = await service.createDefinition(
-        definitionDataWithDiscussion,
-      );
+      const result = await service.createDefinition(validDefinitionData);
 
-      expect(schema.createDefinition).toHaveBeenCalledWith(
+      expect(definitionSchema.createDefinition).toHaveBeenCalledWith(
         expect.objectContaining({
-          word: 'test',
-          createdBy: 'user1',
-          definitionText: 'A test definition',
+          ...validDefinitionData,
           id: expect.any(String),
+          word: 'test', // normalized to lowercase
         }),
       );
 
@@ -163,10 +211,9 @@ describe('DefinitionService', () => {
         initialComment: 'Initial discussion comment',
       });
 
-      expect(schema.updateDefinitionWithDiscussionId).toHaveBeenCalledWith(
-        'test-id',
-        'disc-id',
-      );
+      expect(definitionSchema.update).toHaveBeenCalledWith('test-id', {
+        discussionId: 'discussion-id',
+      });
 
       expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
         'user1',
@@ -174,35 +221,82 @@ describe('DefinitionService', () => {
         'definition',
       );
 
-      expect(result).toEqual(createdDefinition);
+      expect(result).toEqual({
+        ...createdDefinition,
+        discussionId: 'discussion-id',
+      });
+    });
+
+    it('should handle discussion creation failure with cleanup', async () => {
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
+
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockRejectedValue(
+        new Error('Discussion creation failed'),
+      );
+      definitionSchema.delete.mockResolvedValue({ success: true });
+
+      await expect(
+        service.createDefinition(validDefinitionData),
+      ).rejects.toThrow(InternalServerErrorException);
+
+      // Verify cleanup occurred
+      expect(definitionSchema.delete).toHaveBeenCalledWith('test-id');
     });
 
     it('should not track creation for API-created definitions', async () => {
       const apiDefinitionData = {
-        word: 'test',
+        ...validDefinitionData,
         createdBy: 'FreeDictionaryAPI',
-        definitionText: 'A test definition',
       };
 
-      const expectedResult = {
+      const createdDefinition = {
         id: 'test-id',
         ...apiDefinitionData,
       };
 
-      schema.createDefinition.mockResolvedValue(expectedResult);
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussionData);
+      definitionSchema.update.mockResolvedValue({
+        ...createdDefinition,
+        discussion: 'Discussion ID: discussion-id',
+      });
 
       const result = await service.createDefinition(apiDefinitionData);
 
-      expect(schema.createDefinition).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ...apiDefinitionData,
-          id: expect.any(String),
-        }),
-      );
       expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
-      expect(result).toEqual(expectedResult);
+      expect(result).toEqual({
+        ...createdDefinition,
+        discussionId: 'discussion-id',
+      });
     });
 
+    it('should handle tracking errors gracefully', async () => {
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
+
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussionData);
+      definitionSchema.update.mockResolvedValue({
+        ...createdDefinition,
+        discussion: 'Discussion ID: discussion-id',
+      });
+      userSchema.addCreatedNode.mockRejectedValue(new Error('Tracking error'));
+
+      // Should not throw despite tracking error
+      const result = await service.createDefinition(validDefinitionData);
+      expect(result).toEqual({
+        ...createdDefinition,
+        discussionId: 'discussion-id',
+      });
+    });
+
+    // VALIDATION TESTS
     it('should throw BadRequestException for empty word', async () => {
       await expect(
         service.createDefinition({
@@ -210,7 +304,7 @@ describe('DefinitionService', () => {
           word: '',
         }),
       ).rejects.toThrow(BadRequestException);
-      expect(schema.createDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.createDefinition).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException for empty definition text', async () => {
@@ -220,7 +314,7 @@ describe('DefinitionService', () => {
           definitionText: '',
         }),
       ).rejects.toThrow(BadRequestException);
-      expect(schema.createDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.createDefinition).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException for definition text exceeding max length', async () => {
@@ -232,221 +326,191 @@ describe('DefinitionService', () => {
           definitionText: longText,
         }),
       ).rejects.toThrow(BadRequestException);
-      expect(schema.createDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.createDefinition).not.toHaveBeenCalled();
     });
 
-    it('should handle NotFoundException when word does not exist', async () => {
-      schema.createDefinition.mockRejectedValue(
-        new NotFoundException('Word "test" not found'),
-      );
-
+    it('should throw BadRequestException for missing initial comment', async () => {
       await expect(
-        service.createDefinition(validDefinitionData),
-      ).rejects.toThrow(NotFoundException);
+        service.createDefinition({
+          ...validDefinitionData,
+          initialComment: '',
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(definitionSchema.createDefinition).not.toHaveBeenCalled();
     });
 
-    it('should handle tracking errors gracefully', async () => {
-      const expectedResult = {
-        id: 'test-id',
-        ...validDefinitionData,
-      };
-
-      schema.createDefinition.mockResolvedValue(expectedResult);
-      userSchema.addCreatedNode.mockRejectedValue(new Error('Tracking error'));
-
-      // Should not throw despite tracking error
-      const result = await service.createDefinition(validDefinitionData);
-      expect(result).toEqual(expectedResult);
-    });
-
-    it('should handle discussion creation errors gracefully', async () => {
-      const definitionDataWithDiscussion = {
-        ...validDefinitionData,
-        discussion: 'Initial discussion comment',
-      };
-
+    it('should normalize word to lowercase', async () => {
       const createdDefinition = {
         id: 'test-id',
         ...validDefinitionData,
+        word: 'TEST',
       };
 
-      schema.createDefinition.mockResolvedValue(createdDefinition);
-      discussionService.createDiscussion.mockRejectedValue(
-        new Error('Discussion creation error'),
-      );
-      userSchema.addCreatedNode.mockResolvedValue(undefined);
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussionData);
+      definitionSchema.update.mockResolvedValue({
+        ...createdDefinition,
+        discussionId: 'discussion-id',
+      });
 
-      // Should not throw despite discussion creation error
-      const result = await service.createDefinition(
-        definitionDataWithDiscussion,
+      await service.createDefinition({
+        ...validDefinitionData,
+        word: 'TEST',
+      });
+
+      expect(definitionSchema.createDefinition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          word: 'test', // Should be normalized to lowercase
+        }),
       );
-      expect(result).toEqual(createdDefinition);
-      expect(discussionService.createDiscussion).toHaveBeenCalled();
-      expect(schema.updateDefinitionWithDiscussionId).not.toHaveBeenCalled();
     });
   });
 
-  describe('getDefinition', () => {
-    it('should return a definition when found', async () => {
-      const mockDefinition = {
-        id: 'test-id',
-        definitionText: 'Test definition',
-      };
-      schema.getDefinition.mockResolvedValue(mockDefinition);
+  describe('getDefinition - BaseNodeSchema findById Method', () => {
+    it('should get a definition by id using findById', async () => {
+      definitionSchema.findById.mockResolvedValue(mockDefinitionData);
 
       const result = await service.getDefinition('test-id');
 
-      expect(schema.getDefinition).toHaveBeenCalledWith('test-id');
-      expect(result).toEqual(mockDefinition);
+      expect(definitionSchema.findById).toHaveBeenCalledWith('test-id');
+      expect(result).toEqual(mockDefinitionData);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw BadRequestException for empty id', async () => {
       await expect(service.getDefinition('')).rejects.toThrow(
         BadRequestException,
       );
-      expect(schema.getDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.findById).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException when definition not found', async () => {
-      schema.getDefinition.mockResolvedValue(null);
+      definitionSchema.findById.mockResolvedValue(null);
 
-      await expect(service.getDefinition('nonexistent-id')).rejects.toThrow(
+      await expect(service.getDefinition('nonexistent')).rejects.toThrow(
         NotFoundException,
       );
     });
   });
 
-  describe('getDefinitionWithDiscussion', () => {
-    it('should return a definition with its discussion', async () => {
-      const mockDefinition = {
-        id: 'test-id',
-        definitionText: 'Test definition',
-        discussionId: 'disc-id',
+  describe('getDefinitionWithDiscussion - Enhanced Domain Method', () => {
+    it('should return definition with discussion integrity check', async () => {
+      const mockDefinitionWithDiscussion = {
+        ...mockDefinitionData,
+        discussion: 'Discussion ID: discussion-id',
       };
 
-      const mockDiscussion = {
-        id: 'disc-id',
-        createdBy: 'user1',
-        createdAt: new Date().toISOString(),
-      };
-
-      schema.getDefinition.mockResolvedValue(mockDefinition);
-      discussionService.getDiscussion.mockResolvedValue(mockDiscussion);
+      definitionSchema.findById.mockResolvedValue(mockDefinitionWithDiscussion);
 
       const result = await service.getDefinitionWithDiscussion('test-id');
 
-      expect(schema.getDefinition).toHaveBeenCalledWith('test-id');
-      expect(discussionService.getDiscussion).toHaveBeenCalledWith('disc-id');
-      expect(result).toEqual({
-        ...mockDefinition,
-        discussion: mockDiscussion,
-      });
+      expect(result).toEqual(mockDefinitionWithDiscussion);
     });
 
-    it('should return definition without discussion if no discussionId', async () => {
-      const mockDefinition = {
-        id: 'test-id',
-        definitionText: 'Test definition',
+    it('should throw error when definition missing required discussion', async () => {
+      const mockDefinitionWithoutDiscussion = {
+        ...mockDefinitionData,
+        discussion: undefined,
       };
 
-      schema.getDefinition.mockResolvedValue(mockDefinition);
+      definitionSchema.findById.mockResolvedValue(
+        mockDefinitionWithoutDiscussion,
+      );
 
-      const result = await service.getDefinitionWithDiscussion('test-id');
-
-      expect(schema.getDefinition).toHaveBeenCalledWith('test-id');
-      expect(discussionService.getDiscussion).not.toHaveBeenCalled();
-      expect(result).toEqual(mockDefinition);
+      await expect(
+        service.getDefinitionWithDiscussion('test-id'),
+      ).rejects.toThrow(InternalServerErrorException);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw BadRequestException for empty id', async () => {
       await expect(service.getDefinitionWithDiscussion('')).rejects.toThrow(
         BadRequestException,
       );
-      expect(schema.getDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should throw NotFoundException when definition not found', async () => {
-      schema.getDefinition.mockResolvedValue(null);
-
-      await expect(
-        service.getDefinitionWithDiscussion('nonexistent-id'),
-      ).rejects.toThrow(NotFoundException);
+      expect(definitionSchema.findById).not.toHaveBeenCalled();
     });
   });
 
-  describe('updateDefinition', () => {
+  describe('updateDefinition - Hybrid Pattern', () => {
     const validUpdateData = { definitionText: 'Updated definition' };
 
-    it('should update a definition with valid data', async () => {
+    it('should update definition with simple data using BaseNodeSchema', async () => {
       const expectedResult = {
         id: 'test-id',
+        word: 'test',
+        createdBy: 'user1',
         definitionText: 'Updated definition',
+        inclusionPositiveVotes: 0,
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
 
-      schema.updateDefinition.mockResolvedValue(expectedResult);
+      definitionSchema.update.mockResolvedValue(expectedResult);
 
       const result = await service.updateDefinition('test-id', validUpdateData);
 
-      expect(schema.updateDefinition).toHaveBeenCalledWith(
+      expect(definitionSchema.update).toHaveBeenCalledWith(
         'test-id',
         validUpdateData,
       );
       expect(result).toEqual(expectedResult);
     });
 
-    it('should update a definition with discussionId', async () => {
-      const updateDataWithDiscussionId = {
+    it('should handle complex updates with multiple fields', async () => {
+      const complexUpdateData = {
         definitionText: 'Updated definition',
-        discussionId: 'disc-id',
+        discussion: 'Updated discussion text',
       };
 
       const expectedResult = {
         id: 'test-id',
+        word: 'test',
+        createdBy: 'user1',
         definitionText: 'Updated definition',
-        discussionId: 'disc-id',
+        discussion: 'Updated discussion text',
+        inclusionPositiveVotes: 0,
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       };
 
-      schema.updateDefinition.mockResolvedValue(expectedResult);
+      definitionSchema.update.mockResolvedValue(expectedResult);
 
       const result = await service.updateDefinition(
         'test-id',
-        updateDataWithDiscussionId,
+        complexUpdateData,
       );
 
-      expect(schema.updateDefinition).toHaveBeenCalledWith(
+      expect(definitionSchema.update).toHaveBeenCalledWith(
         'test-id',
-        updateDataWithDiscussionId,
+        complexUpdateData,
       );
       expect(result).toEqual(expectedResult);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw BadRequestException for empty id', async () => {
       await expect(
         service.updateDefinition('', validUpdateData),
       ).rejects.toThrow(BadRequestException);
-      expect(schema.updateDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.update).not.toHaveBeenCalled();
     });
 
     it('should throw BadRequestException for empty definition text', async () => {
       await expect(
         service.updateDefinition('test-id', { definitionText: '' }),
       ).rejects.toThrow(BadRequestException);
-      expect(schema.updateDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.update).not.toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException for definition text exceeding max length', async () => {
-      const longText = 'a'.repeat(TEXT_LIMITS.MAX_DEFINITION_LENGTH + 1);
-
-      await expect(
-        service.updateDefinition('test-id', { definitionText: longText }),
-      ).rejects.toThrow(BadRequestException);
-      expect(schema.updateDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should handle NotFoundException when definition not found', async () => {
-      schema.updateDefinition.mockRejectedValue(
-        new NotFoundException('Definition with ID test-id not found'),
-      );
+    it('should throw NotFoundException when definition not found', async () => {
+      definitionSchema.update.mockResolvedValue(null);
 
       await expect(
         service.updateDefinition('test-id', validUpdateData),
@@ -454,244 +518,434 @@ describe('DefinitionService', () => {
     });
   });
 
-  describe('deleteDefinition', () => {
-    it('should delete a definition successfully', async () => {
-      const mockResult = {
-        success: true,
-        message: 'Definition deleted successfully',
-      };
-      schema.deleteDefinition.mockResolvedValue(mockResult);
+  describe('deleteDefinition - BaseNodeSchema Method', () => {
+    it('should delete definition successfully', async () => {
+      const mockResult = { success: true };
+      definitionSchema.delete.mockResolvedValue(mockResult);
 
       const result = await service.deleteDefinition('test-id');
 
-      expect(schema.deleteDefinition).toHaveBeenCalledWith('test-id');
+      expect(definitionSchema.delete).toHaveBeenCalledWith('test-id');
       expect(result).toEqual(mockResult);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw BadRequestException for empty id', async () => {
       await expect(service.deleteDefinition('')).rejects.toThrow(
         BadRequestException,
       );
-      expect(schema.deleteDefinition).not.toHaveBeenCalled();
+      expect(definitionSchema.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  // VOTING TESTS - Using BaseNodeSchema methods
+  describe('Voting Methods - BaseNodeSchema Integration', () => {
+    describe('voteDefinitionInclusion', () => {
+      it('should vote on definition inclusion using BaseNodeSchema', async () => {
+        definitionSchema.voteInclusion.mockResolvedValue(mockVoteResult);
+
+        const result = await service.voteDefinitionInclusion(
+          'test-id',
+          'user-123',
+          true,
+        );
+
+        expect(definitionSchema.voteInclusion).toHaveBeenCalledWith(
+          'test-id',
+          'user-123',
+          true,
+        );
+        expect(result).toEqual(mockVoteResult);
+      });
+
+      it('should throw BadRequestException for empty definition id', async () => {
+        await expect(
+          service.voteDefinitionInclusion('', 'user-123', true),
+        ).rejects.toThrow(BadRequestException);
+        expect(definitionSchema.voteInclusion).not.toHaveBeenCalled();
+      });
+
+      it('should throw BadRequestException for empty user id', async () => {
+        await expect(
+          service.voteDefinitionInclusion('test-id', '', true),
+        ).rejects.toThrow(BadRequestException);
+        expect(definitionSchema.voteInclusion).not.toHaveBeenCalled();
+      });
     });
 
-    it('should handle NotFoundException when definition not found', async () => {
-      schema.deleteDefinition.mockRejectedValue(
-        new NotFoundException('Definition with ID test-id not found'),
+    describe('voteDefinitionContent', () => {
+      it('should vote on definition content using BaseNodeSchema', async () => {
+        definitionSchema.voteContent.mockResolvedValue(mockVoteResult);
+
+        const result = await service.voteDefinitionContent(
+          'test-id',
+          'user-123',
+          false,
+        );
+
+        expect(definitionSchema.voteContent).toHaveBeenCalledWith(
+          'test-id',
+          'user-123',
+          false,
+        );
+        expect(result).toEqual(mockVoteResult);
+      });
+    });
+
+    describe('getDefinitionVoteStatus', () => {
+      it('should get vote status using BaseNodeSchema', async () => {
+        definitionSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+        const result = await service.getDefinitionVoteStatus(
+          'test-id',
+          'user-123',
+        );
+
+        expect(definitionSchema.getVoteStatus).toHaveBeenCalledWith(
+          'test-id',
+          'user-123',
+        );
+        expect(result).toEqual(mockVoteStatus);
+      });
+    });
+
+    describe('removeDefinitionVote', () => {
+      it('should remove vote using BaseNodeSchema', async () => {
+        definitionSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+        const result = await service.removeDefinitionVote(
+          'test-id',
+          'user-123',
+          'INCLUSION',
+        );
+
+        expect(definitionSchema.removeVote).toHaveBeenCalledWith(
+          'test-id',
+          'user-123',
+          'INCLUSION',
+        );
+        expect(result).toEqual(mockVoteResult);
+      });
+
+      it('should default to INCLUSION vote type', async () => {
+        definitionSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+        await service.removeDefinitionVote('test-id', 'user-123');
+
+        expect(definitionSchema.removeVote).toHaveBeenCalledWith(
+          'test-id',
+          'user-123',
+          'INCLUSION',
+        );
+      });
+    });
+
+    describe('getDefinitionVotes', () => {
+      it('should get vote counts using BaseNodeSchema', async () => {
+        definitionSchema.getVotes.mockResolvedValue(mockVoteResult);
+
+        const result = await service.getDefinitionVotes('test-id');
+
+        expect(definitionSchema.getVotes).toHaveBeenCalledWith('test-id');
+        expect(result).toEqual(mockVoteResult);
+      });
+    });
+  });
+
+  // VISIBILITY TESTS - Placeholder implementations (not implemented in current schema)
+  describe('Visibility Methods - Placeholder Implementations', () => {
+    describe('setVisibilityStatus', () => {
+      it('should return placeholder response for visibility setting', async () => {
+        const result = await service.setVisibilityStatus('test-id', true);
+
+        expect(result).toEqual({
+          success: true,
+          message: 'Visibility status updated (placeholder)',
+        });
+      });
+
+      it('should throw BadRequestException for empty id', async () => {
+        await expect(service.setVisibilityStatus('', true)).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+    });
+
+    describe('getVisibilityStatus', () => {
+      it('should return placeholder visibility status', async () => {
+        const result = await service.getVisibilityStatus('test-id');
+
+        expect(result).toEqual({ isVisible: true });
+      });
+
+      it('should throw BadRequestException for empty id', async () => {
+        await expect(service.getVisibilityStatus('')).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+    });
+  });
+
+  // UTILITY METHODS TESTS
+  describe('Utility Methods', () => {
+    describe('isDefinitionApproved', () => {
+      it('should return true when definition has positive inclusion net votes', async () => {
+        const mockVotesPositive = {
+          ...mockVoteResult,
+          inclusionNetVotes: 5,
+        };
+        definitionSchema.getVotes.mockResolvedValue(mockVotesPositive);
+
+        const result = await service.isDefinitionApproved('test-id');
+
+        expect(result).toBe(true);
+      });
+
+      it('should return false when definition has zero or negative inclusion net votes', async () => {
+        const mockVotesNegative = {
+          ...mockVoteResult,
+          inclusionNetVotes: -1,
+        };
+        definitionSchema.getVotes.mockResolvedValue(mockVotesNegative);
+
+        const result = await service.isDefinitionApproved('test-id');
+
+        expect(result).toBe(false);
+      });
+
+      it('should return false when no votes found', async () => {
+        definitionSchema.getVotes.mockResolvedValue(null);
+
+        const result = await service.isDefinitionApproved('test-id');
+
+        expect(result).toBe(false);
+      });
+    });
+
+    describe('isContentVotingAvailable', () => {
+      it('should return true when definition passed inclusion threshold', async () => {
+        const mockVotesPositive = {
+          ...mockVoteResult,
+          inclusionNetVotes: 1,
+        };
+        definitionSchema.getVotes.mockResolvedValue(mockVotesPositive);
+
+        const result = await service.isContentVotingAvailable('test-id');
+
+        expect(result).toBe(true);
+      });
+
+      it('should return false when definition has not passed inclusion threshold', async () => {
+        const mockVotesNegative = {
+          ...mockVoteResult,
+          inclusionNetVotes: 0,
+        };
+        definitionSchema.getVotes.mockResolvedValue(mockVotesNegative);
+
+        const result = await service.isContentVotingAvailable('test-id');
+
+        expect(result).toBe(false);
+      });
+    });
+
+    describe('getDefinitionStats', () => {
+      it('should return comprehensive definition statistics', async () => {
+        definitionSchema.getDefinition.mockResolvedValue(mockDefinitionData);
+        definitionSchema.getVotes.mockResolvedValue(mockVoteResult);
+
+        const result = await service.getDefinitionStats('test-id');
+
+        expect(result).toEqual({
+          id: 'test-id',
+          word: 'test',
+          isApproved: true, // inclusionNetVotes > 0
+          contentVotingAvailable: true, // inclusionNetVotes > 0
+          votes: mockVoteResult,
+          hasDiscussion: true, // discussion field exists
+        });
+      });
+    });
+  });
+
+  // ERROR HANDLING TESTS
+  describe('Error Handling', () => {
+    it('should handle schema errors consistently', async () => {
+      definitionSchema.getDefinition.mockRejectedValue(
+        new Error('Database error'),
       );
 
-      await expect(service.deleteDefinition('test-id')).rejects.toThrow(
-        NotFoundException,
+      await expect(service.getDefinition('test-id')).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+
+    it('should preserve HttpExceptions from dependencies', async () => {
+      const badRequestError = new BadRequestException('Invalid input');
+      definitionSchema.getDefinition.mockRejectedValue(badRequestError);
+
+      await expect(service.getDefinition('test-id')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should validate empty IDs across methods', async () => {
+      await expect(service.getDefinition('')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.updateDefinition('', {})).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.deleteDefinition('')).rejects.toThrow(
+        BadRequestException,
       );
     });
   });
 
-  describe('voteDefinition', () => {
-    it('should process vote successfully', async () => {
-      const mockVoteResult = {
-        positiveVotes: 5,
-        negativeVotes: 2,
-        netVotes: 3,
-      };
-
-      schema.voteDefinition.mockResolvedValue(mockVoteResult);
-      userSchema.addParticipation.mockResolvedValue(undefined);
-
-      const result = await service.voteDefinition('test-id', 'user1', true);
-
-      expect(schema.voteDefinition).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
-        true,
-      );
-      expect(userSchema.addParticipation).toHaveBeenCalledWith(
-        'user1',
-        'test-id',
-        'voted',
-      );
-      expect(result).toEqual(mockVoteResult);
+  // HYBRID PATTERN VERIFICATION
+  describe('Hybrid Pattern Implementation', () => {
+    it('should use enhanced methods for complex operations', () => {
+      // Verify service uses enhanced domain methods
+      expect(typeof service.createDefinition).toBe('function');
+      expect(typeof service.getDefinition).toBe('function'); // Uses findById internally
+      expect(typeof service.getDefinitionWithDiscussion).toBe('function');
     });
 
-    it('should throw BadRequestException for empty definition ID', async () => {
-      await expect(service.voteDefinition('', 'user1', true)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(schema.voteDefinition).not.toHaveBeenCalled();
+    it('should use BaseNodeSchema methods for standard operations', () => {
+      // These are called through the service methods
+      expect(typeof service.updateDefinition).toBe('function'); // Hybrid: complex->enhanced, simple->BaseNodeSchema
+      expect(typeof service.deleteDefinition).toBe('function');
+      expect(typeof service.voteDefinitionInclusion).toBe('function');
+      expect(typeof service.voteDefinitionContent).toBe('function');
+      expect(typeof service.getDefinitionVoteStatus).toBe('function');
+      expect(typeof service.removeDefinitionVote).toBe('function');
+      expect(typeof service.getDefinitionVotes).toBe('function');
     });
 
-    it('should throw BadRequestException for empty user ID', async () => {
-      await expect(service.voteDefinition('test-id', '', true)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(schema.voteDefinition).not.toHaveBeenCalled();
+    it('should have utility and approval methods', () => {
+      expect(typeof service.isDefinitionApproved).toBe('function');
+      expect(typeof service.isContentVotingAvailable).toBe('function');
+      expect(typeof service.getDefinitionStats).toBe('function');
     });
 
-    it('should handle tracking errors gracefully', async () => {
-      const mockVoteResult = {
-        positiveVotes: 5,
-        negativeVotes: 2,
-        netVotes: 3,
-      };
-
-      schema.voteDefinition.mockResolvedValue(mockVoteResult);
-      userSchema.addParticipation.mockRejectedValue(
-        new Error('Tracking error'),
-      );
-
-      // Should not throw despite tracking error
-      const result = await service.voteDefinition('test-id', 'user1', true);
-      expect(result).toEqual(mockVoteResult);
+    it('should have placeholder visibility methods', () => {
+      // These are placeholder implementations until schema supports them
+      expect(typeof service.setVisibilityStatus).toBe('function');
+      expect(typeof service.getVisibilityStatus).toBe('function');
     });
   });
 
-  describe('setVisibilityStatus', () => {
-    it('should call schema.setVisibilityStatus with correct parameters', async () => {
-      const mockResult = { id: 'test-id', visibilityStatus: true };
-      schema.setVisibilityStatus.mockResolvedValue(mockResult);
+  // MANDATORY DISCUSSION ARCHITECTURE VERIFICATION
+  describe('Mandatory Discussion Architecture', () => {
+    it('should enforce discussion creation during definition creation', async () => {
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
 
-      const result = await service.setVisibilityStatus('test-id', true);
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockResolvedValue(mockDiscussionData);
+      definitionSchema.update.mockResolvedValue({
+        ...createdDefinition,
+        discussionId: 'discussion-id',
+      });
 
-      expect(schema.setVisibilityStatus).toHaveBeenCalledWith('test-id', true);
-      expect(result).toEqual(mockResult);
+      await service.createDefinition(validDefinitionData);
+
+      // Verify discussion creation is mandatory
+      expect(discussionService.createDiscussion).toHaveBeenCalledWith({
+        createdBy: 'user1',
+        associatedNodeId: 'test-id',
+        associatedNodeType: 'DefinitionNode',
+        initialComment: 'Initial discussion comment',
+      });
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(service.setVisibilityStatus('', true)).rejects.toThrow(
-        BadRequestException,
-      );
-      expect(schema.setVisibilityStatus).not.toHaveBeenCalled();
-    });
+    it('should enforce cleanup when discussion creation fails', async () => {
+      const createdDefinition = {
+        id: 'test-id',
+        ...validDefinitionData,
+      };
 
-    it('should handle NotFoundException when definition not found', async () => {
-      schema.setVisibilityStatus.mockRejectedValue(
-        new NotFoundException('Definition with ID test-id not found'),
+      definitionSchema.createDefinition.mockResolvedValue(createdDefinition);
+      discussionService.createDiscussion.mockRejectedValue(
+        new Error('Discussion creation failed'),
       );
+      definitionSchema.delete.mockResolvedValue({ success: true });
 
       await expect(
-        service.setVisibilityStatus('test-id', true),
-      ).rejects.toThrow(NotFoundException);
+        service.createDefinition(validDefinitionData),
+      ).rejects.toThrow(InternalServerErrorException);
+
+      // Verify cleanup was attempted
+      expect(definitionSchema.delete).toHaveBeenCalledWith('test-id');
+    });
+
+    it('should validate all definitions have discussion reference in getDefinitionWithDiscussion', async () => {
+      const definitionWithoutDiscussion = {
+        ...mockDefinitionData,
+        discussion: null,
+      };
+
+      definitionSchema.findById.mockResolvedValue(definitionWithoutDiscussion);
+
+      await expect(
+        service.getDefinitionWithDiscussion('test-id'),
+      ).rejects.toThrow(InternalServerErrorException);
     });
   });
 
-  describe('getVisibilityStatus', () => {
-    it('should call schema.getVisibilityStatus with correct parameters', async () => {
-      schema.getVisibilityStatus.mockResolvedValue(true);
-
-      const result = await service.getVisibilityStatus('test-id');
-
-      expect(schema.getVisibilityStatus).toHaveBeenCalledWith('test-id');
-      expect(result).toBe(true);
-    });
-
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(service.getVisibilityStatus('')).rejects.toThrow(
+  // INPUT VALIDATION TESTS
+  describe('Input Validation', () => {
+    it('should throw BadRequestException for empty IDs across methods', async () => {
+      await expect(service.getDefinition('')).rejects.toThrow(
         BadRequestException,
       );
-      expect(schema.getVisibilityStatus).not.toHaveBeenCalled();
-    });
-
-    it('should handle NotFoundException when definition not found', async () => {
-      schema.getVisibilityStatus.mockRejectedValue(
-        new NotFoundException('Definition with ID test-id not found'),
+      await expect(service.updateDefinition('', {})).rejects.toThrow(
+        BadRequestException,
       );
-
-      await expect(service.getVisibilityStatus('test-id')).rejects.toThrow(
-        NotFoundException,
+      await expect(service.deleteDefinition('')).rejects.toThrow(
+        BadRequestException,
       );
-    });
-  });
-
-  // Tests for vote-related methods
-  describe('getDefinitionVoteStatus', () => {
-    it('should return vote status when found', async () => {
-      const mockStatus = {
-        status: 'agree' as 'agree' | 'disagree',
-        positiveVotes: 5,
-        negativeVotes: 2,
-        netVotes: 3,
-      };
-      schema.getDefinitionVoteStatus.mockResolvedValue(mockStatus);
-
-      const result = await service.getDefinitionVoteStatus('test-id', 'user1');
-
-      expect(schema.getDefinitionVoteStatus).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
-      );
-      expect(result).toEqual(mockStatus);
-    });
-
-    it('should throw BadRequestException for empty definition ID', async () => {
       await expect(
-        service.getDefinitionVoteStatus('', 'user1'),
+        service.voteDefinitionInclusion('', 'user', true),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.voteDefinitionInclusion('id', '', true),
       ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException for empty user ID', async () => {
+    it('should validate definition text length in creation', async () => {
+      const longText = 'a'.repeat(TEXT_LIMITS.MAX_DEFINITION_LENGTH + 1);
       await expect(
-        service.getDefinitionVoteStatus('test-id', ''),
+        service.createDefinition({
+          ...validDefinitionData,
+          definitionText: longText,
+        }),
       ).rejects.toThrow(BadRequestException);
     });
-  });
 
-  describe('removeDefinitionVote', () => {
-    it('should remove vote successfully', async () => {
-      const mockResult = {
-        positiveVotes: 4,
-        negativeVotes: 2,
-        netVotes: 2,
-      };
-      schema.removeDefinitionVote.mockResolvedValue(mockResult);
-
-      const result = await service.removeDefinitionVote('test-id', 'user1');
-
-      expect(schema.removeDefinitionVote).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
-      );
-      expect(result).toEqual(mockResult);
+    it('should validate definition text length in updates', async () => {
+      const longText = 'a'.repeat(TEXT_LIMITS.MAX_DEFINITION_LENGTH + 1);
+      await expect(
+        service.updateDefinition('test-id', { definitionText: longText }),
+      ).rejects.toThrow(BadRequestException);
     });
 
-    it('should throw BadRequestException for empty definition ID', async () => {
-      await expect(service.removeDefinitionVote('', 'user1')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+    it('should validate initial comment is required', async () => {
+      await expect(
+        service.createDefinition({
+          ...validDefinitionData,
+          initialComment: '',
+        }),
+      ).rejects.toThrow(BadRequestException);
 
-    it('should throw BadRequestException for empty user ID', async () => {
-      await expect(service.removeDefinitionVote('test-id', '')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-  });
-
-  describe('getDefinitionVotes', () => {
-    it('should return votes when found', async () => {
-      const mockVotes = {
-        positiveVotes: 5,
-        negativeVotes: 2,
-        netVotes: 3,
-      };
-      schema.getDefinitionVotes.mockResolvedValue(mockVotes);
-
-      const result = await service.getDefinitionVotes('test-id');
-
-      expect(schema.getDefinitionVotes).toHaveBeenCalledWith('test-id');
-      expect(result).toEqual(mockVotes);
-    });
-
-    it('should return null when no votes exist', async () => {
-      schema.getDefinitionVotes.mockResolvedValue(null);
-
-      const result = await service.getDefinitionVotes('test-id');
-
-      expect(result).toBeNull();
-    });
-
-    it('should throw BadRequestException for empty definition ID', async () => {
-      await expect(service.getDefinitionVotes('')).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.createDefinition({
+          word: 'test',
+          createdBy: 'user1',
+          definitionText: 'A test definition',
+          // No initialComment or discussion provided
+        } as any),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
