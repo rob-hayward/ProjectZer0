@@ -1,12 +1,4 @@
-interface DiscoveryOptions {
-  nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
-  limit?: number;
-  offset?: number;
-  sortBy?: 'category_overlap' | 'created' | 'inclusion_votes' | 'content_votes';
-  sortDirection?: 'asc' | 'desc';
-  excludeSelf?: boolean;
-  minCategoryOverlap?: number;
-} // src/nodes/statement/statement.service.ts - COMPLETE FIXED VERSION FOR BaseNodeSchema Integration
+// src/nodes/statement/statement.service.ts - COMPLETE FIXED VERSION FOR BaseNodeSchema Integration
 
 import {
   Injectable,
@@ -14,6 +6,7 @@ import {
   BadRequestException,
   NotFoundException,
   InternalServerErrorException,
+  HttpException,
 } from '@nestjs/common';
 import { StatementSchema } from '../../neo4j/schemas/statement.schema';
 import { CategoryService } from '../category/category.service';
@@ -45,6 +38,7 @@ interface UpdateStatementData {
   statement?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  keywords?: KeywordWithFrequency[]; // Add this for internal processing
 }
 
 interface GetStatementNetworkOptions {
@@ -66,6 +60,9 @@ interface StatementNodeData {
   initialComment: string;
   parentStatementId?: string;
 }
+
+// Note: DiscoveryOptions interface removed as it's not currently used
+// Can be re-added when implementing discovery functionality
 
 @Injectable()
 export class StatementService {
@@ -119,45 +116,23 @@ export class StatementService {
         }
       }
 
-      // Create word nodes for any keywords that don't exist
+      // Create missing words if they don't exist
       for (const keyword of keywords) {
-        try {
-          const wordExists = await this.wordService.checkWordExistence(
-            keyword.word,
-          );
-          if (!wordExists) {
-            this.logger.debug(`Creating word node: ${keyword.word}`);
+        const wordExists = await this.wordService.checkWordExistence(
+          keyword.word,
+        );
+        if (!wordExists) {
+          try {
             await this.wordService.createWord({
               word: keyword.word,
               createdBy: statementData.createdBy,
               publicCredit: statementData.publicCredit,
             });
-          }
-        } catch (error) {
-          this.logger.warn(
-            `Failed to create word ${keyword.word}: ${error.message}`,
-          );
-          // Continue with statement creation even if word creation fails
-        }
-      }
-
-      // Validate categories if provided
-      if (statementData.categoryIds && statementData.categoryIds.length > 0) {
-        for (const categoryId of statementData.categoryIds) {
-          try {
-            const category = await this.categoryService.getCategory(categoryId);
-            if (!category) {
-              throw new BadRequestException(
-                `Category with ID ${categoryId} not found`,
-              );
-            }
+            this.logger.debug(`Created missing word: ${keyword.word}`);
           } catch (error) {
-            if (error instanceof NotFoundException) {
-              throw new BadRequestException(
-                `Category with ID ${categoryId} not found`,
-              );
-            }
-            throw error;
+            this.logger.warn(
+              `Failed to create word ${keyword.word}: ${error.message}`,
+            );
           }
         }
       }
@@ -190,7 +165,7 @@ export class StatementService {
         });
 
         // Update statement with discussion ID
-        const updatedStatement = await this.statementSchema.update(result.id, {
+        await this.statementSchema.update(result.id, {
           discussionId: discussion.id,
         });
 
@@ -461,72 +436,26 @@ export class StatementService {
         options.limit !== undefined ? Number(options.limit) : 20,
         options.offset !== undefined ? Number(options.offset) : 0,
         options.keywords || [],
-        undefined, // categories parameter (not used in current schema method)
+        undefined, // categories parameter not used in current schema
         options.userId,
       );
 
-      return result;
+      // Convert Neo4j integer objects to JavaScript numbers
+      return result.map((statement) => ({
+        ...statement,
+        positiveVotes: this.toNumber(statement.positiveVotes),
+        negativeVotes: this.toNumber(statement.negativeVotes),
+        netVotes: this.toNumber(statement.netVotes),
+      }));
     } catch (error) {
       this.handleError(error, 'get statement network');
     }
   }
 
-  // VISIBILITY MANAGEMENT - Uses enhanced domain methods
+  // VOTING SYSTEM - Uses BaseNodeSchema methods
 
   /**
-   * Set visibility status for a statement - Uses enhanced domain method
-   */
-  async setVisibilityStatus(id: string, isVisible: boolean) {
-    try {
-      this.validateId(id);
-
-      if (typeof isVisible !== 'boolean') {
-        throw new BadRequestException('isVisible must be a boolean value');
-      }
-
-      this.logger.log(`Setting visibility for statement ${id}: ${isVisible}`);
-
-      // ✅ Use enhanced domain method (preserved for statement-specific visibility logic)
-      const updatedStatement = await this.statementSchema.setVisibilityStatus(
-        id,
-        isVisible,
-      );
-
-      if (!updatedStatement) {
-        throw new NotFoundException(`Statement with ID ${id} not found`);
-      }
-
-      this.logger.debug(
-        `Visibility status updated for statement ${id}: ${isVisible}`,
-      );
-      return updatedStatement;
-    } catch (error) {
-      this.handleError(error, `set visibility status for statement ${id}`);
-    }
-  }
-
-  /**
-   * Get visibility status for a statement - Uses enhanced domain method
-   */
-  async getVisibilityStatus(id: string) {
-    try {
-      this.validateId(id);
-
-      this.logger.debug(`Getting visibility status for statement ${id}`);
-
-      // ✅ Use enhanced domain method
-      const status = await this.statementSchema.getVisibilityStatus(id);
-
-      return { isVisible: status };
-    } catch (error) {
-      this.handleError(error, `get visibility status for statement ${id}`);
-    }
-  }
-
-  // VOTING METHODS - DUAL VOTING (INCLUSION + CONTENT) - Uses BaseNodeSchema methods
-
-  /**
-   * Vote for statement inclusion - Uses BaseNodeSchema method
+   * Vote on statement inclusion - Uses BaseNodeSchema method
    */
   async voteStatementInclusion(
     id: string,
@@ -538,10 +467,10 @@ export class StatementService {
       this.validateUserId(userId);
 
       this.logger.log(
-        `Processing inclusion vote on statement ${id} by user ${userId}: ${isPositive ? 'positive' : 'negative'}`,
+        `Voting ${isPositive ? 'positive' : 'negative'} on statement inclusion: ${id}`,
       );
 
-      // ✅ Use BaseNodeSchema method for standard voting
+      // ✅ Use BaseNodeSchema method
       return await this.statementSchema.voteInclusion(id, userId, isPositive);
     } catch (error) {
       this.handleError(error, `vote on statement inclusion ${id}`);
@@ -549,7 +478,7 @@ export class StatementService {
   }
 
   /**
-   * Vote for statement content (agreement) - Uses BaseNodeSchema method with business logic
+   * Vote on statement content - Uses BaseNodeSchema method with business logic
    */
   async voteStatementContent(
     id: string,
@@ -561,7 +490,7 @@ export class StatementService {
       this.validateUserId(userId);
 
       this.logger.log(
-        `Processing content vote on statement ${id} by user ${userId}: ${isPositive ? 'positive' : 'negative'}`,
+        `Voting ${isPositive ? 'positive' : 'negative'} on statement content: ${id}`,
       );
 
       // ✅ Use BaseNodeSchema method - it has built-in business logic for content voting threshold
@@ -644,16 +573,21 @@ export class StatementService {
 
       if (!statement1) {
         throw new NotFoundException(
-          `Statement with ID ${statementId1} not found`,
-        );
-      }
-      if (!statement2) {
-        throw new NotFoundException(
-          `Statement with ID ${statementId2} not found`,
+          `First statement with ID ${statementId1} not found`,
         );
       }
 
-      // ✅ Use enhanced domain method for relationship creation
+      if (!statement2) {
+        throw new NotFoundException(
+          `Second statement with ID ${statementId2} not found`,
+        );
+      }
+
+      this.logger.log(
+        `Creating direct relationship between statements ${statementId1} and ${statementId2}`,
+      );
+
+      // ✅ Use enhanced domain method
       return await this.statementSchema.createDirectRelationship(
         statementId1,
         statementId2,
@@ -661,7 +595,7 @@ export class StatementService {
     } catch (error) {
       this.handleError(
         error,
-        `create relationship between statements ${statementId1} and ${statementId2}`,
+        `create direct relationship between statements ${statementId1} and ${statementId2}`,
       );
     }
   }
@@ -674,6 +608,26 @@ export class StatementService {
       this.validateId(statementId1, 'First statement ID');
       this.validateId(statementId2, 'Second statement ID');
 
+      // Verify both statements exist using BaseNodeSchema method
+      const statement1 = await this.statementSchema.findById(statementId1);
+      const statement2 = await this.statementSchema.findById(statementId2);
+
+      if (!statement1) {
+        throw new NotFoundException(
+          `First statement with ID ${statementId1} not found`,
+        );
+      }
+
+      if (!statement2) {
+        throw new NotFoundException(
+          `Second statement with ID ${statementId2} not found`,
+        );
+      }
+
+      this.logger.log(
+        `Removing direct relationship between statements ${statementId1} and ${statementId2}`,
+      );
+
       // ✅ Use enhanced domain method
       return await this.statementSchema.removeDirectRelationship(
         statementId1,
@@ -682,17 +636,25 @@ export class StatementService {
     } catch (error) {
       this.handleError(
         error,
-        `remove relationship between statements ${statementId1} and ${statementId2}`,
+        `remove direct relationship between statements ${statementId1} and ${statementId2}`,
       );
     }
   }
 
   /**
-   * Get directly related statements - Uses enhanced domain method
+   * Get statements directly related to a statement - Uses enhanced domain method
    */
   async getDirectlyRelatedStatements(id: string) {
     try {
       this.validateId(id);
+
+      // Verify statement exists using enhanced method
+      const statement = await this.statementSchema.getStatement(id);
+      if (!statement) {
+        throw new NotFoundException(`Statement with ID ${id} not found`);
+      }
+
+      this.logger.debug(`Getting directly related statements for: ${id}`);
 
       // ✅ Use enhanced domain method
       return await this.statementSchema.getDirectlyRelatedStatements(id);
@@ -702,7 +664,7 @@ export class StatementService {
   }
 
   /**
-   * Create a related statement and establish direct relationship
+   * Create a new statement related to an existing statement - Uses enhanced creation + relationship methods
    */
   async createRelatedStatement(
     existingStatementId: string,
@@ -713,18 +675,26 @@ export class StatementService {
 
       // Verify existing statement exists
       const existingStatement =
-        await this.statementSchema.findById(existingStatementId);
+        await this.statementSchema.getStatement(existingStatementId);
       if (!existingStatement) {
         throw new NotFoundException(
-          `Statement with ID ${existingStatementId} not found`,
+          `Existing statement with ID ${existingStatementId} not found`,
         );
       }
 
-      // Create the new statement
+      this.logger.log(
+        `Creating new statement related to existing statement: ${existingStatementId}`,
+      );
+
+      // Create the new statement using existing createStatement method
       const newStatement = await this.createStatement(statementData);
 
-      // Create direct relationship
+      // Create the relationship between the statements
       await this.createDirectRelationship(existingStatementId, newStatement.id);
+
+      this.logger.log(
+        `Successfully created related statement ${newStatement.id} linked to ${existingStatementId}`,
+      );
 
       return newStatement;
     } catch (error) {
@@ -735,15 +705,187 @@ export class StatementService {
     }
   }
 
-  // DISCOVERY METHODS - Alternative implementations using available data
+  // VISIBILITY MANAGEMENT - Uses enhanced domain methods
+
+  /**
+   * Set visibility status for a statement - Uses enhanced domain method
+   */
+  async setVisibilityStatus(id: string, isVisible: boolean) {
+    try {
+      this.validateId(id);
+
+      this.logger.log(
+        `Setting visibility status for statement ${id}: ${isVisible}`,
+      );
+
+      // ✅ Use enhanced domain method
+      const result = await this.statementSchema.setVisibilityStatus(
+        id,
+        isVisible,
+      );
+
+      if (!result) {
+        throw new NotFoundException(`Statement with ID ${id} not found`);
+      }
+
+      this.logger.log(`Successfully updated visibility for statement: ${id}`);
+      return result;
+    } catch (error) {
+      this.handleError(error, `set visibility status for statement ${id}`);
+    }
+  }
+
+  /**
+   * Get visibility status for a statement - Uses enhanced domain method
+   */
+  async getVisibilityStatus(id: string) {
+    try {
+      this.validateId(id);
+
+      this.logger.debug(`Getting visibility status for statement: ${id}`);
+
+      // ✅ Use enhanced domain method
+      const status = await this.statementSchema.getVisibilityStatus(id);
+
+      return { isVisible: status };
+    } catch (error) {
+      this.handleError(error, `get visibility status for statement ${id}`);
+    }
+  }
+
+  // UTILITY METHODS
+
+  /**
+   * Check if statement is approved (has positive net inclusion votes) - Uses BaseNodeSchema method
+   */
+  async isStatementApproved(id: string): Promise<boolean> {
+    try {
+      this.validateId(id);
+
+      this.logger.debug(`Checking approval status for statement: ${id}`);
+
+      // ✅ Use BaseNodeSchema method to get votes
+      const votes = await this.statementSchema.getVotes(id);
+
+      // Statement is approved if it has positive net inclusion votes
+      const isApproved = votes.inclusionNetVotes > 0;
+
+      this.logger.debug(
+        `Statement ${id} approval status: ${isApproved} (net votes: ${votes.inclusionNetVotes})`,
+      );
+
+      return isApproved;
+    } catch (error) {
+      this.handleError(error, `check approval status for statement ${id}`);
+    }
+  }
+
+  /**
+   * Check if content voting is available for a statement (minimum inclusion threshold met)
+   */
+  async isContentVotingAvailable(id: string): Promise<boolean> {
+    try {
+      this.validateId(id);
+
+      this.logger.debug(
+        `Checking content voting availability for statement: ${id}`,
+      );
+
+      // Content voting is available when statement has positive inclusion votes
+      const isApproved = await this.isStatementApproved(id);
+
+      this.logger.debug(
+        `Statement ${id} content voting available: ${isApproved}`,
+      );
+
+      return isApproved;
+    } catch (error) {
+      this.handleError(
+        error,
+        `check content voting availability for statement ${id}`,
+      );
+    }
+  }
+
+  /**
+   * Get statement statistics including vote counts and relationships
+   */
+  async getStatementStats(id: string): Promise<any> {
+    try {
+      this.validateId(id);
+
+      this.logger.debug(`Getting statistics for statement: ${id}`);
+
+      // Get the statement to ensure it exists
+      const statement = await this.getStatement(id);
+      if (!statement) {
+        throw new NotFoundException(`Statement with ID ${id} not found`);
+      }
+
+      // Get vote statistics using BaseNodeSchema method
+      const votes = await this.statementSchema.getVotes(id);
+
+      // Calculate additional statistics
+      const isApproved = votes.inclusionNetVotes > 0;
+      const contentVotingAvailable = isApproved;
+
+      return {
+        id,
+        votes,
+        isApproved,
+        contentVotingAvailable,
+        // Add more statistics as needed
+      };
+    } catch (error) {
+      this.handleError(error, `get statistics for statement ${id}`);
+    }
+  }
+
+  /**
+   * Get categories associated with a statement
+   * IMPLEMENTATION NOTE: Uses the categories returned by getStatement()
+   */
+  async getStatementCategories(statementId: string) {
+    try {
+      this.validateId(statementId);
+
+      this.logger.debug(`Getting categories for statement ${statementId}`);
+
+      // Get statement with categories using enhanced method
+      const statement = await this.statementSchema.getStatement(statementId);
+
+      if (!statement) {
+        throw new NotFoundException(
+          `Statement with ID ${statementId} not found`,
+        );
+      }
+
+      // Return categories from the statement data
+      return statement.categories || [];
+    } catch (error) {
+      this.handleError(error, `get categories for statement ${statementId}`);
+    }
+  }
 
   /**
    * Get related content that shares categories with the given statement
-   * IMPLEMENTATION NOTE: Since StatementSchema doesn't have this method, we'll implement it using getStatement()
+   * IMPLEMENTATION NOTE: Placeholder implementation - would need CategoryService integration
    */
   async getRelatedContentBySharedCategories(
     statementId: string,
-    options: DiscoveryOptions = {},
+    options: {
+      nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
+      limit?: number;
+      offset?: number;
+      sortBy?:
+        | 'category_overlap'
+        | 'created'
+        | 'inclusion_votes'
+        | 'content_votes';
+      sortDirection?: 'asc' | 'desc';
+      excludeSelf?: boolean;
+      minCategoryOverlap?: number;
+    } = {},
   ) {
     try {
       this.validateId(statementId);
@@ -781,32 +923,6 @@ export class StatementService {
   }
 
   /**
-   * Get categories associated with a statement
-   * IMPLEMENTATION NOTE: Uses the categories returned by getStatement()
-   */
-  async getStatementCategories(statementId: string) {
-    try {
-      this.validateId(statementId);
-
-      this.logger.debug(`Getting categories for statement ${statementId}`);
-
-      // Get statement with categories using enhanced method
-      const statement = await this.statementSchema.getStatement(statementId);
-
-      if (!statement) {
-        throw new NotFoundException(
-          `Statement with ID ${statementId} not found`,
-        );
-      }
-
-      // Return categories from the statement data
-      return statement.categories || [];
-    } catch (error) {
-      this.handleError(error, `get categories for statement ${statementId}`);
-    }
-  }
-
-  /**
    * Check statements count - Uses enhanced domain method
    */
   async checkStatements() {
@@ -818,148 +934,69 @@ export class StatementService {
     }
   }
 
-  /**
-   * Check if content voting is available for a statement
-   */
-  async isContentVotingAvailable(id: string): Promise<boolean> {
-    try {
-      this.validateId(id);
-
-      // Get statement using BaseNodeSchema method
-      const statement = await this.statementSchema.findById(id);
-
-      if (!statement) {
-        throw new NotFoundException(`Statement with ID ${id} not found`);
-      }
-
-      // Check if statement has passed inclusion threshold
-      // This logic might be implemented in VotingUtils or similar
-      return statement.inclusionNetVotes >= 3; // Example threshold
-    } catch (error) {
-      this.handleError(
-        error,
-        `check content voting availability for statement ${id}`,
-      );
-    }
-  }
-
-  /**
-   * Get statement statistics
-   */
-  async getStatementStats(id: string) {
-    try {
-      this.validateId(id);
-
-      // Get statement using enhanced method
-      const statement = await this.getStatement(id);
-
-      if (!statement) {
-        throw new NotFoundException(`Statement with ID ${id} not found`);
-      }
-
-      // Return comprehensive stats
-      return {
-        id: statement.id,
-        inclusionVotes: {
-          positive: statement.inclusionPositiveVotes || 0,
-          negative: statement.inclusionNegativeVotes || 0,
-          net: statement.inclusionNetVotes || 0,
-        },
-        contentVotes: {
-          positive: statement.contentPositiveVotes || 0,
-          negative: statement.contentNegativeVotes || 0,
-          net: statement.contentNetVotes || 0,
-        },
-        keywordCount: statement.keywords?.length || 0,
-        categoryCount: statement.categories?.length || 0,
-        createdAt: statement.createdAt,
-        updatedAt: statement.updatedAt,
-      };
-    } catch (error) {
-      this.handleError(error, `get stats for statement ${id}`);
-    }
-  }
-
   // PRIVATE HELPER METHODS
 
   /**
-   * Validate categories using CategoryService
-   */
-  private async validateCategories(categoryIds: string[]) {
-    try {
-      // Get categories to verify they exist and are approved
-      for (const categoryId of categoryIds) {
-        const category = await this.categoryService.getCategory(categoryId);
-        if (!category) {
-          throw new BadRequestException(
-            `Category with ID ${categoryId} not found`,
-          );
-        }
-        // Add additional validation if needed (e.g., approval status)
-      }
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-      throw new BadRequestException('Failed to validate categories');
-    }
-  }
-
-  /**
-   * Perform complex statement update with keyword processing
+   * Perform complex statement update with keyword extraction and processing
    */
   private async performComplexStatementUpdate(
     id: string,
     updateData: UpdateStatementData,
   ) {
-    // Get original statement for comparison using BaseNodeSchema method
-    const originalStatement = await this.statementSchema.findById(id);
-    if (!originalStatement) {
+    // Verify statement exists
+    const existingStatement = await this.statementSchema.getStatement(id);
+    if (!existingStatement) {
       throw new NotFoundException(`Statement with ID ${id} not found`);
     }
 
-    // Process keywords if statement text changed
+    const processedUpdateData: UpdateStatementData & {
+      keywords?: KeywordWithFrequency[];
+    } = { ...updateData };
+
+    // Extract keywords if statement text is being updated
     if (updateData.statement) {
-      let keywords: KeywordWithFrequency[] = [];
+      try {
+        const extractionResult =
+          await this.keywordExtractionService.extractKeywords({
+            text: updateData.statement,
+            userKeywords: updateData.userKeywords,
+          });
 
-      if (updateData.userKeywords && updateData.userKeywords.length > 0) {
-        keywords = updateData.userKeywords.map((keyword) => ({
-          word: keyword,
-          frequency: 1,
-          source: 'user' as const,
-        }));
-      } else {
-        try {
-          const extractionResult =
-            await this.keywordExtractionService.extractKeywords({
-              text: updateData.statement,
-              userKeywords: updateData.userKeywords,
-            });
-          keywords = extractionResult.keywords;
-        } catch (error) {
-          this.logger.warn(
-            `Keyword extraction failed during update: ${error.message}`,
+        // Create missing words if needed
+        for (const keyword of extractionResult.keywords) {
+          const wordExists = await this.wordService.checkWordExistence(
+            keyword.word,
           );
-          keywords = [];
+          if (!wordExists) {
+            try {
+              await this.wordService.createWord({
+                word: keyword.word,
+                createdBy: existingStatement.createdBy,
+                publicCredit: existingStatement.publicCredit,
+              });
+              this.logger.debug(`Created missing word: ${keyword.word}`);
+            } catch (error) {
+              this.logger.warn(
+                `Failed to create word ${keyword.word}: ${error.message}`,
+              );
+            }
+          }
         }
-      }
 
-      // Process keywords to ensure Word nodes exist
-      if (keywords.length > 0) {
-        await this.processKeywordsForCreation(keywords, {
-          createdBy: originalStatement.createdBy,
-        });
+        processedUpdateData.keywords = extractionResult.keywords;
+      } catch (error) {
+        this.logger.error(`Keyword extraction failed: ${error.message}`);
+        throw new InternalServerErrorException(
+          `Failed to extract keywords: ${error.message}`,
+        );
       }
-
-      // Add keywords to update data
-      (updateData as any).keywords = keywords;
     }
 
     // ✅ Use enhanced domain method for complex updates
-    const result = await this.statementSchema.updateStatement(id, updateData);
+    const result = await this.statementSchema.updateStatement(
+      id,
+      processedUpdateData,
+    );
 
     if (!result) {
       throw new NotFoundException(`Statement with ID ${id} not found`);
@@ -970,69 +1007,52 @@ export class StatementService {
   }
 
   /**
-   * Process keywords to ensure Word nodes exist
+   * Validate statement creation data
    */
-  private async processKeywordsForCreation(
-    keywords: KeywordWithFrequency[],
-    statementData: any,
-  ) {
-    for (const keyword of keywords) {
-      const wordExists = await this.wordService.checkWordExistence(
-        keyword.word,
-      );
-      if (!wordExists) {
-        try {
-          await this.wordService.createWord({
-            word: keyword.word,
-            createdBy: statementData.createdBy,
-            publicCredit: true, // Default for auto-created words
-          });
-        } catch (error) {
-          this.logger.warn(
-            `Failed to create word node for "${keyword.word}": ${error.message}`,
-          );
-        }
-      }
-    }
-  }
-
-  // VALIDATION HELPERS
-
-  private validateId(id: string, fieldName: string = 'ID') {
-    if (!id || id.trim() === '') {
-      throw new BadRequestException(`${fieldName} is required`);
-    }
-  }
-
-  private validateUserId(userId: string) {
-    if (!userId || userId.trim() === '') {
-      throw new BadRequestException('User ID is required');
-    }
-  }
-
   private validateCreateStatementData(data: CreateStatementData) {
+    if (!data.createdBy || data.createdBy.trim() === '') {
+      throw new BadRequestException('Created by is required');
+    }
+
+    if (typeof data.publicCredit !== 'boolean') {
+      throw new BadRequestException('Public credit must be a boolean');
+    }
+
     if (!data.statement || data.statement.trim() === '') {
       throw new BadRequestException('Statement text is required');
     }
 
     if (data.statement.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
       throw new BadRequestException(
-        `Statement text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
+        `Statement must not exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
       );
-    }
-
-    if (!data.createdBy || data.createdBy.trim() === '') {
-      throw new BadRequestException('Creator user ID is required');
     }
 
     if (!data.initialComment || data.initialComment.trim() === '') {
       throw new BadRequestException('Initial comment is required');
     }
+
+    // Validate category IDs if provided
+    if (data.categoryIds && data.categoryIds.length > 3) {
+      throw new BadRequestException(
+        'Cannot assign more than 3 categories to a statement',
+      );
+    }
+
+    // Validate user keywords if provided
+    if (data.userKeywords && data.userKeywords.length > 10) {
+      throw new BadRequestException(
+        'Cannot provide more than 10 user keywords',
+      );
+    }
   }
 
+  /**
+   * Validate statement update data
+   */
   private validateUpdateStatementData(data: UpdateStatementData) {
-    if (!data || Object.keys(data).length === 0) {
-      throw new BadRequestException('Update data is required');
+    if (Object.keys(data).length === 0) {
+      throw new BadRequestException('Update data cannot be empty');
     }
 
     if (data.statement !== undefined) {
@@ -1042,18 +1062,57 @@ export class StatementService {
 
       if (data.statement.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
         throw new BadRequestException(
-          `Statement text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
+          `Statement must not exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
         );
       }
     }
+
+    if (
+      data.publicCredit !== undefined &&
+      typeof data.publicCredit !== 'boolean'
+    ) {
+      throw new BadRequestException('Public credit must be a boolean');
+    }
+
+    if (data.userKeywords && data.userKeywords.length > 10) {
+      throw new BadRequestException(
+        'Cannot provide more than 10 user keywords',
+      );
+    }
   }
 
+  /**
+   * Validate ID parameter
+   */
+  private validateId(id: string, paramName = 'ID') {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException(`${paramName} is required`);
+    }
+  }
+
+  /**
+   * Validate user ID parameter
+   */
+  private validateUserId(userId: string) {
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+  }
+
+  /**
+   * Convert Neo4j integer objects to JavaScript numbers
+   */
+  private toNumber(value: any): number {
+    if (typeof value === 'number') return value;
+    if (value && typeof value.toNumber === 'function') return value.toNumber();
+    return parseInt(value) || 0;
+  }
+
+  /**
+   * Centralized error handling
+   */
   private handleError(error: any, operation: string): never {
-    if (
-      error instanceof BadRequestException ||
-      error instanceof NotFoundException ||
-      error instanceof InternalServerErrorException
-    ) {
+    if (error instanceof HttpException) {
       throw error;
     }
 

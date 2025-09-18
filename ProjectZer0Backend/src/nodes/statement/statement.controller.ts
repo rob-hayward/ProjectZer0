@@ -72,20 +72,9 @@ export class StatementController {
     @Query('keyword') keywords?: string[],
     @Query('userId') userId?: string,
   ): Promise<any[]> {
-    this.logger.log(
-      `Received request to get statement network with params: ${JSON.stringify({
-        limit,
-        offset,
-        sortBy,
-        sortDirection,
-        keywords,
-        userId,
-      })}`,
-    );
-
     return await this.statementService.getStatementNetwork({
       limit: limit ? Number(limit) : undefined,
-      offset: offset ? Number(offset) : undefined,
+      offset: offset !== undefined ? Number(offset) : undefined, // ✅ FIXED: Properly handle 0
       sortBy,
       sortDirection,
       keywords,
