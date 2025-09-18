@@ -10,7 +10,6 @@ describe('StatementController', () => {
   let controller: StatementController;
   let statementService: jest.Mocked<StatementService>;
   let discussionService: jest.Mocked<DiscussionService>; // eslint-disable-line @typescript-eslint/no-unused-vars
-  let commentService: jest.Mocked<CommentService>;
 
   // ✅ FIXED: Updated mock service with correct method names
   const mockStatementService = {
@@ -78,7 +77,6 @@ describe('StatementController', () => {
     controller = module.get<StatementController>(StatementController);
     statementService = module.get(StatementService);
     discussionService = module.get(DiscussionService);
-    commentService = module.get(CommentService);
   });
 
   it('should be defined', () => {
