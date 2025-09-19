@@ -1,4 +1,4 @@
-// src/neo4j/schemas/definition.schema.ts - CONVERTED TO BaseNodeSchema
+// src/neo4j/schemas/definition.schema.ts - Updated with Standardized Discussion Support
 
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
@@ -14,7 +14,7 @@ export interface DefinitionData extends BaseNodeData {
   word: string; // The word this definition belongs to
   createdBy: string;
   definitionText: string;
-  discussion?: string; // Optional discussion text
+  discussionId?: string; // Now standardized via BaseNodeData
 }
 
 @Injectable()
@@ -43,7 +43,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       word: props.word,
       createdBy: props.createdBy,
       definitionText: props.definitionText,
-      discussion: props.discussion,
+      discussionId: props.discussionId, // ✅ ADDED: Map discussionId property
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       // Both inclusion and content voting
@@ -72,14 +72,14 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
     };
   }
 
-  // DEFINITION-SPECIFIC METHODS - Keep all unique functionality
+  // DEFINITION-SPECIFIC METHODS - Updated to use standardized discussion creation
 
   async createDefinition(definitionData: {
     id: string;
     word: string;
     createdBy: string;
     definitionText: string;
-    discussion?: string;
+    initialComment?: string; // ✅ ADDED: For standardized discussion creation
   }): Promise<DefinitionData> {
     // Validate definition text length
     if (
@@ -149,24 +149,13 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
             type: 'definition'
         }]->(d)
         
-        // Create discussion if provided
-        WITH d
-        WHERE $discussion IS NOT NULL AND size($discussion) > 0
-        CREATE (disc:DiscussionNode {
-          id: apoc.create.uuid(),
-          createdBy: $createdBy,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          associatedNodeId: $id,
-          associatedNodeType: 'DefinitionNode'
-        })
-        CREATE (d)-[:HAS_DISCUSSION]->(disc)
-        
         RETURN d as n
         `,
         {
-          ...definitionData,
-          discussion: definitionData.discussion || null,
+          id: definitionData.id,
+          word: definitionData.word.toLowerCase(), // Standardize word
+          definitionText: definitionData.definitionText,
+          createdBy: definitionData.createdBy,
         },
       );
 
@@ -177,6 +166,24 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       }
 
       const createdDefinition = this.mapNodeFromRecord(result.records[0]);
+
+      // ✅ UPDATED: ALWAYS create discussion (universal rule)
+      try {
+        const discussionId = await this.createDiscussion({
+          nodeId: definitionData.id,
+          nodeType: this.nodeLabel,
+          createdBy: definitionData.createdBy,
+          initialComment: definitionData.initialComment, // May be undefined - that's fine
+        });
+
+        // Add discussion ID to the returned definition
+        createdDefinition.discussionId = discussionId;
+      } catch (discussionError) {
+        this.logger.warn(
+          `Failed to create discussion for definition ${definitionData.id}: ${discussionError.message}`,
+        );
+        // Don't fail the entire operation if discussion creation fails
+      }
 
       // Track user creation for non-API definitions
       if (!isApiDefinition && !isAICreated) {
@@ -240,13 +247,21 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DefinitionNode {word: $word})
-        RETURN d as n
+        
+        // ✅ UPDATED: Get discussion ID using standardized relationship
+        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        
+        RETURN d as n, disc.id as discussionId
         ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
         { word: word.toLowerCase() },
       );
 
-      return result.records.map((record) => this.mapNodeFromRecord(record));
+      return result.records.map((record) => {
+        const definition = this.mapNodeFromRecord(record);
+        definition.discussionId = record.get('discussionId'); // ✅ ADDED: Include discussionId
+        return definition;
+      });
     } catch (error) {
       this.logger.error(
         `Error getting definitions for word: ${error.message}`,
@@ -268,13 +283,21 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
         `
         MATCH (d:DefinitionNode {word: $word})
         WHERE d.inclusionNetVotes > 0
-        RETURN d as n
+        
+        // ✅ UPDATED: Get discussion ID using standardized relationship
+        OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        
+        RETURN d as n, disc.id as discussionId
         ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
         { word: word.toLowerCase() },
       );
 
-      return result.records.map((record) => this.mapNodeFromRecord(record));
+      return result.records.map((record) => {
+        const definition = this.mapNodeFromRecord(record);
+        definition.discussionId = record.get('discussionId'); // ✅ ADDED: Include discussionId
+        return definition;
+      });
     } catch (error) {
       this.logger.error(
         `Error getting approved definitions: ${error.message}`,
@@ -283,25 +306,4 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       throw this.standardError('get approved definitions', error);
     }
   }
-
-  // ✅ INHERITED FROM BaseNodeSchema (No need to implement):
-  // - findById() -> replaces getDefinition()
-  // - update() -> replaces updateDefinition()
-  // - delete() -> replaces deleteDefinition()
-  // - voteInclusion() -> replaces voteDefinitionInclusion()
-  // - voteContent() -> replaces voteDefinitionContent() (with business logic override above)
-  // - getVoteStatus() -> replaces getDefinitionVoteStatus()
-  // - removeVote() -> replaces removeDefinitionVote()
-  // - getVotes() -> replaces getDefinitionVotes()
-  // - Standard validation, error handling, Neo4j utilities
-
-  // ❌ REMOVED METHODS (replaced by inherited BaseNodeSchema methods):
-  // - getDefinition() -> use findById()
-  // - updateDefinition() -> use update()
-  // - deleteDefinition() -> use delete()
-  // - voteDefinitionInclusion() -> use voteInclusion()
-  // - voteDefinitionContent() -> use voteContent()
-  // - getDefinitionVoteStatus() -> use getVoteStatus()
-  // - removeDefinitionVote() -> use removeVote()
-  // - getDefinitionVotes() -> use getVotes()
 }

@@ -12,6 +12,8 @@ import { Record } from 'neo4j-driver';
 
 export interface BaseNodeData {
   id: string;
+  createdBy: string;
+  publicCredit: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   inclusionPositiveVotes?: number;
@@ -20,12 +22,20 @@ export interface BaseNodeData {
   contentPositiveVotes?: number;
   contentNegativeVotes?: number;
   contentNetVotes?: number;
+  discussionId?: string;
+}
+
+export interface CreateDiscussionOptions {
+  nodeId: string;
+  nodeType: string;
+  createdBy: string;
+  initialComment?: string;
 }
 
 @Injectable()
 export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
   protected abstract readonly nodeLabel: string;
-  protected abstract readonly idField: string; // 'id' for most, 'word' for WordSchema
+  protected abstract readonly idField: string;
   protected readonly logger: Logger;
 
   constructor(
@@ -35,8 +45,6 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
   ) {
     this.logger = new Logger(loggerContext);
   }
-
-  // STANDARDIZED INPUT VALIDATION
 
   protected validateId(id: string, fieldName: string = 'ID'): void {
     if (!id || typeof id !== 'string' || id.trim() === '') {
@@ -52,7 +60,126 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     }
   }
 
-  // STANDARDIZED CRUD OPERATIONS
+  protected async createDiscussion(
+    options: CreateDiscussionOptions,
+  ): Promise<string> {
+    try {
+      const discussionId = `discussion-${options.nodeId}-${Date.now()}`;
+
+      let query = `
+        MATCH (n:${options.nodeType} {${this.idField}: $nodeId})
+        
+        CREATE (d:DiscussionNode {
+          id: $discussionId,
+          createdBy: $createdBy,
+          associatedNodeId: $nodeId,
+          associatedNodeType: $nodeType,
+          createdAt: datetime(),
+          updatedAt: datetime()
+        })
+        
+        CREATE (n)-[:HAS_DISCUSSION]->(d)
+      `;
+
+      if (options.initialComment && options.initialComment.trim() !== '') {
+        query += `
+        CREATE (c:CommentNode {
+          id: $commentId,
+          createdBy: $createdBy,
+          discussionId: $discussionId,
+          commentText: $initialComment,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          contentPositiveVotes: 0,
+          contentNegativeVotes: 0,
+          contentNetVotes: 0,
+          inclusionPositiveVotes: 0,
+          inclusionNegativeVotes: 0,
+          inclusionNetVotes: 0
+        })
+        
+        CREATE (d)-[:HAS_COMMENT]->(c)
+        `;
+      }
+
+      query += ` RETURN d.id as discussionId`;
+
+      const params: any = {
+        nodeId: options.nodeId,
+        nodeType: options.nodeType,
+        discussionId,
+        createdBy: options.createdBy,
+      };
+
+      if (options.initialComment && options.initialComment.trim() !== '') {
+        params.commentId = `comment-${discussionId}-${Date.now()}`;
+        params.initialComment = options.initialComment;
+      }
+
+      const result = await this.neo4jService.write(query, params);
+
+      if (!result.records || result.records.length === 0) {
+        throw new Error('Failed to create discussion');
+      }
+
+      return result.records[0].get('discussionId');
+    } catch (error) {
+      this.logger.error(
+        `Error creating discussion for ${options.nodeType}: ${error.message}`,
+      );
+      throw this.standardError('create discussion', error);
+    }
+  }
+
+  protected async getDiscussionId(nodeId: string): Promise<string | null> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (n:${this.nodeLabel} {${this.idField}: $nodeId})-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        RETURN d.id as discussionId
+        `,
+        { nodeId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return null;
+      }
+
+      return result.records[0].get('discussionId');
+    } catch {
+      return null;
+    }
+  }
+
+  async createDiscussionForExistingNode(
+    nodeId: string,
+    createdBy: string,
+    initialComment?: string,
+  ): Promise<string> {
+    this.validateId(nodeId);
+    this.validateUserId(createdBy);
+
+    const existingDiscussionId = await this.getDiscussionId(nodeId);
+    if (existingDiscussionId) {
+      throw new BadRequestException(
+        `${this.getNodeTypeName()} already has a discussion`,
+      );
+    }
+
+    const node = await this.findById(nodeId);
+    if (!node) {
+      throw new NotFoundException(
+        `${this.getNodeTypeName()} with ${this.idField} '${nodeId}' not found`,
+      );
+    }
+
+    return await this.createDiscussion({
+      nodeId,
+      nodeType: this.nodeLabel,
+      createdBy,
+      initialComment,
+    });
+  }
 
   async findById(id: string): Promise<T | null> {
     this.validateId(id);
@@ -71,7 +198,6 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     } catch (error) {
       this.logger.error(
         `Error finding ${this.nodeLabel} by ${this.idField}: ${error.message}`,
-        error.stack,
       );
       throw this.standardError('find', error);
     }
@@ -98,10 +224,7 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
       ) {
         throw error;
       }
-      this.logger.error(
-        `Error updating ${this.nodeLabel}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error updating ${this.nodeLabel}: ${error.message}`);
       throw this.standardError('update', error);
     }
   }
@@ -110,7 +233,6 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     this.validateId(id);
 
     try {
-      // Check if node exists first
       const existsResult = await this.neo4jService.read(
         `MATCH (n:${this.nodeLabel} {${this.idField}: $id}) RETURN COUNT(n) as count`,
         { id },
@@ -124,7 +246,12 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
       }
 
       await this.neo4jService.write(
-        `MATCH (n:${this.nodeLabel} {${this.idField}: $id}) DETACH DELETE n`,
+        `
+        MATCH (n:${this.nodeLabel} {${this.idField}: $id})
+        OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
+        DETACH DELETE n, d, c
+        `,
         { id },
       );
 
@@ -133,15 +260,10 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(
-        `Error deleting ${this.nodeLabel}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error deleting ${this.nodeLabel}: ${error.message}`);
       throw this.standardError('delete', error);
     }
   }
-
-  // STANDARDIZED VOTING OPERATIONS
 
   async voteInclusion(
     id: string,
@@ -151,25 +273,13 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     this.validateId(id);
     this.validateUserId(userId);
 
-    try {
-      this.logger.log(
-        `Processing inclusion vote on ${this.nodeLabel} ${id} by user ${userId}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-
-      return await this.voteSchema.vote(
-        this.nodeLabel,
-        { [this.idField]: id },
-        userId,
-        isPositive,
-        'INCLUSION',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on ${this.nodeLabel} inclusion: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('vote on', error);
-    }
+    return await this.voteSchema.vote(
+      this.nodeLabel,
+      { [this.idField]: id },
+      userId,
+      isPositive,
+      'INCLUSION',
+    );
   }
 
   async voteContent(
@@ -186,44 +296,24 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
       );
     }
 
-    try {
-      this.logger.log(
-        `Processing content vote on ${this.nodeLabel} ${id} by user ${userId}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-
-      return await this.voteSchema.vote(
-        this.nodeLabel,
-        { [this.idField]: id },
-        userId,
-        isPositive,
-        'CONTENT',
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error voting on ${this.nodeLabel} content: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('vote on', error);
-    }
+    return await this.voteSchema.vote(
+      this.nodeLabel,
+      { [this.idField]: id },
+      userId,
+      isPositive,
+      'CONTENT',
+    );
   }
 
   async getVoteStatus(id: string, userId: string): Promise<VoteStatus | null> {
     this.validateId(id);
     this.validateUserId(userId);
 
-    try {
-      return await this.voteSchema.getVoteStatus(
-        this.nodeLabel,
-        { [this.idField]: id },
-        userId,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error getting vote status for ${this.nodeLabel}: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('get vote status for', error);
-    }
+    return await this.voteSchema.getVoteStatus(
+      this.nodeLabel,
+      { [this.idField]: id },
+      userId,
+    );
   }
 
   async removeVote(
@@ -234,77 +324,48 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     this.validateId(id);
     this.validateUserId(userId);
 
-    try {
-      this.logger.log(
-        `Removing ${kind} vote from ${this.nodeLabel} ${id} by user ${userId}`,
-      );
-
-      return await this.voteSchema.removeVote(
-        this.nodeLabel,
-        { [this.idField]: id },
-        userId,
-        kind,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error removing vote from ${this.nodeLabel}: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('remove vote from', error);
-    }
+    return await this.voteSchema.removeVote(
+      this.nodeLabel,
+      { [this.idField]: id },
+      userId,
+      kind,
+    );
   }
 
   async getVotes(id: string): Promise<VoteResult | null> {
     this.validateId(id);
 
-    try {
-      const voteStatus = await this.voteSchema.getVoteStatus(
-        this.nodeLabel,
-        { [this.idField]: id },
-        '', // Empty string for aggregate vote counts
-      );
+    const voteStatus = await this.voteSchema.getVoteStatus(
+      this.nodeLabel,
+      { [this.idField]: id },
+      '',
+    );
 
-      if (!voteStatus) {
-        this.logger.debug(`No votes found for ${this.nodeLabel}: ${id}`);
-        return null;
-      }
-
-      return {
-        inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
-        inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
-        inclusionNetVotes: voteStatus.inclusionNetVotes,
-        contentPositiveVotes: this.supportsContentVoting()
-          ? voteStatus.contentPositiveVotes
-          : 0,
-        contentNegativeVotes: this.supportsContentVoting()
-          ? voteStatus.contentNegativeVotes
-          : 0,
-        contentNetVotes: this.supportsContentVoting()
-          ? voteStatus.contentNetVotes
-          : 0,
-      };
-    } catch (error) {
-      this.logger.error(
-        `Error getting votes for ${this.nodeLabel}: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('get votes for', error);
+    if (!voteStatus) {
+      return null;
     }
+
+    return {
+      inclusionPositiveVotes: voteStatus.inclusionPositiveVotes,
+      inclusionNegativeVotes: voteStatus.inclusionNegativeVotes,
+      inclusionNetVotes: voteStatus.inclusionNetVotes,
+      contentPositiveVotes: this.supportsContentVoting()
+        ? voteStatus.contentPositiveVotes
+        : 0,
+      contentNegativeVotes: this.supportsContentVoting()
+        ? voteStatus.contentNegativeVotes
+        : 0,
+      contentNetVotes: this.supportsContentVoting()
+        ? voteStatus.contentNetVotes
+        : 0,
+    };
   }
-
-  // ❌ VISIBILITY METHODS INTENTIONALLY REMOVED
-  // These are now handled by the centralized VisibilityService
-  // - setVisibilityStatus() -> VisibilityService.setUserVisibilityPreference()
-  // - getVisibilityStatus() -> VisibilityService.getObjectVisibility()
-
-  // STANDARDIZED UTILITIES
 
   protected toNumber(value: any): number {
     if (value === null || value === undefined) {
       return 0;
     }
 
-    // Handle Neo4j Integer objects
     if (typeof value === 'object' && value !== null) {
       if ('low' in value && typeof value.low === 'number') {
         return Number(value.low);
@@ -322,28 +383,15 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
   }
 
   protected getNodeTypeName(): string {
-    // Convert "WordNode" -> "Word", "DefinitionNode" -> "Definition", etc.
-    // Only remove "Node" if it appears at the end, and capitalize first letter
     if (this.nodeLabel.endsWith('Node')) {
-      const baseName = this.nodeLabel.slice(0, -4); // Remove last 4 characters ("Node")
+      const baseName = this.nodeLabel.slice(0, -4);
       return baseName.charAt(0).toUpperCase() + baseName.slice(1).toLowerCase();
     }
     const name = this.nodeLabel.toLowerCase();
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
-  // ABSTRACT METHODS - Must be implemented by subclasses
-
-  /**
-   * Maps a Neo4j record to the node type
-   * CRITICAL: Must handle Neo4j Integer conversion using this.toNumber()
-   */
   protected abstract mapNodeFromRecord(record: Record): T;
-
-  /**
-   * Builds update query for the specific node type
-   * CRITICAL: Must handle the specific idField (id vs word)
-   */
   protected abstract buildUpdateQuery(
     id: string,
     data: Partial<T>,
@@ -351,11 +399,5 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     cypher: string;
     params: any;
   };
-
-  /**
-   * Determines if this node type supports content voting
-   * Words and OpenQuestions: false
-   * Definitions, Statements, Answers, Quantities: true
-   */
   protected abstract supportsContentVoting(): boolean;
 }

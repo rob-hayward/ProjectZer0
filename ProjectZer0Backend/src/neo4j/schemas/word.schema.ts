@@ -7,19 +7,15 @@ import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
 import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
 
-// Word-specific data interface extending BaseNodeData
 export interface WordNode extends BaseNodeData {
-  word: string; // The actual word text (unique identifier)
-  createdBy: string;
-  publicCredit: boolean;
-  definitions?: any[]; // Will be populated by getWord()
-  discussionId?: string; // Will be populated by getWord()
+  word: string;
+  definitions?: any[];
 }
 
 @Injectable()
 export class WordSchema extends BaseNodeSchema<WordNode> {
   protected readonly nodeLabel = 'WordNode';
-  protected readonly idField = 'word'; // WordSchema uses 'word' field as identifier
+  protected readonly idField = 'word';
 
   constructor(
     neo4jService: Neo4jService,
@@ -29,25 +25,23 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
     super(neo4jService, voteSchema, WordSchema.name);
   }
 
-  // IMPLEMENT: Abstract methods from BaseNodeSchema
-
   protected supportsContentVoting(): boolean {
-    return false; // Words only support inclusion voting
+    return false;
   }
 
   protected mapNodeFromRecord(record: Record): WordNode {
     const props = record.get('n').properties;
     return {
-      id: props.word, // Use word as id for BaseNodeData compatibility
-      word: props.word,
+      id: props.word,
       createdBy: props.createdBy,
       publicCredit: props.publicCredit,
+      word: props.word,
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
       inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
       inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
-      // Words don't have content voting
       contentPositiveVotes: 0,
       contentNegativeVotes: 0,
       contentNetVotes: 0,
@@ -56,7 +50,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
 
   protected buildUpdateQuery(word: string, data: Partial<WordNode>) {
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id') // Don't update the id field
+      .filter((key) => key !== 'id')
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -70,7 +64,6 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
     };
   }
 
-  // OVERRIDE: Inherited methods to handle word standardization
   async voteInclusion(word: string, userId: string, isPositive: boolean) {
     const standardizedWord = this.standardizeWord(word);
     return super.voteInclusion(standardizedWord, userId, isPositive);
@@ -106,19 +99,12 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
     return super.delete(standardizedWord);
   }
 
-  // WORD-SPECIFIC METHODS - Keep all unique functionality
-
   private standardizeWord(word: string): string {
-    const standardized = word.trim().toLowerCase();
-    this.logger.debug(`Standardized word: '${word}' to '${standardized}'`);
-    return standardized;
+    return word.trim().toLowerCase();
   }
 
   async checkWordExistence(word: string): Promise<boolean> {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.debug(
-      `Checking existence of standardized word: ${standardizedWord}`,
-    );
     try {
       const result = await this.neo4jService.read(
         `
@@ -127,14 +113,8 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         `,
         { word: standardizedWord },
       );
-      const exists = result.records[0].get('exists');
-      this.logger.debug(`Word '${standardizedWord}' exists: ${exists}`);
-      return exists;
+      return result.records[0].get('exists');
     } catch (error) {
-      this.logger.error(
-        `Error checking word existence: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('check if word exists', error);
     }
   }
@@ -142,19 +122,17 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
   async createWord(wordData: {
     word: string;
     createdBy: string;
-    initialDefinition: string;
     publicCredit: boolean;
+    initialDefinition: string;
+    initialComment?: string;
   }) {
-    this.logger.log(`Creating word with data: ${JSON.stringify(wordData)}`);
     const standardizedWord = this.standardizeWord(wordData.word);
-    this.logger.debug(`Standardized word for creation: ${standardizedWord}`);
     const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
     const isAICreated = wordData.createdBy === 'ProjectZeroAI';
 
     try {
       const result = await this.neo4jService.write(
         `
-        // Create User if needed (for non-API creators)
         CALL {
           WITH $createdBy as userId
           WITH userId
@@ -163,7 +141,6 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
           RETURN u
         }
 
-        // Create Word Node (inclusion voting only)
         CREATE (w:WordNode {
             id: apoc.create.uuid(),
             word: $word,
@@ -171,19 +148,16 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
             publicCredit: $publicCredit,
             createdAt: datetime(),
             updatedAt: datetime(),
-            // Inclusion voting only (no content voting)
             inclusionPositiveVotes: 0,
             inclusionNegativeVotes: 0,
             inclusionNetVotes: 0
         })
 
-        // Create Definition Node (this will be updated later to use new DefinitionSchema)
         CREATE (d:DefinitionNode {
             id: apoc.create.uuid(),
             definitionText: $initialDefinition,
             createdBy: $createdBy,
             createdAt: datetime(),
-            // Definition nodes will have both inclusion and content voting
             inclusionPositiveVotes: 0,
             inclusionNegativeVotes: 0,
             inclusionNetVotes: 0,
@@ -192,10 +166,8 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
             contentNetVotes: 0
         })
 
-        // Create HAS_DEFINITION relationship
         CREATE (w)-[:HAS_DEFINITION]->(d)
 
-        // Create CREATED relationships for user-created content
         WITH w, d, $createdBy as userId
         WHERE NOT $isApiDefinition AND NOT $isAICreated
         MATCH (u:User {sub: userId})
@@ -219,12 +191,20 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
       );
 
       if (!result.records || !result.records[0]) {
-        this.logger.error('No result returned from word creation');
         throw new Error('Failed to create word');
       }
 
       const createdWord = result.records[0].get('w').properties;
       const createdDefinition = result.records[0].get('d').properties;
+
+      const discussionId = await this.createDiscussion({
+        nodeId: standardizedWord,
+        nodeType: this.nodeLabel,
+        createdBy: wordData.createdBy,
+        initialComment: wordData.initialComment,
+      });
+
+      createdWord.discussionId = discussionId;
 
       if (!isApiDefinition && !isAICreated) {
         await this.userSchema.addCreatedNode(
@@ -239,16 +219,11 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         );
       }
 
-      this.logger.log(
-        `Successfully created word: ${createdWord.word} with definition: ${createdDefinition.id}`,
-      );
-
       return {
         word: createdWord,
         definition: createdDefinition,
       };
     } catch (error) {
-      this.logger.error(`Error creating word: ${error.message}`, error.stack);
       throw this.standardError('create word', error);
     }
   }
@@ -259,7 +234,6 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
     definitionText: string;
     publicCredit: boolean;
   }) {
-    this.logger.log(`Adding definition to word: ${wordData.word}`);
     const standardizedWord = this.standardizeWord(wordData.word);
 
     try {
@@ -294,7 +268,6 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
 
       const createdDefinition = result.records[0].get('d').properties;
 
-      // Only add to user tracking for non-API users
       if (
         wordData.createdBy !== 'FreeDictionaryAPI' &&
         wordData.createdBy !== 'ProjectZeroAI'
@@ -306,43 +279,33 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         );
       }
 
-      this.logger.log(
-        `Successfully added definition: ${createdDefinition.id} to word: ${standardizedWord}`,
-      );
-
       return createdDefinition;
     } catch (error) {
-      this.logger.error(
-        `Error adding definition to word: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('add definition to word', error);
     }
   }
 
   async getWord(word: string) {
     const standardizedWord = this.standardizeWord(word);
-    this.logger.debug(`Getting word: ${standardizedWord}`);
     try {
       const result = await this.neo4jService.read(
         `
         MATCH (w:WordNode)
         WHERE toLower(w.word) = toLower($word)
-        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
         OPTIONAL MATCH (w)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN w, collect(d) as definitions, disc
+        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
+        RETURN w, collect(d) as definitions, disc.id as discussionId
         `,
         { word: standardizedWord },
       );
 
       if (result.records.length === 0) {
-        this.logger.debug(`Word not found: ${standardizedWord}`);
         return null;
       }
 
       const wordNode = result.records[0].get('w').properties;
       const definitions = result.records[0].get('definitions');
-      const discussion = result.records[0].get('disc');
+      const discussionId = result.records[0].get('discussionId');
 
       const mappedDefinitions = definitions
         ? definitions.map((d: any) => d.properties)
@@ -355,26 +318,23 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         inclusionNegativeVotes: this.toNumber(wordNode.inclusionNegativeVotes),
         inclusionNetVotes: this.toNumber(wordNode.inclusionNetVotes),
         definitions: mappedDefinitions,
-        discussionId: discussion?.properties?.id,
+        discussionId: discussionId,
       };
 
-      this.logger.debug(`Retrieved word: ${JSON.stringify(wordData)}`);
       return wordData;
     } catch (error) {
-      this.logger.error(`Error fetching word: ${error.message}`, error.stack);
       throw this.standardError('fetch word', error);
     }
   }
 
   async getAllWords() {
-    this.logger.debug('Getting all words');
     try {
       const result = await this.neo4jService.read(
         `
         MATCH (w:WordNode)
-        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
         OPTIONAL MATCH (w)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        RETURN w, collect(d) as definitions, disc
+        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
+        RETURN w, collect(d) as definitions, disc.id as discussionId
         ORDER BY w.createdAt DESC
         `,
         {},
@@ -383,7 +343,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
       const words = result.records.map((record) => {
         const wordNode = record.get('w').properties;
         const definitions = record.get('definitions');
-        const discussion = record.get('disc');
+        const discussionId = record.get('discussionId');
 
         const mappedDefinitions = definitions
           ? definitions.map((d: any) => d.properties)
@@ -399,66 +359,28 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
           ),
           inclusionNetVotes: this.toNumber(wordNode.inclusionNetVotes),
           definitions: mappedDefinitions,
-          discussionId: discussion?.properties?.id,
+          discussionId: discussionId,
         };
       });
 
-      this.logger.debug(`Retrieved ${words.length} words`);
       return words;
     } catch (error) {
-      this.logger.error('Error getting all words', error.stack);
       throw this.standardError('get all words', error);
     }
   }
 
-  async updateWordWithDiscussionId(wordId: string, discussionId: string) {
-    this.logger.log(
-      `Updating word ${wordId} with discussion ID: ${discussionId}`,
-    );
-
-    try {
-      const result = await this.neo4jService.write(
-        `
-        MATCH (w:WordNode {id: $wordId})
-        MATCH (d:DiscussionNode {id: $discussionId})
-        CREATE (w)-[:HAS_DISCUSSION]->(d)
-        RETURN w
-        `,
-        { wordId, discussionId },
-      );
-
-      const updatedWord = result.records[0].get('w').properties;
-      this.logger.log(
-        `Successfully updated word ${wordId} with discussion ID: ${discussionId}`,
-      );
-      return updatedWord;
-    } catch (error) {
-      this.logger.error(
-        `Error updating word with discussion ID: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('update word with discussion ID', error);
-    }
-  }
-
   async checkWords() {
-    this.logger.debug('Checking word count');
     try {
       const result = await this.neo4jService.read(
         'MATCH (w:WordNode) RETURN count(w) as count',
       );
       const count = this.toNumber(result.records[0].get('count'));
-      this.logger.debug(`Total word count: ${count}`);
       return { count };
     } catch (error) {
-      this.logger.error(`Error checking words: ${error.message}`, error.stack);
       throw this.standardError('check words', error);
     }
   }
 
-  /**
-   * Check if a word can be used for category composition (has passed inclusion threshold)
-   */
   async isWordAvailableForCategoryComposition(
     wordId: string,
   ): Promise<boolean> {
@@ -479,17 +401,11 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         result.records[0].get('inclusionNetVotes'),
       );
       return VotingUtils.hasPassedInclusion(inclusionNetVotes);
-    } catch (error) {
-      this.logger.error(
-        `Error checking word availability for category composition: ${error.message}`,
-      );
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Check if a word can be used for definition creation (has passed inclusion threshold)
-   */
   async isWordAvailableForDefinitionCreation(word: string): Promise<boolean> {
     try {
       const wordData = await this.getWord(word);
@@ -498,17 +414,11 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
       return VotingUtils.isDefinitionCreationAllowed(
         wordData.inclusionNetVotes,
       );
-    } catch (error) {
-      this.logger.error(
-        `Error checking word availability for definition creation: ${error.message}`,
-      );
+    } catch {
       return false;
     }
   }
 
-  /**
-   * Get words that have passed inclusion threshold (for category composition)
-   */
   async getApprovedWords(
     options: {
       limit?: number;
@@ -564,21 +474,7 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         };
       });
     } catch (error) {
-      this.logger.error(
-        `Error getting approved words: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('get approved words', error);
     }
   }
-
-  // ❌ REMOVED: All voting methods now inherited from BaseNodeSchema
-  // - voteWord() -> use inherited voteInclusion()
-  // - getWordVoteStatus() -> use inherited getVoteStatus()
-  // - removeWordVote() -> use inherited removeVote()
-  // - getWordVotes() -> use inherited getVotes()
-
-  // ❌ REMOVED: All visibility methods now delegated to VisibilityService
-  // - setVisibilityStatus() -> VisibilityService.setUserVisibilityPreference()
-  // - getVisibilityStatus() -> VisibilityService.getObjectVisibility()
 }

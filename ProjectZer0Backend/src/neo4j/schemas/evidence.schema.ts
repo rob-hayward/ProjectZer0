@@ -1,5 +1,4 @@
-// src/neo4j/schemas/evidence.schema.ts - NEW NODE EXTENDING BaseNodeSchema
-
+// src/neo4j/schemas/evidence.schema.ts
 import {
   Injectable,
   BadRequestException,
@@ -11,7 +10,6 @@ import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
 import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
 
-// Evidence type categories
 export type EvidenceType =
   | 'academic_paper'
   | 'news_article'
@@ -25,13 +23,11 @@ export type EvidenceType =
   | 'meta_analysis'
   | 'other';
 
-// Parent node types that can have evidence
 export type EvidenceParentType =
   | 'StatementNode'
   | 'AnswerNode'
   | 'QuantityNode';
 
-// Evidence-specific data interface extending BaseNodeData
 export interface EvidenceData extends BaseNodeData {
   title: string;
   url: string;
@@ -41,14 +37,11 @@ export interface EvidenceData extends BaseNodeData {
   parentNodeId: string;
   parentNodeType: EvidenceParentType;
   description?: string;
-  createdBy: string;
-  // Aggregate peer review scores (calculated from reviews)
   avgQualityScore?: number;
   avgIndependenceScore?: number;
   avgRelevanceScore?: number;
   overallScore?: number;
   reviewCount?: number;
-  // Enhanced fields returned by getEvidence()
   parentInfo?: {
     id: string;
     type: string;
@@ -63,23 +56,20 @@ export interface EvidenceData extends BaseNodeData {
     comments?: string;
     createdAt: string;
   }>;
-  // Only inclusion voting supported (no content voting - peer review instead)
 }
 
-// Peer review data structure
 export interface EvidencePeerReview {
   id: string;
   evidenceId: string;
   userId: string;
-  qualityScore: number; // 1-5 scale
-  independenceScore: number; // 1-5 scale
-  relevanceScore: number; // 1-5 scale
+  qualityScore: number;
+  independenceScore: number;
+  relevanceScore: number;
   comments?: string;
   createdAt: Date;
   updatedAt?: Date;
 }
 
-// Input data for creating evidence
 export interface CreateEvidenceData {
   id: string;
   title: string;
@@ -91,9 +81,10 @@ export interface CreateEvidenceData {
   parentNodeType: EvidenceParentType;
   description?: string;
   createdBy: string;
+  publicCredit: boolean;
+  initialComment?: string;
 }
 
-// Input data for peer review
 export interface CreatePeerReviewData {
   evidenceId: string;
   userId: string;
@@ -106,22 +97,22 @@ export interface CreatePeerReviewData {
 @Injectable()
 export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
   protected readonly nodeLabel = 'EvidenceNode';
-  protected readonly idField = 'id'; // Evidence uses standard 'id' field
+  protected readonly idField = 'id';
 
   constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
     super(neo4jService, voteSchema, EvidenceSchema.name);
   }
 
-  // IMPLEMENT: Abstract methods from BaseNodeSchema
-
   protected supportsContentVoting(): boolean {
-    return false; // Evidence uses peer review system instead of content voting
+    return false;
   }
 
   protected mapNodeFromRecord(record: Record): EvidenceData {
     const props = record.get('n').properties;
     return {
       id: props.id,
+      createdBy: props.createdBy,
+      publicCredit: props.publicCredit,
       title: props.title,
       url: props.url,
       authors: props.authors || [],
@@ -132,17 +123,15 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       parentNodeId: props.parentNodeId,
       parentNodeType: props.parentNodeType,
       description: props.description,
-      createdBy: props.createdBy,
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
-      // Only inclusion voting (no content voting)
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
       inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
       inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
-      contentPositiveVotes: 0, // Always 0 - peer review instead
+      contentPositiveVotes: 0,
       contentNegativeVotes: 0,
       contentNetVotes: 0,
-      // Aggregate peer review scores
       avgQualityScore: this.toNumber(props.avgQualityScore),
       avgIndependenceScore: this.toNumber(props.avgIndependenceScore),
       avgRelevanceScore: this.toNumber(props.avgRelevanceScore),
@@ -153,7 +142,7 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
 
   protected buildUpdateQuery(id: string, data: Partial<EvidenceData>) {
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id') // Don't update the id field
+      .filter((key) => key !== 'id')
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -167,13 +156,10 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
     };
   }
 
-  // EVIDENCE-SPECIFIC METHODS
-
   async createEvidence(
     evidenceData: CreateEvidenceData,
   ): Promise<EvidenceData> {
     try {
-      // Validate required fields
       if (!evidenceData.title || evidenceData.title.trim() === '') {
         throw new BadRequestException('Evidence title cannot be empty');
       }
@@ -187,14 +173,12 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         throw new BadRequestException('Parent node ID cannot be empty');
       }
 
-      // Validate URL format (basic check)
       try {
         new URL(evidenceData.url);
       } catch {
         throw new BadRequestException('Invalid URL format');
       }
 
-      // Validate evidence type
       const validTypes: EvidenceType[] = [
         'academic_paper',
         'news_article',
@@ -212,16 +196,11 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         throw new BadRequestException('Invalid evidence type');
       }
 
-      this.logger.log(`Creating evidence with ID: ${evidenceData.id}`);
-      this.logger.debug(`Evidence data: ${JSON.stringify(evidenceData)}`);
-
       const result = await this.neo4jService.write(
         `
-        // Validate that parent node exists and has passed inclusion threshold
         MATCH (parent:${evidenceData.parentNodeType} {id: $parentNodeId})
-        WHERE parent.inclusionNetVotes > 0 // Parent must have passed inclusion
+        WHERE parent.inclusionNetVotes > 0
         
-        // Create the evidence node
         CREATE (e:EvidenceNode {
           id: $id,
           title: $title,
@@ -233,13 +212,12 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
           parentNodeType: $parentNodeType,
           description: $description,
           createdBy: $createdBy,
+          publicCredit: $publicCredit,
           createdAt: datetime(),
           updatedAt: datetime(),
-          // Only inclusion voting for evidence
           inclusionPositiveVotes: 0,
           inclusionNegativeVotes: 0,
           inclusionNetVotes: 0,
-          // Initialize peer review aggregates
           avgQualityScore: 0,
           avgIndependenceScore: 0,
           avgRelevanceScore: 0,
@@ -247,7 +225,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
           reviewCount: 0
         })
         
-        // Create relationship to parent
         CREATE (e)-[:EVIDENCE_FOR]->(parent)
         
         RETURN e
@@ -263,6 +240,7 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
           parentNodeType: evidenceData.parentNodeType,
           description: evidenceData.description || '',
           createdBy: evidenceData.createdBy,
+          publicCredit: evidenceData.publicCredit,
         },
       );
 
@@ -273,22 +251,27 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       }
 
       const createdEvidence = result.records[0].get('e').properties;
-      this.logger.log(
-        `Successfully created evidence with ID: ${createdEvidence.id}`,
-      );
 
-      // Convert properties to EvidenceData using proper Record structure
+      const discussionId = await this.createDiscussion({
+        nodeId: evidenceData.id,
+        nodeType: this.nodeLabel,
+        createdBy: evidenceData.createdBy,
+        initialComment: evidenceData.initialComment,
+      });
+
+      createdEvidence.discussionId = discussionId;
+
       const mockRecord = {
-        get: jest.fn().mockReturnValue({ properties: createdEvidence }),
+        get: (key: string) => {
+          if (key === 'n') {
+            return { properties: createdEvidence };
+          }
+          return null;
+        },
       } as unknown as Record;
 
       return this.mapNodeFromRecord(mockRecord);
     } catch (error) {
-      this.logger.error(
-        `Error creating evidence: ${error.message}`,
-        error.stack,
-      );
-
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -312,14 +295,12 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       const result = await this.neo4jService.read(
         `
         MATCH (e:EvidenceNode {id: $id})
-        
-        // Get parent node info
+        OPTIONAL MATCH (e)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
         MATCH (e)-[:EVIDENCE_FOR]->(parent)
-        
-        // Get peer reviews
         OPTIONAL MATCH (e)<-[:PEER_REVIEWED]-(review:PeerReviewNode)
         
         RETURN e,
+        disc.id as discussionId,
         {
           id: parent.id,
           type: labels(parent)[0],
@@ -345,17 +326,12 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       const record = result.records[0];
       const evidence = this.mapNodeFromRecord(record);
 
-      // Add additional data
+      evidence.discussionId = record.get('discussionId');
       evidence.parentInfo = record.get('parentInfo');
       evidence.reviews = record.get('reviews').filter((r) => r && r.id);
 
       return evidence;
     } catch (error) {
-      this.logger.error(
-        `Error getting evidence ${id}: ${error.message}`,
-        error.stack,
-      );
-
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -364,13 +340,10 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
     }
   }
 
-  // PEER REVIEW SYSTEM
-
   async submitPeerReview(
     reviewData: CreatePeerReviewData,
   ): Promise<EvidencePeerReview> {
     try {
-      // Validate scores (1-5 scale)
       const { qualityScore, independenceScore, relevanceScore } = reviewData;
 
       if (
@@ -381,7 +354,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         throw new BadRequestException('All scores must be between 1 and 5');
       }
 
-      // Check if evidence exists and has passed inclusion threshold
       const evidence = await this.findById(reviewData.evidenceId);
       if (!evidence) {
         throw new NotFoundException(
@@ -395,7 +367,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         );
       }
 
-      // Check if user has already reviewed this evidence
       const existingReview = await this.getUserPeerReview(
         reviewData.evidenceId,
         reviewData.userId,
@@ -406,18 +377,12 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         );
       }
 
-      this.logger.log(
-        `Submitting peer review for evidence ${reviewData.evidenceId} by user ${reviewData.userId}`,
-      );
-
       const reviewId = `review-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       const result = await this.neo4jService.write(
         `
-        // Find the evidence
         MATCH (e:EvidenceNode {id: $evidenceId})
         
-        // Create peer review node
         CREATE (pr:PeerReviewNode {
           id: $reviewId,
           evidenceId: $evidenceId,
@@ -430,7 +395,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
           updatedAt: datetime()
         })
         
-        // Create relationship
         CREATE (pr)-[:PEER_REVIEWED]->(e)
         
         RETURN pr
@@ -452,12 +416,7 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
 
       const createdReview = result.records[0].get('pr').properties;
 
-      // Update aggregate scores for the evidence
       await this.recalculateEvidenceScores(reviewData.evidenceId);
-
-      this.logger.log(
-        `Successfully submitted peer review ${reviewId} for evidence ${reviewData.evidenceId}`,
-      );
 
       return {
         id: createdReview.id,
@@ -470,11 +429,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         createdAt: new Date(createdReview.createdAt),
       };
     } catch (error) {
-      this.logger.error(
-        `Error submitting peer review: ${error.message}`,
-        error.stack,
-      );
-
       if (
         error instanceof BadRequestException ||
         error instanceof NotFoundException
@@ -516,10 +470,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         updatedAt: review.updatedAt ? new Date(review.updatedAt) : undefined,
       };
     } catch (error) {
-      this.logger.error(
-        `Error getting user peer review: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('get user peer review', error);
     }
   }
@@ -550,18 +500,10 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
         `,
         { evidenceId },
       );
-
-      this.logger.debug(`Recalculated scores for evidence ${evidenceId}`);
     } catch (error) {
-      this.logger.error(
-        `Error recalculating evidence scores: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('recalculate evidence scores', error);
     }
   }
-
-  // DISCOVERY METHODS
 
   async getEvidenceForNode(
     nodeId: string,
@@ -575,7 +517,7 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       const result = await this.neo4jService.read(
         `
         MATCH (parent:${nodeType} {id: $nodeId})<-[:EVIDENCE_FOR]-(e:EvidenceNode)
-        WHERE e.inclusionNetVotes >= 0 // Include non-negative evidence
+        WHERE e.inclusionNetVotes >= 0
         RETURN e as n
         ORDER BY e.inclusionNetVotes DESC, e.overallScore DESC, e.createdAt DESC
         `,
@@ -584,10 +526,6 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
 
       return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
-      this.logger.error(
-        `Error getting evidence for node: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('get evidence for node', error);
     }
   }
@@ -619,15 +557,9 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
 
       return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
-      this.logger.error(
-        `Error getting top rated evidence: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('get top rated evidence', error);
     }
   }
-
-  // UTILITY METHODS
 
   private isValidScore(score: number): boolean {
     return Number.isInteger(score) && score >= 1 && score <= 5;
@@ -643,31 +575,7 @@ export class EvidenceSchema extends BaseNodeSchema<EvidenceData> {
       const count = this.toNumber(result.records[0].get('count'));
       return { count };
     } catch (error) {
-      this.logger.error(
-        `Error checking evidence: ${error.message}`,
-        error.stack,
-      );
       throw this.standardError('check evidence', error);
     }
   }
-
-  // ✅ INHERITED FROM BaseNodeSchema (No need to implement):
-  // - findById() -> for basic evidence retrieval
-  // - update() -> for simple evidence updates
-  // - delete() -> for evidence deletion
-  // - voteInclusion() -> for evidence inclusion voting
-  // - getVoteStatus() -> for evidence vote status
-  // - removeVote() -> for removing evidence votes
-  // - getVotes() -> for getting evidence vote counts
-  // - Standard validation, error handling, Neo4j utilities
-
-  // ✅ ENHANCED EVIDENCE-SPECIFIC METHODS:
-  // - createEvidence() -> Complex creation with parent validation
-  // - getEvidence() -> Enhanced retrieval with parent info and reviews
-  // - submitPeerReview() -> Peer review system
-  // - getUserPeerReview() -> Get user's review for evidence
-  // - recalculateEvidenceScores() -> Aggregate scoring system
-  // - getEvidenceForNode() -> Discovery by parent node
-  // - getTopRatedEvidence() -> Discovery by quality rating
-  // - checkEvidence() -> Utility counting method
 }
