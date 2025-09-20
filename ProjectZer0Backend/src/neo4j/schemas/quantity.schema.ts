@@ -1,4 +1,4 @@
-// src/neo4j/schemas/quantity.schema.ts - CONVERTED TO BaseNodeSchema
+// src/neo4j/schemas/quantity.schema.ts - STANDARDIZED
 
 import {
   Injectable,
@@ -16,12 +16,12 @@ import { Record } from 'neo4j-driver';
 
 // Quantity-specific data interface extending BaseNodeData
 export interface QuantityData extends BaseNodeData {
-  createdBy: string;
-  publicCredit: boolean;
   question: string;
   unitCategoryId: string;
   defaultUnitId: string;
   responseCount: number;
+  keywords?: KeywordWithFrequency[];
+  categories?: any[];
   // Note: Only inclusion voting, no content voting (uses quantity responses instead)
 }
 
@@ -38,7 +38,7 @@ export interface QuantityNodeResponse {
   normalizedValue: number;
 }
 
-// Statistics interface for quantity analysis - FIXED TYPE ISSUES
+// Statistics interface for quantity analysis
 export interface QuantityNodeStats {
   responseCount: number;
   min: number;
@@ -46,7 +46,7 @@ export interface QuantityNodeStats {
   mean: number;
   median: number;
   standardDeviation: number;
-  percentiles: { [key: number]: number }; // Fixed: Simple object type instead of Record
+  percentiles: { [key: number]: number };
   distributionCurve: number[][];
   responses?: QuantityNodeResponse[];
 }
@@ -54,7 +54,7 @@ export interface QuantityNodeStats {
 @Injectable()
 export class QuantitySchema extends BaseNodeSchema<QuantityData> {
   protected readonly nodeLabel = 'QuantityNode';
-  protected readonly idField = 'id'; // Quantities use standard 'id' field
+  protected readonly idField = 'id';
 
   constructor(
     neo4jService: Neo4jService,
@@ -80,6 +80,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       unitCategoryId: props.unitCategoryId,
       defaultUnitId: props.defaultUnitId,
       responseCount: this.toNumber(props.responseCount),
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       // Only inclusion voting (no content voting)
@@ -95,7 +96,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
 
   protected buildUpdateQuery(id: string, data: Partial<QuantityData>) {
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id') // Don't update the id field
+      .filter((key) => key !== 'id')
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -109,7 +110,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
     };
   }
 
-  // QUANTITY-SPECIFIC METHODS - Keep all unique functionality
+  // QUANTITY-SPECIFIC METHODS
 
   async createQuantityNode(quantityData: {
     id: string;
@@ -143,7 +144,6 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       }
 
       this.logger.log(`Creating quantity node with ID: ${quantityData.id}`);
-      this.logger.debug(`Quantity data: ${JSON.stringify(quantityData)}`);
 
       let query = `
         // Create the quantity node with inclusion voting only (no content voting)
@@ -171,7 +171,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         WITH q, $categoryIds as categoryIds
         UNWIND categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0 // Must have passed inclusion
+        WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
         CREATE (q)-[:CATEGORIZED_AS]->(cat)
@@ -201,36 +201,9 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         `;
       }
 
-      // Always create discussion if comment provided
-      if (quantityData.initialComment) {
-        query += `
-        WITH q
-        CREATE (q)-[:HAS_DISCUSSION]->(d:DiscussionNode {
-          id: 'discussion-' + q.id,
-          createdBy: $createdBy,
-          associatedNodeId: q.id,
-          associatedNodeType: 'QuantityNode',
-          createdAt: datetime(),
-          updatedAt: datetime()
-        })
-        
-        CREATE (d)-[:HAS_COMMENT]->(c:CommentNode {
-          id: 'comment-' + apoc.create.uuid(),
-          createdBy: $createdBy,
-          discussionId: d.id,
-          commentText: $initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0
-        })
-        `;
-      }
-
       query += `
         WITH q
-        RETURN q
+        RETURN q as n
       `;
 
       const params = {
@@ -242,7 +215,6 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         defaultUnitId: quantityData.defaultUnitId,
         categoryIds: quantityData.categoryIds || [],
         keywords: quantityData.keywords || [],
-        initialComment: quantityData.initialComment,
       };
 
       const result = await this.neo4jService.write(query, params);
@@ -254,6 +226,17 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       }
 
       const createdNode = this.mapNodeFromRecord(result.records[0]);
+
+      // Always create discussion using standardized method
+      const discussionId = await this.createDiscussion({
+        nodeId: quantityData.id,
+        nodeType: this.nodeLabel,
+        createdBy: quantityData.createdBy,
+        initialComment: quantityData.initialComment,
+      });
+
+      createdNode.discussionId = discussionId;
+
       this.logger.log(`Successfully created quantity node: ${createdNode.id}`);
       return createdNode;
     } catch (error) {
@@ -328,8 +311,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       // Attach additional data from the query
       (quantityNode as any).keywords = result.records[0].get('keywords');
       (quantityNode as any).categories = result.records[0].get('categories');
-      (quantityNode as any).discussionId =
-        result.records[0].get('discussionId');
+      quantityNode.discussionId = result.records[0].get('discussionId');
 
       this.logger.debug(`Retrieved quantity node with ID: ${id}`);
       return quantityNode;
@@ -365,7 +347,6 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       }
 
       this.logger.log(`Updating quantity node with ID: ${id}`);
-      this.logger.debug(`Update data: ${JSON.stringify(updateData)}`);
 
       // If unit category or default unit is being updated, validate
       if (updateData.unitCategoryId && updateData.defaultUnitId) {
@@ -534,7 +515,6 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       this.logger.log(
         `Submitting response for quantity node ${responseData.quantityNodeId}`,
       );
-      this.logger.debug(`Response data: ${JSON.stringify(responseData)}`);
 
       // First validate that the quantity node exists and get its category
       const quantityNode = await this.findById(responseData.quantityNodeId);
@@ -544,7 +524,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         );
       }
 
-      // Check if quantity node has passed inclusion threshold - FIXED
+      // Check if quantity node has passed inclusion threshold
       if (!VotingUtils.hasPassedInclusion(quantityNode.inclusionNetVotes)) {
         throw new BadRequestException(
           'Quantity node must pass inclusion threshold before numeric responses are allowed',
@@ -866,9 +846,9 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
           mean: 0,
           median: 0,
           standardDeviation: 0,
-          percentiles: {}, // Fixed: Simple object instead of Record type
+          percentiles: {},
           distributionCurve: [],
-          responses: [], // Include empty responses array
+          responses: [],
         };
       }
 
@@ -896,7 +876,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         ) / normalizedValues.length;
       const standardDeviation = Math.sqrt(variance);
 
-      // Calculate percentiles - FIXED TYPE
+      // Calculate percentiles
       const percentiles: { [key: number]: number } = {};
       [10, 25, 50, 75, 90, 95, 99].forEach((p) => {
         const index = (p / 100) * (sorted.length - 1);
@@ -926,7 +906,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         standardDeviation,
         percentiles,
         distributionCurve,
-        responses, // Include all responses
+        responses,
       };
     } catch (error) {
       this.logger.error(

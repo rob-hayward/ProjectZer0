@@ -1,4 +1,4 @@
-// src/neo4j/schemas/definition.schema.ts - Updated with Standardized Discussion Support
+// src/neo4j/schemas/definition.schema.ts - Fixed TypeScript Error
 
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
@@ -12,9 +12,7 @@ import { Record } from 'neo4j-driver';
 // Definition-specific data interface extending BaseNodeData
 export interface DefinitionData extends BaseNodeData {
   word: string; // The word this definition belongs to
-  createdBy: string;
   definitionText: string;
-  discussionId?: string; // Now standardized via BaseNodeData
 }
 
 @Injectable()
@@ -42,8 +40,9 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       id: props.id,
       word: props.word,
       createdBy: props.createdBy,
+      publicCredit: props.publicCredit, // ✅ FIXED: Added missing publicCredit field
       definitionText: props.definitionText,
-      discussionId: props.discussionId, // ✅ ADDED: Map discussionId property
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       // Both inclusion and content voting
@@ -72,14 +71,14 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
     };
   }
 
-  // DEFINITION-SPECIFIC METHODS - Updated to use standardized discussion creation
+  // DEFINITION-SPECIFIC METHODS
 
   async createDefinition(definitionData: {
     id: string;
     word: string;
     createdBy: string;
     definitionText: string;
-    initialComment?: string; // ✅ ADDED: For standardized discussion creation
+    initialComment?: string;
   }): Promise<DefinitionData> {
     // Validate definition text length
     if (
@@ -99,7 +98,6 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
     }
 
     this.logger.log(`Creating definition for word: ${definitionData.word}`);
-    this.logger.debug(`Definition data: ${JSON.stringify(definitionData)}`);
 
     try {
       const isApiDefinition = definitionData.createdBy === 'FreeDictionaryAPI';
@@ -126,6 +124,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
             word: $word,
             definitionText: $definitionText,
             createdBy: $createdBy,
+            publicCredit: $publicCredit,
             createdAt: datetime(),
             updatedAt: datetime(),
             // Both inclusion and content voting
@@ -156,6 +155,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
           word: definitionData.word.toLowerCase(), // Standardize word
           definitionText: definitionData.definitionText,
           createdBy: definitionData.createdBy,
+          publicCredit: true, // Default to true for definitions
         },
       );
 
@@ -167,23 +167,15 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
 
       const createdDefinition = this.mapNodeFromRecord(result.records[0]);
 
-      // ✅ UPDATED: ALWAYS create discussion (universal rule)
-      try {
-        const discussionId = await this.createDiscussion({
-          nodeId: definitionData.id,
-          nodeType: this.nodeLabel,
-          createdBy: definitionData.createdBy,
-          initialComment: definitionData.initialComment, // May be undefined - that's fine
-        });
+      // Always create discussion using standardized method
+      const discussionId = await this.createDiscussion({
+        nodeId: definitionData.id,
+        nodeType: this.nodeLabel,
+        createdBy: definitionData.createdBy,
+        initialComment: definitionData.initialComment,
+      });
 
-        // Add discussion ID to the returned definition
-        createdDefinition.discussionId = discussionId;
-      } catch (discussionError) {
-        this.logger.warn(
-          `Failed to create discussion for definition ${definitionData.id}: ${discussionError.message}`,
-        );
-        // Don't fail the entire operation if discussion creation fails
-      }
+      createdDefinition.discussionId = discussionId;
 
       // Track user creation for non-API definitions
       if (!isApiDefinition && !isAICreated) {
@@ -247,10 +239,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
       const result = await this.neo4jService.read(
         `
         MATCH (d:DefinitionNode {word: $word})
-        
-        // ✅ UPDATED: Get discussion ID using standardized relationship
         OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        
         RETURN d as n, disc.id as discussionId
         ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
@@ -259,7 +248,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
 
       return result.records.map((record) => {
         const definition = this.mapNodeFromRecord(record);
-        definition.discussionId = record.get('discussionId'); // ✅ ADDED: Include discussionId
+        definition.discussionId = record.get('discussionId');
         return definition;
       });
     } catch (error) {
@@ -283,10 +272,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
         `
         MATCH (d:DefinitionNode {word: $word})
         WHERE d.inclusionNetVotes > 0
-        
-        // ✅ UPDATED: Get discussion ID using standardized relationship
         OPTIONAL MATCH (d)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        
         RETURN d as n, disc.id as discussionId
         ORDER BY d.inclusionNetVotes DESC, d.contentNetVotes DESC, d.createdAt ASC
         `,
@@ -295,7 +281,7 @@ export class DefinitionSchema extends BaseNodeSchema<DefinitionData> {
 
       return result.records.map((record) => {
         const definition = this.mapNodeFromRecord(record);
-        definition.discussionId = record.get('discussionId'); // ✅ ADDED: Include discussionId
+        definition.discussionId = record.get('discussionId');
         return definition;
       });
     } catch (error) {
