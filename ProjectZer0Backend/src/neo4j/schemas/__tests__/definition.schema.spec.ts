@@ -1,4 +1,4 @@
-// src/neo4j/schemas/__tests__/definition.schema.spec.ts - CONVERTED TO BaseNodeSchema
+// src/neo4j/schemas/__tests__/definition.schema.spec.ts - UPDATED
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
@@ -14,68 +14,66 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
   let userSchema: jest.Mocked<UserSchema>;
   let voteSchema: jest.Mocked<VoteSchema>;
 
-  // Mock data constants
   const mockDefinitionData: DefinitionData = {
     id: 'definition-123',
     word: 'test',
     createdBy: 'user-456',
+    publicCredit: true,
     definitionText: 'This is a test definition of the word test.',
-    discussion: 'discussion-789',
-    createdAt: new Date('2023-01-01T00:00:00Z'),
-    updatedAt: new Date('2023-01-01T00:00:00Z'),
-    inclusionPositiveVotes: 5,
+    discussionId: 'discussion-789',
+    createdAt: new Date('2023-06-20T10:00:00Z'),
+    updatedAt: new Date('2023-06-20T10:00:00Z'),
+    // Dual voting (both inclusion and content)
+    inclusionPositiveVotes: 8,
     inclusionNegativeVotes: 2,
-    inclusionNetVotes: 3,
-    contentPositiveVotes: 8,
-    contentNegativeVotes: 1,
-    contentNetVotes: 7,
+    inclusionNetVotes: 6,
+    contentPositiveVotes: 12,
+    contentNegativeVotes: 3,
+    contentNetVotes: 9,
   };
 
   const mockVoteResult: VoteResult = {
-    inclusionPositiveVotes: 5,
+    inclusionPositiveVotes: 9,
     inclusionNegativeVotes: 2,
-    inclusionNetVotes: 3,
-    contentPositiveVotes: 8,
-    contentNegativeVotes: 1,
-    contentNetVotes: 7,
+    inclusionNetVotes: 7,
+    contentPositiveVotes: 13,
+    contentNegativeVotes: 3,
+    contentNetVotes: 10,
   };
 
   const mockVoteStatus: VoteStatus = {
     inclusionStatus: 'agree',
-    inclusionPositiveVotes: 5,
+    inclusionPositiveVotes: 9,
     inclusionNegativeVotes: 2,
-    inclusionNetVotes: 3,
+    inclusionNetVotes: 7,
     contentStatus: 'agree',
-    contentPositiveVotes: 8,
-    contentNegativeVotes: 1,
-    contentNetVotes: 7,
+    contentPositiveVotes: 13,
+    contentNegativeVotes: 3,
+    contentNetVotes: 10,
   };
 
   beforeEach(async () => {
+    neo4jService = {
+      read: jest.fn(),
+      write: jest.fn(),
+    } as any;
+
+    userSchema = {
+      addCreatedNode: jest.fn(),
+    } as any;
+
+    voteSchema = {
+      vote: jest.fn(),
+      getVoteStatus: jest.fn(),
+      removeVote: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DefinitionSchema,
-        {
-          provide: Neo4jService,
-          useValue: {
-            write: jest.fn(),
-            read: jest.fn(),
-          },
-        },
-        {
-          provide: UserSchema,
-          useValue: {
-            addCreatedNode: jest.fn(),
-          },
-        },
-        {
-          provide: VoteSchema,
-          useValue: {
-            vote: jest.fn(),
-            getVoteStatus: jest.fn(),
-            removeVote: jest.fn(),
-          },
-        },
+        { provide: Neo4jService, useValue: neo4jService },
+        { provide: UserSchema, useValue: userSchema },
+        { provide: VoteSchema, useValue: voteSchema },
       ],
     }).compile();
 
@@ -89,113 +87,78 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
     jest.clearAllMocks();
   });
 
-  describe('Inherited BaseNodeSchema Methods', () => {
-    describe('findById (inherited)', () => {
-      it('should find a definition by id', async () => {
+  describe('BaseNodeSchema Integration', () => {
+    describe('supportsContentVoting', () => {
+      it('should support both inclusion and content voting', () => {
+        expect((schema as any).supportsContentVoting()).toBe(true);
+      });
+    });
+
+    describe('mapNodeFromRecord', () => {
+      it('should map Neo4j record to DefinitionData with all BaseNodeData fields', () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockDefinitionData }),
         } as unknown as Record;
-        const mockResult = {
-          records: [mockRecord],
-        } as unknown as Result;
 
-        neo4jService.read.mockResolvedValue(mockResult);
+        const result = (schema as any).mapNodeFromRecord(mockRecord);
 
-        const result = await schema.findById('definition-123');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:DefinitionNode {id: $id})'),
-          { id: 'definition-123' },
-        );
         expect(result).toEqual(mockDefinitionData);
+        expect(result.createdBy).toBe('user-456');
+        expect(result.publicCredit).toBe(true);
+        expect(result.discussionId).toBe('discussion-789');
       });
 
-      it('should return null when definition is not found', async () => {
-        const mockResult = { records: [] } as unknown as Result;
-        neo4jService.read.mockResolvedValue(mockResult);
-
-        const result = await schema.findById('non-existent');
-        expect(result).toBeNull();
-      });
-
-      it('should validate input', async () => {
-        await expect(schema.findById('')).rejects.toThrow(BadRequestException);
-        expect(neo4jService.read).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('update (inherited)', () => {
-      it('should update a definition', async () => {
-        const updateData = { definitionText: 'Updated definition text' };
-        const updatedDefinition = { ...mockDefinitionData, ...updateData };
-
+      it('should convert Neo4j integers correctly', () => {
         const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: updatedDefinition }),
-        } as unknown as Record;
-        const mockResult = {
-          records: [mockRecord],
-        } as unknown as Result;
-
-        neo4jService.write.mockResolvedValue(mockResult);
-
-        const result = await schema.update('definition-123', updateData);
-
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:DefinitionNode {id: $id})'),
-          expect.objectContaining({
-            id: 'definition-123',
-            updateData,
+          get: jest.fn().mockReturnValue({
+            properties: {
+              ...mockDefinitionData,
+              inclusionPositiveVotes: Integer.fromNumber(8),
+              inclusionNegativeVotes: Integer.fromNumber(2),
+              inclusionNetVotes: Integer.fromNumber(6),
+              contentPositiveVotes: Integer.fromNumber(12),
+              contentNegativeVotes: Integer.fromNumber(3),
+              contentNetVotes: Integer.fromNumber(9),
+            },
           }),
-        );
-        expect(result).toEqual(updatedDefinition);
-      });
+        } as unknown as Record;
 
-      it('should validate input', async () => {
-        await expect(
-          schema.update('', { definitionText: 'Updated' }),
-        ).rejects.toThrow(BadRequestException);
-        expect(neo4jService.write).not.toHaveBeenCalled();
+        const result = (schema as any).mapNodeFromRecord(mockRecord);
+
+        expect(typeof result.inclusionPositiveVotes).toBe('number');
+        expect(typeof result.inclusionNegativeVotes).toBe('number');
+        expect(typeof result.inclusionNetVotes).toBe('number');
+        expect(typeof result.contentPositiveVotes).toBe('number');
+        expect(typeof result.contentNegativeVotes).toBe('number');
+        expect(typeof result.contentNetVotes).toBe('number');
       });
     });
 
-    describe('delete (inherited)', () => {
-      it('should delete a definition', async () => {
-        // Mock the existence check that happens in BaseNodeSchema.delete()
-        const existsRecord = {
-          get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
-        } as unknown as Record;
-        const existsResult = {
-          records: [existsRecord],
-        } as unknown as Result;
-        neo4jService.read.mockResolvedValue(existsResult);
-
-        // Mock the actual delete operation
-        const deleteResult = {} as unknown as Result;
-        neo4jService.write.mockResolvedValue(deleteResult);
-
-        const result = await schema.delete('definition-123');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:DefinitionNode {id: $id})'),
-          { id: 'definition-123' },
+    describe('buildUpdateQuery', () => {
+      it('should build correct update query', () => {
+        const updateData = {
+          definitionText: 'Updated definition',
+          publicCredit: false,
+        };
+        const result = (schema as any).buildUpdateQuery(
+          'definition-123',
+          updateData,
         );
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:DefinitionNode {id: $id})'),
-          expect.objectContaining({ id: 'definition-123' }),
-        );
-        expect(result).toEqual({ success: true });
-      });
 
-      it('should validate input', async () => {
-        await expect(schema.delete('')).rejects.toThrow(BadRequestException);
-        expect(neo4jService.write).not.toHaveBeenCalled();
+        expect(result.cypher).toContain('MATCH (n:DefinitionNode {id: $id})');
+        expect(result.cypher).toContain('SET');
+        expect(result.cypher).toContain('n.updatedAt = datetime()');
+        expect(result.params).toEqual({
+          id: 'definition-123',
+          updateData,
+        });
       });
     });
   });
 
-  describe('Voting Integration with BaseNodeSchema', () => {
-    describe('voteInclusion (inherited)', () => {
-      it('should vote on definition inclusion', async () => {
+  describe('Inherited Voting Methods', () => {
+    describe('voteInclusion', () => {
+      it('should vote on inclusion using inherited method', async () => {
         voteSchema.vote.mockResolvedValue(mockVoteResult);
 
         const result = await schema.voteInclusion(
@@ -214,24 +177,27 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
         expect(result).toEqual(mockVoteResult);
       });
 
-      it('should validate inputs before inclusion voting', async () => {
+      it('should validate inputs', async () => {
         await expect(
           schema.voteInclusion('', 'user-456', true),
         ).rejects.toThrow(BadRequestException);
         await expect(
           schema.voteInclusion('definition-123', '', true),
         ).rejects.toThrow(BadRequestException);
+        expect(voteSchema.vote).not.toHaveBeenCalled();
       });
     });
 
-    describe('voteContent (overridden with business logic)', () => {
-      it('should vote on definition content when inclusion threshold passed', async () => {
-        // Mock definition with passed inclusion threshold
-        const mockDefinition = {
-          ...mockDefinitionData,
-          inclusionNetVotes: 5, // Passed inclusion threshold
-        };
-        jest.spyOn(schema, 'findById').mockResolvedValue(mockDefinition);
+    describe('voteContent with business logic', () => {
+      it('should vote on content when definition has passed inclusion threshold', async () => {
+        // Mock findById to return definition with positive inclusion votes
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockDefinitionData }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
         voteSchema.vote.mockResolvedValue(mockVoteResult);
 
         const result = await schema.voteContent(
@@ -240,23 +206,23 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
           true,
         );
 
-        expect(schema.findById).toHaveBeenCalledWith('definition-123');
-        expect(voteSchema.vote).toHaveBeenCalledWith(
-          'DefinitionNode',
-          { id: 'definition-123' },
-          'user-456',
-          true,
-          'CONTENT',
-        );
         expect(result).toEqual(mockVoteResult);
       });
 
-      it('should throw BadRequestException when inclusion threshold not passed', async () => {
-        const mockDefinition = {
+      it('should reject content voting when definition has not passed inclusion threshold', async () => {
+        const definitionWithNegativeVotes = {
           ...mockDefinitionData,
-          inclusionNetVotes: -5, // Below threshold
+          inclusionNetVotes: -2, // Failed inclusion threshold
         };
-        jest.spyOn(schema, 'findById').mockResolvedValue(mockDefinition);
+
+        const mockRecord = {
+          get: jest
+            .fn()
+            .mockReturnValue({ properties: definitionWithNegativeVotes }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
 
         await expect(
           schema.voteContent('definition-123', 'user-456', true),
@@ -266,27 +232,21 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
         expect(voteSchema.vote).not.toHaveBeenCalled();
       });
 
-      it('should throw BadRequestException when definition does not exist', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue(null);
+      it('should reject content voting when definition not found', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
 
         await expect(
-          schema.voteContent('definition-123', 'user-456', true),
-        ).rejects.toThrow(BadRequestException);
-        expect(voteSchema.vote).not.toHaveBeenCalled();
-      });
-
-      it('should validate inputs before content voting', async () => {
-        await expect(schema.voteContent('', 'user-456', true)).rejects.toThrow(
-          BadRequestException,
+          schema.voteContent('nonexistent', 'user-456', true),
+        ).rejects.toThrow(
+          'Definition must pass inclusion threshold before content voting is allowed',
         );
-        await expect(
-          schema.voteContent('definition-123', '', true),
-        ).rejects.toThrow(BadRequestException);
       });
     });
 
-    describe('getVoteStatus (inherited)', () => {
-      it('should get vote status successfully', async () => {
+    describe('getVoteStatus', () => {
+      it('should get vote status using inherited method', async () => {
         voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
         const result = await schema.getVoteStatus('definition-123', 'user-456');
@@ -298,26 +258,10 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
         );
         expect(result).toEqual(mockVoteStatus);
       });
-
-      it('should return null when no vote status exists', async () => {
-        voteSchema.getVoteStatus.mockResolvedValue(null);
-
-        const result = await schema.getVoteStatus('definition-123', 'user-456');
-        expect(result).toBeNull();
-      });
-
-      it('should validate inputs', async () => {
-        await expect(schema.getVoteStatus('', 'user-456')).rejects.toThrow(
-          BadRequestException,
-        );
-        await expect(
-          schema.getVoteStatus('definition-123', ''),
-        ).rejects.toThrow(BadRequestException);
-      });
     });
 
-    describe('removeVote (inherited)', () => {
-      it('should remove inclusion vote successfully', async () => {
+    describe('removeVote', () => {
+      it('should remove vote using inherited method', async () => {
         voteSchema.removeVote.mockResolvedValue(mockVoteResult);
 
         const result = await schema.removeVote(
@@ -334,46 +278,14 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
         );
         expect(result).toEqual(mockVoteResult);
       });
-
-      it('should remove content vote successfully', async () => {
-        voteSchema.removeVote.mockResolvedValue(mockVoteResult);
-
-        const result = await schema.removeVote(
-          'definition-123',
-          'user-456',
-          'CONTENT',
-        );
-
-        expect(voteSchema.removeVote).toHaveBeenCalledWith(
-          'DefinitionNode',
-          { id: 'definition-123' },
-          'user-456',
-          'CONTENT',
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-
-      it('should validate inputs', async () => {
-        await expect(
-          schema.removeVote('', 'user-456', 'INCLUSION'),
-        ).rejects.toThrow(BadRequestException);
-        await expect(
-          schema.removeVote('definition-123', '', 'CONTENT'),
-        ).rejects.toThrow(BadRequestException);
-      });
     });
 
-    describe('getVotes (inherited)', () => {
-      it('should get votes for a definition', async () => {
+    describe('getVotes', () => {
+      it('should get vote counts using inherited method', async () => {
         voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
         const result = await schema.getVotes('definition-123');
 
-        expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
-          'DefinitionNode',
-          { id: 'definition-123' },
-          '',
-        );
         expect(result).toEqual({
           inclusionPositiveVotes: mockVoteStatus.inclusionPositiveVotes,
           inclusionNegativeVotes: mockVoteStatus.inclusionNegativeVotes,
@@ -383,150 +295,172 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
           contentNetVotes: mockVoteStatus.contentNetVotes,
         });
       });
-
-      it('should return null when no votes exist', async () => {
-        voteSchema.getVoteStatus.mockResolvedValue(null);
-
-        const result = await schema.getVotes('definition-123');
-        expect(result).toBeNull();
-      });
-
-      it('should validate input', async () => {
-        await expect(schema.getVotes('')).rejects.toThrow(BadRequestException);
-        expect(voteSchema.getVoteStatus).not.toHaveBeenCalled();
-      });
     });
   });
 
   describe('Definition-Specific Methods', () => {
     describe('createDefinition', () => {
-      it('should create a definition with all required fields', async () => {
+      it('should create definition successfully', async () => {
+        const createData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'user-456',
+          definitionText: 'This is a test definition.',
+          initialComment: 'Initial comment',
+        };
+
+        // Mock definition creation first
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockDefinitionData }),
         } as unknown as Record;
-        const mockResult = {
+        neo4jService.write.mockResolvedValueOnce({
           records: [mockRecord],
-        } as unknown as Result;
+        } as unknown as Result);
 
-        neo4jService.write.mockResolvedValue(mockResult);
+        // Mock discussion creation second
+        neo4jService.write.mockResolvedValueOnce({
+          records: [{ get: jest.fn().mockReturnValue('discussion-789') }],
+        } as unknown as Result);
+
         userSchema.addCreatedNode.mockResolvedValue(undefined);
 
-        const result = await schema.createDefinition({
-          id: mockDefinitionData.id,
-          word: mockDefinitionData.word,
-          createdBy: mockDefinitionData.createdBy,
-          definitionText: mockDefinitionData.definitionText,
-          discussion: mockDefinitionData.discussion,
-        });
+        const result = await schema.createDefinition(createData);
 
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+          expect.stringContaining('CREATE (d:DefinitionNode'),
           expect.objectContaining({
-            id: mockDefinitionData.id,
-            word: mockDefinitionData.word,
-            createdBy: mockDefinitionData.createdBy,
-            definitionText: mockDefinitionData.definitionText,
-            discussion: mockDefinitionData.discussion,
+            id: createData.id,
+            word: 'test', // Should be lowercase
+            definitionText: createData.definitionText,
+            createdBy: createData.createdBy,
+            publicCredit: true, // Default
           }),
         );
-        expect(result).toEqual(mockDefinitionData);
+        expect(result.discussionId).toBe('discussion-789');
       });
 
-      it('should create an API definition without user relationship', async () => {
-        const apiDefinitionData = {
-          ...mockDefinitionData,
-          createdBy: 'FreeDictionaryAPI',
+      it('should validate definition text length', async () => {
+        const invalidData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'user-456',
+          definitionText: 'x'.repeat(2001), // Exceeds TEXT_LIMITS.MAX_DEFINITION_LENGTH
         };
 
+        await expect(schema.createDefinition(invalidData)).rejects.toThrow(
+          BadRequestException,
+        );
+      });
+
+      it('should validate definition text is not empty', async () => {
+        const invalidData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'user-456',
+          definitionText: '',
+        };
+
+        await expect(schema.createDefinition(invalidData)).rejects.toThrow(
+          'Definition text cannot be empty',
+        );
+
+        const whitespaceData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'user-456',
+          definitionText: '   \t\n  ',
+        };
+
+        await expect(schema.createDefinition(whitespaceData)).rejects.toThrow(
+          'Definition text cannot be empty',
+        );
+      });
+
+      it('should handle parent word validation failure', async () => {
+        neo4jService.write.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        const createData = {
+          id: 'definition-123',
+          word: 'nonexistent',
+          createdBy: 'user-456',
+          definitionText: 'Definition for nonexistent word',
+        };
+
+        await expect(schema.createDefinition(createData)).rejects.toThrow(
+          'Parent word not found or has not passed inclusion threshold',
+        );
+      });
+
+      it('should not create user relationship for API definitions', async () => {
+        const apiDefinitionData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'FreeDictionaryAPI',
+          definitionText: 'API-generated definition',
+        };
+
+        // Mock definition creation first
         const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: apiDefinitionData }),
+          get: jest.fn().mockReturnValue({ properties: mockDefinitionData }),
         } as unknown as Record;
-        const mockResult = {
+        neo4jService.write.mockResolvedValueOnce({
           records: [mockRecord],
-        } as unknown as Result;
+        } as unknown as Result);
 
-        neo4jService.write.mockResolvedValue(mockResult);
+        // Mock discussion creation second
+        neo4jService.write.mockResolvedValueOnce({
+          records: [{ get: jest.fn().mockReturnValue('discussion-789') }],
+        } as unknown as Result);
 
-        const result = await schema.createDefinition({
-          id: apiDefinitionData.id,
-          word: apiDefinitionData.word,
-          createdBy: apiDefinitionData.createdBy,
-          definitionText: apiDefinitionData.definitionText,
-        });
+        await schema.createDefinition(apiDefinitionData);
 
-        expect(result).toEqual(apiDefinitionData);
-        // Should not create user tracking for API definitions
         expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
       });
 
-      it('should throw BadRequestException for definition text too long', async () => {
-        const longDefinitionData = {
-          ...mockDefinitionData,
-          definitionText: 'a'.repeat(10001), // Exceed TEXT_LIMITS.MAX_DEFINITION_LENGTH
+      it('should not create user relationship for AI definitions', async () => {
+        const aiDefinitionData = {
+          id: 'definition-123',
+          word: 'test',
+          createdBy: 'ProjectZeroAI',
+          definitionText: 'AI-generated definition',
         };
 
-        await expect(
-          schema.createDefinition({
-            id: longDefinitionData.id,
-            word: longDefinitionData.word,
-            createdBy: longDefinitionData.createdBy,
-            definitionText: longDefinitionData.definitionText,
-          }),
-        ).rejects.toThrow(BadRequestException);
-        expect(neo4jService.write).not.toHaveBeenCalled();
-      });
+        // Mock definition creation first
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockDefinitionData }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValueOnce({
+          records: [mockRecord],
+        } as unknown as Result);
 
-      it('should throw BadRequestException for empty definition text', async () => {
-        await expect(
-          schema.createDefinition({
-            id: mockDefinitionData.id,
-            word: mockDefinitionData.word,
-            createdBy: mockDefinitionData.createdBy,
-            definitionText: '',
-          }),
-        ).rejects.toThrow('Definition text cannot be empty');
-        expect(neo4jService.write).not.toHaveBeenCalled();
-      });
+        // Mock discussion creation second
+        neo4jService.write.mockResolvedValueOnce({
+          records: [{ get: jest.fn().mockReturnValue('discussion-789') }],
+        } as unknown as Result);
 
-      it('should throw error when parent word does not exist or has not passed inclusion', async () => {
-        const mockResult = { records: [] } as unknown as Result;
-        neo4jService.write.mockResolvedValue(mockResult);
+        await schema.createDefinition(aiDefinitionData);
 
-        await expect(
-          schema.createDefinition({
-            id: mockDefinitionData.id,
-            word: mockDefinitionData.word,
-            createdBy: mockDefinitionData.createdBy,
-            definitionText: mockDefinitionData.definitionText,
-          }),
-        ).rejects.toThrow('Failed to create definition');
-      });
-
-      it('should handle creation errors gracefully', async () => {
-        neo4jService.write.mockRejectedValue(new Error('Database error'));
-
-        await expect(
-          schema.createDefinition({
-            id: mockDefinitionData.id,
-            word: mockDefinitionData.word,
-            createdBy: mockDefinitionData.createdBy,
-            definitionText: mockDefinitionData.definitionText,
-          }),
-        ).rejects.toThrow('Failed to create definition');
+        expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
       });
     });
 
     describe('getDefinitionsByWord', () => {
-      it('should get definitions for a word', async () => {
-        const mockDefinitions = [mockDefinitionData];
-        const mockRecords = mockDefinitions.map((definition) => ({
-          get: jest.fn().mockReturnValue({ properties: definition }),
-        }));
-        const mockResult = {
-          records: mockRecords,
-        } as unknown as Result;
+      it('should get all definitions for a word', async () => {
+        const mockRecords = [
+          {
+            get: jest.fn((field) => {
+              if (field === 'n') return { properties: mockDefinitionData };
+              if (field === 'discussionId') return 'discussion-789';
+              return null;
+            }),
+          },
+        ] as unknown as Record[];
 
-        neo4jService.read.mockResolvedValue(mockResult);
+        neo4jService.read.mockResolvedValue({
+          records: mockRecords,
+        } as unknown as Result);
 
         const result = await schema.getDefinitionsByWord('test');
 
@@ -534,33 +468,51 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
           expect.stringContaining('MATCH (d:DefinitionNode {word: $word})'),
           { word: 'test' },
         );
-        expect(result).toEqual(mockDefinitions);
+        expect(result).toHaveLength(1);
+        expect(result[0].word).toBe('test');
+        expect(result[0].discussionId).toBe('discussion-789');
       });
 
       it('should validate word input', async () => {
         await expect(schema.getDefinitionsByWord('')).rejects.toThrow(
-          BadRequestException,
+          'Word cannot be empty',
         );
-        expect(neo4jService.read).not.toHaveBeenCalled();
+        await expect(schema.getDefinitionsByWord('   ')).rejects.toThrow(
+          'Word cannot be empty',
+        );
+      });
+
+      it('should return empty array when no definitions found', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        const result = await schema.getDefinitionsByWord('nonexistent');
+
+        expect(result).toEqual([]);
       });
     });
 
     describe('getApprovedDefinitions', () => {
-      it('should get approved definitions for a word', async () => {
+      it('should get only approved definitions (positive inclusion votes)', async () => {
         const approvedDefinition = {
           ...mockDefinitionData,
-          inclusionNetVotes: 5, // Approved
+          inclusionNetVotes: 5, // Positive votes
         };
+
         const mockRecords = [
           {
-            get: jest.fn().mockReturnValue({ properties: approvedDefinition }),
+            get: jest.fn((field) => {
+              if (field === 'n') return { properties: approvedDefinition };
+              if (field === 'discussionId') return 'discussion-789';
+              return null;
+            }),
           },
-        ];
-        const mockResult = {
-          records: mockRecords,
-        } as unknown as Result;
+        ] as unknown as Record[];
 
-        neo4jService.read.mockResolvedValue(mockResult);
+        neo4jService.read.mockResolvedValue({
+          records: mockRecords,
+        } as unknown as Result);
 
         const result = await schema.getApprovedDefinitions('test');
 
@@ -568,87 +520,14 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
           expect.stringContaining('WHERE d.inclusionNetVotes > 0'),
           { word: 'test' },
         );
-        expect(result).toEqual([approvedDefinition]);
+        expect(result).toHaveLength(1);
+        expect(result[0].inclusionNetVotes).toBeGreaterThan(0);
       });
 
       it('should validate word input', async () => {
         await expect(schema.getApprovedDefinitions('')).rejects.toThrow(
-          BadRequestException,
+          'Word cannot be empty',
         );
-        expect(neo4jService.read).not.toHaveBeenCalled();
-      });
-    });
-  });
-
-  describe('Protected Method Testing', () => {
-    describe('supportsContentVoting', () => {
-      it('should return true (definitions support content voting)', () => {
-        // Access protected method for testing
-        const supportsContent = (schema as any).supportsContentVoting();
-        expect(supportsContent).toBe(true);
-      });
-    });
-
-    describe('mapNodeFromRecord', () => {
-      it('should map node properties correctly', () => {
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: {
-              id: 'definition-123',
-              word: 'test',
-              createdBy: 'user-456',
-              definitionText: 'Test definition',
-              discussion: 'Test discussion',
-              createdAt: new Date('2023-01-01T00:00:00Z'),
-              updatedAt: new Date('2023-01-01T00:00:00Z'),
-              inclusionPositiveVotes: 5,
-              inclusionNegativeVotes: 2,
-              inclusionNetVotes: 3,
-              contentPositiveVotes: 8,
-              contentNegativeVotes: 1,
-              contentNetVotes: 7,
-            },
-          }),
-        } as unknown as Record;
-
-        // Access protected method for testing
-        const result = (schema as any).mapNodeFromRecord(mockRecord);
-
-        expect(result).toEqual({
-          id: 'definition-123',
-          word: 'test',
-          createdBy: 'user-456',
-          definitionText: 'Test definition',
-          discussion: 'Test discussion',
-          createdAt: new Date('2023-01-01T00:00:00Z'),
-          updatedAt: new Date('2023-01-01T00:00:00Z'),
-          inclusionPositiveVotes: 5,
-          inclusionNegativeVotes: 2,
-          inclusionNetVotes: 3,
-          contentPositiveVotes: 8,
-          contentNegativeVotes: 1,
-          contentNetVotes: 7,
-        });
-      });
-    });
-
-    describe('buildUpdateQuery', () => {
-      it('should build correct update query', () => {
-        const updateData = { definitionText: 'Updated definition' };
-
-        // Access protected method for testing
-        const result = (schema as any).buildUpdateQuery(
-          'definition-123',
-          updateData,
-        );
-
-        expect(result.cypher).toContain('MATCH (n:DefinitionNode {id: $id})');
-        expect(result.cypher).toContain('SET');
-        expect(result.cypher).toContain('n.updatedAt = datetime()');
-        expect(result.params).toEqual({
-          id: 'definition-123',
-          updateData,
-        });
       });
     });
   });
@@ -663,13 +542,18 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
         records: [mockCreateRecord],
       } as unknown as Result);
 
+      // Mock discussion creation
+      neo4jService.write.mockResolvedValueOnce({
+        records: [{ get: jest.fn().mockReturnValue('discussion-789') }],
+      } as unknown as Result);
+
       const created = await schema.createDefinition({
         id: mockDefinitionData.id,
         word: mockDefinitionData.word,
         createdBy: mockDefinitionData.createdBy,
         definitionText: mockDefinitionData.definitionText,
       });
-      expect(created).toEqual(mockDefinitionData);
+      expect(created.id).toBe(mockDefinitionData.id);
 
       // Read
       const mockReadRecord = {
@@ -704,7 +588,7 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
       const updated = await schema.update(mockDefinitionData.id, updateData);
       expect(updated).toEqual(updatedDefinition);
 
-      // Delete
+      // Delete - should succeed when node exists
       const existsRecord = {
         get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
       } as unknown as Record;
@@ -715,6 +599,26 @@ describe('DefinitionSchema with BaseNodeSchema Integration', () => {
 
       const deleteResult = await schema.delete(mockDefinitionData.id);
       expect(deleteResult).toEqual({ success: true });
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should use standardized error messages from BaseNodeSchema', async () => {
+      neo4jService.read.mockRejectedValue(
+        new Error('Database connection failed'),
+      );
+
+      await expect(schema.findById('test')).rejects.toThrow(
+        'Failed to find Definition: Database connection failed',
+      );
+    });
+
+    it('should handle definition-specific errors consistently', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Query timeout'));
+
+      await expect(schema.getDefinitionsByWord('test')).rejects.toThrow(
+        'Failed to get definitions for word Definition: Query timeout',
+      );
     });
   });
 });

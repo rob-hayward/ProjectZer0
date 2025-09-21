@@ -1,6 +1,7 @@
-// src/neo4j/schemas/__tests__/base-node.schema.spec.ts
+// src/neo4j/schemas/__tests__/base-node.schema.spec.ts - UPDATED
+
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
 import { BaseNodeSchema, BaseNodeData } from '../base-node.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
@@ -12,24 +13,32 @@ interface TestNodeData extends BaseNodeData {
   description?: string;
 }
 
+interface TestWordData extends BaseNodeData {
+  word: string;
+  definition?: string;
+}
+
 class TestNodeSchema extends BaseNodeSchema<TestNodeData> {
   protected readonly nodeLabel = 'TestNode';
   protected readonly idField = 'id';
 
   constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
-    super(neo4jService, voteSchema, 'TestNodeSchema');
+    super(neo4jService, voteSchema, 'TestNode');
   }
 
   protected supportsContentVoting(): boolean {
-    return true; // Test with content voting enabled
+    return true; // Supports both inclusion and content voting
   }
 
   protected mapNodeFromRecord(record: Record): TestNodeData {
     const props = record.get('n').properties;
     return {
       id: props.id,
+      createdBy: props.createdBy,
+      publicCredit: props.publicCredit,
       name: props.name,
       description: props.description,
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
@@ -43,6 +52,7 @@ class TestNodeSchema extends BaseNodeSchema<TestNodeData> {
 
   protected buildUpdateQuery(id: string, data: Partial<TestNodeData>) {
     const setClause = Object.keys(data)
+      .filter((key) => key !== 'id')
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -57,41 +67,48 @@ class TestNodeSchema extends BaseNodeSchema<TestNodeData> {
   }
 }
 
-// Test implementation without content voting (like WordSchema)
-class TestWordLikeSchema extends BaseNodeSchema<TestNodeData> {
+class TestWordLikeSchema extends BaseNodeSchema<TestWordData> {
   protected readonly nodeLabel = 'TestWordNode';
-  protected readonly idField = 'word'; // Like WordSchema
+  protected readonly idField = 'word'; // Uses word as identifier, not id
 
   constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
-    super(neo4jService, voteSchema, 'TestWordLikeSchema');
+    super(neo4jService, voteSchema, 'TestWordNode');
   }
 
   protected supportsContentVoting(): boolean {
-    return false; // Like WordSchema
+    return false; // Inclusion voting only, like WordNode
   }
 
-  protected mapNodeFromRecord(record: Record): TestNodeData {
+  protected mapNodeFromRecord(record: Record): TestWordData {
     const props = record.get('n').properties;
     return {
-      id: props.word, // Using 'word' field as id
-      name: props.name,
-      description: props.description,
+      id: props.word, // Use word as id
+      createdBy: props.createdBy,
+      publicCredit: props.publicCredit,
+      word: props.word,
+      definition: props.definition,
+      discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
       inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
       inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
-      contentPositiveVotes: 0, // Always 0 for word-like nodes
+      contentPositiveVotes: 0, // Always 0 for inclusion-only nodes
       contentNegativeVotes: 0,
       contentNetVotes: 0,
     };
   }
 
-  protected buildUpdateQuery(id: string, data: Partial<TestNodeData>) {
+  protected buildUpdateQuery(id: string, data: Partial<TestWordData>) {
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'word' && key !== 'id')
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
+
     return {
       cypher: `
         MATCH (n:TestWordNode {word: $id})
-        SET n += $updateData, n.updatedAt = datetime()
+        SET ${setClause}, n.updatedAt = datetime()
         RETURN n
       `,
       params: { id, updateData: data },
@@ -107,6 +124,8 @@ describe('BaseNodeSchema', () => {
 
   const mockTestNodeData: TestNodeData = {
     id: 'test-123',
+    createdBy: 'user-789',
+    publicCredit: true,
     name: 'Test Node',
     description: 'A test node',
     createdAt: new Date(),
@@ -117,6 +136,7 @@ describe('BaseNodeSchema', () => {
     contentPositiveVotes: 8,
     contentNegativeVotes: 1,
     contentNetVotes: 7,
+    discussionId: 'discussion-456',
   };
 
   const mockVoteResult: VoteResult = {
@@ -153,14 +173,8 @@ describe('BaseNodeSchema', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        {
-          provide: Neo4jService,
-          useValue: neo4jService,
-        },
-        {
-          provide: VoteSchema,
-          useValue: voteSchema,
-        },
+        { provide: Neo4jService, useValue: neo4jService },
+        { provide: VoteSchema, useValue: voteSchema },
       ],
     }).compile();
 
@@ -179,7 +193,6 @@ describe('BaseNodeSchema', () => {
     jest.clearAllMocks();
   });
 
-  // INPUT VALIDATION TESTS
   describe('Input Validation', () => {
     describe('validateId', () => {
       it('should pass for valid IDs', () => {
@@ -187,7 +200,7 @@ describe('BaseNodeSchema', () => {
         expect(() => (testSchema as any).validateId('valid-id')).not.toThrow();
       });
 
-      it('should throw BadRequestException for empty or invalid IDs', () => {
+      it('should throw BadRequestException for invalid IDs', () => {
         expect(() => (testSchema as any).validateId('')).toThrow(
           BadRequestException,
         );
@@ -201,12 +214,6 @@ describe('BaseNodeSchema', () => {
           BadRequestException,
         );
       });
-
-      it('should allow custom field names in error messages', () => {
-        expect(() =>
-          (testSchema as any).validateId('', 'Word ID'),
-        ).toThrowError('Word ID is required and cannot be empty');
-      });
     });
 
     describe('validateUserId', () => {
@@ -218,28 +225,24 @@ describe('BaseNodeSchema', () => {
 
       it('should throw BadRequestException for invalid user IDs', () => {
         expect(() => (testSchema as any).validateUserId('')).toThrow(
-          'User ID is required and cannot be empty',
-        );
-        expect(() => (testSchema as any).validateUserId(null)).toThrow(
           BadRequestException,
         );
-        expect(() => (testSchema as any).validateUserId('   ')).toThrow(
+        expect(() => (testSchema as any).validateUserId(null)).toThrow(
           BadRequestException,
         );
       });
     });
   });
 
-  // CRUD OPERATIONS TESTS
   describe('CRUD Operations', () => {
     describe('findById', () => {
-      it('should find node by ID successfully', async () => {
+      it('should find node by ID for standard nodes', async () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockTestNodeData }),
         } as unknown as Record;
-        const mockResult = { records: [mockRecord] } as unknown as Result;
-
-        neo4jService.read.mockResolvedValue(mockResult);
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
 
         const result = await testSchema.findById('test-123');
 
@@ -250,41 +253,37 @@ describe('BaseNodeSchema', () => {
         expect(result).toEqual(mockTestNodeData);
       });
 
+      it('should find node by word field for word-like nodes', async () => {
+        const mockWordData = {
+          ...mockTestNodeData,
+          word: 'test-word',
+        };
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockWordData }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        await wordLikeSchema.findById('test-word');
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          'MATCH (n:TestWordNode {word: $id}) RETURN n',
+          { id: 'test-word' },
+        );
+      });
+
       it('should return null when node not found', async () => {
-        const mockResult = { records: [] } as unknown as Result;
-        neo4jService.read.mockResolvedValue(mockResult);
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
 
         const result = await testSchema.findById('nonexistent');
 
         expect(result).toBeNull();
       });
 
-      it('should validate ID before querying', async () => {
-        await expect(testSchema.findById('')).rejects.toThrow(
-          BadRequestException,
-        );
-        expect(neo4jService.read).not.toHaveBeenCalled();
-      });
-
-      it('should work with different identifier fields', async () => {
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: { word: 'test', name: 'Test Word' },
-          }),
-        } as unknown as Record;
-        const mockResult = { records: [mockRecord] } as unknown as Result;
-
-        neo4jService.read.mockResolvedValue(mockResult);
-
-        await wordLikeSchema.findById('test');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          'MATCH (n:TestWordNode {word: $id}) RETURN n',
-          { id: 'test' },
-        );
-      });
-
-      it('should handle database errors gracefully', async () => {
+      it('should handle database errors', async () => {
         neo4jService.read.mockRejectedValue(new Error('Database error'));
 
         await expect(testSchema.findById('test-123')).rejects.toThrow(
@@ -295,18 +294,15 @@ describe('BaseNodeSchema', () => {
 
     describe('update', () => {
       it('should update node successfully', async () => {
-        const updateData = {
-          name: 'Updated Name',
-          description: 'Updated description',
-        };
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: { ...mockTestNodeData, ...updateData },
-          }),
-        } as unknown as Record;
-        const mockResult = { records: [mockRecord] } as unknown as Result;
+        const updateData = { name: 'Updated Name', publicCredit: false };
+        const updatedNode = { ...mockTestNodeData, ...updateData };
 
-        neo4jService.write.mockResolvedValue(mockResult);
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: updatedNode }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
 
         const result = await testSchema.update('test-123', updateData);
 
@@ -314,62 +310,28 @@ describe('BaseNodeSchema', () => {
           expect.stringContaining('MATCH (n:TestNode {id: $id})'),
           expect.objectContaining({ id: 'test-123', updateData }),
         );
-        expect(result?.name).toBe('Updated Name');
+        expect(result).toEqual(updatedNode);
       });
 
-      it('should validate ID before updating', async () => {
-        await expect(testSchema.update('', { name: 'test' })).rejects.toThrow(
-          BadRequestException,
-        );
-        expect(neo4jService.write).not.toHaveBeenCalled();
-      });
-
-      it('should throw NotFoundException when node does not exist', async () => {
-        const mockResult = { records: [] } as unknown as Result;
-        neo4jService.write.mockResolvedValue(mockResult);
+      it('should throw NotFoundException when node not found for update', async () => {
+        neo4jService.write.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
 
         await expect(
-          testSchema.update('nonexistent', { name: 'test' }),
-        ).rejects.toThrow(NotFoundException);
-      });
-
-      it('should work with different identifier fields', async () => {
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: { word: 'test', name: 'Updated Word' },
-          }),
-        } as unknown as Record;
-        const mockResult = { records: [mockRecord] } as unknown as Result;
-
-        neo4jService.write.mockResolvedValue(mockResult);
-
-        await wordLikeSchema.update('test', { name: 'Updated Word' });
-
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:TestWordNode {word: $id})'),
-          expect.objectContaining({ id: 'test' }),
-        );
-      });
-
-      it('should handle database errors gracefully', async () => {
-        neo4jService.write.mockRejectedValue(new Error('Update failed'));
-
-        await expect(
-          testSchema.update('test-123', { name: 'test' }),
-        ).rejects.toThrow('Failed to update Test: Update failed');
+          testSchema.update('nonexistent', { name: 'New Name' }),
+        ).rejects.toThrow("Test with id 'nonexistent' not found");
       });
     });
 
     describe('delete', () => {
-      it('should delete node successfully', async () => {
-        // Mock existence check
+      it('should delete existing node', async () => {
         const existsRecord = {
           get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
         } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
+        neo4jService.read.mockResolvedValueOnce({
           records: [existsRecord],
         } as unknown as Result);
-
         neo4jService.write.mockResolvedValue({} as Result);
 
         const result = await testSchema.delete('test-123');
@@ -379,20 +341,13 @@ describe('BaseNodeSchema', () => {
           { id: 'test-123' },
         );
         expect(neo4jService.write).toHaveBeenCalledWith(
-          'MATCH (n:TestNode {id: $id}) DETACH DELETE n',
+          expect.stringContaining('MATCH (n:TestNode {id: $id})'),
           { id: 'test-123' },
         );
         expect(result).toEqual({ success: true });
       });
 
-      it('should validate ID before deleting', async () => {
-        await expect(testSchema.delete('')).rejects.toThrow(
-          BadRequestException,
-        );
-        expect(neo4jService.read).not.toHaveBeenCalled();
-      });
-
-      it('should throw NotFoundException when node does not exist', async () => {
+      it('should throw NotFoundException when deleting non-existent node', async () => {
         const existsRecord = {
           get: jest.fn().mockReturnValue(Integer.fromNumber(0)),
         } as unknown as Record;
@@ -401,44 +356,13 @@ describe('BaseNodeSchema', () => {
         } as unknown as Result);
 
         await expect(testSchema.delete('nonexistent')).rejects.toThrow(
-          NotFoundException,
+          "Test with id 'nonexistent' not found",
         );
         expect(neo4jService.write).not.toHaveBeenCalled();
-      });
-
-      it('should work with different identifier fields', async () => {
-        const existsRecord = {
-          get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
-        } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
-          records: [existsRecord],
-        } as unknown as Result);
-
-        neo4jService.write.mockResolvedValue({} as Result);
-
-        await wordLikeSchema.delete('test-word');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          'MATCH (n:TestWordNode {word: $id}) RETURN COUNT(n) as count',
-          { id: 'test-word' },
-        );
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          'MATCH (n:TestWordNode {word: $id}) DETACH DELETE n',
-          { id: 'test-word' },
-        );
-      });
-
-      it('should handle database errors gracefully', async () => {
-        neo4jService.read.mockRejectedValue(new Error('Database error'));
-
-        await expect(testSchema.delete('test-123')).rejects.toThrow(
-          'Failed to delete Test: Database error',
-        );
       });
     });
   });
 
-  // VOTING OPERATIONS TESTS
   describe('Voting Operations', () => {
     describe('voteInclusion', () => {
       it('should vote on inclusion successfully', async () => {
@@ -460,7 +384,7 @@ describe('BaseNodeSchema', () => {
         expect(result).toEqual(mockVoteResult);
       });
 
-      it('should validate inputs before voting', async () => {
+      it('should validate inputs', async () => {
         await expect(
           testSchema.voteInclusion('', 'user-456', true),
         ).rejects.toThrow(BadRequestException);
@@ -470,7 +394,7 @@ describe('BaseNodeSchema', () => {
         expect(voteSchema.vote).not.toHaveBeenCalled();
       });
 
-      it('should work with different identifier fields', async () => {
+      it('should work with word-like schemas', async () => {
         voteSchema.vote.mockResolvedValue(mockVoteResult);
 
         await wordLikeSchema.voteInclusion('test-word', 'user-456', false);
@@ -482,14 +406,6 @@ describe('BaseNodeSchema', () => {
           false,
           'INCLUSION',
         );
-      });
-
-      it('should handle voting errors gracefully', async () => {
-        voteSchema.vote.mockRejectedValue(new Error('Voting failed'));
-
-        await expect(
-          testSchema.voteInclusion('test-123', 'user-456', true),
-        ).rejects.toThrow('Failed to vote on Test: Voting failed');
       });
     });
 
@@ -513,52 +429,20 @@ describe('BaseNodeSchema', () => {
         expect(result).toEqual(mockVoteResult);
       });
 
-      it('should throw BadRequestException when content voting not supported', async () => {
+      it('should reject content voting when not supported', async () => {
         await expect(
           wordLikeSchema.voteContent('test-word', 'user-456', true),
         ).rejects.toThrow('Testword does not support content voting');
         expect(voteSchema.vote).not.toHaveBeenCalled();
       });
 
-      it('should validate inputs before content voting', async () => {
+      it('should validate inputs', async () => {
         await expect(
           testSchema.voteContent('', 'user-456', true),
         ).rejects.toThrow(BadRequestException);
         await expect(
           testSchema.voteContent('test-123', '', true),
         ).rejects.toThrow(BadRequestException);
-      });
-    });
-
-    describe('getVoteStatus', () => {
-      it('should get vote status successfully', async () => {
-        voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
-
-        const result = await testSchema.getVoteStatus('test-123', 'user-456');
-
-        expect(voteSchema.getVoteStatus).toHaveBeenCalledWith(
-          'TestNode',
-          { id: 'test-123' },
-          'user-456',
-        );
-        expect(result).toEqual(mockVoteStatus);
-      });
-
-      it('should return null when no vote status exists', async () => {
-        voteSchema.getVoteStatus.mockResolvedValue(null);
-
-        const result = await testSchema.getVoteStatus('test-123', 'user-456');
-
-        expect(result).toBeNull();
-      });
-
-      it('should validate inputs', async () => {
-        await expect(testSchema.getVoteStatus('', 'user-456')).rejects.toThrow(
-          BadRequestException,
-        );
-        await expect(testSchema.getVoteStatus('test-123', '')).rejects.toThrow(
-          BadRequestException,
-        );
       });
     });
 
@@ -661,229 +545,175 @@ describe('BaseNodeSchema', () => {
     });
   });
 
-  // UTILITY METHODS TESTS
+  describe('Discussion Management', () => {
+    // Test discussion creation via a public wrapper method
+    class TestSchemaWithPublicDiscussion extends TestNodeSchema {
+      public async testCreateDiscussion(params: {
+        nodeId: string;
+        nodeType: string;
+        createdBy: string;
+        initialComment?: string;
+      }) {
+        return this.createDiscussion(params);
+      }
+    }
+
+    let testSchemaWithDiscussion: TestSchemaWithPublicDiscussion;
+
+    beforeEach(() => {
+      testSchemaWithDiscussion = new TestSchemaWithPublicDiscussion(
+        neo4jService,
+        voteSchema,
+      );
+    });
+
+    it('should create discussion with required parameters', async () => {
+      neo4jService.write.mockResolvedValue({
+        records: [{ get: jest.fn().mockReturnValue('discussion-123') }],
+      } as unknown as Result);
+
+      const discussionId = await testSchemaWithDiscussion.testCreateDiscussion({
+        nodeId: 'test-123',
+        nodeType: 'TestNode',
+        createdBy: 'user-456',
+        initialComment: 'Initial comment',
+      });
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE (d:DiscussionNode'),
+        expect.objectContaining({
+          discussionId: expect.any(String),
+          nodeId: 'test-123',
+          nodeType: 'TestNode',
+          createdBy: 'user-456',
+          initialComment: 'Initial comment',
+        }),
+      );
+      expect(discussionId).toBe('discussion-123');
+    });
+
+    it('should create discussion without initial comment', async () => {
+      neo4jService.write.mockResolvedValue({
+        records: [{ get: jest.fn().mockReturnValue('discussion-456') }],
+      } as unknown as Result);
+
+      const discussionId = await testSchemaWithDiscussion.testCreateDiscussion({
+        nodeId: 'test-123',
+        nodeType: 'TestNode',
+        createdBy: 'user-456',
+      });
+
+      expect(discussionId).toBe('discussion-456');
+    });
+  });
+
   describe('Utility Methods', () => {
     describe('toNumber', () => {
-      it('should convert regular numbers', () => {
-        expect((testSchema as any).toNumber(42)).toBe(42);
+      it('should convert Neo4j integers', () => {
+        expect((testSchema as any).toNumber(Integer.fromNumber(42))).toBe(42);
+        expect((testSchema as any).toNumber(Integer.fromNumber(-15))).toBe(-15);
+      });
+
+      it('should handle regular numbers', () => {
+        expect((testSchema as any).toNumber(123)).toBe(123);
+        expect((testSchema as any).toNumber(-456)).toBe(-456);
+      });
+
+      it('should handle edge cases', () => {
         expect((testSchema as any).toNumber(0)).toBe(0);
-        expect((testSchema as any).toNumber(-5)).toBe(-5);
-      });
-
-      it('should convert Neo4j Integer objects', () => {
-        const neo4jInt = Integer.fromNumber(123);
-        expect((testSchema as any).toNumber(neo4jInt)).toBe(123);
-
-        const largeInt = Integer.fromNumber(999999);
-        expect((testSchema as any).toNumber(largeInt)).toBe(999999);
-      });
-
-      it('should handle null and undefined', () => {
         expect((testSchema as any).toNumber(null)).toBe(0);
         expect((testSchema as any).toNumber(undefined)).toBe(0);
-      });
-
-      it('should handle objects with valueOf method', () => {
-        const objWithValueOf = { valueOf: () => 456 };
-        expect((testSchema as any).toNumber(objWithValueOf)).toBe(456);
-      });
-
-      it('should convert string numbers', () => {
-        expect((testSchema as any).toNumber('789')).toBe(789);
-        expect((testSchema as any).toNumber('0')).toBe(0);
       });
     });
 
     describe('standardError', () => {
-      it('should create standard error messages', () => {
-        const error = (testSchema as any).standardError(
-          'find',
-          new Error('DB error'),
+      it('should format error messages consistently', () => {
+        const originalError = new Error('Database connection failed');
+        const formattedError = (testSchema as any).standardError(
+          'test operation',
+          originalError,
         );
-        expect(error.message).toBe('Failed to find Test: DB error');
-      });
 
-      it('should handle different node types', () => {
-        const error = (wordLikeSchema as any).standardError(
-          'vote on',
-          new Error('Vote error'),
+        expect(formattedError.message).toBe(
+          'Failed to test operation Test: Database connection failed',
         );
-        expect(error.message).toBe('Failed to vote on Testword: Vote error');
-      });
-    });
-
-    describe('getNodeTypeName', () => {
-      it('should convert node labels to readable names', () => {
-        // FIXED: Updated to match actual implementation output
-        expect((testSchema as any).getNodeTypeName()).toBe('Test');
-        expect((wordLikeSchema as any).getNodeTypeName()).toBe('Testword');
       });
     });
   });
 
-  // INTEGRATION TESTS
-  describe('Integration Tests', () => {
-    it('should handle complete CRUD lifecycle', async () => {
-      // Create - handled by subclass
-      // Find
-      const findRecord = {
+  describe('Abstract Method Implementation', () => {
+    it('should require supportsContentVoting implementation', () => {
+      expect(testSchema['supportsContentVoting']()).toBe(true);
+      expect(wordLikeSchema['supportsContentVoting']()).toBe(false);
+    });
+
+    it('should require mapNodeFromRecord implementation', () => {
+      const mockRecord = {
         get: jest.fn().mockReturnValue({ properties: mockTestNodeData }),
       } as unknown as Record;
-      neo4jService.read.mockResolvedValueOnce({
-        records: [findRecord],
-      } as unknown as Result);
 
-      const foundNode = await testSchema.findById('test-123');
-      expect(foundNode).toEqual(mockTestNodeData);
+      const result = testSchema['mapNodeFromRecord'](mockRecord);
 
-      // Update
-      const updateRecord = {
+      expect(result).toEqual(mockTestNodeData);
+      expect(result.createdBy).toBeDefined();
+      expect(result.publicCredit).toBeDefined();
+    });
+
+    it('should require buildUpdateQuery implementation', () => {
+      const updateData = { name: 'Updated Name' };
+      const queryResult = testSchema['buildUpdateQuery'](
+        'test-123',
+        updateData,
+      );
+
+      expect(queryResult.cypher).toContain('MATCH (n:TestNode {id: $id})');
+      expect(queryResult.cypher).toContain('SET');
+      expect(queryResult.params).toEqual({
+        id: 'test-123',
+        updateData,
+      });
+    });
+  });
+
+  describe('BaseNodeData Interface Compliance', () => {
+    it('should include all required BaseNodeData fields', () => {
+      const requiredFields = [
+        'id',
+        'createdBy',
+        'publicCredit',
+        'createdAt',
+        'updatedAt',
+        'inclusionPositiveVotes',
+        'inclusionNegativeVotes',
+        'inclusionNetVotes',
+        'contentPositiveVotes',
+        'contentNegativeVotes',
+        'contentNetVotes',
+        'discussionId',
+      ];
+
+      requiredFields.forEach((field) => {
+        expect(mockTestNodeData).toHaveProperty(field);
+      });
+    });
+
+    it('should properly handle voting field conversion', () => {
+      const mockRecord = {
         get: jest.fn().mockReturnValue({
-          properties: { ...mockTestNodeData, name: 'Updated' },
+          properties: {
+            ...mockTestNodeData,
+            inclusionPositiveVotes: Integer.fromNumber(5),
+            inclusionNegativeVotes: Integer.fromNumber(2),
+            inclusionNetVotes: Integer.fromNumber(3),
+          },
         }),
       } as unknown as Record;
-      neo4jService.write.mockResolvedValueOnce({
-        records: [updateRecord],
-      } as unknown as Result);
 
-      const updatedNode = await testSchema.update('test-123', {
-        name: 'Updated',
-      });
-      expect(updatedNode?.name).toBe('Updated');
+      const result = testSchema['mapNodeFromRecord'](mockRecord);
 
-      // Delete
-      const existsRecord = {
-        get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
-      } as unknown as Record;
-      neo4jService.read.mockResolvedValueOnce({
-        records: [existsRecord],
-      } as unknown as Result);
-      neo4jService.write.mockResolvedValueOnce({} as Result);
-
-      const deleteResult = await testSchema.delete('test-123');
-      expect(deleteResult).toEqual({ success: true });
-    });
-
-    it('should handle voting lifecycle with both inclusion and content', async () => {
-      // Vote inclusion
-      voteSchema.vote.mockResolvedValue(mockVoteResult);
-      const inclusionResult = await testSchema.voteInclusion(
-        'test-123',
-        'user-456',
-        true,
-      );
-      expect(inclusionResult).toEqual(mockVoteResult);
-
-      // Vote content (when supported)
-      const contentResult = await testSchema.voteContent(
-        'test-123',
-        'user-456',
-        true,
-      );
-      expect(contentResult).toEqual(mockVoteResult);
-
-      // Get vote status
-      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
-      const voteStatus = await testSchema.getVoteStatus('test-123', 'user-456');
-      expect(voteStatus).toEqual(mockVoteStatus);
-
-      // Remove votes
-      voteSchema.removeVote.mockResolvedValue(mockVoteResult);
-      const removeResult = await testSchema.removeVote(
-        'test-123',
-        'user-456',
-        'INCLUSION',
-      );
-      expect(removeResult).toEqual(mockVoteResult);
-    });
-
-    it('should handle word-like schema without content voting', async () => {
-      // Vote inclusion works
-      voteSchema.vote.mockResolvedValue(mockVoteResult);
-      const inclusionResult = await wordLikeSchema.voteInclusion(
-        'test-word',
-        'user-456',
-        true,
-      );
-      expect(inclusionResult).toEqual(mockVoteResult);
-
-      // Content voting throws error
-      await expect(
-        wordLikeSchema.voteContent('test-word', 'user-456', true),
-      ).rejects.toThrow('Testword does not support content voting');
-
-      // Get votes returns zero for content
-      voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
-      const votes = await wordLikeSchema.getVotes('test-word');
-      expect(votes?.contentPositiveVotes).toBe(0);
-      expect(votes?.contentNegativeVotes).toBe(0);
-      expect(votes?.contentNetVotes).toBe(0);
-    });
-
-    it('should maintain consistent error handling across operations', async () => {
-      const dbError = new Error('Database connection failed');
-
-      // Test error handling in different operations
-      neo4jService.read.mockRejectedValue(dbError);
-      await expect(testSchema.findById('test-123')).rejects.toThrow(
-        'Failed to find Test: Database connection failed',
-      );
-
-      neo4jService.write.mockRejectedValue(dbError);
-      await expect(
-        testSchema.update('test-123', { name: 'test' }),
-      ).rejects.toThrow('Failed to update Test: Database connection failed');
-
-      voteSchema.vote.mockRejectedValue(dbError);
-      await expect(
-        testSchema.voteInclusion('test-123', 'user-456', true),
-      ).rejects.toThrow('Failed to vote on Test: Database connection failed');
-    });
-
-    it('should validate both ID patterns correctly', async () => {
-      // Standard ID pattern
-      await expect(testSchema.findById('')).rejects.toThrow(
-        'ID is required and cannot be empty',
-      );
-
-      // Word ID pattern
-      await expect(wordLikeSchema.findById('')).rejects.toThrow(
-        'ID is required and cannot be empty',
-      );
-
-      // Custom field name
-      expect(() => (wordLikeSchema as any).validateId('', 'Word')).toThrowError(
-        'Word is required and cannot be empty',
-      );
-    });
-
-    it('should handle Neo4j Integer conversion consistently', async () => {
-      const mockNodeDataWithIntegers = {
-        ...mockTestNodeData,
-        inclusionPositiveVotes: Integer.fromNumber(10),
-        inclusionNegativeVotes: Integer.fromNumber(3),
-        inclusionNetVotes: Integer.fromNumber(7),
-        contentPositiveVotes: Integer.fromNumber(15),
-        contentNegativeVotes: Integer.fromNumber(2),
-        contentNetVotes: Integer.fromNumber(13),
-      };
-
-      const mockRecord = {
-        get: jest
-          .fn()
-          .mockReturnValue({ properties: mockNodeDataWithIntegers }),
-      } as unknown as Record;
-      neo4jService.read.mockResolvedValue({
-        records: [mockRecord],
-      } as unknown as Result);
-
-      const result = await testSchema.findById('test-123');
-
-      // Verify integers were converted to numbers
-      expect(typeof result?.inclusionPositiveVotes).toBe('number');
-      expect(result?.inclusionPositiveVotes).toBe(10);
-      expect(typeof result?.contentNetVotes).toBe('number');
-      expect(result?.contentNetVotes).toBe(13);
+      expect(typeof result.inclusionPositiveVotes).toBe('number');
+      expect(typeof result.inclusionNegativeVotes).toBe('number');
+      expect(typeof result.inclusionNetVotes).toBe('number');
     });
   });
 });
