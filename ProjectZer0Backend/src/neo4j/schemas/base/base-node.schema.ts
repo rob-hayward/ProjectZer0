@@ -5,9 +5,9 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { Neo4jService } from '../neo4j.service';
-import { VoteSchema, VoteResult, VoteStatus } from './vote.schema';
-import { VoteKind } from '../../config/voting.config';
+import { Neo4jService } from '../../neo4j.service';
+import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
+import { VoteKind } from '../../../config/voting.config';
 import { Record } from 'neo4j-driver';
 
 export interface BaseNodeData {

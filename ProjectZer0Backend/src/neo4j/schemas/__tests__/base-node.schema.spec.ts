@@ -2,7 +2,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { BaseNodeSchema, BaseNodeData } from '../base-node.schema';
+import { BaseNodeSchema, BaseNodeData } from '../base/base-node.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
 import { Record, Result, Integer } from 'neo4j-driver';

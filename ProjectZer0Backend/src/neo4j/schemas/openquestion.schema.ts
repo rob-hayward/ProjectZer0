@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 import { Record } from 'neo4j-driver';
 

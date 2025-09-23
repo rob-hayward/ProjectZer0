@@ -3,7 +3,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
 import { UserSchema } from './user.schema';
 import { VotingUtils } from '../../config/voting.config';
 import { TEXT_LIMITS } from '../../constants/validation';

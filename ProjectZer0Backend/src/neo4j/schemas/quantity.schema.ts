@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base-node.schema';
+import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
 import { UnitService } from '../../units/unit.service';
 import { VotingUtils } from '../../config/voting.config';
 import { v4 as uuidv4 } from 'uuid';
