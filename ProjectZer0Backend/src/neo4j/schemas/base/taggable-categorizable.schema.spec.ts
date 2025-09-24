@@ -2,6 +2,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { Neo4jService } from '../../neo4j.service';
+import { VoteSchema } from '../vote.schema';
 import {
   TaggableCategorizableNodeSchema,
   GraphFilters,
@@ -13,6 +14,11 @@ import {
 class TestTaggableSchema extends TaggableCategorizableNodeSchema {
   protected nodeLabel = 'TestNode';
   protected idField = 'id';
+
+  // Add constructor to properly handle dependency injection
+  constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
+    super(neo4jService, voteSchema, 'TestTaggableSchema');
+  }
 
   protected getNodeTypeName(): string {
     return 'Test';
@@ -27,42 +33,33 @@ class TestTaggableSchema extends TaggableCategorizableNodeSchema {
     return {
       id: node.properties.id,
       text: node.properties.text,
-      inclusionNetVotes: node.properties.inclusionNetVotes,
-      contentNetVotes: node.properties.contentNetVotes,
+      inclusionNetVotes: this.toNumber(node.properties.inclusionNetVotes),
+      contentNetVotes: this.toNumber(node.properties.contentNetVotes),
       createdAt: node.properties.createdAt,
       updatedAt: node.properties.updatedAt,
+      createdBy: node.properties.createdBy,
+      publicCredit: node.properties.publicCredit,
     };
   }
 
   // Implement abstract methods from BaseNodeSchema
-  async create(data: any): Promise<any> {
-    const { query, params } = this.buildTaggableCreateQuery(data);
-    const result = await this.neo4jService.write(query, params);
-    return this.mapNodeFromRecord(result.records[0]);
-  }
-
-  async update(id: string, data: any): Promise<any> {
-    const { query, params } = this.buildTaggableUpdateQuery(id, data);
-    const result = await this.neo4jService.write(query, params);
-    return this.mapNodeFromRecord(result.records[0]);
-  }
-
-  protected buildCreateQuery(data: any): { cypher: string; params: any } {
-    const { query, params } = this.buildTaggableCreateQuery(data);
-    return { cypher: query, params };
-  }
-
   protected buildUpdateQuery(
     id: string,
     data: any,
   ): { cypher: string; params: any } {
-    const { query, params } = this.buildTaggableUpdateQuery(id, data);
-    return { cypher: query, params };
-  }
+    const setClause = Object.keys(data)
+      .filter((key) => key !== 'id')
+      .map((key) => `n.${key} = $updateData.${key}`)
+      .join(', ');
 
-  protected buildRetrievalQuery(id: string): { cypher: string; params: any } {
-    const { query, params } = this.buildTaggableRetrievalQuery(id);
-    return { cypher: query, params };
+    return {
+      cypher: `
+        MATCH (n:TestNode {id: $id})
+        SET ${setClause}, n.updatedAt = datetime()
+        RETURN n
+      `,
+      params: { id, updateData: data },
+    };
   }
 
   // Expose protected methods for testing
@@ -77,6 +74,14 @@ class TestTaggableSchema extends TaggableCategorizableNodeSchema {
   public testBuildGraphFilterQuery(filters: GraphFilters) {
     return this.buildGraphFilterQuery(filters);
   }
+
+  public testValidateId(id: string) {
+    return this.validateId(id);
+  }
+
+  public testToNumber(value: any) {
+    return this.toNumber(value);
+  }
 }
 
 describe('TaggableCategorizableNodeSchema', () => {
@@ -84,15 +89,33 @@ describe('TaggableCategorizableNodeSchema', () => {
   let neo4jService: jest.Mocked<Neo4jService>;
 
   beforeEach(async () => {
+    const mockNeo4jService = {
+      write: jest.fn(),
+      read: jest.fn(),
+    };
+
+    const mockVoteSchema = {
+      vote: jest.fn(),
+      getVoteStatus: jest.fn(),
+      removeVote: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        TestTaggableSchema,
+        {
+          provide: TestTaggableSchema,
+          useFactory: (neo4jService: Neo4jService, voteSchema: VoteSchema) => {
+            return new TestTaggableSchema(neo4jService, voteSchema);
+          },
+          inject: [Neo4jService, VoteSchema],
+        },
         {
           provide: Neo4jService,
-          useValue: {
-            write: jest.fn(),
-            read: jest.fn(),
-          },
+          useValue: mockNeo4jService,
+        },
+        {
+          provide: VoteSchema,
+          useValue: mockVoteSchema,
         },
       ],
     }).compile();
@@ -122,15 +145,16 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query, params } = schema.testBuildTaggableCreateQuery(createData);
+      const { cypher, params } =
+        schema.testBuildTaggableCreateQuery(createData);
 
       // Check that query includes category attachment
-      expect(query).toContain('CATEGORIZED_AS');
-      expect(query).toContain('SHARED_CATEGORY');
+      expect(cypher).toContain('CATEGORIZED_AS');
+      expect(cypher).toContain('SHARED_CATEGORY');
 
       // Check that query includes keyword attachment
-      expect(query).toContain('TAGGED');
-      expect(query).toContain('SHARED_TAG');
+      expect(cypher).toContain('TAGGED');
+      expect(cypher).toContain('SHARED_TAG');
 
       // Check params
       expect(params.id).toBe('test-1');
@@ -150,10 +174,10 @@ describe('TaggableCategorizableNodeSchema', () => {
         nodeProperties: { text: 'Test' },
       };
 
-      const { query } = schema.testBuildTaggableCreateQuery(createData);
+      const { cypher } = schema.testBuildTaggableCreateQuery(createData);
 
       // Query should include category limit validation
-      expect(query).toContain('WHERE size(categoryIds) <= 3');
+      expect(cypher).toContain('WHERE size(categoryIds) <= 3');
     });
 
     it('should handle creation without categories or keywords', () => {
@@ -164,11 +188,12 @@ describe('TaggableCategorizableNodeSchema', () => {
         nodeProperties: { text: 'Test content' },
       };
 
-      const { query, params } = schema.testBuildTaggableCreateQuery(createData);
+      const { cypher, params } =
+        schema.testBuildTaggableCreateQuery(createData);
 
       // Should not include category or keyword logic
-      expect(query).not.toContain('CATEGORIZED_AS');
-      expect(query).not.toContain('TAGGED');
+      expect(cypher).not.toContain('CATEGORIZED_AS');
+      expect(cypher).not.toContain('TAGGED');
       expect(params.categoryIds).toBeUndefined();
       expect(params.keywords).toBeUndefined();
     });
@@ -184,11 +209,12 @@ describe('TaggableCategorizableNodeSchema', () => {
         nodeProperties: { text: 'Test' },
       };
 
-      const { query, params } = schema.testBuildTaggableCreateQuery(createData);
+      const { cypher, params } =
+        schema.testBuildTaggableCreateQuery(createData);
 
-      expect(query).toContain('MATCH (parent:ParentNode {id: $parentId})');
-      expect(query).toContain('WHERE parent.inclusionNetVotes > 0');
-      expect(query).toContain('CREATE (n)-[:BELONGS_TO]->(parent)');
+      expect(cypher).toContain('MATCH (parent:ParentNode {id: $parentId})');
+      expect(cypher).toContain('WHERE parent.inclusionNetVotes > 0');
+      expect(cypher).toContain('CREATE (n)-[:BELONGS_TO]->(parent)');
       expect(params.parentId).toBe('parent-1');
     });
   });
@@ -200,18 +226,18 @@ describe('TaggableCategorizableNodeSchema', () => {
         text: 'Updated text',
       };
 
-      const { query, params } = schema.testBuildTaggableUpdateQuery(
+      const { cypher, params } = schema.testBuildTaggableUpdateQuery(
         'test-1',
         updateData,
       );
 
       // Should delete old relationships
-      expect(query).toContain('DELETE rCATEGORIZED_AS');
-      expect(query).toContain('DELETE rSHARED_CATEGORY');
+      expect(cypher).toContain('DELETE rCATEGORIZED_AS');
+      expect(cypher).toContain('DELETE rSHARED_CATEGORY');
 
       // Should create new relationships
-      expect(query).toContain('CREATE (n)-[:CATEGORIZED_AS]->(cat)');
-      expect(query).toContain('SHARED_CATEGORY');
+      expect(cypher).toContain('CREATE (n)-[:CATEGORIZED_AS]->(cat)');
+      expect(cypher).toContain('SHARED_CATEGORY');
 
       expect(params.categoryIds).toEqual(['cat-3', 'cat-4']);
       expect(params.updateProperties.text).toBe('Updated text');
@@ -222,18 +248,18 @@ describe('TaggableCategorizableNodeSchema', () => {
         keywords: [{ word: 'new', frequency: 0.9, source: 'user' }],
       };
 
-      const { query, params } = schema.testBuildTaggableUpdateQuery(
+      const { cypher, params } = schema.testBuildTaggableUpdateQuery(
         'test-1',
         updateData,
       );
 
       // Should delete old relationships
-      expect(query).toContain('DELETE rTAGGED');
-      expect(query).toContain('DELETE rSHARED_TAG');
+      expect(cypher).toContain('DELETE rTAGGED');
+      expect(cypher).toContain('DELETE rSHARED_TAG');
 
       // Should create new relationships
-      expect(query).toContain('CREATE (n)-[:TAGGED');
-      expect(query).toContain('SHARED_TAG');
+      expect(cypher).toContain('CREATE (n)-[:TAGGED');
+      expect(cypher).toContain('SHARED_TAG');
 
       expect(params.keywords).toEqual(updateData.keywords);
     });
@@ -244,20 +270,21 @@ describe('TaggableCategorizableNodeSchema', () => {
         keywords: [],
       };
 
-      const { query } = schema.testBuildTaggableUpdateQuery(
+      const { cypher } = schema.testBuildTaggableUpdateQuery(
         'test-1',
         updateData,
       );
 
       // Should delete relationships but not try to create new ones
-      expect(query).toContain('DELETE rCATEGORIZED_AS');
-      expect(query).toContain('DELETE rSHARED_CATEGORY');
-      expect(query).toContain('DELETE rTAGGED');
-      expect(query).toContain('DELETE rSHARED_TAG');
+      expect(cypher).toContain('DELETE rCATEGORIZED_AS');
+      expect(cypher).toContain('DELETE rSHARED_CATEGORY');
+      expect(cypher).toContain('DELETE rTAGGED');
+      expect(cypher).toContain('DELETE rSHARED_TAG');
 
       // Should not contain CREATE for empty arrays
-      const createCount = (query.match(/CREATE \(n\)-\[:CATEGORIZED_AS/g) || [])
-        .length;
+      const createCount = (
+        cypher.match(/CREATE \(n\)-\[:CATEGORIZED_AS/g) || []
+      ).length;
       expect(createCount).toBe(0);
     });
   });
@@ -271,11 +298,11 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('MATCH (n)-[:TAGGED]->(w:WordNode)');
-      expect(query).toContain('WHERE w.word IN $keywords');
-      expect(query).toContain('WHERE matchCount > 0');
+      expect(cypher).toContain('MATCH (n)-[:TAGGED]->(w:WordNode)');
+      expect(cypher).toContain('WHERE w.word IN $keywords');
+      expect(cypher).toContain('WHERE matchCount > 0');
       expect(params.keywords).toEqual(['keyword1', 'keyword2']);
     });
 
@@ -287,9 +314,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('WHERE SIZE(nodeKeywords) = SIZE($keywords)');
+      expect(cypher).toContain('WHERE SIZE(nodeKeywords) = SIZE($keywords)');
       expect(params.keywords).toEqual(['keyword1', 'keyword2', 'keyword3']);
     });
 
@@ -301,10 +328,10 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('WHERE SIZE(allNodeKeywords) = SIZE($keywords)');
-      expect(query).toContain(
+      expect(cypher).toContain('WHERE SIZE(allNodeKeywords) = SIZE($keywords)');
+      expect(cypher).toContain(
         'AND ALL(kw IN allNodeKeywords WHERE kw IN $keywords)',
       );
     });
@@ -317,10 +344,10 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)');
-      expect(query).toContain('WHERE c.id IN $categoryIds');
+      expect(cypher).toContain('MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)');
+      expect(cypher).toContain('WHERE c.id IN $categoryIds');
       expect(params.categoryIds).toEqual(['cat-1', 'cat-2']);
     });
 
@@ -332,9 +359,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain(
+      expect(cypher).toContain(
         'WHERE SIZE(nodeCategories) = SIZE($categoryIds)',
       );
     });
@@ -347,9 +374,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         },
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('MATCH (u:User {sub: $userId})-[:CREATED]->(n)');
+      expect(cypher).toContain('MATCH (u:User {sub: $userId})-[:CREATED]->(n)');
       expect(params.userId).toBe('user-123');
     });
 
@@ -359,9 +386,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         sortDirection: 'DESC',
       };
 
-      const { query } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain(
+      expect(cypher).toContain(
         'ORDER BY (n.inclusionPositiveVotes + n.inclusionNegativeVotes) DESC',
       );
     });
@@ -372,9 +399,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         sortDirection: 'ASC',
       };
 
-      const { query } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('ORDER BY n.inclusionNetVotes ASC');
+      expect(cypher).toContain('ORDER BY n.inclusionNetVotes ASC');
     });
 
     it('should handle pagination', () => {
@@ -383,10 +410,10 @@ describe('TaggableCategorizableNodeSchema', () => {
         offset: 10,
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
-      expect(query).toContain('SKIP $offset');
-      expect(query).toContain('LIMIT $limit');
+      expect(cypher).toContain('SKIP $offset');
+      expect(cypher).toContain('LIMIT $limit');
       expect(params.offset).toBe(10);
       expect(params.limit).toBe(20);
     });
@@ -411,15 +438,15 @@ describe('TaggableCategorizableNodeSchema', () => {
         limit: 10,
       };
 
-      const { query, params } = schema.testBuildGraphFilterQuery(filters);
+      const { cypher, params } = schema.testBuildGraphFilterQuery(filters);
 
       // Check all filters are included
-      expect(query).toContain('MATCH (u:User {sub: $userId})-[:CREATED]->(n)');
-      expect(query).toContain('n.inclusionNetVotes >= $minVotes');
-      expect(query).toContain('WHERE w.word IN $keywords');
-      expect(query).toContain('WHERE c.id IN $categoryIds');
-      expect(query).toContain('ORDER BY n.createdAt DESC');
-      expect(query).toContain('LIMIT $limit');
+      expect(cypher).toContain('MATCH (u:User {sub: $userId})-[:CREATED]->(n)');
+      expect(cypher).toContain('n.inclusionNetVotes >= $minVotes');
+      expect(cypher).toContain('WHERE w.word IN $keywords');
+      expect(cypher).toContain('WHERE c.id IN $categoryIds');
+      expect(cypher).toContain('ORDER BY n.createdAt DESC');
+      expect(cypher).toContain('LIMIT $limit');
 
       expect(params.userId).toBe('user-1');
       expect(params.minVotes).toBe(5);
@@ -443,6 +470,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   inclusionPositiveVotes: 12,
                   inclusionNegativeVotes: 2,
                   createdAt: '2024-01-01',
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               hasDiscussion: true,
@@ -486,6 +515,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   inclusionPositiveVotes: 10,
                   inclusionNegativeVotes: 0,
                   createdAt: '2024-01-01',
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               hasDiscussion: false,
@@ -507,6 +538,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   inclusionPositiveVotes: 8,
                   inclusionNegativeVotes: 0,
                   createdAt: '2024-01-02',
+                  createdBy: 'user-2',
+                  publicCredit: true,
                 },
               },
               hasDiscussion: false,
@@ -526,12 +559,15 @@ describe('TaggableCategorizableNodeSchema', () => {
 
       expect(result.nodes).toHaveLength(2);
       expect(result.edges).toHaveLength(1);
-      expect(result.edges[0]).toEqual({
-        source: 'node-1',
-        target: 'node-2',
-        type: 'SHARED_TAG',
-        weight: 5,
-      });
+
+      // Edge can be in either direction since shared relationships are bidirectional
+      const edge = result.edges[0];
+      expect(edge.type).toBe('SHARED_TAG');
+      expect(edge.weight).toBe(5);
+      expect(
+        (edge.source === 'node-1' && edge.target === 'node-2') ||
+          (edge.source === 'node-2' && edge.target === 'node-1'),
+      ).toBe(true);
     });
   });
 
@@ -672,6 +708,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   inclusionPositiveVotes: 10,
                   inclusionNegativeVotes: 0,
                   createdAt: '2024-01-01',
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               hasDiscussion: true,
@@ -728,6 +766,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   inclusionPositiveVotes: 10,
                   inclusionNegativeVotes: 0,
                   createdAt: '2024-01-01',
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               hasDiscussion: false,
@@ -744,9 +784,9 @@ describe('TaggableCategorizableNodeSchema', () => {
         false,
       );
 
-      const query = (neo4jService.read as jest.Mock).mock.calls[0][0];
-      expect(query).not.toContain('OPTIONAL MATCH (n)-[:CATEGORIZED_AS]');
-      expect(query).not.toContain('OPTIONAL MATCH (n)-[t:TAGGED]');
+      const cypher = (neo4jService.read as jest.Mock).mock.calls[0][0];
+      expect(cypher).not.toContain('OPTIONAL MATCH (n)-[:CATEGORIZED_AS]');
+      expect(cypher).not.toContain('OPTIONAL MATCH (n)-[t:TAGGED]');
 
       expect(result.size).toBe(1);
     });
@@ -763,6 +803,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   id: 'related-1',
                   text: 'Related node',
                   inclusionNetVotes: 15,
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               sharedCategoryCount: 2,
@@ -785,6 +827,11 @@ describe('TaggableCategorizableNodeSchema', () => {
       expect(result[0].node.id).toBe('related-1');
       expect(result[0].sharedCategoryCount).toBe(2);
     });
+
+    it('should validate nodeId parameter', async () => {
+      await expect(schema.getRelatedNodesByCategories('', 5)).rejects.toThrow();
+      expect(neo4jService.read).not.toHaveBeenCalled();
+    });
   });
 
   describe('getRelatedNodesByKeywords', () => {
@@ -798,6 +845,8 @@ describe('TaggableCategorizableNodeSchema', () => {
                   id: 'related-1',
                   text: 'Related node',
                   inclusionNetVotes: 12,
+                  createdBy: 'user-1',
+                  publicCredit: true,
                 },
               },
               sharedKeywords: ['keyword1', 'keyword2'],
@@ -821,6 +870,225 @@ describe('TaggableCategorizableNodeSchema', () => {
       expect(result[0].node.id).toBe('related-1');
       expect(result[0].sharedKeywords).toEqual(['keyword1', 'keyword2']);
       expect(result[0].totalStrength).toBe(8.5);
+    });
+
+    it('should validate nodeId parameter', async () => {
+      await expect(schema.getRelatedNodesByKeywords('', 10)).rejects.toThrow();
+      expect(neo4jService.read).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Utility Methods', () => {
+    it('should validate IDs correctly', () => {
+      expect(() => schema.testValidateId('valid-id')).not.toThrow();
+      expect(() => schema.testValidateId('')).toThrow();
+      expect(() => schema.testValidateId('   ')).toThrow();
+    });
+
+    it('should convert Neo4j integers to numbers', () => {
+      // Mock Neo4j Integer-like object
+      const mockInteger = { low: 42, high: 0, valueOf: () => 42 };
+      expect(schema.testToNumber(mockInteger)).toBe(42);
+      expect(schema.testToNumber(123)).toBe(123);
+      expect(schema.testToNumber(null)).toBe(0);
+      expect(schema.testToNumber(undefined)).toBe(0);
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle database errors gracefully', async () => {
+      neo4jService.read.mockRejectedValue(
+        new Error('Database connection failed'),
+      );
+
+      await expect(schema.getNodesForGraphWithFilters({})).rejects.toThrow(
+        'Failed to get graph nodes Test: Database connection failed',
+      );
+    });
+
+    it('should handle empty result sets', async () => {
+      neo4jService.read.mockResolvedValue({ records: [] } as any);
+
+      const result = await schema.getNodesForGraphWithFilters({});
+
+      expect(result.nodes).toEqual([]);
+      expect(result.edges).toEqual([]);
+    });
+  });
+
+  describe('Integration Tests', () => {
+    it('should handle complex filter combinations', async () => {
+      const filters: GraphFilters = {
+        keywords: { mode: 'any', values: ['test', 'example'] },
+        categories: { mode: 'all', values: ['cat-1', 'cat-2'] },
+        user: { mode: 'created', userId: 'user-123' },
+        minInclusionVotes: 5,
+        sortBy: 'inclusionNetVotes',
+        sortDirection: 'DESC',
+        limit: 20,
+        offset: 10,
+        includeWordNodes: true,
+        includeCategoryNodes: true,
+      };
+
+      const mockRecords = [
+        {
+          get: (key: string) => {
+            const data: any = {
+              n: {
+                properties: {
+                  id: 'node-1',
+                  text: 'Complex test node',
+                  inclusionNetVotes: 25,
+                  inclusionPositiveVotes: 30,
+                  inclusionNegativeVotes: 5,
+                  createdAt: '2024-01-01',
+                  createdBy: 'user-123',
+                  publicCredit: true,
+                },
+              },
+              hasDiscussion: true,
+              sharedTagNodes: [],
+              sharedCategoryNodes: [],
+              tagStrength: 2.5,
+              categoryStrength: 1.8,
+            };
+            return data[key];
+          },
+        },
+      ];
+
+      neo4jService.read
+        .mockResolvedValueOnce({ records: mockRecords } as any) // getNodesForGraphWithFilters
+        .mockResolvedValueOnce({ records: [] } as any) // getSpecialNodesForGraph - words
+        .mockResolvedValueOnce({ records: [] } as any); // getSpecialNodesForGraph - categories
+
+      const result = await schema.getNodesForGraphWithFilters(filters);
+
+      expect(result.nodes).toHaveLength(1);
+      expect(result.nodes[0].id).toBe('node-1');
+      expect(result.nodes[0].metadata.inclusionVotes).toBe(25);
+
+      // Verify the query was built with all filters
+      const [query, params] = (neo4jService.read as jest.Mock).mock.calls[0];
+      expect(query).toContain('MATCH (u:User {sub: $userId})-[:CREATED]->(n)');
+      expect(query).toContain('n.inclusionNetVotes >= $minVotes');
+      expect(query).toContain('ORDER BY n.inclusionNetVotes DESC');
+      expect(query).toContain('SKIP $offset');
+      expect(query).toContain('LIMIT $limit');
+
+      expect(params.userId).toBe('user-123');
+      expect(params.minVotes).toBe(5);
+      expect(params.keywords).toEqual(['test', 'example']);
+      expect(params.categoryIds).toEqual(['cat-1', 'cat-2']);
+      expect(params.limit).toBe(20);
+      expect(params.offset).toBe(10);
+    });
+
+    it('should handle edge creation between related nodes', async () => {
+      const mockRecords = [
+        {
+          get: (key: string) => {
+            const data: any = {
+              n: {
+                properties: {
+                  id: 'node-1',
+                  inclusionNetVotes: 10,
+                  inclusionPositiveVotes: 12,
+                  inclusionNegativeVotes: 2,
+                  createdAt: '2024-01-01',
+                  createdBy: 'user-1',
+                  publicCredit: true,
+                },
+              },
+              hasDiscussion: false,
+              sharedTagNodes: [
+                { properties: { id: 'node-2' } },
+                { properties: { id: 'node-3' } },
+              ],
+              sharedCategoryNodes: [{ properties: { id: 'node-2' } }],
+              tagStrength: 3.2,
+              categoryStrength: 2.1,
+            };
+            return data[key];
+          },
+        },
+        {
+          get: (key: string) => {
+            const data: any = {
+              n: {
+                properties: {
+                  id: 'node-2',
+                  inclusionNetVotes: 8,
+                  inclusionPositiveVotes: 10,
+                  inclusionNegativeVotes: 2,
+                  createdAt: '2024-01-02',
+                  createdBy: 'user-2',
+                  publicCredit: true,
+                },
+              },
+              hasDiscussion: true,
+              sharedTagNodes: [{ properties: { id: 'node-1' } }],
+              sharedCategoryNodes: [{ properties: { id: 'node-1' } }],
+              tagStrength: 3.2,
+              categoryStrength: 2.1,
+            };
+            return data[key];
+          },
+        },
+        {
+          get: (key: string) => {
+            const data: any = {
+              n: {
+                properties: {
+                  id: 'node-3',
+                  inclusionNetVotes: 15,
+                  inclusionPositiveVotes: 17,
+                  inclusionNegativeVotes: 2,
+                  createdAt: '2024-01-03',
+                  createdBy: 'user-3',
+                  publicCredit: true,
+                },
+              },
+              hasDiscussion: false,
+              sharedTagNodes: [{ properties: { id: 'node-1' } }],
+              sharedCategoryNodes: [],
+              tagStrength: 3.2,
+              categoryStrength: 0,
+            };
+            return data[key];
+          },
+        },
+      ];
+
+      neo4jService.read.mockResolvedValue({ records: mockRecords } as any);
+
+      const result = await schema.getNodesForGraphWithFilters({});
+
+      expect(result.nodes).toHaveLength(3);
+      expect(result.edges.length).toBeGreaterThan(0);
+
+      // Should have both SHARED_TAG and SHARED_CATEGORY edges
+      const tagEdges = result.edges.filter(
+        (edge) => edge.type === 'SHARED_TAG',
+      );
+      const categoryEdges = result.edges.filter(
+        (edge) => edge.type === 'SHARED_CATEGORY',
+      );
+
+      expect(tagEdges.length).toBeGreaterThan(0);
+      expect(categoryEdges.length).toBeGreaterThan(0);
+
+      // Verify edge properties
+      const sampleTagEdge = tagEdges[0];
+      expect(sampleTagEdge.weight).toBe(3.2);
+      expect(sampleTagEdge.source).toBeDefined();
+      expect(sampleTagEdge.target).toBeDefined();
+
+      const sampleCategoryEdge = categoryEdges[0];
+      expect(sampleCategoryEdge.weight).toBe(2.1);
+      expect(sampleCategoryEdge.source).toBeDefined();
+      expect(sampleCategoryEdge.target).toBeDefined();
     });
   });
 });

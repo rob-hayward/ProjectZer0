@@ -52,8 +52,6 @@ describe('Neo4jQueryBuilder', () => {
   });
 
   describe('attachCategories', () => {
-    // Continuing from where it was cut off...
-
     it('should generate category attachment query with default max categories', () => {
       const query = Neo4jQueryBuilder.attachCategories();
 
@@ -112,8 +110,8 @@ describe('Neo4jQueryBuilder', () => {
       expect(query).toContain(
         'ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)',
       );
-      expect(query).toContain('createdAt: datetime()');
-      expect(query).toContain('updatedAt: datetime()');
+      expect(query).toContain('st.createdAt = datetime()');
+      expect(query).toContain('st.updatedAt = datetime()');
     });
 
     it('should generate shared tag creation query for same-type nodes when no label specified', () => {

@@ -145,7 +145,7 @@ export abstract class TaggableCategorizableNodeSchema<
    * Build the complete creation query including categories and keywords
    */
   protected buildTaggableCreateQuery(nodeData: TaggableCreateData): {
-    query: string;
+    cypher: string;
     params: { [key: string]: any };
   } {
     const queryParts: string[] = [];
@@ -213,7 +213,7 @@ export abstract class TaggableCategorizableNodeSchema<
     queryParts.push('RETURN n');
 
     return {
-      query: queryParts.join('\n'),
+      cypher: queryParts.join('\n'),
       params,
     };
   }
@@ -224,7 +224,7 @@ export abstract class TaggableCategorizableNodeSchema<
   protected buildTaggableUpdateQuery(
     id: string,
     updateData: TaggableUpdateData,
-  ): { query: string; params: { [key: string]: any } } {
+  ): { cypher: string; params: { [key: string]: any } } {
     const queryParts: string[] = [];
     const params: { [key: string]: any } = { id };
 
@@ -281,7 +281,7 @@ export abstract class TaggableCategorizableNodeSchema<
     queryParts.push('WITH n RETURN n');
 
     return {
-      query: queryParts.join('\n'),
+      cypher: queryParts.join('\n'),
       params,
     };
   }
@@ -290,10 +290,10 @@ export abstract class TaggableCategorizableNodeSchema<
    * Enhanced retrieval query that includes categories and keywords
    */
   protected buildTaggableRetrievalQuery(id: string): {
-    query: string;
+    cypher: string;
     params: { [key: string]: any };
   } {
-    const query = `
+    const cypher = `
       MATCH (n:${this.nodeLabel} {${this.idField}: $id})
       
       // Get discussion
@@ -330,7 +330,7 @@ export abstract class TaggableCategorizableNodeSchema<
     `;
 
     return {
-      query,
+      cypher,
       params: { id },
     };
   }
@@ -482,8 +482,8 @@ export abstract class TaggableCategorizableNodeSchema<
     filters: GraphFilters = {},
   ): Promise<{ nodes: GraphNode[]; edges: GraphEdge[] }> {
     try {
-      const { query, params } = this.buildGraphFilterQuery(filters);
-      const result = await this.neo4jService.read(query, params);
+      const { cypher, params } = this.buildGraphFilterQuery(filters);
+      const result = await this.neo4jService.read(cypher, params);
 
       const nodes: GraphNode[] = [];
       const edges: Map<string, GraphEdge> = new Map();
@@ -561,7 +561,7 @@ export abstract class TaggableCategorizableNodeSchema<
    * Build comprehensive filter query for graph visualization
    */
   protected buildGraphFilterQuery(filters: GraphFilters): {
-    query: string;
+    cypher: string;
     params: { [key: string]: any };
   } {
     const queryParts: string[] = [];
@@ -591,14 +591,14 @@ export abstract class TaggableCategorizableNodeSchema<
     // Keyword filters
     if (filters.keywords) {
       const keywordQuery = this.buildKeywordFilterQuery(filters.keywords);
-      queryParts.push(keywordQuery.query);
+      queryParts.push(keywordQuery.cypher);
       Object.assign(params, keywordQuery.params);
     }
 
     // Category filters
     if (filters.categories) {
       const categoryQuery = this.buildCategoryFilterQuery(filters.categories);
-      queryParts.push(categoryQuery.query);
+      queryParts.push(categoryQuery.cypher);
       Object.assign(params, categoryQuery.params);
     }
 
@@ -648,7 +648,7 @@ export abstract class TaggableCategorizableNodeSchema<
     `);
 
     return {
-      query: queryParts.join('\n'),
+      cypher: queryParts.join('\n'),
       params,
     };
   }
@@ -659,17 +659,17 @@ export abstract class TaggableCategorizableNodeSchema<
   private buildKeywordFilterQuery(keywordFilter: {
     mode: 'any' | 'all' | 'exact';
     values: string[];
-  }): { query: string; params: { [key: string]: any } } {
+  }): { cypher: string; params: { [key: string]: any } } {
     const params: { [key: string]: any } = {
       keywords: keywordFilter.values,
     };
 
-    let query = '';
+    let cypher = '';
 
     switch (keywordFilter.mode) {
       case 'any':
         // Match nodes with at least one keyword
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:TAGGED]->(w:WordNode)
           WHERE w.word IN $keywords
@@ -680,7 +680,7 @@ export abstract class TaggableCategorizableNodeSchema<
 
       case 'all':
         // Match nodes with all keywords
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:TAGGED]->(w:WordNode)
           WHERE w.word IN $keywords
@@ -691,7 +691,7 @@ export abstract class TaggableCategorizableNodeSchema<
 
       case 'exact':
         // Match nodes with exactly these keywords (no more, no less)
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:TAGGED]->(w:WordNode)
           WITH n, collect(DISTINCT w.word) as allNodeKeywords
@@ -701,7 +701,7 @@ export abstract class TaggableCategorizableNodeSchema<
         break;
     }
 
-    return { query, params };
+    return { cypher, params };
   }
 
   /**
@@ -710,17 +710,17 @@ export abstract class TaggableCategorizableNodeSchema<
   private buildCategoryFilterQuery(categoryFilter: {
     mode: 'any' | 'all' | 'exact';
     values: string[];
-  }): { query: string; params: { [key: string]: any } } {
+  }): { cypher: string; params: { [key: string]: any } } {
     const params: { [key: string]: any } = {
       categoryIds: categoryFilter.values,
     };
 
-    let query = '';
+    let cypher = '';
 
     switch (categoryFilter.mode) {
       case 'any':
         // Match nodes with at least one category
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)
           WHERE c.id IN $categoryIds
@@ -731,7 +731,7 @@ export abstract class TaggableCategorizableNodeSchema<
 
       case 'all':
         // Match nodes with all categories
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)
           WHERE c.id IN $categoryIds
@@ -742,7 +742,7 @@ export abstract class TaggableCategorizableNodeSchema<
 
       case 'exact':
         // Match nodes with exactly these categories
-        query = `
+        cypher = `
           WITH n
           MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)
           WITH n, collect(DISTINCT c.id) as allNodeCategories
@@ -752,7 +752,7 @@ export abstract class TaggableCategorizableNodeSchema<
         break;
     }
 
-    return { query, params };
+    return { cypher, params };
   }
 
   /**
@@ -796,8 +796,6 @@ export abstract class TaggableCategorizableNodeSchema<
           });
         });
       }
-
-      // Continue from where it was cut off...
 
       // Get Category nodes if categories are specified and includeCategoryNodes is true
       if (filters.categories && filters.includeCategoryNodes) {
@@ -860,7 +858,7 @@ export abstract class TaggableCategorizableNodeSchema<
         return new Map();
       }
 
-      const query = `
+      const cypher = `
         MATCH (n:${this.nodeLabel})
         WHERE n.${this.idField} IN $nodeIds
         OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(d:DiscussionNode)
@@ -899,7 +897,7 @@ export abstract class TaggableCategorizableNodeSchema<
                }
       `;
 
-      const result = await this.neo4jService.read(query, { nodeIds });
+      const result = await this.neo4jService.read(cypher, { nodeIds });
       const nodeMap = new Map<string, GraphNode>();
 
       result.records.forEach((record) => {

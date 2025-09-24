@@ -180,12 +180,21 @@ export class Neo4jQueryBuilder {
     const optionalMatches = relations
       .map((r) => {
         const direction = r.direction || 'OUT';
-        const arrow =
-          direction === 'OUT' ? '->' : direction === 'IN' ? '<-' : '-';
         const targetLabel = r.target ? `:${r.target}` : '';
         const relationship = `[:${r.type}]`;
 
-        return `OPTIONAL MATCH (n)${direction === 'IN' ? '<' : ''}${relationship}${arrow}(${r.alias}${targetLabel})`;
+        // Fixed: Proper arrow syntax for all directions
+        let pattern: string;
+        if (direction === 'OUT') {
+          pattern = `(n)-${relationship}->(${r.alias}${targetLabel})`;
+        } else if (direction === 'IN') {
+          pattern = `(n)<-${relationship}-(${r.alias}${targetLabel})`;
+        } else {
+          // BOTH direction
+          pattern = `(n)-${relationship}-(${r.alias}${targetLabel})`;
+        }
+
+        return `OPTIONAL MATCH ${pattern}`;
       })
       .join('\n    ');
 
