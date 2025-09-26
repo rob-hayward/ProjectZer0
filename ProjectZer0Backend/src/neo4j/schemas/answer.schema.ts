@@ -1,4 +1,4 @@
-// src/neo4j/schemas/answer.schema.ts - STANDARDIZED
+// src/neo4j/schemas/answer.schema.ts - REFACTORED
 
 import {
   Injectable,
@@ -7,43 +7,68 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
+import {
+  CategorizedNodeSchema,
+  CategorizedNodeData,
+} from './base/categorized.schema';
+import { DiscussionSchema } from './discussion.schema';
+import { UserSchema } from './user.schema';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
+import { v4 as uuidv4 } from 'uuid';
 
-// Answer-specific data interface extending BaseNodeData
-export interface AnswerData extends BaseNodeData {
+/**
+ * AnswerNode data interface
+ * Answers to open questions in the system
+ */
+export interface AnswerData extends CategorizedNodeData {
   answerText: string;
   parentQuestionId?: string;
-  keywords?: KeywordWithFrequency[];
-  categories?: any[];
-  relatedAnswers?: any[];
-  // Both inclusion and content voting (inherited from base)
+  parentQuestionText?: string; // For display purposes
+  relatedAnswers?: any[]; // Answers with shared tags
+  // Inherited from CategorizedNodeData:
+  // - categories (up to 3)
+  // Inherited from TaggedNodeData through CategorizedNodeData:
+  // - keywords (tagged with relevant words)
+  // Inherited from BaseNodeData:
+  // - All voting fields (both inclusion and content)
+  // - discussionId, createdBy, publicCredit, etc.
 }
 
-// Legacy interface for createAnswer method
-export interface AnswerNodeData {
-  id: string;
-  answerText: string;
-  createdBy: string;
-  publicCredit: boolean;
-  parentQuestionId: string;
-  categoryIds?: string[];
-  keywords?: KeywordWithFrequency[];
-  initialComment?: string;
-}
-
+/**
+ * Schema for AnswerNode - answers to open questions.
+ *
+ * Inheritance hierarchy:
+ * BaseNodeSchema -> TaggedNodeSchema -> CategorizedNodeSchema -> AnswerSchema
+ *
+ * Key characteristics:
+ * - Uses standard 'id' field
+ * - Both inclusion and content voting (dual voting)
+ * - Has discussions (via injected DiscussionSchema)
+ * - IS taggable (multiple keywords from the answer)
+ * - IS categorizable (up to 3 categories)
+ * - Parent question must pass inclusion threshold first
+ * - Content voting only after inclusion threshold passed
+ */
 @Injectable()
-export class AnswerSchema extends BaseNodeSchema<AnswerData> {
+export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
   protected readonly nodeLabel = 'AnswerNode';
-  protected readonly idField = 'id';
+  protected readonly idField = 'id'; // Standard ID field
+  protected readonly maxCategories = 3; // Answers can have up to 3 categories
 
-  constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
+  constructor(
+    neo4jService: Neo4jService,
+    voteSchema: VoteSchema,
+    private readonly discussionSchema: DiscussionSchema,
+    private readonly userSchema: UserSchema,
+  ) {
     super(neo4jService, voteSchema, AnswerSchema.name);
   }
 
-  // IMPLEMENT: Abstract methods from BaseNodeSchema
+  // ============================================
+  // ABSTRACT METHOD IMPLEMENTATIONS
+  // ============================================
 
   protected supportsContentVoting(): boolean {
     return true; // Answers support both inclusion and content voting
@@ -71,9 +96,16 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
   }
 
   protected buildUpdateQuery(id: string, data: Partial<AnswerData>) {
+    // Filter out complex fields that need special handling
     const setClause = Object.keys(data)
       .filter(
-        (key) => key !== 'id' && key !== 'keywords' && key !== 'categoryIds',
+        (key) =>
+          key !== 'id' &&
+          key !== 'keywords' &&
+          key !== 'categories' &&
+          key !== 'categoryIds' &&
+          key !== 'relatedAnswers' &&
+          key !== 'parentQuestionId', // Don't allow changing parent
       )
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
@@ -88,26 +120,83 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
     };
   }
 
+  // ============================================
+  // OVERRIDE VOTING METHODS WITH BUSINESS LOGIC
+  // ============================================
+
+  /**
+   * Content voting with business logic validation.
+   * Answers must pass inclusion threshold before content voting is allowed.
+   */
+  async voteContent(
+    id: string,
+    userId: string,
+    isPositive: boolean,
+  ): Promise<any> {
+    this.validateId(id);
+    this.validateUserId(userId);
+
+    // Check if answer has passed inclusion threshold
+    const answer = await this.findById(id);
+    if (
+      !answer ||
+      !VotingUtils.hasPassedInclusion(answer.inclusionNetVotes || 0)
+    ) {
+      throw new BadRequestException(
+        'Answer must pass inclusion threshold before content voting is allowed',
+      );
+    }
+
+    // Call parent implementation
+    return super.voteContent(id, userId, isPositive);
+  }
+
+  // ============================================
   // ANSWER-SPECIFIC METHODS
+  // ============================================
 
-  async createAnswer(answerData: AnswerNodeData): Promise<AnswerData> {
+  /**
+   * Creates a new answer with keywords and categories
+   */
+  async createAnswer(answerData: {
+    id?: string;
+    answerText: string;
+    createdBy: string;
+    publicCredit: boolean;
+    parentQuestionId: string;
+    categoryIds?: string[];
+    keywords?: KeywordWithFrequency[];
+    initialComment?: string;
+  }): Promise<AnswerData> {
+    // Validate inputs
+    if (!answerData.answerText || answerData.answerText.trim() === '') {
+      throw new BadRequestException('Answer text cannot be empty');
+    }
+
+    if (!answerData.parentQuestionId) {
+      throw new BadRequestException('Parent question ID is required');
+    }
+
+    if (
+      answerData.categoryIds &&
+      answerData.categoryIds.length > this.maxCategories
+    ) {
+      throw new BadRequestException(
+        `Answer can have maximum ${this.maxCategories} categories`,
+      );
+    }
+
+    const answerId = answerData.id || uuidv4();
+
+    this.logger.log(`Creating answer with ID: ${answerId}`);
+
     try {
-      if (!answerData.answerText || answerData.answerText.trim() === '') {
-        throw new BadRequestException('Answer text cannot be empty');
-      }
-
-      if (answerData.categoryIds && answerData.categoryIds.length > 3) {
-        throw new BadRequestException('Answer can have maximum 3 categories');
-      }
-
-      this.logger.log(`Creating answer with ID: ${answerData.id}`);
-
       let query = `
         // Validate parent OpenQuestion exists and has passed inclusion threshold
         MATCH (oq:OpenQuestionNode {id: $parentQuestionId})
         WHERE oq.inclusionNetVotes > 0
         
-        // Create the answer node (inclusion + content voting)
+        // Create the answer node with dual voting fields
         CREATE (a:AnswerNode {
           id: $id,
           answerText: $answerText,
@@ -129,24 +218,45 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
         CREATE (a)-[:ANSWERS]->(oq)
       `;
 
-      // Add category validation and relationships if provided
+      const params: any = {
+        id: answerId,
+        answerText: answerData.answerText.trim(),
+        createdBy: answerData.createdBy,
+        publicCredit: answerData.publicCredit,
+        parentQuestionId: answerData.parentQuestionId,
+      };
+
+      // Add categories if provided
       if (answerData.categoryIds && answerData.categoryIds.length > 0) {
         query += `
         // Validate categories exist and have passed inclusion threshold
-        WITH a, oq, $categoryIds as categoryIds
-        UNWIND categoryIds as categoryId
+        WITH a, oq
+        UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
         WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
-        CREATE (a)-[:CATEGORIZED_AS]->(cat)
+        CREATE (a)-[:CATEGORIZED_AS {
+          createdAt: datetime()
+        }]->(cat)
         
-        WITH a, oq, collect(cat) as validCategories, categoryIds
-        WHERE size(validCategories) = size(categoryIds)
+        // Create SHARED_CATEGORY relationships for discovery
+        WITH a, oq, cat
+        OPTIONAL MATCH (other:AnswerNode)-[:CATEGORIZED_AS]->(cat)
+        WHERE other.id <> a.id AND other.inclusionNetVotes > 0
+        FOREACH (dummy IN CASE WHEN other IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (a)-[sc:SHARED_CATEGORY {categoryId: cat.id}]->(other)
+          ON CREATE SET sc.strength = 1,
+                        sc.categoryName = cat.name,
+                        sc.createdAt = datetime()
+          ON MATCH SET sc.strength = sc.strength + 1,
+                       sc.updatedAt = datetime()
+        )
         `;
+        params.categoryIds = answerData.categoryIds;
       }
 
-      // Add keyword processing if provided
+      // Add keywords if provided
       if (answerData.keywords && answerData.keywords.length > 0) {
         query += `
         // Process keywords
@@ -155,55 +265,42 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
         
         // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
+        WHERE w.inclusionNetVotes > 0
         
         // Create TAGGED relationship
         CREATE (a)-[:TAGGED {
           frequency: keyword.frequency,
-          source: keyword.source
+          source: keyword.source,
+          createdAt: datetime()
         }]->(w)
         
-        // Connect to other answers that share this keyword
-        WITH a, w, keyword
+        // Create SHARED_TAG relationships for discovery between answers
+        WITH a, w, keyword, oq
         OPTIONAL MATCH (other:AnswerNode)-[t:TAGGED]->(w)
         WHERE other.id <> a.id
-        
-        // Create SHARED_TAG relationships between answers
         FOREACH (dummy IN CASE WHEN other IS NOT NULL THEN [1] ELSE [] END |
           MERGE (a)-[st:SHARED_TAG {word: w.word}]->(other)
-          ON CREATE SET st.strength = keyword.frequency * t.frequency
-          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency)
+          ON CREATE SET st.strength = keyword.frequency * t.frequency,
+                        st.createdAt = datetime()
+          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency),
+                       st.updatedAt = datetime()
         )
         `;
+        params.keywords = answerData.keywords;
       }
 
-      // Create CREATED relationship for user-created content
+      // Create user relationship
       query += `
         // Create CREATED relationship for user-created content
-        WITH a, $createdBy as userId
-        MATCH (u:User {sub: userId})
+        WITH a, oq
+        MATCH (u:User {sub: $createdBy})
         CREATE (u)-[:CREATED {
             createdAt: datetime(),
-            type: 'answer'
+            nodeType: 'answer'
         }]->(a)
         
         RETURN a as n
       `;
-
-      const params: any = {
-        id: answerData.id,
-        answerText: answerData.answerText,
-        createdBy: answerData.createdBy,
-        publicCredit: answerData.publicCredit,
-        parentQuestionId: answerData.parentQuestionId,
-      };
-
-      if (answerData.categoryIds && answerData.categoryIds.length > 0) {
-        params.categoryIds = answerData.categoryIds;
-      }
-
-      if (answerData.keywords && answerData.keywords.length > 0) {
-        params.keywords = answerData.keywords;
-      }
 
       const result = await this.neo4jService.write(query, params);
 
@@ -215,15 +312,30 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
 
       const createdAnswer = this.mapNodeFromRecord(result.records[0]);
 
-      // Always create discussion using standardized method
-      const discussionId = await this.createDiscussion({
-        nodeId: answerData.id,
-        nodeType: this.nodeLabel,
-        createdBy: answerData.createdBy,
-        initialComment: answerData.initialComment,
-      });
+      // Create discussion using the centralized DiscussionSchema
+      const discussionResult =
+        await this.discussionSchema.createDiscussionForNode({
+          nodeId: answerId,
+          nodeType: this.nodeLabel,
+          nodeIdField: 'id',
+          createdBy: answerData.createdBy,
+          initialComment: answerData.initialComment,
+        });
 
-      createdAnswer.discussionId = discussionId;
+      createdAnswer.discussionId = discussionResult.discussionId;
+
+      // Track user participation
+      try {
+        await this.userSchema.addCreatedNode(
+          answerData.createdBy,
+          answerId,
+          'answer',
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not track user creation for answer ${answerId}: ${error.message}`,
+        );
+      }
 
       this.logger.log(
         `Successfully created answer with ID: ${createdAnswer.id}`,
@@ -234,52 +346,32 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
         throw error;
       }
 
-      this.logger.error(`Error creating answer: ${error.message}`, error.stack);
-
-      if (error.message.includes('parent question may not exist')) {
+      if (error.message?.includes('parent question may not exist')) {
         throw new BadRequestException(
           'Parent OpenQuestion must exist and have passed inclusion threshold before answers can be created',
         );
       }
 
-      if (error.message.includes('not found')) {
+      if (error.message?.includes('not found')) {
         throw new BadRequestException(
           "Some categories or keywords don't exist or haven't passed inclusion threshold",
         );
       }
 
+      this.logger.error(`Error creating answer: ${error.message}`, error.stack);
       throw this.standardError('create answer', error);
     }
   }
 
-  // Content voting with business logic validation
-  async voteContent(
-    id: string,
-    userId: string,
-    isPositive: boolean,
-  ): Promise<any> {
-    this.validateId(id);
-    this.validateUserId(userId);
-
-    // Check if answer has passed inclusion threshold before allowing content voting
-    const answer = await this.findById(id);
-    if (!answer || !VotingUtils.hasPassedInclusion(answer.inclusionNetVotes)) {
-      throw new BadRequestException(
-        'Answer must pass inclusion threshold before content voting is allowed',
-      );
-    }
-
-    return super.voteContent(id, userId, isPositive);
-  }
-
+  /**
+   * Gets an answer with all its relationships
+   */
   async getAnswer(id: string): Promise<AnswerData | null> {
+    this.validateId(id);
+
+    this.logger.debug(`Retrieving answer with ID: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Answer ID cannot be empty');
-      }
-
-      this.logger.debug(`Retrieving answer with ID: ${id}`);
-
       const result = await this.neo4jService.read(
         `
         MATCH (a:AnswerNode {id: $id})
@@ -295,6 +387,7 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
         
         // Get related answers through shared keywords
         OPTIONAL MATCH (a)-[st:SHARED_TAG]->(related:AnswerNode)
+        WHERE related.inclusionNetVotes > 0
         
         // Get discussion
         OPTIONAL MATCH (a)-[:HAS_DISCUSSION]->(d:DiscussionNode)
@@ -332,26 +425,27 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
 
       // Add related data
       answer.parentQuestionId = record.get('parentQuestionId');
-      (answer as any).parentQuestionText = record.get('parentQuestionText');
-      answer.categories = (record.get('categories') || []).filter(
-        (cat) => cat.id,
-      );
-      answer.keywords = (record.get('keywords') || []).filter((kw) => kw.word);
-      answer.relatedAnswers = (record.get('relatedAnswers') || []).filter(
-        (related) => related.id,
-      );
+      answer.parentQuestionText = record.get('parentQuestionText');
+
+      const categories = record
+        .get('categories')
+        .filter((c: any) => c.id !== null);
+      const keywords = record
+        .get('keywords')
+        .filter((k: any) => k.word !== null);
+      const relatedAnswers = record
+        .get('relatedAnswers')
+        .filter((r: any) => r.id !== null);
+
+      if (categories.length > 0) answer.categories = categories;
+      if (keywords.length > 0) answer.keywords = keywords;
+      if (relatedAnswers.length > 0) answer.relatedAnswers = relatedAnswers;
+
       answer.discussionId = record.get('discussionId');
 
       this.logger.debug(`Retrieved answer with ID: ${id}`);
       return answer;
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
       this.logger.error(
         `Error retrieving answer ${id}: ${error.message}`,
         error.stack,
@@ -360,134 +454,57 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
     }
   }
 
+  /**
+   * Updates an answer including its keywords and categories
+   */
   async updateAnswer(
     id: string,
-    updateData: Partial<{
-      answerText: string;
-      publicCredit: boolean;
-      categoryIds: string[];
-      keywords: KeywordWithFrequency[];
-    }>,
-  ): Promise<AnswerData> {
+    updateData: {
+      answerText?: string;
+      publicCredit?: boolean;
+      categoryIds?: string[];
+      keywords?: KeywordWithFrequency[];
+    },
+  ): Promise<AnswerData | null> {
+    this.validateId(id);
+
+    if (
+      updateData.categoryIds &&
+      updateData.categoryIds.length > this.maxCategories
+    ) {
+      throw new BadRequestException(
+        `Answer can have maximum ${this.maxCategories} categories`,
+      );
+    }
+
+    // If no keywords or categories to update, use base update
+    if (!updateData.keywords && updateData.categoryIds === undefined) {
+      return await this.update(id, updateData);
+    }
+
+    // Complex update with keywords/categories
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Answer ID cannot be empty');
+      // Update categories if provided
+      if (updateData.categoryIds !== undefined) {
+        await this.updateCategories(id, updateData.categoryIds);
       }
 
-      if (updateData.categoryIds && updateData.categoryIds.length > 3) {
-        throw new BadRequestException('Answer can have maximum 3 categories');
+      // Update keywords if provided
+      if (updateData.keywords) {
+        await this.updateKeywords(id, updateData.keywords);
       }
 
-      this.logger.log(`Updating answer with ID: ${id}`);
+      // Update basic properties
+      const basicUpdate = { ...updateData };
+      delete basicUpdate.keywords;
+      delete basicUpdate.categoryIds;
 
-      // Complex update with keywords and categories
-      if (
-        (updateData.keywords && updateData.keywords.length > 0) ||
-        updateData.categoryIds !== undefined
-      ) {
-        let query = `
-        // Match the answer to update
-        MATCH (a:AnswerNode {id: $id})
-        
-        // Set updated properties
-        SET a += $updateProperties,
-            a.updatedAt = datetime()
-      `;
-
-        // Handle category updates
-        if (updateData.categoryIds !== undefined) {
-          query += `
-        // Remove existing CATEGORIZED_AS relationships
-        WITH a
-        OPTIONAL MATCH (a)-[catRel:CATEGORIZED_AS]->()
-        DELETE catRel
-        
-        // Create new category relationships if provided
-        WITH a, $categoryIds as categoryIds
-        WHERE size(categoryIds) > 0
-        UNWIND categoryIds as categoryId
-        MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
-        CREATE (a)-[:CATEGORIZED_AS]->(cat)
-        
-        WITH a, collect(cat) as validCategories, categoryIds
-        WHERE size(validCategories) = size(categoryIds) OR size(categoryIds) = 0
-        `;
-        }
-
-        // Handle keyword updates
-        if (updateData.keywords && updateData.keywords.length > 0) {
-          query += `
-        // Remove existing TAGGED and SHARED_TAG relationships
-        WITH a
-        OPTIONAL MATCH (a)-[tagRel:TAGGED]->()
-        DELETE tagRel
-        OPTIONAL MATCH (a)-[sharedRel:SHARED_TAG]->()
-        DELETE sharedRel
-        
-        // Create new keyword relationships
-        WITH a, $keywords as keywords
-        UNWIND keywords as keyword
-        MATCH (w:WordNode {word: keyword.word})
-        CREATE (a)-[:TAGGED {
-          frequency: keyword.frequency,
-          source: keyword.source
-        }]->(w)
-        
-        // Recreate SHARED_TAG relationships
-        WITH a, w, keyword
-        OPTIONAL MATCH (other:AnswerNode)-[t:TAGGED]->(w)
-        WHERE other.id <> a.id
-        FOREACH (dummy IN CASE WHEN other IS NOT NULL THEN [1] ELSE [] END |
-          MERGE (a)-[st:SHARED_TAG {word: w.word}]->(other)
-          ON CREATE SET st.strength = keyword.frequency * t.frequency
-        )
-        `;
-        }
-
-        query += ` 
-        WITH a
-        RETURN a as n`;
-
-        const params: any = { id };
-
-        // Filter out undefined values and complex fields from updateProperties
-        const updateProperties = Object.fromEntries(
-          Object.entries(updateData).filter(
-            ([key, value]) =>
-              value !== undefined &&
-              key !== 'categoryIds' &&
-              key !== 'keywords',
-          ),
-        );
-
-        if (Object.keys(updateProperties).length > 0) {
-          params.updateProperties = updateProperties;
-        }
-
-        if (updateData.categoryIds !== undefined) {
-          params.categoryIds = updateData.categoryIds;
-        }
-
-        if (updateData.keywords && updateData.keywords.length > 0) {
-          params.keywords = updateData.keywords;
-        }
-
-        const result = await this.neo4jService.write(query, params);
-
-        if (!result.records || result.records.length === 0) {
-          throw new NotFoundException(`Answer with ID ${id} not found`);
-        }
-
-        return this.mapNodeFromRecord(result.records[0]);
-      } else {
-        // Simple update - use inherited method for basic field updates
-        const result = await this.update(id, updateData);
-        if (!result) {
-          throw new NotFoundException(`Answer with ID ${id} not found`);
-        }
-        return result;
+      if (Object.keys(basicUpdate).length > 0) {
+        await this.update(id, basicUpdate);
       }
+
+      // Return updated answer
+      return await this.getAnswer(id);
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -495,150 +512,76 @@ export class AnswerSchema extends BaseNodeSchema<AnswerData> {
       ) {
         throw error;
       }
-
-      if (error.message && error.message.includes('not found')) {
-        throw new BadRequestException(
-          "Some categories or keywords don't exist or haven't passed inclusion threshold",
-        );
-      }
-
-      this.logger.error(
-        `Error updating answer ${id}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error updating answer: ${error.message}`, error.stack);
       throw this.standardError('update answer', error);
     }
   }
 
-  async getAnswersForQuestion(
+  /**
+   * Gets all answers for a specific question
+   */
+  async getAnswersByQuestion(
     questionId: string,
-    options: {
-      sortBy?: 'newest' | 'oldest' | 'inclusion_votes' | 'content_votes';
-      sortDirection?: 'asc' | 'desc';
-      limit?: number;
-      offset?: number;
-      onlyApproved?: boolean;
-    } = {},
+    includeUnapproved: boolean = false,
   ): Promise<AnswerData[]> {
+    this.validateId(questionId, 'Question ID');
+
     try {
-      const {
-        sortBy = 'content_votes',
-        sortDirection = 'desc',
-        limit = null,
-        offset = 0,
-        onlyApproved = false,
-      } = options;
+      const whereClause = includeUnapproved
+        ? ''
+        : 'AND a.inclusionNetVotes > 0';
 
-      this.logger.debug(`Getting answers for question ${questionId}`);
-
-      let query = `
-        MATCH (oq:OpenQuestionNode {id: $questionId})
-        MATCH (a:AnswerNode)-[:ANSWERS]->(oq)
-      `;
-
-      if (onlyApproved) {
-        query += ` WHERE a.inclusionNetVotes > 0`;
-      }
-
-      // Add sorting
-      if (sortBy === 'newest') {
-        query += ` ORDER BY a.createdAt ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'oldest') {
-        query += ` ORDER BY a.createdAt ${
-          sortDirection === 'desc' ? 'ASC' : 'DESC'
-        }`;
-      } else if (sortBy === 'inclusion_votes') {
-        query += ` ORDER BY a.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-      } else if (sortBy === 'content_votes') {
-        query += ` ORDER BY a.contentNetVotes ${sortDirection.toUpperCase()}`;
-      }
-
-      // Add pagination
-      if (limit !== null) {
-        query += ` SKIP $offset LIMIT $limit`;
-      }
-
-      query += ` RETURN a as n`;
-
-      const params: any = { questionId, offset };
-      if (limit !== null) {
-        params.limit = limit;
-      }
-
-      const result = await this.neo4jService.read(query, params);
-
-      const answers = result.records.map((record) =>
-        this.mapNodeFromRecord(record),
+      const result = await this.neo4jService.read(
+        `
+        MATCH (a:AnswerNode {parentQuestionId: $questionId})
+        ${whereClause}
+        RETURN a as n
+        ORDER BY a.contentNetVotes DESC, a.inclusionNetVotes DESC
+        `,
+        { questionId },
       );
 
-      this.logger.debug(
-        `Retrieved ${answers.length} answers for question ${questionId}`,
-      );
-      return answers;
+      return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
       this.logger.error(
         `Error getting answers for question: ${error.message}`,
         error.stack,
       );
-      throw this.standardError('get answers for question', error);
+      throw this.standardError('get answers by question', error);
     }
   }
 
-  async getCategoriesForAnswer(answerId: string): Promise<any[]> {
-    try {
-      this.logger.debug(`Getting categories for answer ${answerId}`);
+  /**
+   * Gets the top answer for a question (highest quality score)
+   */
+  async getTopAnswerForQuestion(
+    questionId: string,
+  ): Promise<AnswerData | null> {
+    const answers = await this.getAnswersByQuestion(questionId, false);
 
-      const result = await this.neo4jService.read(
-        `
-        MATCH (a:AnswerNode {id: $answerId})
-        
-        // Get all categories this answer is categorized as
-        OPTIONAL MATCH (a)-[:CATEGORIZED_AS]->(c:CategoryNode)
-        
-        // For hierarchical categories, get the path to root
-        OPTIONAL MATCH path = (c)-[:IS_CHILD_OF*0..]->(root:CategoryNode)
-        WHERE NOT (root)-[:IS_CHILD_OF]->()
-        
-        RETURN collect({
-          id: c.id,
-          name: c.name,
-          description: c.description,
-          inclusionNetVotes: c.inclusionNetVotes,
-          path: CASE 
-            WHEN path IS NOT NULL 
-            THEN [node IN nodes(path) | {id: node.id, name: node.name}]
-            ELSE [{id: c.id, name: c.name}]
-          END
-        }) as categories
-        `,
-        { answerId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return [];
-      }
-
-      const categories = result.records[0].get('categories');
-
-      // Convert Neo4j integers
-      categories.forEach((category) => {
-        if (category.inclusionNetVotes !== undefined) {
-          category.inclusionNetVotes = this.toNumber(
-            category.inclusionNetVotes,
-          );
-        }
-      });
-
-      this.logger.debug(
-        `Retrieved ${categories.length} categories for answer ${answerId}`,
-      );
-      return categories;
-    } catch (error) {
-      this.logger.error(
-        `Error getting answer categories: ${error.message}`,
-        error.stack,
-      );
-      throw this.standardError('get answer categories', error);
+    if (answers.length === 0) {
+      return null;
     }
+
+    // Already sorted by content votes in getAnswersByQuestion
+    return answers[0];
+  }
+
+  /**
+   * Gets answers related by tags or categories
+   */
+  async getRelatedAnswers(
+    answerId: string,
+    limit: number = 10,
+  ): Promise<AnswerData[]> {
+    // Use inherited method from CategorizedNodeSchema
+    const related = await this.findRelatedByCombined(answerId, limit);
+
+    // Load full answer data for each related ID
+    const answers = await Promise.all(
+      related.map((r) => this.getAnswer(r.nodeId)),
+    );
+
+    return answers.filter((a) => a !== null) as AnswerData[];
   }
 }

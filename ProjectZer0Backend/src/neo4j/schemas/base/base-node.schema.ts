@@ -1,4 +1,4 @@
-// src/neo4j/schemas/base-node.schema.ts
+// src/neo4j/schemas/base/base-node.schema.ts - REFACTORED WITHOUT DISCUSSION LOGIC
 import {
   Injectable,
   Logger,
@@ -10,6 +10,9 @@ import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
 import { VoteKind } from '../../../config/voting.config';
 import { Record } from 'neo4j-driver';
 
+/**
+ * Base interface for all node data in the system
+ */
 export interface BaseNodeData {
   id: string;
   createdBy: string;
@@ -22,16 +25,19 @@ export interface BaseNodeData {
   contentPositiveVotes?: number;
   contentNegativeVotes?: number;
   contentNetVotes?: number;
-  discussionId?: string;
+  discussionId?: string; // Still keep this field for nodes that have discussions
 }
 
-export interface CreateDiscussionOptions {
-  nodeId: string;
-  nodeType: string;
-  createdBy: string;
-  initialComment?: string;
-}
-
+/**
+ * Abstract base schema for all Neo4j node types.
+ * Provides common functionality for:
+ * - CRUD operations
+ * - Voting operations (inclusion and content)
+ * - Validation utilities
+ * - Error handling
+ *
+ * Note: Discussion creation has been moved to DiscussionSchema
+ */
 @Injectable()
 export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
   protected abstract readonly nodeLabel: string;
@@ -45,6 +51,10 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
   ) {
     this.logger = new Logger(loggerContext);
   }
+
+  // ============================================
+  // VALIDATION UTILITIES
+  // ============================================
 
   protected validateId(id: string, fieldName: string = 'ID'): void {
     if (!id || typeof id !== 'string' || id.trim() === '') {
@@ -60,126 +70,9 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     }
   }
 
-  protected async createDiscussion(
-    options: CreateDiscussionOptions,
-  ): Promise<string> {
-    try {
-      const discussionId = `discussion-${options.nodeId}-${Date.now()}`;
-
-      let query = `
-        MATCH (n:${options.nodeType} {${this.idField}: $nodeId})
-        
-        CREATE (d:DiscussionNode {
-          id: $discussionId,
-          createdBy: $createdBy,
-          associatedNodeId: $nodeId,
-          associatedNodeType: $nodeType,
-          createdAt: datetime(),
-          updatedAt: datetime()
-        })
-        
-        CREATE (n)-[:HAS_DISCUSSION]->(d)
-      `;
-
-      if (options.initialComment && options.initialComment.trim() !== '') {
-        query += `
-        CREATE (c:CommentNode {
-          id: $commentId,
-          createdBy: $createdBy,
-          discussionId: $discussionId,
-          commentText: $initialComment,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0
-        })
-        
-        CREATE (d)-[:HAS_COMMENT]->(c)
-        `;
-      }
-
-      query += ` RETURN d.id as discussionId`;
-
-      const params: any = {
-        nodeId: options.nodeId,
-        nodeType: options.nodeType,
-        discussionId,
-        createdBy: options.createdBy,
-      };
-
-      if (options.initialComment && options.initialComment.trim() !== '') {
-        params.commentId = `comment-${discussionId}-${Date.now()}`;
-        params.initialComment = options.initialComment;
-      }
-
-      const result = await this.neo4jService.write(query, params);
-
-      if (!result.records || result.records.length === 0) {
-        throw new Error('Failed to create discussion');
-      }
-
-      return result.records[0].get('discussionId');
-    } catch (error) {
-      this.logger.error(
-        `Error creating discussion for ${options.nodeType}: ${error.message}`,
-      );
-      throw this.standardError('create discussion', error);
-    }
-  }
-
-  protected async getDiscussionId(nodeId: string): Promise<string | null> {
-    try {
-      const result = await this.neo4jService.read(
-        `
-        MATCH (n:${this.nodeLabel} {${this.idField}: $nodeId})-[:HAS_DISCUSSION]->(d:DiscussionNode)
-        RETURN d.id as discussionId
-        `,
-        { nodeId },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return null;
-      }
-
-      return result.records[0].get('discussionId');
-    } catch {
-      return null;
-    }
-  }
-
-  async createDiscussionForExistingNode(
-    nodeId: string,
-    createdBy: string,
-    initialComment?: string,
-  ): Promise<string> {
-    this.validateId(nodeId);
-    this.validateUserId(createdBy);
-
-    const existingDiscussionId = await this.getDiscussionId(nodeId);
-    if (existingDiscussionId) {
-      throw new BadRequestException(
-        `${this.getNodeTypeName()} already has a discussion`,
-      );
-    }
-
-    const node = await this.findById(nodeId);
-    if (!node) {
-      throw new NotFoundException(
-        `${this.getNodeTypeName()} with ${this.idField} '${nodeId}' not found`,
-      );
-    }
-
-    return await this.createDiscussion({
-      nodeId,
-      nodeType: this.nodeLabel,
-      createdBy,
-      initialComment,
-    });
-  }
+  // ============================================
+  // CRUD OPERATIONS
+  // ============================================
 
   async findById(id: string): Promise<T | null> {
     this.validateId(id);
@@ -218,13 +111,12 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
 
       return this.mapNodeFromRecord(result.records[0]);
     } catch (error) {
-      if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
-      ) {
+      this.logger.error(`Error updating ${this.nodeLabel}: ${error.message}`);
+
+      if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error updating ${this.nodeLabel}: ${error.message}`);
+
       throw this.standardError('update', error);
     }
   }
@@ -233,37 +125,42 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     this.validateId(id);
 
     try {
-      const existsResult = await this.neo4jService.read(
-        `MATCH (n:${this.nodeLabel} {${this.idField}: $id}) RETURN COUNT(n) as count`,
+      // First check if the node exists
+      const checkResult = await this.neo4jService.read(
+        `MATCH (n:${this.nodeLabel} {${this.idField}: $id}) 
+         RETURN COUNT(n) as count`,
         { id },
       );
 
-      const count = this.toNumber(existsResult.records[0].get('count'));
+      const count = this.toNumber(checkResult.records[0].get('count'));
       if (count === 0) {
         throw new NotFoundException(
           `${this.getNodeTypeName()} with ${this.idField} '${id}' not found`,
         );
       }
 
+      // Delete the node and all its relationships
       await this.neo4jService.write(
-        `
-        MATCH (n:${this.nodeLabel} {${this.idField}: $id})
-        OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
-        DETACH DELETE n, d, c
-        `,
+        `MATCH (n:${this.nodeLabel} {${this.idField}: $id})
+         DETACH DELETE n`,
         { id },
       );
 
       return { success: true };
     } catch (error) {
+      this.logger.error(`Error deleting ${this.nodeLabel}: ${error.message}`);
+
       if (error instanceof NotFoundException) {
         throw error;
       }
-      this.logger.error(`Error deleting ${this.nodeLabel}: ${error.message}`);
+
       throw this.standardError('delete', error);
     }
   }
+
+  // ============================================
+  // VOTING OPERATIONS
+  // ============================================
 
   async voteInclusion(
     id: string,
@@ -338,7 +235,7 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     const voteStatus = await this.voteSchema.getVoteStatus(
       this.nodeLabel,
       { [this.idField]: id },
-      '',
+      '', // Empty user ID to get aggregate votes only
     );
 
     if (!voteStatus) {
@@ -360,6 +257,10 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
         : 0,
     };
   }
+
+  // ============================================
+  // UTILITY METHODS
+  // ============================================
 
   protected toNumber(value: any): number {
     if (value === null || value === undefined) {
@@ -391,7 +292,18 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     return name.charAt(0).toUpperCase() + name.slice(1);
   }
 
+  // ============================================
+  // ABSTRACT METHODS
+  // ============================================
+
+  /**
+   * Maps a Neo4j record to the node's data structure
+   */
   protected abstract mapNodeFromRecord(record: Record): T;
+
+  /**
+   * Builds an update query for the node
+   */
   protected abstract buildUpdateQuery(
     id: string,
     data: Partial<T>,
@@ -399,5 +311,9 @@ export abstract class BaseNodeSchema<T extends BaseNodeData = BaseNodeData> {
     cypher: string;
     params: any;
   };
+
+  /**
+   * Determines if this node type supports content voting
+   */
   protected abstract supportsContentVoting(): boolean;
 }

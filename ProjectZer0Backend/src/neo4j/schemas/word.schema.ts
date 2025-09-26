@@ -1,222 +1,339 @@
-// src/neo4j/schemas/word.schema.ts
-import { Injectable } from '@nestjs/common';
+// src/neo4j/schemas/word.schema.ts - REFACTORED
+
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { UserSchema } from './user.schema';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
+import { DiscussionSchema } from './discussion.schema';
+import { TaggedNodeSchema, TaggedNodeData } from './base/tagged.schema';
 import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
+import { v4 as uuidv4 } from 'uuid';
 
-export interface WordNode extends BaseNodeData {
-  word: string;
-  definitions?: any[];
+/**
+ * WordNode data interface
+ * Words are the foundation of the tagging system
+ */
+export interface WordNodeData extends TaggedNodeData {
+  word: string; // The actual word (also serves as ID)
+  definitions?: any[]; // Associated definitions
+  // Inherited from TaggedNodeData:
+  // - keywords (will be just itself for self-tagging)
+  // - relatedNodes (other nodes tagged with this word)
+  // Inherited from BaseNodeData through TaggedNodeData:
+  // - All voting fields, discussionId, createdBy, publicCredit, etc.
 }
 
+/**
+ * Schema for WordNode - the foundation of the tagging/keyword system.
+ *
+ * Inheritance hierarchy:
+ * BaseNodeSchema -> TaggedNodeSchema -> WordSchema
+ *
+ * Key characteristics:
+ * - Uses 'word' as the ID field (not 'id')
+ * - Self-tagging: each word is tagged with itself
+ * - Inclusion voting only (no content voting)
+ * - Has discussions (via injected DiscussionSchema)
+ * - Not categorizable (doesn't extend CategorizedSchema)
+ * - All words are standardized to lowercase
+ */
 @Injectable()
-export class WordSchema extends BaseNodeSchema<WordNode> {
+export class WordSchema extends TaggedNodeSchema<WordNodeData> {
   protected readonly nodeLabel = 'WordNode';
-  protected readonly idField = 'word';
+  protected readonly idField = 'word'; // IMPORTANT: Uses 'word' not 'id'
+
+  // Override to false since words tag themselves (no validation needed)
+  protected readonly validateKeywordInclusion = false;
 
   constructor(
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
     private readonly userSchema: UserSchema,
+    private readonly discussionSchema: DiscussionSchema,
   ) {
     super(neo4jService, voteSchema, WordSchema.name);
   }
 
+  // ============================================
+  // ABSTRACT METHOD IMPLEMENTATIONS
+  // ============================================
+
   protected supportsContentVoting(): boolean {
-    return false;
+    return false; // Words only have inclusion voting
   }
 
-  protected mapNodeFromRecord(record: Record): WordNode {
+  protected mapNodeFromRecord(record: Record): WordNodeData {
     const props = record.get('n').properties;
     return {
-      id: props.word,
+      id: props.word, // Use word as ID
+      word: props.word,
       createdBy: props.createdBy,
       publicCredit: props.publicCredit,
-      word: props.word,
       discussionId: props.discussionId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
+      // Inclusion voting only
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
       inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
       inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
+      // No content voting for words
       contentPositiveVotes: 0,
       contentNegativeVotes: 0,
       contentNetVotes: 0,
     };
   }
 
-  protected buildUpdateQuery(word: string, data: Partial<WordNode>) {
+  protected buildUpdateQuery(word: string, data: Partial<WordNodeData>) {
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id')
+      .filter((key) => key !== 'id' && key !== 'word') // Don't update word field
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
     return {
       cypher: `
-        MATCH (n:WordNode {word: $id})
+        MATCH (n:WordNode {word: $word})
         SET ${setClause}, n.updatedAt = datetime()
         RETURN n
       `,
-      params: { id: word, updateData: data },
+      params: { word: this.standardizeWord(word), updateData: data },
     };
   }
 
+  // ============================================
+  // WORD STANDARDIZATION
+  // ============================================
+
+  /**
+   * Standardizes a word to lowercase for consistency
+   */
+  private standardizeWord(word: string): string {
+    if (!word || typeof word !== 'string') {
+      throw new BadRequestException('Word must be a non-empty string');
+    }
+    return word.toLowerCase().trim();
+  }
+
+  // ============================================
+  // OVERRIDE INHERITED METHODS FOR WORD STANDARDIZATION
+  // ============================================
+
+  async findById(word: string): Promise<WordNodeData | null> {
+    return super.findById(this.standardizeWord(word));
+  }
+
+  async update(
+    word: string,
+    updateData: Partial<WordNodeData>,
+  ): Promise<WordNodeData | null> {
+    return super.update(this.standardizeWord(word), updateData);
+  }
+
+  async delete(word: string): Promise<{ success: boolean }> {
+    return super.delete(this.standardizeWord(word));
+  }
+
   async voteInclusion(word: string, userId: string, isPositive: boolean) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.voteInclusion(standardizedWord, userId, isPositive);
+    return super.voteInclusion(this.standardizeWord(word), userId, isPositive);
   }
 
   async getVoteStatus(word: string, userId: string) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.getVoteStatus(standardizedWord, userId);
+    return super.getVoteStatus(this.standardizeWord(word), userId);
   }
 
   async removeVote(word: string, userId: string, kind: any) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.removeVote(standardizedWord, userId, kind);
+    return super.removeVote(this.standardizeWord(word), userId, kind);
   }
 
   async getVotes(word: string) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.getVotes(standardizedWord);
+    return super.getVotes(this.standardizeWord(word));
   }
 
-  async findById(word: string) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.findById(standardizedWord);
+  // Override TaggedNodeSchema methods for word standardization
+  async getKeywords(word: string) {
+    // For words, the keyword is itself
+    return super.getKeywords(this.standardizeWord(word));
   }
 
-  async update(word: string, updateData: Partial<WordNode>) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.update(standardizedWord, updateData);
+  async updateKeywords() {
+    // Words shouldn't update their keywords (always self-tagged)
+    // Method signature matches parent class but parameters not used
+    throw new BadRequestException(
+      'Cannot update keywords for a word node - words are self-tagged',
+    );
   }
 
-  async delete(word: string) {
-    const standardizedWord = this.standardizeWord(word);
-    return super.delete(standardizedWord);
-  }
+  // ============================================
+  // WORD-SPECIFIC METHODS
+  // ============================================
 
-  private standardizeWord(word: string): string {
-    return word.trim().toLowerCase();
-  }
-
+  /**
+   * Checks if a word exists in the system
+   */
   async checkWordExistence(word: string): Promise<boolean> {
     const standardizedWord = this.standardizeWord(word);
+
     try {
       const result = await this.neo4jService.read(
-        `
-        MATCH (w:WordNode {word: $word})
-        RETURN COUNT(w) > 0 as exists
-        `,
+        `MATCH (w:WordNode {word: $word}) RETURN w IS NOT NULL as exists`,
         { word: standardizedWord },
       );
-      return result.records[0].get('exists');
+
+      return result.records.length > 0 && result.records[0].get('exists');
     } catch (error) {
+      this.logger.error(`Error checking word existence: ${error.message}`);
       throw this.standardError('check if word exists', error);
     }
   }
 
+  /**
+   * Creates a new word with optional initial definition
+   * Handles both user-created and API/AI-created words
+   */
   async createWord(wordData: {
     word: string;
     createdBy: string;
-    publicCredit: boolean;
-    initialDefinition: string;
+    publicCredit?: boolean;
+    initialDefinition?: string;
     initialComment?: string;
+    isApiDefinition?: boolean;
+    isAICreated?: boolean;
   }) {
     const standardizedWord = this.standardizeWord(wordData.word);
-    const isApiDefinition = wordData.createdBy === 'FreeDictionaryAPI';
-    const isAICreated = wordData.createdBy === 'ProjectZeroAI';
+
+    // Check if word already exists
+    const exists = await this.checkWordExistence(standardizedWord);
+    if (exists) {
+      throw new BadRequestException(
+        `Word '${standardizedWord}' already exists`,
+      );
+    }
+
+    const isApiDefinition = wordData.isApiDefinition || false;
+    const isAICreated = wordData.isAICreated || false;
+    const definitionId = uuidv4();
 
     try {
-      const result = await this.neo4jService.write(
-        `
-        CALL {
-          WITH $createdBy as userId
-          WITH userId
-          WHERE userId <> 'FreeDictionaryAPI' AND userId <> 'ProjectZeroAI'
-          MERGE (u:User {sub: userId})
-          RETURN u
-        }
-
+      // Create word and optional initial definition in one transaction
+      let query = `
         CREATE (w:WordNode {
-            id: apoc.create.uuid(),
-            word: $word,
-            createdBy: $createdBy,
-            publicCredit: $publicCredit,
-            createdAt: datetime(),
-            updatedAt: datetime(),
-            inclusionPositiveVotes: 0,
-            inclusionNegativeVotes: 0,
-            inclusionNetVotes: 0
+          word: $word,
+          createdBy: $createdBy,
+          publicCredit: $publicCredit,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          inclusionPositiveVotes: toInteger(0),
+          inclusionNegativeVotes: toInteger(0),
+          inclusionNetVotes: toInteger(0)
         })
+      `;
 
+      const params: any = {
+        word: standardizedWord,
+        createdBy: wordData.createdBy,
+        publicCredit: wordData.publicCredit ?? true,
+      };
+
+      // Add initial definition if provided
+      if (wordData.initialDefinition) {
+        query += `
         CREATE (d:DefinitionNode {
-            id: apoc.create.uuid(),
-            definitionText: $initialDefinition,
-            createdBy: $createdBy,
-            createdAt: datetime(),
-            inclusionPositiveVotes: 0,
-            inclusionNegativeVotes: 0,
-            inclusionNetVotes: 0,
-            contentPositiveVotes: 0,
-            contentNegativeVotes: 0,
-            contentNetVotes: 0
+          id: $definitionId,
+          word: $word,
+          definitionText: $initialDefinition,
+          createdBy: $createdBy,
+          publicCredit: $publicCredit,
+          isApiDefinition: $isApiDefinition,
+          isAICreated: $isAICreated,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          inclusionPositiveVotes: toInteger(0),
+          inclusionNegativeVotes: toInteger(0),
+          inclusionNetVotes: toInteger(0),
+          contentPositiveVotes: toInteger(0),
+          contentNegativeVotes: toInteger(0),
+          contentNetVotes: toInteger(0)
         })
+        CREATE (d)-[:DEFINES]->(w)
+        `;
 
-        CREATE (w)-[:HAS_DEFINITION]->(d)
+        params.definitionId = definitionId;
+        params.initialDefinition = wordData.initialDefinition;
+        params.isApiDefinition = isApiDefinition;
+        params.isAICreated = isAICreated;
+      }
 
-        WITH w, d, $createdBy as userId
-        WHERE NOT $isApiDefinition AND NOT $isAICreated
-        MATCH (u:User {sub: userId})
-        CREATE (u)-[:CREATED {
-            createdAt: datetime(),
-            type: 'word'
+      // Create self-tagging relationship (words are tagged with themselves)
+      // This is the key difference from other tagged nodes
+      query += `
+        CREATE (w)-[:TAGGED {
+          frequency: 1,
+          source: 'self',
+          createdAt: datetime()
         }]->(w)
-        CREATE (u)-[:CREATED {
-            createdAt: datetime(),
-            type: 'definition'
-        }]->(d)
+      `;
 
-        RETURN w, d
-        `,
-        {
-          ...wordData,
-          word: standardizedWord,
-          isApiDefinition,
-          isAICreated,
-        },
-      );
+      // Create user relationships if not API/AI created
+      if (!isApiDefinition && !isAICreated) {
+        query += `
+        WITH w${wordData.initialDefinition ? ', d' : ''}
+        MATCH (u:User {sub: $createdBy})
+        CREATE (u)-[:CREATED {
+          createdAt: datetime(),
+          nodeType: 'word'
+        }]->(w)
+        `;
+
+        if (wordData.initialDefinition) {
+          query += `
+          CREATE (u)-[:CREATED {
+            createdAt: datetime(),
+            nodeType: 'definition'
+          }]->(d)
+          `;
+        }
+      }
+
+      query += `
+        RETURN w${wordData.initialDefinition ? ', d' : ', null as d'}
+      `;
+
+      const result = await this.neo4jService.write(query, params);
 
       if (!result.records || !result.records[0]) {
         throw new Error('Failed to create word');
       }
 
       const createdWord = result.records[0].get('w').properties;
-      const createdDefinition = result.records[0].get('d').properties;
+      const createdDefinition = result.records[0].get('d')?.properties;
 
-      const discussionId = await this.createDiscussion({
-        nodeId: standardizedWord,
-        nodeType: this.nodeLabel,
-        createdBy: wordData.createdBy,
-        initialComment: wordData.initialComment,
-      });
+      // Create discussion using the centralized DiscussionSchema
+      const discussionResult =
+        await this.discussionSchema.createDiscussionForNode({
+          nodeId: standardizedWord,
+          nodeType: this.nodeLabel,
+          nodeIdField: 'word', // Important: words use 'word' as ID
+          createdBy: wordData.createdBy,
+          initialComment: wordData.initialComment,
+        });
 
-      createdWord.discussionId = discussionId;
+      createdWord.discussionId = discussionResult.discussionId;
 
+      // Track user participation if not API/AI created
       if (!isApiDefinition && !isAICreated) {
         await this.userSchema.addCreatedNode(
           wordData.createdBy,
-          createdWord.id,
+          standardizedWord,
           'word',
         );
-        await this.userSchema.addCreatedNode(
-          wordData.createdBy,
-          createdDefinition.id,
-          'definition',
-        );
+
+        if (createdDefinition) {
+          await this.userSchema.addCreatedNode(
+            wordData.createdBy,
+            createdDefinition.id,
+            'definition',
+          );
+        }
       }
 
       return {
@@ -224,173 +341,185 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
         definition: createdDefinition,
       };
     } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.error(`Error creating word: ${error.message}`);
       throw this.standardError('create word', error);
     }
   }
 
-  async addDefinition(wordData: {
-    word: string;
-    createdBy: string;
-    definitionText: string;
-    publicCredit: boolean;
-  }) {
-    const standardizedWord = this.standardizeWord(wordData.word);
-
-    try {
-      const result = await this.neo4jService.write(
-        `
-        MATCH (w:WordNode {word: $word})
-        CREATE (d:DefinitionNode {
-          id: apoc.create.uuid(),
-          definitionText: $definitionText,
-          createdBy: $createdBy,
-          publicCredit: $publicCredit,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-          wordAssociationScore: 1.0
-        })
-        CREATE (w)-[:HAS_DEFINITION]->(d)
-        RETURN d
-        `,
-        {
-          word: standardizedWord,
-          definitionText: wordData.definitionText,
-          createdBy: wordData.createdBy,
-          publicCredit: wordData.publicCredit,
-        },
-      );
-
-      const createdDefinition = result.records[0].get('d').properties;
-
-      if (
-        wordData.createdBy !== 'FreeDictionaryAPI' &&
-        wordData.createdBy !== 'ProjectZeroAI'
-      ) {
-        await this.userSchema.addCreatedNode(
-          wordData.createdBy,
-          createdDefinition.id,
-          'definition',
-        );
-      }
-
-      return createdDefinition;
-    } catch (error) {
-      throw this.standardError('add definition to word', error);
-    }
-  }
-
-  async getWord(word: string) {
+  /**
+   * Gets a word with its definitions and discussion
+   */
+  async getWord(word: string): Promise<WordNodeData | null> {
     const standardizedWord = this.standardizeWord(word);
+
     try {
       const result = await this.neo4jService.read(
         `
-        MATCH (w:WordNode)
-        WHERE toLower(w.word) = toLower($word)
+        MATCH (w:WordNode {word: $word})
+        OPTIONAL MATCH (w)<-[:DEFINES]-(d:DefinitionNode)
+        WHERE d.inclusionNetVotes >= 0
         OPTIONAL MATCH (w)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
-        RETURN w, collect(d) as definitions, disc.id as discussionId
+        RETURN w, 
+               collect(d) as definitions,
+               disc.id as discussionId
+        ORDER BY d.inclusionNetVotes DESC
         `,
         { word: standardizedWord },
       );
 
-      if (result.records.length === 0) {
+      if (!result.records || result.records.length === 0) {
         return null;
       }
 
-      const wordNode = result.records[0].get('w').properties;
-      const definitions = result.records[0].get('definitions');
-      const discussionId = result.records[0].get('discussionId');
+      const record = result.records[0];
+      const definitions = record.get('definitions');
+      const discussionId = record.get('discussionId');
 
       const mappedDefinitions = definitions
         ? definitions.map((d: any) => d.properties)
         : [];
 
-      const wordData = {
-        ...wordNode,
-        word: wordNode.word,
-        inclusionPositiveVotes: this.toNumber(wordNode.inclusionPositiveVotes),
-        inclusionNegativeVotes: this.toNumber(wordNode.inclusionNegativeVotes),
-        inclusionNetVotes: this.toNumber(wordNode.inclusionNetVotes),
+      return {
+        ...this.mapNodeFromRecord(record),
         definitions: mappedDefinitions,
         discussionId: discussionId,
       };
-
-      return wordData;
     } catch (error) {
-      throw this.standardError('fetch word', error);
+      this.logger.error(`Error getting word: ${error.message}`);
+      throw this.standardError('get word', error);
     }
   }
 
-  async getAllWords() {
+  /**
+   * Gets all words (with optional filtering)
+   */
+  async getAllWords(
+    options: {
+      limit?: number;
+      offset?: number;
+      includeUnapproved?: boolean;
+    } = {},
+  ) {
+    const { limit = 100, offset = 0, includeUnapproved = false } = options;
+
     try {
+      const whereClause = includeUnapproved
+        ? ''
+        : 'WHERE w.inclusionNetVotes > 0';
+
       const result = await this.neo4jService.read(
         `
         MATCH (w:WordNode)
+        ${whereClause}
+        OPTIONAL MATCH (w)<-[:DEFINES]-(d:DefinitionNode)
         OPTIONAL MATCH (w)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
-        OPTIONAL MATCH (w)-[:HAS_DEFINITION]->(d:DefinitionNode)
-        RETURN w, collect(d) as definitions, disc.id as discussionId
-        ORDER BY w.createdAt DESC
+        RETURN w, 
+               collect(d) as definitions,
+               disc.id as discussionId
+        ORDER BY w.word ASC
+        SKIP $offset
+        LIMIT $limit
         `,
-        {},
+        { offset, limit },
       );
 
-      const words = result.records.map((record) => {
-        const wordNode = record.get('w').properties;
+      return result.records.map((record) => {
         const definitions = record.get('definitions');
         const discussionId = record.get('discussionId');
 
-        const mappedDefinitions = definitions
-          ? definitions.map((d: any) => d.properties)
-          : [];
-
         return {
-          ...wordNode,
-          inclusionPositiveVotes: this.toNumber(
-            wordNode.inclusionPositiveVotes,
-          ),
-          inclusionNegativeVotes: this.toNumber(
-            wordNode.inclusionNegativeVotes,
-          ),
-          inclusionNetVotes: this.toNumber(wordNode.inclusionNetVotes),
-          definitions: mappedDefinitions,
+          ...this.mapNodeFromRecord(record),
+          definitions: definitions
+            ? definitions.map((d: any) => d.properties)
+            : [],
           discussionId: discussionId,
         };
       });
-
-      return words;
     } catch (error) {
+      this.logger.error(`Error getting all words: ${error.message}`);
       throw this.standardError('get all words', error);
     }
   }
 
-  async checkWords() {
-    try {
-      const result = await this.neo4jService.read(
-        'MATCH (w:WordNode) RETURN count(w) as count',
-      );
-      const count = this.toNumber(result.records[0].get('count'));
-      return { count };
-    } catch (error) {
-      throw this.standardError('check words', error);
-    }
-  }
+  /**
+   * Gets approved words (passed inclusion threshold)
+   */
+  async getApprovedWords(
+    options: {
+      limit?: number;
+      offset?: number;
+      sortBy?: 'alphabetical' | 'votes' | 'created';
+      sortDirection?: 'ASC' | 'DESC';
+    } = {},
+  ) {
+    const {
+      limit = 50,
+      offset = 0,
+      sortBy = 'alphabetical',
+      sortDirection = 'ASC',
+    } = options;
 
-  async isWordAvailableForCategoryComposition(
-    wordId: string,
-  ): Promise<boolean> {
+    const orderByClause =
+      sortBy === 'votes'
+        ? `w.inclusionNetVotes ${sortDirection}`
+        : sortBy === 'created'
+          ? `w.createdAt ${sortDirection}`
+          : `w.word ${sortDirection}`;
+
     try {
       const result = await this.neo4jService.read(
         `
-        MATCH (w:WordNode {id: $wordId})
+        MATCH (w:WordNode)
+        WHERE w.inclusionNetVotes > 0
+        RETURN w
+        ORDER BY ${orderByClause}
+        SKIP $offset
+        LIMIT $limit
+        `,
+        { offset, limit },
+      );
+
+      return result.records.map((record) => this.mapNodeFromRecord(record));
+    } catch (error) {
+      this.logger.error(`Error getting approved words: ${error.message}`);
+      throw this.standardError('get approved words', error);
+    }
+  }
+
+  /**
+   * Checks if a word has passed inclusion threshold for definition creation
+   */
+  async isWordAvailableForDefinitionCreation(word: string): Promise<boolean> {
+    const standardizedWord = this.standardizeWord(word);
+
+    try {
+      const wordData = await this.getWord(standardizedWord);
+      if (!wordData) return false;
+
+      return VotingUtils.isDefinitionCreationAllowed(
+        wordData.inclusionNetVotes || 0,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Checks if a word is available for category composition
+   */
+  async isWordAvailableForCategoryComposition(word: string): Promise<boolean> {
+    const standardizedWord = this.standardizeWord(word);
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (w:WordNode {word: $word})
         RETURN w.inclusionNetVotes as inclusionNetVotes
         `,
-        { wordId },
+        { word: standardizedWord },
       );
 
       if (!result.records || result.records.length === 0) {
@@ -400,81 +529,27 @@ export class WordSchema extends BaseNodeSchema<WordNode> {
       const inclusionNetVotes = this.toNumber(
         result.records[0].get('inclusionNetVotes'),
       );
+
       return VotingUtils.hasPassedInclusion(inclusionNetVotes);
     } catch {
       return false;
     }
   }
 
-  async isWordAvailableForDefinitionCreation(word: string): Promise<boolean> {
+  /**
+   * Gets word statistics
+   */
+  async checkWords(): Promise<{ count: number }> {
     try {
-      const wordData = await this.getWord(word);
-      if (!wordData) return false;
-
-      return VotingUtils.isDefinitionCreationAllowed(
-        wordData.inclusionNetVotes,
-      );
-    } catch {
-      return false;
-    }
-  }
-
-  async getApprovedWords(
-    options: {
-      limit?: number;
-      offset?: number;
-      sortBy?: 'alphabetical' | 'votes' | 'created';
-      sortDirection?: 'asc' | 'desc';
-    } = {},
-  ) {
-    const {
-      limit = 100,
-      offset = 0,
-      sortBy = 'alphabetical',
-      sortDirection = 'asc',
-    } = options;
-
-    try {
-      let orderByClause = '';
-      switch (sortBy) {
-        case 'alphabetical':
-          orderByClause = `ORDER BY w.word ${sortDirection.toUpperCase()}`;
-          break;
-        case 'votes':
-          orderByClause = `ORDER BY w.inclusionNetVotes ${sortDirection.toUpperCase()}`;
-          break;
-        case 'created':
-          orderByClause = `ORDER BY w.createdAt ${sortDirection.toUpperCase()}`;
-          break;
-      }
-
       const result = await this.neo4jService.read(
-        `
-        MATCH (w:WordNode)
-        WHERE w.inclusionNetVotes > 0
-        ${orderByClause}
-        SKIP $offset
-        LIMIT $limit
-        RETURN w
-        `,
-        { limit, offset },
+        'MATCH (w:WordNode) RETURN count(w) as count',
       );
 
-      return result.records.map((record) => {
-        const wordNode = record.get('w').properties;
-        return {
-          ...wordNode,
-          inclusionPositiveVotes: this.toNumber(
-            wordNode.inclusionPositiveVotes,
-          ),
-          inclusionNegativeVotes: this.toNumber(
-            wordNode.inclusionNegativeVotes,
-          ),
-          inclusionNetVotes: this.toNumber(wordNode.inclusionNetVotes),
-        };
-      });
+      const count = this.toNumber(result.records[0].get('count'));
+      return { count };
     } catch (error) {
-      throw this.standardError('get approved words', error);
+      this.logger.error(`Error checking words: ${error.message}`);
+      throw this.standardError('check words', error);
     }
   }
 }

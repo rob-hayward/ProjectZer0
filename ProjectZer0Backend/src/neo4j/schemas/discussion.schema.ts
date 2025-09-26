@@ -1,31 +1,59 @@
-// src/neo4j/schemas/discussion.schema.ts - FIXED VALIDATION ISSUES
+// src/neo4j/schemas/discussion.schema.ts - REFACTORED
 
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
 import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
 import { Record } from 'neo4j-driver';
 
-// Discussion-specific data interface extending BaseNodeData
+/**
+ * Discussion data interface
+ */
 export interface DiscussionData extends BaseNodeData {
   createdBy: string;
-  associatedNodeId: string; // The node this discussion is attached to
-  associatedNodeType: string; // Type: WordNode, DefinitionNode, etc.
+  associatedNodeId: string;
+  associatedNodeType: string;
 }
 
+/**
+ * Options for creating a discussion with an associated node
+ */
+export interface CreateDiscussionForNodeOptions {
+  nodeId: string;
+  nodeType: string;
+  nodeIdField?: string; // 'id' or 'word' depending on node type
+  createdBy: string;
+  initialComment?: string;
+}
+
+/**
+ * Result of discussion creation
+ */
+export interface DiscussionCreationResult {
+  discussionId: string;
+  commentId?: string;
+}
+
+/**
+ * Schema for managing discussions and their relationships to content nodes.
+ * Provides centralized discussion creation that can be used by any discussable node.
+ */
 @Injectable()
 export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
   protected readonly nodeLabel = 'DiscussionNode';
-  protected readonly idField = 'id'; // Discussions use standard 'id' field
+  protected readonly idField = 'id';
+  private readonly discussionLogger = new Logger('DiscussionSchema');
 
   constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
     super(neo4jService, voteSchema, DiscussionSchema.name);
   }
 
-  // IMPLEMENT: Abstract methods from BaseNodeSchema
+  // ============================================
+  // ABSTRACT METHOD IMPLEMENTATIONS
+  // ============================================
 
   protected supportsContentVoting(): boolean {
-    return false; // Discussions don't support content voting
+    return false; // Discussions don't support any voting
   }
 
   protected mapNodeFromRecord(record: Record): DiscussionData {
@@ -33,11 +61,11 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     return {
       id: props.id,
       createdBy: props.createdBy,
+      publicCredit: props.publicCredit || false,
       associatedNodeId: props.associatedNodeId,
       associatedNodeType: props.associatedNodeType,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
-      // Discussions don't have any voting
       inclusionPositiveVotes: 0,
       inclusionNegativeVotes: 0,
       inclusionNetVotes: 0,
@@ -49,7 +77,7 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
 
   protected buildUpdateQuery(id: string, data: Partial<DiscussionData>) {
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id') // Don't update the id field
+      .filter((key) => key !== 'id')
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -63,15 +91,215 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     };
   }
 
-  // DISCUSSION-SPECIFIC METHODS - Keep all unique container functionality
+  // ============================================
+  // CENTRALIZED DISCUSSION CREATION
+  // ============================================
 
-  async createDiscussion(discussionData: {
+  /**
+   * Creates a discussion for any node type with optional initial comment.
+   * This is the main method that should be called by other schemas.
+   *
+   * @param options Creation options including node details and optional initial comment
+   * @returns The created discussion ID and optional comment ID
+   */
+  async createDiscussionForNode(
+    options: CreateDiscussionForNodeOptions,
+  ): Promise<DiscussionCreationResult> {
+    // Validate inputs
+    if (!options.nodeId || options.nodeId.trim() === '') {
+      throw new BadRequestException(
+        'Node ID is required for discussion creation',
+      );
+    }
+    if (!options.nodeType || options.nodeType.trim() === '') {
+      throw new BadRequestException(
+        'Node type is required for discussion creation',
+      );
+    }
+    if (!options.createdBy || options.createdBy.trim() === '') {
+      throw new BadRequestException(
+        'Creator is required for discussion creation',
+      );
+    }
+
+    const discussionId = `discussion-${options.nodeId}-${Date.now()}`;
+    const idField = options.nodeIdField || 'id';
+
+    this.discussionLogger.log(
+      `Creating discussion for ${options.nodeType} with ${idField}: ${options.nodeId}`,
+    );
+
+    try {
+      let query = `
+        // Verify the node exists
+        MATCH (n:${options.nodeType} {${idField}: $nodeId})
+        
+        // Create the discussion node
+        CREATE (d:DiscussionNode {
+          id: $discussionId,
+          createdBy: $createdBy,
+          associatedNodeId: $nodeId,
+          associatedNodeType: $nodeType,
+          createdAt: datetime(),
+          updatedAt: datetime()
+        })
+        
+        // Create the HAS_DISCUSSION relationship
+        CREATE (n)-[:HAS_DISCUSSION]->(d)
+      `;
+
+      const params: any = {
+        nodeId: options.nodeId,
+        nodeType: options.nodeType,
+        discussionId,
+        createdBy: options.createdBy,
+      };
+
+      let commentId: string | undefined;
+
+      // Add initial comment if provided
+      if (options.initialComment && options.initialComment.trim() !== '') {
+        commentId = `comment-${discussionId}-${Date.now()}`;
+
+        query += `
+        // Create the initial comment
+        CREATE (c:CommentNode {
+          id: $commentId,
+          createdBy: $createdBy,
+          discussionId: $discussionId,
+          commentText: $initialComment,
+          parentCommentId: null,
+          createdAt: datetime(),
+          updatedAt: datetime(),
+          // Comments only have content voting
+          inclusionPositiveVotes: 0,
+          inclusionNegativeVotes: 0,
+          inclusionNetVotes: 0,
+          contentPositiveVotes: 0,
+          contentNegativeVotes: 0,
+          contentNetVotes: 0
+        })
+        
+        // Link comment to discussion
+        CREATE (d)-[:HAS_COMMENT]->(c)
+        
+        // Link user to comment
+        WITH d, c
+        MATCH (u:User {sub: $createdBy})
+        CREATE (u)-[:COMMENTED {
+          createdAt: datetime(),
+          commentId: c.id
+        }]->(n)
+        `;
+
+        params.commentId = commentId;
+        params.initialComment = options.initialComment;
+      }
+
+      query += `
+        RETURN d.id as discussionId
+      `;
+
+      const result = await this.neo4jService.write(query, params);
+
+      if (!result.records || result.records.length === 0) {
+        throw new Error(
+          `Failed to create discussion for ${options.nodeType}: Node may not exist`,
+        );
+      }
+
+      this.discussionLogger.log(
+        `Successfully created discussion ${discussionId} for ${options.nodeType}: ${options.nodeId}`,
+      );
+
+      return {
+        discussionId: result.records[0].get('discussionId'),
+        commentId,
+      };
+    } catch (error) {
+      this.discussionLogger.error(
+        `Error creating discussion for ${options.nodeType}: ${error.message}`,
+        error.stack,
+      );
+      throw new BadRequestException(
+        `Failed to create discussion: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Gets the discussion ID for a given node if it exists
+   *
+   * @param nodeType The type/label of the node
+   * @param nodeId The ID of the node
+   * @param idField The field used as ID (default: 'id', but 'word' for WordNode)
+   * @returns The discussion ID or null if no discussion exists
+   */
+  async getDiscussionIdForNode(
+    nodeType: string,
+    nodeId: string,
+    idField: string = 'id',
+  ): Promise<string | null> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (n:${nodeType} {${idField}: $nodeId})-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        RETURN d.id as discussionId
+        `,
+        { nodeId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return null;
+      }
+
+      return result.records[0].get('discussionId');
+    } catch {
+      this.discussionLogger.debug(
+        `No discussion found for ${nodeType}: ${nodeId}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Checks if a node already has a discussion
+   *
+   * @param nodeType The type/label of the node
+   * @param nodeId The ID of the node
+   * @param idField The field used as ID
+   * @returns True if the node has a discussion
+   */
+  async hasDiscussion(
+    nodeType: string,
+    nodeId: string,
+    idField: string = 'id',
+  ): Promise<boolean> {
+    const discussionId = await this.getDiscussionIdForNode(
+      nodeType,
+      nodeId,
+      idField,
+    );
+    return discussionId !== null;
+  }
+
+  // ============================================
+  // LEGACY METHODS (kept for compatibility)
+  // ============================================
+
+  /**
+   * Creates a standalone discussion not attached to any node.
+   * This method is kept for backward compatibility but should not be used for new code.
+   *
+   * @deprecated Use createDiscussionForNode instead
+   */
+  async createStandaloneDiscussion(discussionData: {
     id: string;
     createdBy: string;
     associatedNodeId: string;
     associatedNodeType: string;
   }): Promise<DiscussionData> {
-    // ✅ FIXED: Proper validation with BadRequestException
+    // Validation
     if (!discussionData.id || discussionData.id.trim() === '') {
       throw new BadRequestException('Discussion ID is required');
     }
@@ -91,7 +319,7 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
       throw new BadRequestException('Associated node type is required');
     }
 
-    this.logger.log(`Creating discussion: ${discussionData.id}`);
+    this.logger.log(`Creating standalone discussion: ${discussionData.id}`);
 
     try {
       const result = await this.neo4jService.write(
@@ -102,14 +330,7 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
           associatedNodeId: $associatedNodeId,
           associatedNodeType: $associatedNodeType,
           createdAt: datetime(),
-          updatedAt: datetime(),
-          // Discussions don't have voting
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0
+          updatedAt: datetime()
         })
         RETURN d as n
         `,
@@ -128,11 +349,17 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     }
   }
 
+  // ============================================
+  // QUERY METHODS
+  // ============================================
+
+  /**
+   * Get all discussions for a specific node
+   */
   async getDiscussionsByAssociatedNode(
     nodeId: string,
     nodeType: string,
   ): Promise<DiscussionData[]> {
-    // ✅ FIXED: Proper validation with BadRequestException
     if (!nodeId || nodeId.trim() === '') {
       throw new BadRequestException('Node ID is required');
     }
@@ -152,65 +379,82 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
         { nodeId, nodeType },
       );
 
-      return result.records.map((record) => {
-        const discussion = record.get('n').properties;
-        return {
-          id: discussion.id,
-          createdBy: discussion.createdBy,
-          associatedNodeId: discussion.associatedNodeId,
-          associatedNodeType: discussion.associatedNodeType,
-          createdAt: discussion.createdAt,
-          updatedAt: discussion.updatedAt,
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-        };
-      });
+      return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
       this.logger.error(
-        `Error getting discussions for node: ${error.message}`,
+        `Error getting discussions: ${error.message}`,
         error.stack,
       );
-      throw this.standardError('get discussions for node', error);
+      throw this.standardError('get discussions', error);
     }
   }
 
-  async getDiscussionCommentCount(id: string): Promise<number> {
-    // ✅ FIXED: Proper validation with BadRequestException
-    if (!id || id.trim() === '') {
+  /**
+   * Get comment count for a discussion
+   */
+  async getDiscussionCommentCount(discussionId: string): Promise<number> {
+    if (!discussionId || discussionId.trim() === '') {
       throw new BadRequestException('Discussion ID is required');
     }
 
     try {
       const result = await this.neo4jService.read(
         `
-        MATCH (d:DiscussionNode {id: $id})-[:HAS_COMMENT]->(c:CommentNode)
+        MATCH (d:DiscussionNode {id: $id})
+        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
         RETURN COUNT(c) as commentCount
         `,
-        { id }, // ✅ FIXED: Parameter name should be 'id', not 'discussionId'
+        { id: discussionId },
       );
 
-      return parseInt(result.records[0].get('commentCount').toString());
+      return this.toNumber(result.records[0].get('commentCount'));
     } catch (error) {
       this.logger.error(
         `Error getting comment count: ${error.message}`,
         error.stack,
       );
-      return 0; // Return 0 on error rather than throwing
+      return 0;
     }
   }
 
-  // ✅ INHERITED FROM BaseNodeSchema (No need to implement):
-  // - findById() -> replaces getDiscussion()
-  // - update() -> replaces updateDiscussion()
-  // - delete() -> replaces deleteDiscussion()
-  // - Standard validation, error handling, Neo4j utilities
-  // - voteInclusion() and voteContent() will throw BadRequestException automatically because supportsContentVoting() = false
+  /**
+   * Get all comments for a discussion with hierarchical structure
+   */
+  async getDiscussionComments(discussionId: string): Promise<any[]> {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
 
-  // ❌ INTENTIONALLY REMOVED (handled by VisibilityService):
-  // - setVisibilityStatus()
-  // - getVisibilityStatus()
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (d:DiscussionNode {id: $id})
+        OPTIONAL MATCH (d)-[:HAS_COMMENT]->(c:CommentNode)
+        OPTIONAL MATCH (c)<-[:COMMENTED]-(u:User)
+        RETURN c, u.sub as userId, u.username as username
+        ORDER BY c.createdAt ASC
+        `,
+        { id: discussionId },
+      );
+
+      return result.records
+        .map((record) => {
+          const comment = record.get('c');
+          if (!comment) return null;
+
+          return {
+            ...comment.properties,
+            userId: record.get('userId'),
+            username: record.get('username'),
+          };
+        })
+        .filter((c) => c !== null);
+    } catch (error) {
+      this.logger.error(
+        `Error getting discussion comments: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get comments', error);
+    }
+  }
 }

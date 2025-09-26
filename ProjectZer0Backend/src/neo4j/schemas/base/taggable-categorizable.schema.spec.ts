@@ -8,7 +8,7 @@ import {
   GraphFilters,
   TaggableCreateData,
   TaggableUpdateData,
-} from './taggable-categorizable.schema';
+} from './categorized.schema';
 
 // Create a concrete implementation for testing
 class TestTaggableSchema extends TaggableCategorizableNodeSchema {
