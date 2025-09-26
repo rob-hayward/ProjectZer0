@@ -1,4 +1,4 @@
-// src/neo4j/schemas/quantity.schema.ts - STANDARDIZED
+// src/neo4j/schemas/quantity.schema.ts - REFACTORED
 
 import {
   Injectable,
@@ -7,25 +7,40 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
-import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
+import {
+  CategorizedNodeSchema,
+  CategorizedNodeData,
+} from './base/categorized.schema';
+import { DiscussionSchema } from './discussion.schema';
+import { UserSchema } from './user.schema';
 import { UnitService } from '../../units/unit.service';
-import { VotingUtils } from '../../config/voting.config';
-import { v4 as uuidv4 } from 'uuid';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
+import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
+import { v4 as uuidv4 } from 'uuid';
 
-// Quantity-specific data interface extending BaseNodeData
-export interface QuantityData extends BaseNodeData {
+/**
+ * QuantityNode data interface
+ * Questions that request numeric responses with units
+ */
+export interface QuantityData extends CategorizedNodeData {
   question: string;
   unitCategoryId: string;
   defaultUnitId: string;
-  responseCount: number;
-  keywords?: KeywordWithFrequency[];
-  categories?: any[];
-  // Note: Only inclusion voting, no content voting (uses quantity responses instead)
+  responseCount?: number;
+  // Inherited from CategorizedNodeData:
+  // - categories (up to 3)
+  // Inherited from TaggedNodeData through CategorizedNodeData:
+  // - keywords (tagged with relevant words)
+  // Inherited from BaseNodeData:
+  // - All voting fields (inclusion only for quantities)
+  // - discussionId, createdBy, publicCredit, etc.
 }
 
-// Quantity response interface (separate from voting)
+/**
+ * Quantity response interface (separate from voting)
+ * Represents a user's numeric response to a quantity question
+ */
 export interface QuantityNodeResponse {
   id: string;
   userId: string;
@@ -38,7 +53,9 @@ export interface QuantityNodeResponse {
   normalizedValue: number;
 }
 
-// Statistics interface for quantity analysis
+/**
+ * Statistics interface for quantity analysis
+ */
 export interface QuantityNodeStats {
   responseCount: number;
   min: number;
@@ -51,20 +68,41 @@ export interface QuantityNodeStats {
   responses?: QuantityNodeResponse[];
 }
 
+/**
+ * Schema for QuantityNode - questions requesting numeric responses.
+ *
+ * Inheritance hierarchy:
+ * BaseNodeSchema -> TaggedNodeSchema -> CategorizedNodeSchema -> QuantitySchema
+ *
+ * Key characteristics:
+ * - Uses standard 'id' field
+ * - Inclusion voting only (no content voting - uses numeric responses instead)
+ * - Has discussions (via injected DiscussionSchema)
+ * - IS taggable (multiple keywords from the question)
+ * - IS categorizable (up to 3 categories)
+ * - Requires unit category and default unit specification
+ * - Numeric responses only after inclusion threshold passed
+ * - Provides statistical aggregation of responses
+ */
 @Injectable()
-export class QuantitySchema extends BaseNodeSchema<QuantityData> {
+export class QuantitySchema extends CategorizedNodeSchema<QuantityData> {
   protected readonly nodeLabel = 'QuantityNode';
-  protected readonly idField = 'id';
+  protected readonly idField = 'id'; // Standard ID field
+  protected readonly maxCategories = 3; // Quantities can have up to 3 categories
 
   constructor(
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
+    private readonly discussionSchema: DiscussionSchema,
+    private readonly userSchema: UserSchema,
     private readonly unitService: UnitService,
   ) {
     super(neo4jService, voteSchema, QuantitySchema.name);
   }
 
-  // IMPLEMENT: Abstract methods from BaseNodeSchema
+  // ============================================
+  // ABSTRACT METHOD IMPLEMENTATIONS
+  // ============================================
 
   protected supportsContentVoting(): boolean {
     return false; // Quantities use numeric responses, not binary content voting
@@ -95,8 +133,15 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
   }
 
   protected buildUpdateQuery(id: string, data: Partial<QuantityData>) {
+    // Filter out complex fields that need special handling
     const setClause = Object.keys(data)
-      .filter((key) => key !== 'id')
+      .filter(
+        (key) =>
+          key !== 'id' &&
+          key !== 'keywords' &&
+          key !== 'categories' &&
+          key !== 'categoryIds',
+      )
       .map((key) => `n.${key} = $updateData.${key}`)
       .join(', ');
 
@@ -110,10 +155,15 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
     };
   }
 
+  // ============================================
   // QUANTITY-SPECIFIC METHODS
+  // ============================================
 
+  /**
+   * Creates a new quantity question with keywords and categories
+   */
   async createQuantityNode(quantityData: {
-    id: string;
+    id?: string;
     createdBy: string;
     publicCredit: boolean;
     question: string;
@@ -123,28 +173,38 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
     keywords?: KeywordWithFrequency[];
     initialComment?: string;
   }): Promise<QuantityData> {
+    // Validate inputs
+    if (!quantityData.question || quantityData.question.trim() === '') {
+      throw new BadRequestException('Question text cannot be empty');
+    }
+
+    // Validate unit category and default unit
+    if (
+      !this.unitService.validateUnitInCategory(
+        quantityData.unitCategoryId,
+        quantityData.defaultUnitId,
+      )
+    ) {
+      throw new BadRequestException(
+        `Unit ${quantityData.defaultUnitId} is not valid for category ${quantityData.unitCategoryId}`,
+      );
+    }
+
+    // Validate category count
+    if (
+      quantityData.categoryIds &&
+      quantityData.categoryIds.length > this.maxCategories
+    ) {
+      throw new BadRequestException(
+        `Quantity node can have maximum ${this.maxCategories} categories`,
+      );
+    }
+
+    const quantityId = quantityData.id || uuidv4();
+
+    this.logger.log(`Creating quantity node with ID: ${quantityId}`);
+
     try {
-      // Validate unit category and default unit
-      if (
-        !this.unitService.validateUnitInCategory(
-          quantityData.unitCategoryId,
-          quantityData.defaultUnitId,
-        )
-      ) {
-        throw new BadRequestException(
-          `Unit ${quantityData.defaultUnitId} is not valid for category ${quantityData.unitCategoryId}`,
-        );
-      }
-
-      // Validate category count (0-3)
-      if (quantityData.categoryIds && quantityData.categoryIds.length > 3) {
-        throw new BadRequestException(
-          'Quantity node can have maximum 3 categories',
-        );
-      }
-
-      this.logger.log(`Creating quantity node with ID: ${quantityData.id}`);
-
       let query = `
         // Create the quantity node with inclusion voting only (no content voting)
         CREATE (q:QuantityNode {
@@ -154,9 +214,9 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
           question: $question,
           unitCategoryId: $unitCategoryId,
           defaultUnitId: $defaultUnitId,
+          responseCount: 0,
           createdAt: datetime(),
           updatedAt: datetime(),
-          responseCount: 0,
           // Only inclusion voting
           inclusionPositiveVotes: 0,
           inclusionNegativeVotes: 0,
@@ -164,58 +224,90 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         })
       `;
 
-      // Add category validation and relationships if provided
+      const params: any = {
+        id: quantityId,
+        createdBy: quantityData.createdBy,
+        publicCredit: quantityData.publicCredit,
+        question: quantityData.question.trim(),
+        unitCategoryId: quantityData.unitCategoryId,
+        defaultUnitId: quantityData.defaultUnitId,
+      };
+
+      // Add categories if provided
       if (quantityData.categoryIds && quantityData.categoryIds.length > 0) {
         query += `
         // Validate categories exist and have passed inclusion threshold
-        WITH q, $categoryIds as categoryIds
-        UNWIND categoryIds as categoryId
+        WITH q
+        UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
         WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
-        CREATE (q)-[:CATEGORIZED_AS]->(cat)
+        CREATE (q)-[:CATEGORIZED_AS {
+          createdAt: datetime()
+        }]->(cat)
         
-        WITH q, collect(cat) as validCategories, categoryIds
-        WHERE size(validCategories) = size(categoryIds)
+        // Create SHARED_CATEGORY relationships for discovery
+        WITH q, cat
+        OPTIONAL MATCH (other:QuantityNode)-[:CATEGORIZED_AS]->(cat)
+        WHERE other.id <> q.id AND other.inclusionNetVotes > 0
+        FOREACH (dummy IN CASE WHEN other IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (q)-[sc:SHARED_CATEGORY {categoryId: cat.id}]->(other)
+          ON CREATE SET sc.strength = 1,
+                        sc.categoryName = cat.name,
+                        sc.createdAt = datetime()
+          ON MATCH SET sc.strength = sc.strength + 1,
+                       sc.updatedAt = datetime()
+        )
         `;
+        params.categoryIds = quantityData.categoryIds;
       }
 
-      // Process each keyword if provided
+      // Add keywords if provided
       if (quantityData.keywords && quantityData.keywords.length > 0) {
         query += `
+        // Process keywords
         WITH q
         UNWIND $keywords as keyword
         
-        // Find word node for each keyword (these should already be created by WordService)
+        // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
+        WHERE w.inclusionNetVotes > 0
         
-        // Create TAGGED relationship with frequency and source
+        // Create TAGGED relationship
         CREATE (q)-[:TAGGED {
           frequency: keyword.frequency,
-          source: keyword.source
+          source: keyword.source,
+          createdAt: datetime()
         }]->(w)
         
-        // Create SHARED_TAG relationship to enable discovery
-        CREATE (q)-[:SHARED_TAG]->(w)
+        // Create SHARED_TAG relationships for discovery
+        WITH q, w, keyword
+        OPTIONAL MATCH (other:QuantityNode)-[t:TAGGED]->(w)
+        WHERE other.id <> q.id
+        FOREACH (dummy IN CASE WHEN other IS NOT NULL THEN [1] ELSE [] END |
+          MERGE (q)-[st:SHARED_TAG {word: w.word}]->(other)
+          ON CREATE SET st.strength = keyword.frequency * t.frequency,
+                        st.createdAt = datetime()
+          ON MATCH SET st.strength = st.strength + (keyword.frequency * t.frequency),
+                       st.updatedAt = datetime()
+        )
         `;
+        params.keywords = quantityData.keywords;
       }
 
+      // Create user relationship
       query += `
+        // Create CREATED relationship for user tracking
         WITH q
+        MATCH (u:User {sub: $createdBy})
+        CREATE (u)-[:CREATED {
+          createdAt: datetime(),
+          nodeType: 'quantity'
+        }]->(q)
+        
         RETURN q as n
       `;
-
-      const params = {
-        id: quantityData.id,
-        createdBy: quantityData.createdBy,
-        publicCredit: quantityData.publicCredit,
-        question: quantityData.question,
-        unitCategoryId: quantityData.unitCategoryId,
-        defaultUnitId: quantityData.defaultUnitId,
-        categoryIds: quantityData.categoryIds || [],
-        keywords: quantityData.keywords || [],
-      };
 
       const result = await this.neo4jService.write(query, params);
 
@@ -227,24 +319,34 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
 
       const createdNode = this.mapNodeFromRecord(result.records[0]);
 
-      // Always create discussion using standardized method
-      const discussionId = await this.createDiscussion({
-        nodeId: quantityData.id,
-        nodeType: this.nodeLabel,
-        createdBy: quantityData.createdBy,
-        initialComment: quantityData.initialComment,
-      });
+      // Create discussion using the centralized DiscussionSchema
+      const discussionResult =
+        await this.discussionSchema.createDiscussionForNode({
+          nodeId: quantityId,
+          nodeType: this.nodeLabel,
+          nodeIdField: 'id',
+          createdBy: quantityData.createdBy,
+          initialComment: quantityData.initialComment,
+        });
 
-      createdNode.discussionId = discussionId;
+      createdNode.discussionId = discussionResult.discussionId;
+
+      // Track user participation
+      try {
+        await this.userSchema.addCreatedNode(
+          quantityData.createdBy,
+          quantityId,
+          'quantity',
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not track user creation for quantity ${quantityId}: ${error.message}`,
+        );
+      }
 
       this.logger.log(`Successfully created quantity node: ${createdNode.id}`);
       return createdNode;
     } catch (error) {
-      this.logger.error(
-        `Error creating quantity node: ${error.message}`,
-        error.stack,
-      );
-
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -258,46 +360,54 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         );
       }
 
+      this.logger.error(
+        `Error creating quantity node: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('create quantity node', error);
     }
   }
 
-  // Override findById to include quantity-specific data
-  async findById(id: string): Promise<QuantityData | null> {
+  /**
+   * Gets a quantity node with all its relationships
+   */
+  async getQuantity(id: string): Promise<QuantityData | null> {
+    this.validateId(id);
+
+    this.logger.debug(`Retrieving quantity node with ID: ${id}`);
+
     try {
-      this.validateId(id);
-
-      this.logger.debug(`Retrieving quantity node with ID: ${id}`);
-
       const result = await this.neo4jService.read(
         `
-        MATCH (n:QuantityNode {id: $id})
+        MATCH (q:QuantityNode {id: $id})
         
         // Get keywords
-        OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)
+        OPTIONAL MATCH (q)-[t:TAGGED]->(w:WordNode)
         
         // Get categories
-        OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        OPTIONAL MATCH (q)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+        WHERE cat.inclusionNetVotes > 0
         
         // Get discussion
-        OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(d:DiscussionNode)
+        OPTIONAL MATCH (q)-[:HAS_DISCUSSION]->(d:DiscussionNode)
         
-        WITH n, d, 
-             collect(DISTINCT {
-               word: w.word, 
-               frequency: t.frequency,
-               source: t.source
-             }) as keywords,
-             collect(DISTINCT {
-               id: cat.id,
-               name: cat.name,
-               inclusionNetVotes: cat.inclusionNetVotes
-             }) as categories
+        // Get response count
+        OPTIONAL MATCH (q)<-[:RESPONSE_TO]-(response)
         
-        RETURN n,
-               keywords,
-               categories,
-               d.id as discussionId
+        RETURN q as n,
+               collect(DISTINCT {
+                 word: w.word, 
+                 frequency: t.frequency,
+                 source: t.source
+               }) as keywords,
+               collect(DISTINCT {
+                 id: cat.id,
+                 name: cat.name,
+                 description: cat.description,
+                 inclusionNetVotes: cat.inclusionNetVotes
+               }) as categories,
+               d.id as discussionId,
+               count(DISTINCT response) as actualResponseCount
         `,
         { id },
       );
@@ -307,11 +417,24 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         return null;
       }
 
-      const quantityNode = this.mapNodeFromRecord(result.records[0]);
-      // Attach additional data from the query
-      (quantityNode as any).keywords = result.records[0].get('keywords');
-      (quantityNode as any).categories = result.records[0].get('categories');
-      quantityNode.discussionId = result.records[0].get('discussionId');
+      const record = result.records[0];
+      const quantityNode = this.mapNodeFromRecord(record);
+
+      // Add related data
+      const keywords = record
+        .get('keywords')
+        .filter((k: any) => k.word !== null);
+      const categories = record
+        .get('categories')
+        .filter((c: any) => c.id !== null);
+
+      if (keywords.length > 0) quantityNode.keywords = keywords;
+      if (categories.length > 0) quantityNode.categories = categories;
+
+      quantityNode.discussionId = record.get('discussionId');
+      quantityNode.responseCount = this.toNumber(
+        record.get('actualResponseCount'),
+      );
 
       this.logger.debug(`Retrieved quantity node with ID: ${id}`);
       return quantityNode;
@@ -324,183 +447,102 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
     }
   }
 
-  // Complex update with unit validation
+  /**
+   * Updates a quantity node including its keywords and categories
+   */
   async updateQuantityNode(
     id: string,
-    updateData: Partial<{
-      question: string;
-      unitCategoryId: string;
-      defaultUnitId: string;
-      publicCredit: boolean;
-      categoryIds: string[];
-      keywords: KeywordWithFrequency[];
-    }>,
-  ): Promise<QuantityData> {
-    try {
-      this.validateId(id);
+    updateData: {
+      question?: string;
+      unitCategoryId?: string;
+      defaultUnitId?: string;
+      publicCredit?: boolean;
+      categoryIds?: string[];
+      keywords?: KeywordWithFrequency[];
+    },
+  ): Promise<QuantityData | null> {
+    this.validateId(id);
 
-      // Validate category count if updating categories
-      if (updateData.categoryIds && updateData.categoryIds.length > 3) {
-        throw new BadRequestException(
-          'Quantity node can have maximum 3 categories',
-        );
-      }
+    // Validate category count if updating categories
+    if (
+      updateData.categoryIds &&
+      updateData.categoryIds.length > this.maxCategories
+    ) {
+      throw new BadRequestException(
+        `Quantity node can have maximum ${this.maxCategories} categories`,
+      );
+    }
 
-      this.logger.log(`Updating quantity node with ID: ${id}`);
-
-      // If unit category or default unit is being updated, validate
-      if (updateData.unitCategoryId && updateData.defaultUnitId) {
-        if (
-          !this.unitService.validateUnitInCategory(
-            updateData.unitCategoryId,
-            updateData.defaultUnitId,
-          )
-        ) {
-          throw new BadRequestException(
-            `Unit ${updateData.defaultUnitId} is not valid for category ${updateData.unitCategoryId}`,
-          );
-        }
-      } else if (updateData.unitCategoryId) {
-        // If only category is changing, need to get current default unit to validate
-        const currentNode = await this.findById(id);
-        if (!currentNode) {
-          throw new NotFoundException(`Quantity node with ID ${id} not found`);
-        }
-
-        if (
-          !this.unitService.validateUnitInCategory(
-            updateData.unitCategoryId,
-            currentNode.defaultUnitId,
-          )
-        ) {
-          throw new BadRequestException(
-            `Current default unit ${currentNode.defaultUnitId} is not valid for new category ${updateData.unitCategoryId}`,
-          );
-        }
-      } else if (updateData.defaultUnitId) {
-        // If only default unit is changing, need to get current category to validate
-        const currentNode = await this.findById(id);
-        if (!currentNode) {
-          throw new NotFoundException(`Quantity node with ID ${id} not found`);
-        }
-
-        if (
-          !this.unitService.validateUnitInCategory(
-            currentNode.unitCategoryId,
-            updateData.defaultUnitId,
-          )
-        ) {
-          throw new BadRequestException(
-            `New default unit ${updateData.defaultUnitId} is not valid for category ${currentNode.unitCategoryId}`,
-          );
-        }
-      }
-
-      // For simple property updates, use the base class update method
-      if (
-        !updateData.keywords?.length &&
-        updateData.categoryIds === undefined
-      ) {
-        return await this.update(id, updateData);
-      }
-
-      // Complex update with keywords and/or categories
-      let query = `
-        // Match the quantity node to update
-        MATCH (q:QuantityNode {id: $id})
-        
-        // Set updated properties
-        SET q += $updateProperties,
-            q.updatedAt = datetime()
-      `;
-
-      // Handle category updates
-      if (updateData.categoryIds !== undefined) {
-        query += `
-        // Remove existing CATEGORIZED_AS relationships
-        WITH q
-        OPTIONAL MATCH (q)-[catRel:CATEGORIZED_AS]->()
-        DELETE catRel
-        
-        // Create new category relationships if provided
-        WITH q, $categoryIds as categoryIds
-        WHERE size(categoryIds) > 0
-        UNWIND categoryIds as categoryId
-        MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
-        CREATE (q)-[:CATEGORIZED_AS]->(cat)
-        
-        WITH q, collect(cat) as validCategories, categoryIds
-        WHERE size(validCategories) = size(categoryIds) OR size(categoryIds) = 0
-        `;
-      }
-
-      // Handle keyword updates
-      if (updateData.keywords && updateData.keywords.length > 0) {
-        query += `
-        // Remove existing TAGGED and SHARED_TAG relationships
-        WITH q
-        OPTIONAL MATCH (q)-[tagRel:TAGGED]->()
-        DELETE tagRel
-        OPTIONAL MATCH (q)-[shareRel:SHARED_TAG]->()
-        DELETE shareRel
-        
-        // Create new keyword relationships
-        WITH q
-        UNWIND $keywords as keyword
-        MATCH (w:WordNode {word: keyword.word})
-        CREATE (q)-[:TAGGED {
-          frequency: keyword.frequency,
-          source: keyword.source
-        }]->(w)
-        CREATE (q)-[:SHARED_TAG]->(w)
-        `;
-      }
-
-      query += `
-        WITH q
-        RETURN q as n
-      `;
-
-      // Prepare update properties (exclude complex fields)
-      const updateProperties = { ...updateData };
-      delete updateProperties.categoryIds;
-      delete updateProperties.keywords;
-
-      const params = {
-        id,
-        updateProperties,
-        categoryIds: updateData.categoryIds || [],
-        keywords: updateData.keywords || [],
-      };
-
-      const result = await this.neo4jService.write(query, params);
-
-      if (!result.records || result.records.length === 0) {
+    // If unit category or default unit is being updated, validate
+    if (updateData.unitCategoryId || updateData.defaultUnitId) {
+      const currentNode = await this.getQuantity(id);
+      if (!currentNode) {
         throw new NotFoundException(`Quantity node with ID ${id} not found`);
       }
 
-      const updatedNode = this.mapNodeFromRecord(result.records[0]);
-      this.logger.log(`Successfully updated quantity node: ${id}`);
-      return updatedNode;
-    } catch (error) {
-      this.logger.error(
-        `Error updating quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
+      const categoryToValidate =
+        updateData.unitCategoryId || currentNode.unitCategoryId;
+      const unitToValidate =
+        updateData.defaultUnitId || currentNode.defaultUnitId;
 
+      if (
+        !this.unitService.validateUnitInCategory(
+          categoryToValidate,
+          unitToValidate,
+        )
+      ) {
+        throw new BadRequestException(
+          `Unit ${unitToValidate} is not valid for category ${categoryToValidate}`,
+        );
+      }
+    }
+
+    // If no keywords or categories to update, use base update
+    if (!updateData.keywords && updateData.categoryIds === undefined) {
+      return await this.update(id, updateData);
+    }
+
+    // Complex update with keywords/categories
+    try {
+      // Update categories if provided (uses inherited method)
+      if (updateData.categoryIds !== undefined) {
+        await this.updateCategories(id, updateData.categoryIds);
+      }
+
+      // Update keywords if provided (uses inherited method)
+      if (updateData.keywords) {
+        await this.updateKeywords(id, updateData.keywords);
+      }
+
+      // Update basic properties
+      const basicUpdate = { ...updateData };
+      delete basicUpdate.keywords;
+      delete basicUpdate.categoryIds;
+
+      if (Object.keys(basicUpdate).length > 0) {
+        await this.update(id, basicUpdate);
+      }
+
+      // Return updated quantity
+      return await this.getQuantity(id);
+    } catch (error) {
       if (
         error instanceof BadRequestException ||
         error instanceof NotFoundException
       ) {
         throw error;
       }
-
+      this.logger.error(
+        `Error updating quantity node: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('update quantity node', error);
     }
   }
 
+  // ============================================
   // QUANTITY RESPONSE METHODS - Core unique functionality
+  // ============================================
 
   /**
    * Submit a response to a quantity node (requires inclusion threshold)
@@ -517,7 +559,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       );
 
       // First validate that the quantity node exists and get its category
-      const quantityNode = await this.findById(responseData.quantityNodeId);
+      const quantityNode = await this.getQuantity(responseData.quantityNodeId);
       if (!quantityNode) {
         throw new NotFoundException(
           `Quantity node with ID ${responseData.quantityNodeId} not found`,
@@ -550,9 +592,6 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         responseData.unitId,
         this.unitService.getCategory(quantityNode.unitCategoryId).baseUnit,
       );
-
-      // Generate a unique ID for the response
-      const responseId = uuidv4();
 
       // Check if user has already submitted a response
       const existingResponse = await this.getUserResponse(
@@ -605,6 +644,8 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
         return updatedResponse;
       } else {
         // Create new response
+        const responseId = uuidv4();
+
         const result = await this.neo4jService.write(
           `
           MATCH (u:User {sub: $userId})
@@ -998,7 +1039,7 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
    */
   async isNumericResponseAllowed(quantityNodeId: string): Promise<boolean> {
     try {
-      const quantityNode = await this.findById(quantityNodeId);
+      const quantityNode = await this.getQuantity(quantityNodeId);
       if (!quantityNode) return false;
 
       return VotingUtils.hasPassedInclusion(quantityNode.inclusionNetVotes);
@@ -1010,81 +1051,26 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
     }
   }
 
-  // DISCOVERY METHODS - New functionality for finding related content
+  // ============================================
+  // DISCOVERY METHODS - Leveraging inherited functionality
+  // ============================================
 
   /**
-   * Get content nodes that share categories with the given quantity node
+   * Get quantity nodes related by tags or categories
    */
-  async getRelatedContentBySharedCategories(
-    nodeId: string,
-    options: {
-      nodeTypes?: string[];
-      limit?: number;
-      includeStats?: boolean;
-    } = {},
-  ): Promise<any[]> {
-    try {
-      const {
-        nodeTypes = ['QuantityNode'],
-        limit = 10,
-        includeStats = false,
-      } = options;
+  async getRelatedQuantities(
+    quantityId: string,
+    limit: number = 10,
+  ): Promise<QuantityData[]> {
+    // Use inherited method from CategorizedNodeSchema
+    const related = await this.findRelatedByCombined(quantityId, limit);
 
-      this.logger.debug(
-        `Getting related content by shared categories for quantity node ${nodeId}`,
-      );
+    // Load full quantity data for each related ID
+    const quantities = await Promise.all(
+      related.map((r) => this.getQuantity(r.nodeId)),
+    );
 
-      let nodeTypeFilter = '';
-      if (nodeTypes.length > 0) {
-        const labels = nodeTypes
-          .map((type) => `labels(related) CONTAINS '${type}'`)
-          .join(' OR ');
-        nodeTypeFilter = `WHERE (${labels}) AND related.id <> $nodeId`;
-      }
-
-      const query = `
-        MATCH (q:QuantityNode {id: $nodeId})-[:CATEGORIZED_AS]->(cat:CategoryNode)
-        MATCH (related)-[:CATEGORIZED_AS]->(cat)
-        ${nodeTypeFilter}
-        
-        // Count shared categories
-        WITH related, COUNT(DISTINCT cat) as sharedCategoryCount
-        
-        ${
-          includeStats
-            ? `
-        // Get statistics if requested
-        OPTIONAL MATCH (related:QuantityNode)
-        WITH related, sharedCategoryCount, related.responseCount as responseCount
-        `
-            : `
-        WITH related, sharedCategoryCount
-        `
-        }
-        
-        RETURN related, 
-               sharedCategoryCount
-               ${includeStats ? ', responseCount' : ''}
-        ORDER BY sharedCategoryCount DESC, related.inclusionNetVotes DESC
-        LIMIT $limit
-      `;
-
-      const result = await this.neo4jService.read(query, { nodeId, limit });
-
-      return result.records.map((record) => ({
-        node: record.get('related').properties,
-        sharedCategoryCount: this.toNumber(record.get('sharedCategoryCount')),
-        ...(includeStats && {
-          responseCount: this.toNumber(record.get('responseCount')) || 0,
-        }),
-      }));
-    } catch (error) {
-      this.logger.error(
-        `Error getting related content by shared categories: ${error.message}`,
-        error.stack,
-      );
-      throw new Error(`Failed to get related content: ${error.message}`);
-    }
+    return quantities.filter((q) => q !== null) as QuantityData[];
   }
 
   /**
@@ -1175,6 +1161,91 @@ export class QuantitySchema extends BaseNodeSchema<QuantityData> {
       throw new Error(
         `Failed to get quantity nodes by unit category: ${error.message}`,
       );
+    }
+  }
+
+  /**
+   * Get all quantity nodes with optional filters
+   */
+  async getQuantities(
+    options: {
+      includeUnapproved?: boolean;
+      categoryId?: string;
+      unitCategoryId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<QuantityData[]> {
+    const {
+      includeUnapproved = false,
+      categoryId,
+      unitCategoryId,
+      limit = 50,
+      offset = 0,
+    } = options;
+
+    try {
+      const whereConditions = [];
+      const params: any = { limit, offset };
+
+      if (!includeUnapproved) {
+        whereConditions.push('q.inclusionNetVotes > 0');
+      }
+
+      if (categoryId) {
+        whereConditions.push(
+          'EXISTS((q)-[:CATEGORIZED_AS]->(:CategoryNode {id: $categoryId}))',
+        );
+        params.categoryId = categoryId;
+      }
+
+      if (unitCategoryId) {
+        whereConditions.push('q.unitCategoryId = $unitCategoryId');
+        params.unitCategoryId = unitCategoryId;
+      }
+
+      const whereClause =
+        whereConditions.length > 0
+          ? `WHERE ${whereConditions.join(' AND ')}`
+          : '';
+
+      const result = await this.neo4jService.read(
+        `
+        MATCH (q:QuantityNode)
+        ${whereClause}
+        RETURN q as n
+        ORDER BY q.inclusionNetVotes DESC, q.responseCount DESC
+        SKIP $offset
+        LIMIT $limit
+        `,
+        params,
+      );
+
+      return result.records.map((record) => this.mapNodeFromRecord(record));
+    } catch (error) {
+      this.logger.error(
+        `Error getting quantity nodes: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get quantity nodes', error);
+    }
+  }
+
+  /**
+   * Check quantity statistics
+   */
+  async checkQuantities(): Promise<{ count: number }> {
+    try {
+      const result = await this.neo4jService.read(
+        'MATCH (q:QuantityNode) RETURN count(q) as count',
+        {},
+      );
+
+      const count = this.toNumber(result.records[0].get('count'));
+      return { count };
+    } catch (error) {
+      this.logger.error(`Error checking quantities: ${error.message}`);
+      throw this.standardError('check quantities', error);
     }
   }
 }
