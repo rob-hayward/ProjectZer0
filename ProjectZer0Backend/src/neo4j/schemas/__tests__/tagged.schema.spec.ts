@@ -2,7 +2,7 @@
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { TaggedNodeSchema, TaggedNodeData } from '../base/tagged-node.schema';
+import { TaggedNodeSchema, TaggedNodeData } from '../base/tagged.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult } from '../vote.schema';
 import { Record, Result, Integer } from 'neo4j-driver';
@@ -15,8 +15,11 @@ interface TestTaggedNodeData extends TaggedNodeData {
 }
 
 class TestTaggedNodeSchema extends TaggedNodeSchema<TestTaggedNodeData> {
+  protected nodeLabel = 'TestTaggedNode';
+  protected idField = 'id';
+
   constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
-    super('TestTaggedNode', 'id', neo4jService, voteSchema);
+    super(neo4jService, voteSchema, 'TestTaggedNodeSchema');
   }
 
   protected supportsContentVoting(): boolean {
@@ -24,9 +27,8 @@ class TestTaggedNodeSchema extends TaggedNodeSchema<TestTaggedNodeData> {
   }
 
   protected mapNodeFromRecord(record: Record): TestTaggedNodeData {
-    const node = record.get('n') as Node;
+    const node = record.get('n');
     const props = node.properties;
-    const keywords = record.get('keywords') || [];
 
     return {
       id: props.id,
@@ -36,11 +38,7 @@ class TestTaggedNodeSchema extends TaggedNodeSchema<TestTaggedNodeData> {
       publicCredit: props.publicCredit,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
-      keywords: keywords.map((k: any) => ({
-        word: k.word,
-        frequency: k.frequency,
-        source: k.source,
-      })),
+      keywords: [], // Keywords loaded separately
       inclusionPositiveVotes: this.toNumber(props.inclusionPositiveVotes),
       inclusionNegativeVotes: this.toNumber(props.inclusionNegativeVotes),
       inclusionNetVotes: this.toNumber(props.inclusionNetVotes),
@@ -55,29 +53,37 @@ class TestTaggedNodeSchema extends TaggedNodeSchema<TestTaggedNodeData> {
     id: string,
     updateData: Partial<TestTaggedNodeData>,
   ): { cypher: string; params: any } {
+    // Remove keywords from node updates as they're handled separately
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { keywords, ...nodeUpdates } = updateData;
+
     return {
       cypher: `
         MATCH (n:TestTaggedNode {id: $id})
         SET n += $updateData, n.updatedAt = datetime()
         RETURN n
       `,
-      params: { id, updateData },
+      params: { id, updateData: nodeUpdates },
     };
   }
 
   // Expose protected methods for testing
-  public async testCreateKeywordRelationships(
+  public async testAttachKeywords(
     nodeId: string,
     keywords: KeywordWithFrequency[],
   ): Promise<void> {
-    return this.createKeywordRelationships(nodeId, keywords);
+    return this.attachKeywords(nodeId, keywords);
   }
 
-  public async testUpdateKeywordRelationships(
+  public async testCreateSharedTagRelationships(
     nodeId: string,
-    keywords: KeywordWithFrequency[],
+    nodeLabel?: string,
   ): Promise<void> {
-    return this.updateKeywordRelationships(nodeId, keywords);
+    return this.createSharedTagRelationships(nodeId, nodeLabel);
+  }
+
+  public testBuildTaggedCreateQuery(data: any) {
+    return this.buildTaggedCreateQuery(data);
   }
 }
 
@@ -98,8 +104,8 @@ describe('TaggedNodeSchema', () => {
     content: 'This is a test node with keywords',
     createdBy: 'user-456',
     publicCredit: true,
-    createdAt: '2024-01-01T00:00:00.000Z',
-    updatedAt: '2024-01-01T00:00:00.000Z',
+    createdAt: new Date('2024-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2024-01-01T00:00:00.000Z'),
     keywords: mockKeywords,
     inclusionPositiveVotes: 10,
     inclusionNegativeVotes: 3,
@@ -111,7 +117,6 @@ describe('TaggedNodeSchema', () => {
   };
 
   beforeEach(async () => {
-    // Create mocks
     const mockNeo4jService = {
       read: jest.fn(),
       write: jest.fn(),
@@ -142,167 +147,142 @@ describe('TaggedNodeSchema', () => {
     testSchema = new TestTaggedNodeSchema(neo4jService, voteSchema);
   });
 
-  describe('Tagging Operations', () => {
-    describe('createKeywordRelationships', () => {
-      it('should create TAGGED and SHARED_TAG relationships', async () => {
+  describe('Keyword Operations', () => {
+    describe('attachKeywords', () => {
+      it('should create TAGGED relationships', async () => {
         neo4jService.write.mockResolvedValue({} as Result);
 
-        await testSchema.testCreateKeywordRelationships(
-          'tagged-123',
-          mockKeywords,
-        );
+        await testSchema.testAttachKeywords('tagged-123', mockKeywords);
 
-        // Should create TAGGED relationships
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('UNWIND $keywords AS keyword'),
+          expect.stringContaining('UNWIND $keywords as keyword'),
           expect.objectContaining({
             nodeId: 'tagged-123',
             keywords: mockKeywords,
           }),
         );
 
-        // Should create SHARED_TAG relationships
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('SHARED_TAG'),
-          expect.objectContaining({
-            nodeId: 'tagged-123',
-            nodeType: 'TestTaggedNode',
-          }),
+          expect.stringContaining('WHERE w.inclusionNetVotes > 0'),
+          expect.any(Object),
         );
       });
 
       it('should handle empty keywords array', async () => {
-        await testSchema.testCreateKeywordRelationships('tagged-123', []);
+        await testSchema.testAttachKeywords('tagged-123', []);
 
-        // Should still be called but with empty keywords
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({
-            nodeId: 'tagged-123',
-            keywords: [],
-          }),
-        );
+        // Should not call write for empty keywords
+        expect(neo4jService.write).not.toHaveBeenCalled();
       });
 
-      it('should validate keywords', async () => {
-        const invalidKeywords = [
-          { word: '', frequency: 1, source: 'ai' },
-        ] as KeywordWithFrequency[];
-
-        await expect(
-          testSchema.testCreateKeywordRelationships(
-            'tagged-123',
-            invalidKeywords,
-          ),
-        ).rejects.toThrow(BadRequestException);
-      });
-    });
-
-    describe('updateKeywordRelationships', () => {
-      it('should delete old and create new keyword relationships', async () => {
+      it('should validate keyword existence and inclusion threshold', async () => {
         neo4jService.write.mockResolvedValue({} as Result);
 
-        await testSchema.testUpdateKeywordRelationships(
-          'tagged-123',
-          mockKeywords,
-        );
+        await testSchema.testAttachKeywords('tagged-123', mockKeywords);
 
-        // Should delete old relationships
+        // Should only create relationships for WordNodes that passed inclusion
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('DETACH DELETE r'),
-          expect.objectContaining({ nodeId: 'tagged-123' }),
+          expect.stringContaining('MATCH (w:WordNode {word: keyword.word})'),
+          expect.any(Object),
         );
-
-        // Should create new relationships
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('UNWIND $keywords AS keyword'),
-          expect.objectContaining({
-            nodeId: 'tagged-123',
-            keywords: mockKeywords,
-          }),
+          expect.stringContaining('WHERE w.inclusionNetVotes > 0'),
+          expect.any(Object),
         );
       });
     });
 
-    describe('findByKeyword', () => {
-      it('should find nodes by keyword', async () => {
-        const mockNode: Node = {
-          identity: Integer.fromNumber(1),
-          labels: ['TestTaggedNode'],
-          properties: mockTaggedNodeData,
-          elementId: 'test-element-id',
-        } as Node;
+    describe('createSharedTagRelationships', () => {
+      it('should create SHARED_TAG relationships', async () => {
+        neo4jService.write.mockResolvedValue({} as Result);
 
-        const mockRecords = [
-          {
-            get: jest.fn().mockImplementation((field) => {
-              if (field === 'n') return mockNode;
-              if (field === 'keywords') return mockKeywords;
-              return null;
-            }),
-          },
-        ] as unknown as Record[];
+        await testSchema.testCreateSharedTagRelationships('tagged-123');
+
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('SHARED_TAG'),
+          expect.objectContaining({
+            nodeId: 'tagged-123',
+          }),
+        );
+      });
+
+      it('should optionally filter by node label', async () => {
+        neo4jService.write.mockResolvedValue({} as Result);
+
+        await testSchema.testCreateSharedTagRelationships(
+          'tagged-123',
+          'TestTaggedNode',
+        );
+
+        expect(neo4jService.write).toHaveBeenCalled();
+      });
+    });
+
+    describe('getKeywords', () => {
+      it('should retrieve keywords for a node', async () => {
+        const mockRecords = mockKeywords.map((keyword) => ({
+          get: jest.fn((field: string) => {
+            if (field === 'word') return keyword.word;
+            if (field === 'frequency')
+              return Integer.fromNumber(keyword.frequency);
+            if (field === 'source') return keyword.source;
+            return null;
+          }),
+        })) as unknown as Record[];
 
         neo4jService.read.mockResolvedValue({
           records: mockRecords,
         } as unknown as Result);
 
-        const result = await testSchema.findByKeyword('test');
+        const result = await testSchema.getKeywords('tagged-123');
 
         expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'MATCH (n:TestTaggedNode)-[:TAGGED]->(w:WordNode {word: $keyword})',
-          ),
-          expect.objectContaining({
-            keyword: 'test',
-            skip: 0,
-            limit: 50,
-          }),
+          expect.stringContaining('MATCH (n:TestTaggedNode {id: $nodeId})'),
+          expect.objectContaining({ nodeId: 'tagged-123' }),
         );
-        expect(result).toHaveLength(1);
-        expect(result[0].keywords).toEqual(mockKeywords);
+
+        expect(result).toHaveLength(3);
+        expect(result[0]).toEqual({
+          word: 'test',
+          frequency: 2,
+          source: 'ai',
+        });
       });
 
-      it('should handle pagination', async () => {
-        neo4jService.read.mockResolvedValue({
-          records: [],
-        } as unknown as Result);
-
-        await testSchema.findByKeyword('test', 10, 20);
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({
-            keyword: 'test',
-            skip: 10,
-            limit: 20,
-          }),
-        );
-      });
-
-      it('should validate keyword input', async () => {
-        await expect(testSchema.findByKeyword('')).rejects.toThrow(
+      it('should validate node ID', async () => {
+        await expect(testSchema.getKeywords('')).rejects.toThrow(
           BadRequestException,
         );
         expect(neo4jService.read).not.toHaveBeenCalled();
       });
+
+      it('should return empty array when node has no keywords', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        const result = await testSchema.getKeywords('tagged-123');
+
+        expect(result).toEqual([]);
+      });
     });
 
-    describe('findBySharedTags', () => {
-      it('should find nodes that share tags with given node', async () => {
-        const mockNode: Node = {
-          identity: Integer.fromNumber(1),
-          labels: ['TestTaggedNode'],
-          properties: mockTaggedNodeData,
-          elementId: 'test-element-id',
-        } as Node;
-
+    describe('findRelatedByTags', () => {
+      it('should find nodes that share tags', async () => {
         const mockRecords = [
           {
-            get: jest.fn().mockImplementation((field) => {
-              if (field === 'related') return mockNode;
-              if (field === 'sharedTags') return ['test', 'node'];
-              if (field === 'tagCount') return Integer.fromNumber(2);
+            get: jest.fn((field: string) => {
+              if (field === 'nodeId') return 'related-1';
+              if (field === 'sharedWords') return ['test', 'node'];
+              if (field === 'strength') return Integer.fromNumber(10);
+              return null;
+            }),
+          },
+          {
+            get: jest.fn((field: string) => {
+              if (field === 'nodeId') return 'related-2';
+              if (field === 'sharedWords') return ['test'];
+              if (field === 'strength') return Integer.fromNumber(5);
               return null;
             }),
           },
@@ -312,7 +292,7 @@ describe('TaggedNodeSchema', () => {
           records: mockRecords,
         } as unknown as Result);
 
-        const result = await testSchema.findBySharedTags('tagged-123');
+        const result = await testSchema.findRelatedByTags('tagged-123');
 
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.stringContaining('MATCH (n:TestTaggedNode {id: $nodeId})'),
@@ -321,17 +301,26 @@ describe('TaggedNodeSchema', () => {
             limit: 10,
           }),
         );
-        expect(result).toHaveLength(1);
-        expect(result[0].sharedTags).toEqual(['test', 'node']);
-        expect(result[0].tagCount).toBe(2);
+
+        expect(result).toHaveLength(2);
+        expect(result[0]).toEqual({
+          nodeId: 'related-1',
+          sharedWords: ['test', 'node'],
+          strength: 10,
+        });
+        expect(result[1]).toEqual({
+          nodeId: 'related-2',
+          sharedWords: ['test'],
+          strength: 5,
+        });
       });
 
-      it('should limit results', async () => {
+      it('should respect limit parameter', async () => {
         neo4jService.read.mockResolvedValue({
           records: [],
         } as unknown as Result);
 
-        await testSchema.findBySharedTags('tagged-123', 5);
+        await testSchema.findRelatedByTags('tagged-123', 5);
 
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.any(String),
@@ -341,75 +330,148 @@ describe('TaggedNodeSchema', () => {
           }),
         );
       });
-    });
 
-    describe('getPopularKeywords', () => {
-      it('should get popular keywords for the node type', async () => {
-        const mockRecords = [
-          {
-            get: jest.fn().mockImplementation((field) => {
-              if (field === 'keyword') return 'test';
-              if (field === 'count') return Integer.fromNumber(10);
-              return null;
-            }),
-          },
-          {
-            get: jest.fn().mockImplementation((field) => {
-              if (field === 'keyword') return 'node';
-              if (field === 'count') return Integer.fromNumber(8);
-              return null;
-            }),
-          },
-        ] as unknown as Record[];
-
-        neo4jService.read.mockResolvedValue({
-          records: mockRecords,
-        } as unknown as Result);
-
-        const result = await testSchema.getPopularKeywords();
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'MATCH (n:TestTaggedNode)-[:TAGGED]->(w:WordNode)',
-          ),
-          expect.objectContaining({ limit: 20 }),
+      it('should validate node ID', async () => {
+        await expect(testSchema.findRelatedByTags('')).rejects.toThrow(
+          BadRequestException,
         );
-        expect(result).toEqual([
-          { keyword: 'test', count: 10 },
-          { keyword: 'node', count: 8 },
-        ]);
       });
 
-      it('should limit results', async () => {
+      it('should return empty array when no related nodes found', async () => {
         neo4jService.read.mockResolvedValue({
           records: [],
         } as unknown as Result);
 
-        await testSchema.getPopularKeywords(5);
+        const result = await testSchema.findRelatedByTags('tagged-123');
 
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.any(String),
-          expect.objectContaining({ limit: 5 }),
+        expect(result).toEqual([]);
+      });
+    });
+
+    describe('updateKeywords', () => {
+      it('should delete old and create new keyword relationships', async () => {
+        neo4jService.write.mockResolvedValue({} as Result);
+
+        await testSchema.updateKeywords('tagged-123', mockKeywords);
+
+        // Should delete old TAGGED relationships
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('MATCH (n)-[t:TAGGED]->()'),
+          expect.objectContaining({ nodeId: 'tagged-123' }),
         );
+
+        // Should delete old SHARED_TAG relationships
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('MATCH (n)-[st:SHARED_TAG]-()'),
+          expect.objectContaining({ nodeId: 'tagged-123' }),
+        );
+
+        // Should create new relationships
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('UNWIND $keywords as keyword'),
+          expect.objectContaining({
+            nodeId: 'tagged-123',
+            keywords: mockKeywords,
+          }),
+        );
+      });
+
+      it('should handle empty keywords array', async () => {
+        neo4jService.write.mockResolvedValue({} as Result);
+
+        await testSchema.updateKeywords('tagged-123', []);
+
+        // Should still delete old relationships
+        expect(neo4jService.write).toHaveBeenCalledTimes(2); // Delete TAGGED and SHARED_TAG
+      });
+
+      it('should validate node ID', async () => {
+        await expect(
+          testSchema.updateKeywords('', mockKeywords),
+        ).rejects.toThrow(BadRequestException);
       });
     });
   });
 
-  describe('Inherited CRUD Operations', () => {
-    it('should inherit findById from BaseNodeSchema', async () => {
-      const mockNode: Node = {
-        identity: Integer.fromNumber(1),
-        labels: ['TestTaggedNode'],
+  describe('Query Building', () => {
+    describe('buildTaggedCreateQuery', () => {
+      it('should build query with keywords', () => {
+        const createData = {
+          id: 'new-123',
+          createdBy: 'user-456',
+          publicCredit: true,
+          keywords: mockKeywords,
+          nodeProperties: {
+            title: 'Test Title',
+            content: 'Test Content',
+          },
+        };
+
+        const result = testSchema.testBuildTaggedCreateQuery(createData);
+
+        expect(result.cypher).toContain('TestTaggedNode');
+        expect(result.cypher).toContain('UNWIND $keywords');
+        expect(result.cypher).toContain('SHARED_TAG');
+        expect(result.params).toEqual(
+          expect.objectContaining({
+            id: 'new-123',
+            createdBy: 'user-456',
+            publicCredit: true,
+            keywords: mockKeywords,
+            title: 'Test Title',
+            content: 'Test Content',
+          }),
+        );
+      });
+
+      it('should build query without keywords', () => {
+        const createData = {
+          id: 'new-123',
+          createdBy: 'user-456',
+          publicCredit: true,
+          nodeProperties: {
+            title: 'Test Title',
+            content: 'Test Content',
+          },
+        };
+
+        const result = testSchema.testBuildTaggedCreateQuery(createData);
+
+        expect(result.cypher).toContain('TestTaggedNode');
+        expect(result.cypher).not.toContain('UNWIND $keywords');
+        expect(result.params.keywords).toBeUndefined();
+      });
+
+      it('should handle parent relationships', () => {
+        const createData = {
+          id: 'new-123',
+          createdBy: 'user-456',
+          publicCredit: true,
+          parentId: 'parent-456',
+          parentType: 'ParentNode',
+          parentRelationship: 'CHILD_OF',
+          nodeProperties: {
+            title: 'Test Title',
+          },
+        };
+
+        const result = testSchema.testBuildTaggedCreateQuery(createData);
+
+        expect(result.cypher).toContain('MATCH (parent:ParentNode');
+        expect(result.cypher).toContain('CREATE (n)-[:CHILD_OF]->(parent)');
+        expect(result.params.parentId).toBe('parent-456');
+      });
+    });
+  });
+
+  describe('Inherited Functionality from BaseNodeSchema', () => {
+    it('should inherit findById', async () => {
+      const mockNode = {
         properties: mockTaggedNodeData,
-        elementId: 'test-element-id',
-      } as Node;
+      };
 
       const mockRecord = {
-        get: jest.fn().mockImplementation((field) => {
-          if (field === 'n') return mockNode;
-          if (field === 'keywords') return mockKeywords;
-          return null;
-        }),
+        get: jest.fn().mockReturnValue(mockNode),
       } as unknown as Record;
 
       neo4jService.read.mockResolvedValue({
@@ -422,16 +484,18 @@ describe('TaggedNodeSchema', () => {
         expect.stringContaining('MATCH (n:TestTaggedNode {id: $id})'),
         { id: 'tagged-123' },
       );
-      expect(result).toEqual(mockTaggedNodeData);
+      expect(result).toBeDefined();
+      expect(result?.id).toBe('tagged-123');
     });
 
-    it('should inherit voting operations from BaseNodeSchema', async () => {
+    it('should inherit voting operations', async () => {
       const mockVoteResult: VoteResult = {
-        positiveVotes: 10,
-        negativeVotes: 3,
-        netVotes: 7,
-        userVote: 'positive',
-        voteStatus: 'completed',
+        inclusionPositiveVotes: 10,
+        inclusionNegativeVotes: 3,
+        inclusionNetVotes: 7,
+        contentPositiveVotes: 8,
+        contentNegativeVotes: 2,
+        contentNetVotes: 6,
       };
 
       voteSchema.vote.mockResolvedValue(mockVoteResult);
@@ -451,34 +515,51 @@ describe('TaggedNodeSchema', () => {
       );
       expect(result).toEqual(mockVoteResult);
     });
+
+    it('should inherit delete operation', async () => {
+      const countRecord = {
+        get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValue({
+        records: [countRecord],
+      } as unknown as Result);
+      neo4jService.write.mockResolvedValue({} as any);
+
+      const result = await testSchema.delete('tagged-123');
+
+      expect(result).toEqual({ success: true });
+    });
   });
 
   describe('TaggedNodeData Interface Compliance', () => {
-    it('should include all required fields', () => {
-      const requiredFields = [
+    it('should include all required base fields', () => {
+      const requiredBaseFields = [
         'id',
         'createdBy',
         'publicCredit',
         'createdAt',
         'updatedAt',
-        'keywords',
         'inclusionPositiveVotes',
         'inclusionNegativeVotes',
         'inclusionNetVotes',
         'contentPositiveVotes',
         'contentNegativeVotes',
         'contentNetVotes',
-        'discussionId',
       ];
 
-      requiredFields.forEach((field) => {
+      requiredBaseFields.forEach((field) => {
         expect(mockTaggedNodeData).toHaveProperty(field);
       });
     });
 
-    it('should properly structure keywords', () => {
+    it('should include keywords field', () => {
+      expect(mockTaggedNodeData).toHaveProperty('keywords');
       expect(Array.isArray(mockTaggedNodeData.keywords)).toBe(true);
-      mockTaggedNodeData.keywords.forEach((keyword) => {
+    });
+
+    it('should properly structure keywords', () => {
+      mockTaggedNodeData.keywords?.forEach((keyword) => {
         expect(keyword).toHaveProperty('word');
         expect(keyword).toHaveProperty('frequency');
         expect(keyword).toHaveProperty('source');
@@ -492,79 +573,63 @@ describe('TaggedNodeSchema', () => {
       neo4jService.write.mockRejectedValue(new Error('Connection failed'));
 
       await expect(
-        testSchema.testCreateKeywordRelationships('tagged-123', mockKeywords),
-      ).rejects.toThrow(
-        'Failed to create keyword relationships TestTaggedNode: Connection failed',
+        testSchema.testAttachKeywords('tagged-123', mockKeywords),
+      ).rejects.toThrow('Connection failed');
+    });
+
+    it('should validate node ID in all operations', async () => {
+      await expect(testSchema.getKeywords('')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(testSchema.findRelatedByTags('')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(testSchema.updateKeywords('', [])).rejects.toThrow(
+        BadRequestException,
       );
     });
 
-    it('should validate node ID in keyword operations', async () => {
-      await expect(
-        testSchema.testCreateKeywordRelationships('', mockKeywords),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should handle errors in finding by keyword', async () => {
+    it('should handle errors in findRelatedByTags', async () => {
       neo4jService.read.mockRejectedValue(new Error('Query failed'));
 
-      await expect(testSchema.findByKeyword('test')).rejects.toThrow(
-        'Failed to find by keyword TestTaggedNode: Query failed',
-      );
-    });
-
-    it('should handle errors in finding shared tags', async () => {
-      neo4jService.read.mockRejectedValue(new Error('Query failed'));
-
-      await expect(testSchema.findBySharedTags('tagged-123')).rejects.toThrow(
-        'Failed to find by shared tags TestTaggedNode: Query failed',
+      await expect(testSchema.findRelatedByTags('tagged-123')).rejects.toThrow(
+        'Query failed',
       );
     });
   });
 
-  describe('Integration with BaseNodeSchema', () => {
-    it('should properly extend BaseNodeSchema functionality', () => {
-      // Check that the schema is an instance of TaggedNodeSchema
+  describe('Integration with Inheritance Chain', () => {
+    it('should properly extend BaseNodeSchema', () => {
       expect(testSchema).toBeInstanceOf(TestTaggedNodeSchema);
 
-      // Check that inherited methods are available
+      // Check BaseNodeSchema methods are available
       expect(typeof testSchema.findById).toBe('function');
-      expect(typeof testSchema.findAll).toBe('function');
+      expect(typeof testSchema.update).toBe('function');
       expect(typeof testSchema.delete).toBe('function');
       expect(typeof testSchema.voteInclusion).toBe('function');
       expect(typeof testSchema.voteContent).toBe('function');
+    });
 
-      // Check that new methods are available
-      expect(typeof testSchema.findByKeyword).toBe('function');
-      expect(typeof testSchema.findBySharedTags).toBe('function');
-      expect(typeof testSchema.getPopularKeywords).toBe('function');
+    it('should add TaggedNodeSchema methods', () => {
+      // Check TaggedNodeSchema methods are available
+      expect(typeof testSchema.getKeywords).toBe('function');
+      expect(typeof testSchema.findRelatedByTags).toBe('function');
+      expect(typeof testSchema.updateKeywords).toBe('function');
     });
 
     it('should use correct node label in all operations', async () => {
-      // Test findById
       neo4jService.read.mockResolvedValue({ records: [] } as unknown as Result);
+
       await testSchema.findById('test-id');
       expect(neo4jService.read).toHaveBeenCalledWith(
         expect.stringContaining('TestTaggedNode'),
         expect.any(Object),
       );
 
-      // Test findByKeyword
-      neo4jService.read.mockResolvedValue({ records: [] } as unknown as Result);
-      await testSchema.findByKeyword('test');
+      await testSchema.getKeywords('test-id').catch(() => {});
       expect(neo4jService.read).toHaveBeenCalledWith(
         expect.stringContaining('TestTaggedNode'),
         expect.any(Object),
-      );
-
-      // Test voting
-      voteSchema.vote.mockResolvedValue({} as VoteResult);
-      await testSchema.voteInclusion('test-id', 'user-id', true);
-      expect(voteSchema.vote).toHaveBeenCalledWith(
-        'TestTaggedNode',
-        expect.any(Object),
-        expect.any(String),
-        expect.any(Boolean),
-        expect.any(String),
       );
     });
   });

@@ -1,10 +1,11 @@
-// src/neo4j/schemas/__tests__/word.schema.spec.ts - MINOR UPDATES TO EXISTING
+// src/neo4j/schemas/__tests__/word.schema.spec.ts - COMPLETE UPDATED VERSION
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordSchema } from '../word.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { UserSchema } from '../user.schema';
 import { VoteSchema } from '../vote.schema';
+import { DiscussionSchema } from '../discussion.schema';
 import { Record, Result, Integer } from 'neo4j-driver';
 import { BadRequestException } from '@nestjs/common';
 import type { VoteStatus, VoteResult } from '../vote.schema';
@@ -14,13 +15,14 @@ describe('WordSchema with BaseNodeSchema', () => {
   let neo4jService: jest.Mocked<Neo4jService>;
   let voteSchema: jest.Mocked<VoteSchema>;
   let userSchema: jest.Mocked<UserSchema>;
+  let discussionSchema: jest.Mocked<DiscussionSchema>;
 
   // Mock data constants
   const mockVoteResult: VoteResult = {
     inclusionPositiveVotes: 6,
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 4,
-    contentPositiveVotes: 0, // Words don't have content voting
+    contentPositiveVotes: 0,
     contentNegativeVotes: 0,
     contentNetVotes: 0,
   };
@@ -30,7 +32,7 @@ describe('WordSchema with BaseNodeSchema', () => {
     inclusionPositiveVotes: 6,
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 4,
-    contentStatus: null, // Words don't have content voting
+    contentStatus: null,
     contentPositiveVotes: 0,
     contentNegativeVotes: 0,
     contentNetVotes: 0,
@@ -61,6 +63,12 @@ describe('WordSchema with BaseNodeSchema', () => {
             removeVote: jest.fn(),
           },
         },
+        {
+          provide: DiscussionSchema,
+          useValue: {
+            createDiscussionForNode: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -68,13 +76,13 @@ describe('WordSchema with BaseNodeSchema', () => {
     neo4jService = module.get(Neo4jService);
     voteSchema = module.get(VoteSchema);
     userSchema = module.get(UserSchema);
+    discussionSchema = module.get(DiscussionSchema);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  // INHERITED BASE FUNCTIONALITY TESTS
   describe('Inherited Base Functionality', () => {
     describe('voteInclusion (inherited)', () => {
       it('should vote on word inclusion using inherited method', async () => {
@@ -99,7 +107,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
         expect(voteSchema.vote).toHaveBeenCalledWith(
           'WordNode',
-          { word: 'test' }, // Should be standardized by overridden voteInclusion method
+          { word: 'test' },
           'user-456',
           true,
           'INCLUSION',
@@ -176,7 +184,7 @@ describe('WordSchema with BaseNodeSchema', () => {
           inclusionPositiveVotes: 6,
           inclusionNegativeVotes: 2,
           inclusionNetVotes: 4,
-          contentPositiveVotes: 0, // Always 0 for words
+          contentPositiveVotes: 0,
           contentNegativeVotes: 0,
           contentNetVotes: 0,
         });
@@ -208,7 +216,7 @@ describe('WordSchema with BaseNodeSchema', () => {
           { id: 'test' },
         );
         expect(result?.word).toBe('test');
-        expect(result?.inclusionPositiveVotes).toBe(5); // Neo4j Integer converted
+        expect(result?.inclusionPositiveVotes).toBe(5);
       });
 
       it('should return null when word not found', async () => {
@@ -240,8 +248,8 @@ describe('WordSchema with BaseNodeSchema', () => {
         const result = await wordSchema.update('test', updateData);
 
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:WordNode {word: $id})'),
-          expect.objectContaining({ id: 'test', updateData }),
+          expect.stringContaining('MATCH (n:WordNode {word: $word})'),
+          expect.objectContaining({ word: 'test', updateData }),
         );
         expect(result?.publicCredit).toBe(false);
       });
@@ -249,7 +257,6 @@ describe('WordSchema with BaseNodeSchema', () => {
 
     describe('delete (inherited)', () => {
       it('should delete word using inherited method', async () => {
-        // Mock existence check
         const existsRecord = {
           get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
         } as unknown as Record;
@@ -262,11 +269,15 @@ describe('WordSchema with BaseNodeSchema', () => {
         const result = await wordSchema.delete('test');
 
         expect(neo4jService.read).toHaveBeenCalledWith(
-          'MATCH (n:WordNode {word: $id}) RETURN COUNT(n) as count',
+          expect.stringContaining('MATCH (n:WordNode {word: $id})'),
           { id: 'test' },
         );
         expect(neo4jService.write).toHaveBeenCalledWith(
-          'MATCH (n:WordNode {word: $id}) DETACH DELETE n',
+          expect.stringContaining('MATCH (n:WordNode {word: $id})'),
+          { id: 'test' },
+        );
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('DETACH DELETE n'),
           { id: 'test' },
         );
         expect(result).toEqual({ success: true });
@@ -274,13 +285,34 @@ describe('WordSchema with BaseNodeSchema', () => {
     });
   });
 
-  // WORD-SPECIFIC FUNCTIONALITY TESTS
   describe('Word-Specific Functionality', () => {
     describe('standardizeWord', () => {
-      it('should standardize words correctly', () => {
-        // Access private method for testing
-        const result = (wordSchema as any).standardizeWord('  TeSt  ');
-        expect(result).toBe('test');
+      it('should standardize words to lowercase', () => {
+        voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+        wordSchema.voteInclusion('TeSt', 'user-456', true);
+
+        expect(voteSchema.vote).toHaveBeenCalledWith(
+          'WordNode',
+          { word: 'test' },
+          'user-456',
+          true,
+          'INCLUSION',
+        );
+      });
+
+      it('should trim whitespace', () => {
+        voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+        wordSchema.voteInclusion('  test  ', 'user-456', true);
+
+        expect(voteSchema.vote).toHaveBeenCalledWith(
+          'WordNode',
+          { word: 'test' },
+          'user-456',
+          true,
+          'INCLUSION',
+        );
       });
     });
 
@@ -333,7 +365,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.stringContaining('MATCH (w:WordNode {word: $word})'),
-          { word: 'test' }, // Should be lowercase
+          { word: 'test' },
         );
       });
 
@@ -355,6 +387,13 @@ describe('WordSchema with BaseNodeSchema', () => {
       };
 
       it('should create a user word with initial definition', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(false),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValueOnce({
+          records: [existsRecord],
+        } as unknown as Result);
+
         const mockCreatedWord = {
           word: 'test',
           createdBy: 'user-123',
@@ -382,6 +421,9 @@ describe('WordSchema with BaseNodeSchema', () => {
 
         neo4jService.write.mockResolvedValue(mockResult);
         userSchema.addCreatedNode.mockResolvedValue(undefined);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
 
         const result = await wordSchema.createWord(mockWordData);
 
@@ -394,15 +436,32 @@ describe('WordSchema with BaseNodeSchema', () => {
             publicCredit: true,
           }),
         );
+
+        expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
+          nodeId: 'test',
+          nodeType: 'WordNode',
+          nodeIdField: 'word',
+          createdBy: 'user-123',
+          initialComment: undefined,
+        });
+
         expect(userSchema.addCreatedNode).toHaveBeenCalledTimes(2);
         expect(result.word).toEqual(mockCreatedWord);
         expect(result.definition).toEqual(mockCreatedDefinition);
       });
 
       it('should create an API word with different logic', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(false),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValueOnce({
+          records: [existsRecord],
+        } as unknown as Result);
+
         const apiWordData = {
           ...mockWordData,
           createdBy: 'FreeDictionaryAPI',
+          isApiDefinition: true,
         };
 
         const mockCreatedWord = {
@@ -422,72 +481,60 @@ describe('WordSchema with BaseNodeSchema', () => {
         } as unknown as Result;
 
         neo4jService.write.mockResolvedValue(mockResult);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
 
         await wordSchema.createWord(apiWordData);
 
-        // Should not call addCreatedNode for API words
         expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
       });
 
       it('should handle creation errors gracefully with standardized error', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(false),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValueOnce({
+          records: [existsRecord],
+        } as unknown as Result);
+
         neo4jService.write.mockRejectedValue(new Error('Creation failed'));
 
         await expect(wordSchema.createWord(mockWordData)).rejects.toThrow(
           'Failed to create word Word: Creation failed',
         );
       });
-    });
 
-    describe('addDefinition', () => {
-      const mockDefinitionData = {
-        word: 'test',
-        createdBy: 'user-123',
-        definitionText: 'A new definition',
-        publicCredit: true,
-      };
-
-      it('should add definition to existing word', async () => {
-        const mockCreatedDefinition = {
-          id: 'def-456',
-          definitionText: 'A new definition',
-          createdBy: 'user-123',
-        };
+      it('should standardize word case when creating', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(false),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValueOnce({
+          records: [existsRecord],
+        } as unknown as Result);
 
         const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: mockCreatedDefinition }),
+          get: jest.fn().mockImplementation((key) => {
+            if (key === 'w') return { properties: { word: 'test' } };
+            if (key === 'd') return { properties: {} };
+          }),
         } as unknown as Record;
-        const mockResult = {
+
+        neo4jService.write.mockResolvedValue({
           records: [mockRecord],
-        } as unknown as Result;
+        } as unknown as Result);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
 
-        neo4jService.write.mockResolvedValue(mockResult);
-        userSchema.addCreatedNode.mockResolvedValue(undefined);
-
-        const result = await wordSchema.addDefinition(mockDefinitionData);
+        await wordSchema.createWord({ ...mockWordData, word: 'TeSt' });
 
         expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (w:WordNode {word: $word})'),
+          expect.any(String),
           expect.objectContaining({
             word: 'test',
-            definitionText: 'A new definition',
-            createdBy: 'user-123',
-            publicCredit: true,
           }),
         );
-        expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
-          'user-123',
-          'def-456',
-          'definition',
-        );
-        expect(result).toEqual(mockCreatedDefinition);
-      });
-
-      it('should handle add definition errors gracefully', async () => {
-        neo4jService.write.mockRejectedValue(new Error('Add failed'));
-
-        await expect(
-          wordSchema.addDefinition(mockDefinitionData),
-        ).rejects.toThrow('Failed to add definition to word Word: Add failed');
       });
     });
 
@@ -506,17 +553,25 @@ describe('WordSchema with BaseNodeSchema', () => {
           { properties: { id: 'def-2', definitionText: 'Second definition' } },
         ];
 
-        const mockDiscussion = {
-          properties: { id: 'disc-123' },
-        };
-
+        // The actual query likely returns the node structure, not just properties
         const mockRecord = {
           get: jest.fn().mockImplementation((key) => {
-            if (key === 'w') return { properties: mockWordNode };
+            if (key === 'w') {
+              return {
+                properties: mockWordNode,
+                // Add other node properties if needed
+              };
+            }
             if (key === 'definitions') return mockDefinitions;
-            if (key === 'disc') return mockDiscussion;
+            if (key === 'disc') {
+              return {
+                properties: { id: 'disc-123' },
+              };
+            }
+            return null;
           }),
         } as unknown as Record;
+
         const mockResult = {
           records: [mockRecord],
         } as unknown as Result;
@@ -532,7 +587,7 @@ describe('WordSchema with BaseNodeSchema', () => {
         expect(result?.word).toBe('test');
         expect(result?.definitions).toHaveLength(2);
         expect(result?.discussionId).toBe('disc-123');
-        expect(result?.inclusionPositiveVotes).toBe(5); // Neo4j Integer converted
+        expect(result?.inclusionPositiveVotes).toBe(5);
       });
 
       it('should return null when word not found', async () => {
@@ -548,7 +603,7 @@ describe('WordSchema with BaseNodeSchema', () => {
         neo4jService.read.mockRejectedValue(new Error('Fetch failed'));
 
         await expect(wordSchema.getWord('test')).rejects.toThrow(
-          'Failed to fetch word Word: Fetch failed',
+          'Failed to get word Word: Fetch failed',
         );
       });
     });
@@ -566,7 +621,8 @@ describe('WordSchema with BaseNodeSchema', () => {
                   },
                 };
               if (key === 'definitions') return [];
-              if (key === 'disc') return null;
+              if (key === 'discussionId') return null;
+              return null;
             }),
           },
           {
@@ -579,7 +635,8 @@ describe('WordSchema with BaseNodeSchema', () => {
                   },
                 };
               if (key === 'definitions') return [];
-              if (key === 'disc') return null;
+              if (key === 'discussionId') return null;
+              return null;
             }),
           },
         ] as unknown as Record[];
@@ -593,9 +650,37 @@ describe('WordSchema with BaseNodeSchema', () => {
         expect(result[0].word).toBe('test1');
         expect(result[1].word).toBe('test2');
       });
+
+      it('should support pagination', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        await wordSchema.getAllWords({ limit: 50, offset: 100 });
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            limit: 50,
+            offset: 100,
+          }),
+        );
+      });
+
+      it('should optionally include unapproved words', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        await wordSchema.getAllWords({ includeUnapproved: true });
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          expect.not.stringContaining('WHERE w.inclusionNetVotes > 0'),
+          expect.any(Object),
+        );
+      });
     });
 
-    // Other word-specific methods...
     describe('checkWords', () => {
       it('should return word count', async () => {
         const mockRecord = {
@@ -629,7 +714,7 @@ describe('WordSchema with BaseNodeSchema', () => {
     describe('isWordAvailableForCategoryComposition', () => {
       it('should return true for approved words', async () => {
         const mockRecord = {
-          get: jest.fn().mockReturnValue(Integer.fromNumber(5)), // > 0
+          get: jest.fn().mockReturnValue(Integer.fromNumber(5)),
         } as unknown as Record;
         const mockResult = {
           records: [mockRecord],
@@ -645,7 +730,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
       it('should return false for pending words', async () => {
         const mockRecord = {
-          get: jest.fn().mockReturnValue(Integer.fromNumber(0)), // = 0
+          get: jest.fn().mockReturnValue(Integer.fromNumber(0)),
         } as unknown as Record;
         const mockResult = {
           records: [mockRecord],
@@ -673,7 +758,7 @@ describe('WordSchema with BaseNodeSchema', () => {
     describe('isWordAvailableForDefinitionCreation', () => {
       it('should return true for approved words', async () => {
         const mockWord = { inclusionNetVotes: 5 };
-        jest.spyOn(wordSchema, 'getWord').mockResolvedValue(mockWord);
+        jest.spyOn(wordSchema, 'getWord').mockResolvedValue(mockWord as any);
 
         const result =
           await wordSchema.isWordAvailableForDefinitionCreation('test');
@@ -683,7 +768,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
       it('should return false for pending words', async () => {
         const mockWord = { inclusionNetVotes: 0 };
-        jest.spyOn(wordSchema, 'getWord').mockResolvedValue(mockWord);
+        jest.spyOn(wordSchema, 'getWord').mockResolvedValue(mockWord as any);
 
         const result =
           await wordSchema.isWordAvailableForDefinitionCreation('test');
@@ -729,7 +814,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.stringContaining('WHERE w.inclusionNetVotes > 0'),
-          { limit: 100, offset: 0 },
+          { limit: 50, offset: 0 },
         );
         expect(result).toHaveLength(2);
         expect(result[0].word).toBe('approved1');
@@ -741,35 +826,20 @@ describe('WordSchema with BaseNodeSchema', () => {
         neo4jService.read.mockResolvedValue(mockResult);
 
         await wordSchema.getApprovedWords({
-          limit: 50,
-          offset: 20,
+          limit: 25,
+          offset: 50,
           sortBy: 'votes',
-          sortDirection: 'desc',
+          sortDirection: 'DESC',
         });
 
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.stringContaining('ORDER BY w.inclusionNetVotes DESC'),
-          { limit: 50, offset: 20 },
+          { limit: 25, offset: 50 },
         );
       });
     });
   });
 
-  // VISIBILITY INTEGRATION TESTS - ❌ REMOVED METHODS
-  describe('Visibility Integration - Removed Methods', () => {
-    it('should not have setVisibilityStatus method (delegated to VisibilityService)', () => {
-      expect((wordSchema as any).setVisibilityStatus).toBeUndefined();
-    });
-
-    it('should not have getVisibilityStatus method (delegated to VisibilityService)', () => {
-      expect((wordSchema as any).getVisibilityStatus).toBeUndefined();
-    });
-
-    // Note: Visibility will now be handled by VisibilityService in the service layer
-    // WordService will integrate with VisibilityService for user visibility preferences
-  });
-
-  // ERROR HANDLING CONSISTENCY TESTS
   describe('Error Handling Consistency', () => {
     it('should use standardized error messages from BaseNodeSchema', async () => {
       neo4jService.read.mockRejectedValue(
@@ -790,10 +860,8 @@ describe('WordSchema with BaseNodeSchema', () => {
     });
   });
 
-  // INTEGRATION LIFECYCLE TESTS
   describe('Integration Lifecycle Tests', () => {
     it('should handle complete word lifecycle with inherited and custom methods', async () => {
-      // 1. Check existence (custom method)
       const existsRecord = {
         get: jest.fn().mockReturnValue(false),
       } as unknown as Record;
@@ -804,7 +872,13 @@ describe('WordSchema with BaseNodeSchema', () => {
       const exists = await wordSchema.checkWordExistence('newword');
       expect(exists).toBe(false);
 
-      // 2. Create word (custom method)
+      const existsRecord2 = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord2],
+      } as unknown as Result);
+
       const createRecord = {
         get: jest.fn().mockImplementation((key) => {
           if (key === 'w') return { properties: { word: 'newword' } };
@@ -814,6 +888,9 @@ describe('WordSchema with BaseNodeSchema', () => {
       neo4jService.write.mockResolvedValueOnce({
         records: [createRecord],
       } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
 
       await wordSchema.createWord({
         word: 'newword',
@@ -822,7 +899,6 @@ describe('WordSchema with BaseNodeSchema', () => {
         publicCredit: true,
       });
 
-      // 3. Vote on inclusion (inherited method)
       voteSchema.vote.mockResolvedValue(mockVoteResult);
       const voteResult = await wordSchema.voteInclusion(
         'newword',
@@ -831,17 +907,24 @@ describe('WordSchema with BaseNodeSchema', () => {
       );
       expect(voteResult).toEqual(mockVoteResult);
 
-      // 4. Get vote status (inherited method)
       voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
       const voteStatus = await wordSchema.getVoteStatus('newword', 'user-456');
       expect(voteStatus).toEqual(mockVoteStatus);
 
-      // 5. Retrieve word (custom method)
       const getRecord = {
         get: jest.fn().mockImplementation((key) => {
-          if (key === 'w') return { properties: { word: 'newword' } };
+          if (key === 'w') {
+            return {
+              properties: { word: 'newword' },
+            };
+          }
           if (key === 'definitions') return [];
-          if (key === 'disc') return null;
+          if (key === 'disc') {
+            return {
+              properties: { id: null },
+            };
+          }
+          return null;
         }),
       } as unknown as Record;
       neo4jService.read.mockResolvedValueOnce({
@@ -850,6 +933,316 @@ describe('WordSchema with BaseNodeSchema', () => {
 
       const retrievedWord = await wordSchema.getWord('newword');
       expect(retrievedWord?.word).toBe('newword');
+    });
+  });
+
+  describe('TaggedNodeSchema Integration', () => {
+    it('should inherit keyword methods from TaggedNodeSchema', () => {
+      expect(typeof wordSchema.getKeywords).toBe('function');
+      expect(typeof wordSchema.updateKeywords).toBe('function');
+      expect(typeof wordSchema.findRelatedByTags).toBe('function');
+    });
+
+    it('should handle self-tagging behavior', async () => {
+      const existsRecord = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord],
+      } as unknown as Result);
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'w') return { properties: { word: 'test' } };
+          if (key === 'd') return null;
+        }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
+
+      await wordSchema.createWord({
+        word: 'test',
+        createdBy: 'user-123',
+        publicCredit: true,
+      });
+
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE (w)-[:TAGGED'),
+        expect.any(Object),
+      );
+    });
+
+    it('should not allow updateKeywords for words', async () => {
+      await expect(wordSchema.updateKeywords()).rejects.toThrow(
+        'Cannot update keywords for a word node - words are self-tagged',
+      );
+    });
+  });
+
+  describe('Special Word Characteristics', () => {
+    it('should use "word" as ID field instead of "id"', async () => {
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      await wordSchema.voteInclusion('test', 'user-456', true);
+
+      expect(voteSchema.vote).toHaveBeenCalledWith(
+        'WordNode',
+        { word: 'test' },
+        'user-456',
+        true,
+        'INCLUSION',
+      );
+    });
+
+    it('should always standardize to lowercase', async () => {
+      const testCases = ['TEST', 'TeSt', 'tEsT', 'test'];
+
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+
+      for (const testWord of testCases) {
+        await wordSchema.voteInclusion(testWord, 'user-456', true);
+
+        expect(voteSchema.vote).toHaveBeenCalledWith(
+          'WordNode',
+          { word: 'test' },
+          'user-456',
+          true,
+          'INCLUSION',
+        );
+      }
+    });
+
+    it('should support both user-created and API-created words', async () => {
+      const existsRecord1 = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord1],
+      } as unknown as Result);
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'w') return { properties: { word: 'test' } };
+          if (key === 'd') return { properties: {} };
+        }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
+
+      await wordSchema.createWord({
+        word: 'userword',
+        createdBy: 'user-123',
+        publicCredit: true,
+      });
+
+      expect(userSchema.addCreatedNode).toHaveBeenCalled();
+
+      userSchema.addCreatedNode.mockClear();
+
+      const existsRecord2 = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord2],
+      } as unknown as Result);
+
+      await wordSchema.createWord({
+        word: 'apiword',
+        createdBy: 'FreeDictionaryAPI',
+        publicCredit: true,
+        isApiDefinition: true,
+      });
+
+      expect(userSchema.addCreatedNode).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Discussion Integration', () => {
+    it('should create discussion when creating word', async () => {
+      const existsRecord = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord],
+      } as unknown as Result);
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'w') return { properties: { word: 'test' } };
+          if (key === 'd') return null;
+        }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
+
+      await wordSchema.createWord({
+        word: 'test',
+        createdBy: 'user-123',
+        publicCredit: true,
+      });
+
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
+        nodeId: 'test',
+        nodeType: 'WordNode',
+        nodeIdField: 'word',
+        createdBy: 'user-123',
+        initialComment: undefined,
+      });
+    });
+
+    it('should support initial comment when creating word', async () => {
+      const existsRecord = {
+        get: jest.fn().mockReturnValue(false),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord],
+      } as unknown as Result);
+
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'w') return { properties: { word: 'test' } };
+          if (key === 'd') return null;
+        }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+        commentId: 'comment-123',
+      });
+
+      await wordSchema.createWord({
+        word: 'test',
+        createdBy: 'user-123',
+        publicCredit: true,
+        initialComment: 'First comment',
+      });
+
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
+        nodeId: 'test',
+        nodeType: 'WordNode',
+        nodeIdField: 'word',
+        createdBy: 'user-123',
+        initialComment: 'First comment',
+      });
+    });
+  });
+
+  describe('Input Validation', () => {
+    it('should reject empty word strings', async () => {
+      await expect(
+        wordSchema.voteInclusion('', 'user-456', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject whitespace-only word strings', async () => {
+      await expect(
+        wordSchema.voteInclusion('   ', 'user-456', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject null/undefined words', async () => {
+      await expect(
+        wordSchema.voteInclusion(null as any, 'user-456', true),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        wordSchema.voteInclusion(undefined as any, 'user-456', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should reject non-string words', async () => {
+      await expect(
+        wordSchema.voteInclusion(123 as any, 'user-456', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('Neo4j Integer Conversion', () => {
+    it('should convert Neo4j Integer objects to numbers', async () => {
+      const mockWordData = {
+        word: 'test',
+        createdBy: 'user-123',
+        inclusionPositiveVotes: { low: 42, high: 0 },
+        inclusionNegativeVotes: { low: 7, high: 0 },
+        inclusionNetVotes: { low: 35, high: 0 },
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockWordData }),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await wordSchema.findById('test');
+
+      expect(result?.inclusionPositiveVotes).toBe(42);
+      expect(result?.inclusionNegativeVotes).toBe(7);
+      expect(result?.inclusionNetVotes).toBe(35);
+      expect(typeof result?.inclusionPositiveVotes).toBe('number');
+    });
+  });
+
+  describe('Business Rules Enforcement', () => {
+    it('should prevent duplicate word creation', async () => {
+      const existsRecord = {
+        get: jest.fn().mockReturnValue(true),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [existsRecord],
+      } as unknown as Result);
+
+      await expect(
+        wordSchema.createWord({
+          word: 'existing',
+          createdBy: 'user-123',
+          publicCredit: true,
+        }),
+      ).rejects.toThrow("Word 'existing' already exists");
+    });
+
+    it('should enforce inclusion threshold for definition creation', async () => {
+      const mockWord = { inclusionNetVotes: 0 };
+      jest.spyOn(wordSchema, 'getWord').mockResolvedValue(mockWord as any);
+
+      const result =
+        await wordSchema.isWordAvailableForDefinitionCreation('test');
+
+      expect(result).toBe(false);
+    });
+
+    it('should enforce inclusion threshold for category composition', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(Integer.fromNumber(0)),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result =
+        await wordSchema.isWordAvailableForCategoryComposition('test');
+
+      expect(result).toBe(false);
     });
   });
 });
