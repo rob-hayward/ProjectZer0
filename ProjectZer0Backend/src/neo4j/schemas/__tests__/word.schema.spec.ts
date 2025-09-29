@@ -553,21 +553,23 @@ describe('WordSchema with BaseNodeSchema', () => {
           { properties: { id: 'def-2', definitionText: 'Second definition' } },
         ];
 
-        // The actual query likely returns the node structure, not just properties
+        // The key insight: getWord returns 'w', 'definitions', 'discussionId'
+        // But mapNodeFromRecord expects 'n', so we need both!
         const mockRecord = {
           get: jest.fn().mockImplementation((key) => {
             if (key === 'w') {
               return {
                 properties: mockWordNode,
-                // Add other node properties if needed
+              };
+            }
+            if (key === 'n') {
+              // mapNodeFromRecord looks for 'n'
+              return {
+                properties: mockWordNode,
               };
             }
             if (key === 'definitions') return mockDefinitions;
-            if (key === 'disc') {
-              return {
-                properties: { id: 'disc-123' },
-              };
-            }
+            if (key === 'discussionId') return 'disc-123';
             return null;
           }),
         } as unknown as Record;
@@ -581,7 +583,7 @@ describe('WordSchema with BaseNodeSchema', () => {
         const result = await wordSchema.getWord('test');
 
         expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (w:WordNode)'),
+          expect.stringContaining('MATCH (w:WordNode {word: $word})'),
           { word: 'test' },
         );
         expect(result?.word).toBe('test');
@@ -618,6 +620,22 @@ describe('WordSchema with BaseNodeSchema', () => {
                   properties: {
                     word: 'test1',
                     inclusionPositiveVotes: Integer.fromNumber(5),
+                    inclusionNegativeVotes: Integer.fromNumber(0),
+                    inclusionNetVotes: Integer.fromNumber(5),
+                    createdBy: 'user-123',
+                    publicCredit: true,
+                  },
+                };
+              if (key === 'n')
+                // mapNodeFromRecord looks for 'n'
+                return {
+                  properties: {
+                    word: 'test1',
+                    inclusionPositiveVotes: Integer.fromNumber(5),
+                    inclusionNegativeVotes: Integer.fromNumber(0),
+                    inclusionNetVotes: Integer.fromNumber(5),
+                    createdBy: 'user-123',
+                    publicCredit: true,
                   },
                 };
               if (key === 'definitions') return [];
@@ -632,6 +650,22 @@ describe('WordSchema with BaseNodeSchema', () => {
                   properties: {
                     word: 'test2',
                     inclusionPositiveVotes: Integer.fromNumber(3),
+                    inclusionNegativeVotes: Integer.fromNumber(0),
+                    inclusionNetVotes: Integer.fromNumber(3),
+                    createdBy: 'user-456',
+                    publicCredit: true,
+                  },
+                };
+              if (key === 'n')
+                // mapNodeFromRecord looks for 'n'
+                return {
+                  properties: {
+                    word: 'test2',
+                    inclusionPositiveVotes: Integer.fromNumber(3),
+                    inclusionNegativeVotes: Integer.fromNumber(0),
+                    inclusionNetVotes: Integer.fromNumber(3),
+                    createdBy: 'user-456',
+                    publicCredit: true,
                   },
                 };
               if (key === 'definitions') return [];
@@ -862,6 +896,7 @@ describe('WordSchema with BaseNodeSchema', () => {
 
   describe('Integration Lifecycle Tests', () => {
     it('should handle complete word lifecycle with inherited and custom methods', async () => {
+      // Step 1: Check word doesn't exist
       const existsRecord = {
         get: jest.fn().mockReturnValue(false),
       } as unknown as Record;
@@ -872,6 +907,7 @@ describe('WordSchema with BaseNodeSchema', () => {
       const exists = await wordSchema.checkWordExistence('newword');
       expect(exists).toBe(false);
 
+      // Step 2: Create the word
       const existsRecord2 = {
         get: jest.fn().mockReturnValue(false),
       } as unknown as Record;
@@ -899,6 +935,7 @@ describe('WordSchema with BaseNodeSchema', () => {
         publicCredit: true,
       });
 
+      // Step 3: Vote on the word
       voteSchema.vote.mockResolvedValue(mockVoteResult);
       const voteResult = await wordSchema.voteInclusion(
         'newword',
@@ -907,23 +944,29 @@ describe('WordSchema with BaseNodeSchema', () => {
       );
       expect(voteResult).toEqual(mockVoteResult);
 
+      // Step 4: Check vote status
       voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
       const voteStatus = await wordSchema.getVoteStatus('newword', 'user-456');
       expect(voteStatus).toEqual(mockVoteStatus);
 
+      // Step 5: Retrieve the word
       const getRecord = {
         get: jest.fn().mockImplementation((key) => {
-          if (key === 'w') {
+          // Need both 'w' and 'n' for getWord to work
+          if (key === 'w' || key === 'n') {
             return {
-              properties: { word: 'newword' },
+              properties: {
+                word: 'newword',
+                createdBy: 'user-123',
+                publicCredit: true,
+                inclusionPositiveVotes: Integer.fromNumber(0),
+                inclusionNegativeVotes: Integer.fromNumber(0),
+                inclusionNetVotes: Integer.fromNumber(0),
+              },
             };
           }
           if (key === 'definitions') return [];
-          if (key === 'disc') {
-            return {
-              properties: { id: null },
-            };
-          }
+          if (key === 'discussionId') return 'discussion-123';
           return null;
         }),
       } as unknown as Record;

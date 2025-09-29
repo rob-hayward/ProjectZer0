@@ -40,6 +40,7 @@ export class CommentSchema extends BaseNodeSchema<CommentData> {
       parentCommentId: props.parentCommentId,
       createdAt: props.createdAt,
       updatedAt: props.updatedAt,
+      publicCredit: props.publicCredit || false,
       // Comments don't have inclusion voting (all comments are included by default)
       inclusionPositiveVotes: 0,
       inclusionNegativeVotes: 0,
