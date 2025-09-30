@@ -22,15 +22,27 @@ ProjectZer0 is built on a monorepo architecture with three main components:
 - Efficient collision detection and prevention
 - Visibility preferences for community and user-controlled content filtering
 
-### Node System
-- Word Nodes: Explore definitions and relationships
-- Definition Nodes: Multiple interpretations with voting
-- Statement Nodes: Share and discuss personal perspectives with keyword extraction
-- Navigation Nodes: Context-aware circular menu system
-- Discussion Nodes: Threaded conversations linked to any node type
-- Open Question Nodes: Pose questions to the community with AI-generated keywords
-- Quantity Nodes: Visualize numerical data with dynamic scaling
-- Comment Nodes: Add context to any node with threaded discussions
+### Node System & Data Model
+
+The application uses a Neo4j graph database with a sophisticated node architecture:
+
+**Core Node Types:**
+- **Word Nodes**: Foundation of the tagging system with self-tagging
+- **Category Nodes**: Hierarchical organization (self-categorizing, composed of 1-5 words)
+- **Definition Nodes**: Multiple interpretations for words with dual voting
+- **Statement Nodes**: User perspectives with keywords and up to 3 categories
+- **Open Question Nodes**: Community questions with AI-generated keywords
+- **Answer Nodes**: Responses to questions with quality voting
+- **Quantity Nodes**: Numerical data with unit conversion and statistical analysis
+- **Evidence Nodes**: External sources with 3-dimensional peer review system
+- **Discussion/Comment Nodes**: Threaded conversations on any node
+
+**Key Design Patterns:**
+- Self-referential relationships (words tag themselves, categories categorize themselves)
+- Dual voting system (inclusion + content quality assessment)
+- Discovery relationships (SHARED_TAG, SHARED_CATEGORY for content similarity)
+- Inheritance-based schema architecture (Base → Tagged → Categorized)
+- Peer review and statistical aggregation for specialized nodes
 
 ### Interactive Features
 - Preview/Detail node state transitions
@@ -64,9 +76,10 @@ ProjectZer0 is built on a monorepo architecture with three main components:
 
 ### Backend Systems
 - **Framework**: NestJS with TypeScript
-- **Database**: Neo4j graph database
+- **Database**: Neo4j graph database with sophisticated schema layer
 - **Authentication**: JWT with Auth0
-- **API**: RESTful endpoints with TypeScript types
+- **API**: RESTful endpoints with full TypeScript type safety
+- **Schema Architecture**: Inheritance-based with Base, Tagged, and Categorized node classes
 
 ### AI Integration
 - **Framework**: FastAPI
@@ -95,7 +108,7 @@ npm run dev
 # Backend
 cd ProjectZer0Backend
 npm install
-npm start run:dev
+npm run start:dev
 
 # AI Component
 cd ProjectZer0AI
@@ -169,17 +182,37 @@ REDIS_PORT=6379
 - Vote-weighted positioning for definitions and statements
 - Visibility preferences affecting node positioning and display
 
-### Data Model
-The application uses a graph data model with Neo4j, where:
-- Nodes represent different types of entities (words, definitions, statements)
-- Relationships connect nodes (HAS_DEFINITION, CREATED, VOTED_ON)
-- Properties store metadata and content
-- Specialized schemas handle different node types
-- User preferences are stored as visibility settings for nodes
+### Schema Layer
+The backend implements a sophisticated inheritance-based schema architecture:
+
+```
+BaseNodeSchema (CRUD, voting, validation)
+├── TaggedNodeSchema (keyword tagging + discovery)
+│   ├── WordSchema (self-tagging)
+│   ├── DefinitionSchema
+│   └── CategorizedNodeSchema (tagging + categorization)
+│       ├── StatementSchema
+│       ├── OpenQuestionSchema
+│       ├── AnswerSchema
+│       ├── QuantitySchema
+│       └── EvidenceSchema
+└── Special Purpose Schemas
+    ├── CategorySchema (self-categorizing, BaseNodeSchema)
+    ├── CommentSchema
+    └── DiscussionSchema
+```
+
+**Relationship Types:**
+- Content: DEFINES, ANSWERS, TAGGED, CATEGORIZED_AS, COMPOSED_OF, RELATED_TO
+- Discovery: SHARED_TAG, SHARED_CATEGORY (weighted similarity)
+- User: CREATED, VOTED_ON, COMMENTED
+- Discussion: HAS_DISCUSSION, HAS_COMMENT
 
 ## 🧪 Testing
 
+```bash
 npm run test
+```
 
 ## 🔧 Performance Optimization
 
@@ -207,10 +240,10 @@ npm run test
 
 ## 📚 Additional Resources
 
-- [Detailed API Documentation](docs/api.md)
-- [Graph System Documentation](docs/graph-system.md)
-- [Contributing Guidelines](CONTRIBUTING.md)
-- [Security Guidelines](SECURITY.md)
+- [Schema Layer Documentation](docs/schema-layer.md) - Detailed backend architecture
+- [API Documentation](docs/api.md) - REST endpoint reference
+- [Graph System Documentation](docs/graph-system.md) - Visualization deep-dive
+- [Contributing Guidelines](CONTRIBUTING.md) - How to contribute
 
 ## 🤝 Contributing
 
@@ -228,3 +261,5 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 - SvelteKit and NestJS teams for excellent frameworks
 - KeyBERT and Hugging Face for NLP capabilities
 - Open source community
+
+---
