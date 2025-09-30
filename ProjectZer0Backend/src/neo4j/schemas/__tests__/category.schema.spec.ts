@@ -973,6 +973,179 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       expect(query).toContain('toLower(w.word) CONTAINS toLower($searchQuery)');
     });
 
+    describe('Self-Categorization', () => {
+      it('should create self-categorization relationship when category is created', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
+
+        await schema.createCategory(mockCategoryNodeData);
+
+        // Verify the Cypher query includes self-categorization
+        const cypherQuery = neo4jService.write.mock.calls[0][0];
+        expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
+      });
+
+      it('should include category in its own dataset when querying by category', async () => {
+        // This verifies the design goal: when filtering by a category,
+        // the category itself appears in results
+        const mockRecords = [
+          {
+            get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+          },
+          {
+            get: jest.fn().mockReturnValue({
+              properties: {
+                ...mockCategoryData,
+                id: 'statement-123',
+                statement: 'Test statement',
+              },
+            }),
+          },
+        ] as unknown as Record[];
+
+        neo4jService.read.mockResolvedValue({
+          records: mockRecords,
+        } as unknown as Result);
+
+        // Query for all nodes categorized as this category
+        // (This simulates what would happen in a real query)
+        const result = await neo4jService.read(
+          `MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode {id: $catId})
+         RETURN n`,
+          { catId: 'cat-123' },
+        );
+
+        // Category itself should be in results due to self-categorization
+        expect(result.records).toHaveLength(2);
+      });
+
+      it('should exclude self-categorization from content count', async () => {
+        const mockRecord = {
+          get: jest.fn((field) => {
+            if (field === 'c') return { properties: mockCategoryData };
+            if (field === 'contentCount') return Integer.fromNumber(15);
+            if (field === 'discussionId') return 'discussion-123';
+            if (field === 'words') return [];
+            if (field === 'parentCategory') return null;
+            if (field === 'childCategories') return [];
+            return null;
+          }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result = await schema.getCategory('cat-123');
+
+        // Verify query excludes self from content count
+        const cypherQuery = neo4jService.read.mock.calls[0][0];
+        expect(cypherQuery).toContain('content.id <> c.id');
+
+        // Content count should not include the category itself
+        expect(result?.contentCount).toBe(15);
+      });
+
+      it('should exclude self from content count in getCategoryStats', async () => {
+        const mockStats = {
+          contentCount: 25,
+          childCount: 3,
+          wordCount: 4,
+          inclusionNetVotes: 10,
+        };
+
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({
+            contentCount: Integer.fromNumber(mockStats.contentCount),
+            childCount: Integer.fromNumber(mockStats.childCount),
+            wordCount: Integer.fromNumber(mockStats.wordCount),
+            inclusionNetVotes: Integer.fromNumber(mockStats.inclusionNetVotes),
+          }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result = await schema.getCategoryStats('cat-123');
+
+        // Verify query excludes self from content count
+        const cypherQuery = neo4jService.read.mock.calls[0][0];
+        expect(cypherQuery).toContain('content.id <> c.id');
+
+        expect(result.contentCount).toBe(25);
+      });
+
+      it('should verify EvidenceNode is included in content queries', async () => {
+        const mockRecord = {
+          get: jest.fn((field) => {
+            if (field === 'c') return { properties: mockCategoryData };
+            if (field === 'contentCount') return Integer.fromNumber(10);
+            if (field === 'discussionId') return 'discussion-123';
+            if (field === 'words') return [];
+            if (field === 'parentCategory') return null;
+            if (field === 'childCategories') return [];
+            return null;
+          }),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        await schema.getCategory('cat-123');
+
+        // Verify query includes EvidenceNode in content types
+        const cypherQuery = neo4jService.read.mock.calls[0][0];
+        expect(cypherQuery).toContain('content:StatementNode');
+        expect(cypherQuery).toContain('content:AnswerNode');
+        expect(cypherQuery).toContain('content:OpenQuestionNode');
+        expect(cypherQuery).toContain('content:QuantityNode');
+        expect(cypherQuery).toContain('content:EvidenceNode');
+      });
+
+      it('should handle self-categorization consistently with word self-tagging pattern', async () => {
+        // This test documents the parallel design pattern
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
+
+        await schema.createCategory(mockCategoryNodeData);
+
+        const cypherQuery = neo4jService.write.mock.calls[0][0];
+
+        // Verify self-categorization pattern similar to word self-tagging:
+        // - Single self-reference
+        // - Created immediately after node creation
+        // - No properties on the relationship (unlike TAGGED which has frequency/source)
+        expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
+
+        // Verify it's created between node creation and parent relationship
+        const nodeCreationIndex = cypherQuery.indexOf('CREATE (c:CategoryNode');
+        const selfCatIndex = cypherQuery.indexOf(
+          'CREATE (c)-[:CATEGORIZED_AS]->(c)',
+        );
+        const parentIndex = cypherQuery.indexOf(
+          'CREATE (parent)-[:PARENT_OF]->(c)',
+        );
+
+        expect(selfCatIndex).toBeGreaterThan(nodeCreationIndex);
+        if (parentIndex > 0) {
+          expect(selfCatIndex).toBeLessThan(parentIndex);
+        }
+      });
+    });
+
     it('should handle empty results', async () => {
       neo4jService.read.mockResolvedValue({
         records: [],

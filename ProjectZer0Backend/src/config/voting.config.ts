@@ -7,10 +7,10 @@ export const NODE_VOTING_RULES = {
   DefinitionNode: { hasInclusion: true, hasContent: true },
   StatementNode: { hasInclusion: true, hasContent: true },
   AnswerNode: { hasInclusion: true, hasContent: true },
-  QuantityNode: { hasInclusion: true, hasContent: true },
+  QuantityNode: { hasInclusion: true, hasContent: false },
   OpenQuestionNode: { hasInclusion: true, hasContent: false },
-  CommentNode: { hasInclusion: false, hasContent: true }, // ✅ NEW: Content voting only
-  // DiscussionNode: NOT INCLUDED (discussions don't support voting)
+  CommentNode: { hasInclusion: false, hasContent: true },
+  // DiscussionNode: NOT INCLUDED (discussions don't support voting, they are just a container for comments)
 } as const;
 
 export const VotingUtils = {

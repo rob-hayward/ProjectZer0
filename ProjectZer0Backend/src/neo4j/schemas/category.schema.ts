@@ -1,4 +1,4 @@
-// src/neo4j/schemas/category.schema.ts - FIXED
+// src/neo4j/schemas/category.schema.ts - UPDATED WITH SELF-CATEGORIZATION
 
 import {
   Injectable,
@@ -44,6 +44,26 @@ export interface CategoryNodeData {
   initialComment?: string;
 }
 
+/**
+ * Schema for CategoryNode - hierarchical categorization system.
+ *
+ * Extends: BaseNodeSchema (not CategorizedNodeSchema - special case)
+ *
+ * Key characteristics:
+ * - Uses standard 'id' field
+ * - Inclusion voting only (no content voting)
+ * - Self-categorizing: Every category has CATEGORIZED_AS relationship to itself
+ * - Composed of: 1-5 approved WordNodes via COMPOSED_OF relationships
+ * - Hierarchical: Can have parent/child categories via PARENT_OF relationships
+ * - Has discussions (via injected DiscussionSchema)
+ *
+ * Self-Categorization Pattern:
+ * - Similar to WordNode self-tagging
+ * - Ensures category appears in its own category-filtered datasets
+ * - Safe: Categories only belong to themselves, never to other categories
+ * - Pattern: (CategoryNode)-[:CATEGORIZED_AS]->(CategoryNode) [same node]
+ * - Content counts exclude the self-reference to maintain accurate statistics
+ */
 @Injectable()
 export class CategorySchema extends BaseNodeSchema<CategoryData> {
   protected readonly nodeLabel = 'CategoryNode';
@@ -160,6 +180,11 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         UNWIND validWords as word
         CREATE (c)-[:COMPOSED_OF]->(word)
         
+        // Self-categorization: category belongs to itself
+        WITH c, parent
+        CREATE (c)-[:CATEGORIZED_AS]->(c)
+        
+        // Create parent relationship if specified
         WITH c, parent
         FOREACH (dummy IN CASE WHEN parent IS NOT NULL THEN [1] ELSE [] END |
           CREATE (parent)-[:PARENT_OF]->(c)
@@ -228,8 +253,10 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         OPTIONAL MATCH (parent:CategoryNode)-[:PARENT_OF]->(c)
         OPTIONAL MATCH (c)-[:PARENT_OF]->(child:CategoryNode)
         OPTIONAL MATCH (content)-[:CATEGORIZED_AS]->(c)
-        WHERE content:StatementNode OR content:AnswerNode OR 
-              content:OpenQuestionNode OR content:QuantityNode
+        WHERE (content:StatementNode OR content:AnswerNode OR 
+               content:OpenQuestionNode OR content:QuantityNode OR
+               content:EvidenceNode)
+          AND content.id <> c.id  // Exclude self-categorization from content count
         
         RETURN c,
         disc.id as discussionId,
@@ -385,8 +412,10 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         MATCH (c:CategoryNode {id: $categoryId})
         
         OPTIONAL MATCH (content)-[:CATEGORIZED_AS]->(c)
-        WHERE content:StatementNode OR content:AnswerNode OR 
-              content:OpenQuestionNode OR content:QuantityNode
+        WHERE (content:StatementNode OR content:AnswerNode OR 
+               content:OpenQuestionNode OR content:QuantityNode OR
+               content:EvidenceNode)
+          AND content.id <> c.id  // Exclude self from content count
         
         OPTIONAL MATCH (c)-[:PARENT_OF]->(child:CategoryNode)
         OPTIONAL MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
