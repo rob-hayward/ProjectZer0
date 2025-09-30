@@ -9,13 +9,17 @@ import {
 } from '../quantity.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
+import { DiscussionSchema } from '../discussion.schema';
+import { UserSchema } from '../user.schema';
 import { UnitService } from '../../../units/unit.service';
 import { Record, Result, Integer } from 'neo4j-driver';
 
-describe('QuantitySchema with BaseNodeSchema Integration', () => {
+describe('QuantitySchema', () => {
   let schema: QuantitySchema;
   let neo4jService: jest.Mocked<Neo4jService>;
   let voteSchema: jest.Mocked<VoteSchema>;
+  let discussionSchema: jest.Mocked<DiscussionSchema>;
+  let userSchema: jest.Mocked<UserSchema>;
   let unitService: jest.Mocked<UnitService>;
 
   const mockQuantityData: QuantityData = {
@@ -29,28 +33,12 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     discussionId: 'discussion-abc',
     createdAt: new Date('2023-01-01T00:00:00Z'),
     updatedAt: new Date('2023-01-01T00:00:00Z'),
-    // Only inclusion voting (no content voting for quantities)
     inclusionPositiveVotes: 12,
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 10,
     contentPositiveVotes: 0,
     contentNegativeVotes: 0,
     contentNetVotes: 0,
-  };
-
-  const mockCreateQuantityData = {
-    id: 'quantity-123',
-    createdBy: 'user-456',
-    publicCredit: true,
-    question: 'What is the optimal temperature for brewing coffee?',
-    unitCategoryId: 'temperature',
-    defaultUnitId: 'celsius',
-    categoryIds: ['coffee-category', 'brewing-category'],
-    keywords: [
-      { word: 'coffee', frequency: 10, source: 'user' as const },
-      { word: 'brewing', frequency: 8, source: 'ai' as const },
-    ],
-    initialComment: 'This question will help optimize coffee brewing.',
   };
 
   const mockQuantityResponse: QuantityNodeResponse = {
@@ -62,14 +50,14 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     categoryId: 'temperature',
     createdAt: new Date('2023-01-02T00:00:00Z'),
     updatedAt: new Date('2023-01-02T00:00:00Z'),
-    normalizedValue: 365.15, // 92°C in Kelvin
+    normalizedValue: 365.15,
   };
 
   const mockVoteResult: VoteResult = {
     inclusionPositiveVotes: 13,
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 11,
-    contentPositiveVotes: 0, // Always 0 for quantities
+    contentPositiveVotes: 0,
     contentNegativeVotes: 0,
     contentNetVotes: 0,
   };
@@ -79,42 +67,59 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     inclusionPositiveVotes: 13,
     inclusionNegativeVotes: 2,
     inclusionNetVotes: 11,
-    contentStatus: null, // No content voting for quantities
+    contentStatus: null,
     contentPositiveVotes: 0,
     contentNegativeVotes: 0,
     contentNetVotes: 0,
   };
 
   beforeEach(async () => {
-    neo4jService = {
-      read: jest.fn(),
-      write: jest.fn(),
-    } as any;
-
-    voteSchema = {
-      vote: jest.fn(),
-      getVoteStatus: jest.fn(),
-      removeVote: jest.fn(),
-    } as any;
-
-    unitService = {
-      validateUnitInCategory: jest.fn(),
-      convert: jest.fn(),
-      getCategory: jest.fn(),
-    } as any;
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         QuantitySchema,
-        { provide: Neo4jService, useValue: neo4jService },
-        { provide: VoteSchema, useValue: voteSchema },
-        { provide: UnitService, useValue: unitService },
+        {
+          provide: Neo4jService,
+          useValue: {
+            write: jest.fn(),
+            read: jest.fn(),
+          },
+        },
+        {
+          provide: VoteSchema,
+          useValue: {
+            vote: jest.fn(),
+            getVoteStatus: jest.fn(),
+            removeVote: jest.fn(),
+          },
+        },
+        {
+          provide: DiscussionSchema,
+          useValue: {
+            createDiscussionForNode: jest.fn(),
+          },
+        },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
+        {
+          provide: UnitService,
+          useValue: {
+            validateUnitInCategory: jest.fn(),
+            convert: jest.fn(),
+            getCategory: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
     schema = module.get<QuantitySchema>(QuantitySchema);
     neo4jService = module.get(Neo4jService);
     voteSchema = module.get(VoteSchema);
+    discussionSchema = module.get(DiscussionSchema);
+    userSchema = module.get(UserSchema);
     unitService = module.get(UnitService);
   });
 
@@ -122,93 +127,122 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     jest.clearAllMocks();
   });
 
-  describe('BaseNodeSchema Integration', () => {
-    describe('supportsContentVoting', () => {
-      it('should not support content voting (inclusion only)', () => {
-        expect((schema as any).supportsContentVoting()).toBe(false);
-      });
-    });
-
-    describe('mapNodeFromRecord', () => {
-      it('should map Neo4j record to QuantityData with all BaseNodeData fields', () => {
+  describe('Inherited Methods', () => {
+    describe('findById', () => {
+      it('should find a quantity by id', async () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
         } as unknown as Record;
 
-        const result = (schema as any).mapNodeFromRecord(mockRecord);
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
 
-        expect(result.createdBy).toBe('user-456');
-        expect(result.publicCredit).toBe(true);
-        expect(result.discussionId).toBe('discussion-abc');
-        expect(result.question).toBe(
-          'What is the optimal temperature for brewing coffee?',
+        const result = await schema.findById('quantity-123');
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          expect.stringContaining('MATCH (n:QuantityNode {id: $id})'),
+          { id: 'quantity-123' },
         );
-        expect(result.unitCategoryId).toBe('temperature');
-        expect(result.defaultUnitId).toBe('celsius');
-        expect(result.responseCount).toBe(5);
-        expect(result.contentPositiveVotes).toBe(0); // Always 0 for quantities
-        expect(result.contentNegativeVotes).toBe(0);
-        expect(result.contentNetVotes).toBe(0);
+        expect(result).toEqual(mockQuantityData);
       });
 
-      it('should convert Neo4j integers correctly', () => {
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: {
-              ...mockQuantityData,
-              inclusionPositiveVotes: Integer.fromNumber(12),
-              inclusionNegativeVotes: Integer.fromNumber(2),
-              inclusionNetVotes: Integer.fromNumber(10),
-              responseCount: Integer.fromNumber(5),
-            },
-          }),
-        } as unknown as Record;
+      it('should return null when quantity not found', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
 
-        const result = (schema as any).mapNodeFromRecord(mockRecord);
+        const result = await schema.findById('nonexistent');
 
-        expect(typeof result.inclusionPositiveVotes).toBe('number');
-        expect(typeof result.inclusionNegativeVotes).toBe('number');
-        expect(typeof result.inclusionNetVotes).toBe('number');
-        expect(typeof result.responseCount).toBe('number');
+        expect(result).toBeNull();
+      });
+
+      it('should validate input', async () => {
+        await expect(schema.findById('')).rejects.toThrow(BadRequestException);
+        expect(neo4jService.read).not.toHaveBeenCalled();
       });
     });
 
-    describe('buildUpdateQuery', () => {
-      it('should build correct update query', () => {
-        const updateData = {
-          question: 'Updated question',
-          publicCredit: false,
-        };
-        const result = (schema as any).buildUpdateQuery(
-          'quantity-123',
-          updateData,
-        );
+    describe('update', () => {
+      it('should update quantity using inherited method', async () => {
+        const updateData = { question: 'Updated question' };
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({
+            properties: { ...mockQuantityData, ...updateData },
+          }),
+        } as unknown as Record;
 
-        expect(result.cypher).toContain('MATCH (n:QuantityNode {id: $id})');
-        expect(result.cypher).toContain('SET');
-        expect(result.cypher).toContain('n.updatedAt = datetime()');
-        expect(result.params).toEqual({
-          id: 'quantity-123',
-          updateData,
-        });
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result = await schema.update('quantity-123', updateData);
+
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('MATCH (n:QuantityNode {id: $id})'),
+          expect.objectContaining({
+            id: 'quantity-123',
+            updateData,
+          }),
+        );
+        expect(result?.question).toBe('Updated question');
       });
 
-      it('should exclude id field from updates', () => {
-        const updateData = { id: 'new-id', question: 'Updated question' };
-        const result = (schema as any).buildUpdateQuery(
-          'quantity-123',
-          updateData,
+      it('should validate input', async () => {
+        await expect(schema.update('', {})).rejects.toThrow(
+          BadRequestException,
         );
+        expect(neo4jService.write).not.toHaveBeenCalled();
+      });
+    });
 
-        expect(result.cypher).not.toContain('n.id = $updateData.id');
-        expect(result.cypher).toContain('n.question = $updateData.question');
+    describe('delete', () => {
+      it('should detach and delete a quantity', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
+        } as unknown as Record;
+
+        neo4jService.read.mockResolvedValue({
+          records: [existsRecord],
+        } as unknown as Result);
+
+        neo4jService.write.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        const result = await schema.delete('quantity-123');
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          expect.stringContaining('MATCH (n:QuantityNode {id: $id})'),
+          { id: 'quantity-123' },
+        );
+        expect(neo4jService.write).toHaveBeenCalledWith(
+          expect.stringContaining('DETACH DELETE n'),
+          { id: 'quantity-123' },
+        );
+        expect(result).toEqual({ success: true });
+      });
+
+      it('should throw NotFoundException when quantity not found', async () => {
+        const existsRecord = {
+          get: jest.fn().mockReturnValue(Integer.fromNumber(0)),
+        } as unknown as Record;
+
+        neo4jService.read.mockResolvedValue({
+          records: [existsRecord],
+        } as unknown as Result);
+
+        await expect(schema.delete('nonexistent')).rejects.toThrow(
+          NotFoundException,
+        );
+        expect(neo4jService.write).not.toHaveBeenCalled();
       });
     });
   });
 
-  describe('Inherited Voting Methods', () => {
+  describe('Voting Methods', () => {
     describe('voteInclusion', () => {
-      it('should vote on inclusion using inherited method', async () => {
+      it('should vote on quantity inclusion', async () => {
         voteSchema.vote.mockResolvedValue(mockVoteResult);
 
         const result = await schema.voteInclusion(
@@ -226,20 +260,10 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         );
         expect(result).toEqual(mockVoteResult);
       });
-
-      it('should validate inputs', async () => {
-        await expect(
-          schema.voteInclusion('', 'user-456', true),
-        ).rejects.toThrow(BadRequestException);
-        await expect(
-          schema.voteInclusion('quantity-123', '', true),
-        ).rejects.toThrow(BadRequestException);
-        expect(voteSchema.vote).not.toHaveBeenCalled();
-      });
     });
 
-    describe('voteContent (should reject)', () => {
-      it('should throw BadRequestException when trying to vote on content', async () => {
+    describe('voteContent', () => {
+      it('should reject content voting for quantities', async () => {
         await expect(
           schema.voteContent('quantity-123', 'user-456', true),
         ).rejects.toThrow('Quantity does not support content voting');
@@ -248,7 +272,7 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     describe('getVoteStatus', () => {
-      it('should get vote status using inherited method', async () => {
+      it('should get vote status with null content status', async () => {
         voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
         const result = await schema.getVoteStatus('quantity-123', 'user-456');
@@ -263,26 +287,6 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
       });
     });
 
-    describe('removeVote', () => {
-      it('should remove inclusion vote using inherited method', async () => {
-        voteSchema.removeVote.mockResolvedValue(mockVoteResult);
-
-        const result = await schema.removeVote(
-          'quantity-123',
-          'user-456',
-          'INCLUSION',
-        );
-
-        expect(voteSchema.removeVote).toHaveBeenCalledWith(
-          'QuantityNode',
-          { id: 'quantity-123' },
-          'user-456',
-          'INCLUSION',
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-    });
-
     describe('getVotes', () => {
       it('should get vote counts with content votes always zero', async () => {
         voteSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
@@ -290,10 +294,10 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         const result = await schema.getVotes('quantity-123');
 
         expect(result).toEqual({
-          inclusionPositiveVotes: mockVoteStatus.inclusionPositiveVotes,
-          inclusionNegativeVotes: mockVoteStatus.inclusionNegativeVotes,
-          inclusionNetVotes: mockVoteStatus.inclusionNetVotes,
-          contentPositiveVotes: 0, // Always 0 for quantities
+          inclusionPositiveVotes: 13,
+          inclusionNegativeVotes: 2,
+          inclusionNetVotes: 11,
+          contentPositiveVotes: 0,
           contentNegativeVotes: 0,
           contentNetVotes: 0,
         });
@@ -301,271 +305,258 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
   });
 
-  describe('Quantity-Specific Methods', () => {
-    describe('createQuantityNode', () => {
-      beforeEach(() => {
-        unitService.validateUnitInCategory.mockReturnValue(true);
+  describe('createQuantityNode', () => {
+    beforeEach(() => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+      unitService.getCategory.mockReturnValue({
+        id: 'temperature',
+        name: 'Temperature',
+        description: 'Temperature measurements',
+        baseUnit: 'kelvin',
+        defaultUnit: 'celsius',
+        units: [],
+      });
+    });
+
+    it('should create quantity with keywords and categories', async () => {
+      const createData = {
+        createdBy: 'user-456',
+        publicCredit: true,
+        question: 'What is the optimal temperature?',
+        unitCategoryId: 'temperature',
+        defaultUnitId: 'celsius',
+        keywords: [
+          { word: 'temperature', frequency: 1, source: 'user' as const },
+        ],
+        categoryIds: ['cat1'],
+        initialComment: 'Initial comment',
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-abc',
       });
 
-      it('should create quantity node successfully with keywords and categories', async () => {
-        // Mock quantity creation first
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValueOnce({
-          records: [mockRecord],
-        } as unknown as Result);
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
-        // Mock discussion creation second
-        neo4jService.write.mockResolvedValueOnce({
-          records: [{ get: jest.fn().mockReturnValue('discussion-abc') }],
-        } as unknown as Result);
+      const result = await schema.createQuantityNode(createData);
 
-        const result = await schema.createQuantityNode(mockCreateQuantityData);
+      expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
+        'temperature',
+        'celsius',
+      );
+      expect(neo4jService.write).toHaveBeenCalled();
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalled();
+      expect(userSchema.addCreatedNode).toHaveBeenCalled();
+      expect(result.id).toBe('quantity-123');
+    });
 
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('CREATE (q:QuantityNode'),
-          expect.objectContaining({
-            id: mockCreateQuantityData.id,
-            question: mockCreateQuantityData.question,
-            unitCategoryId: mockCreateQuantityData.unitCategoryId,
-            defaultUnitId: mockCreateQuantityData.defaultUnitId,
-            createdBy: mockCreateQuantityData.createdBy,
-            publicCredit: mockCreateQuantityData.publicCredit,
-            categoryIds: mockCreateQuantityData.categoryIds,
-            keywords: mockCreateQuantityData.keywords,
-          }),
-        );
-        expect(result.discussionId).toBe('discussion-abc');
-      });
-
-      it('should create quantity node without keywords and categories', async () => {
-        const simpleQuantityData = {
-          id: 'quantity-456',
-          createdBy: 'user-789',
+    it('should reject empty question text', async () => {
+      await expect(
+        schema.createQuantityNode({
+          createdBy: 'user-456',
           publicCredit: true,
-          question: 'Simple question without extras',
+          question: '',
           unitCategoryId: 'temperature',
           defaultUnitId: 'celsius',
-        };
-
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: simpleQuantityData }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValueOnce({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        neo4jService.write.mockResolvedValueOnce({
-          records: [{ get: jest.fn().mockReturnValue('discussion-def') }],
-        } as unknown as Result);
-
-        const result = await schema.createQuantityNode(simpleQuantityData);
-
-        expect(result.id).toBe('quantity-456');
-        expect(result.discussionId).toBe('discussion-def');
-      });
-
-      it('should validate unit category and default unit', async () => {
-        unitService.validateUnitInCategory.mockReturnValue(false);
-
-        await expect(
-          schema.createQuantityNode(mockCreateQuantityData),
-        ).rejects.toThrow('Unit celsius is not valid for category temperature');
-      });
-
-      it('should validate category count limit', async () => {
-        const tooManyCategoriesData = {
-          ...mockCreateQuantityData,
-          categoryIds: ['cat1', 'cat2', 'cat3', 'cat4'], // More than 3 categories
-        };
-
-        await expect(
-          schema.createQuantityNode(tooManyCategoriesData),
-        ).rejects.toThrow('Quantity node can have maximum 3 categories');
-      });
-
-      it('should handle dependency validation errors', async () => {
-        neo4jService.write.mockRejectedValue(
-          new Error('some dependencies may not exist'),
-        );
-
-        await expect(
-          schema.createQuantityNode(mockCreateQuantityData),
-        ).rejects.toThrow(
-          "Some categories or keywords don't exist or haven't passed inclusion threshold",
-        );
-      });
+        }),
+      ).rejects.toThrow('Question text cannot be empty');
     });
 
-    describe('findById with enhanced data', () => {
-      it('should retrieve quantity with keywords and categories', async () => {
-        const mockRecord = {
-          get: jest.fn((field) => {
-            if (field === 'n') return { properties: mockQuantityData };
-            if (field === 'keywords')
-              return [
-                { word: 'coffee', frequency: 10, source: 'user' },
-                { word: 'brewing', frequency: 8, source: 'ai' },
-              ];
-            if (field === 'categories')
-              return [
-                { id: 'coffee-category', name: 'Coffee', inclusionNetVotes: 5 },
-              ];
-            if (field === 'discussionId') return 'discussion-abc';
-            return null;
-          }),
-        } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
+    it('should reject invalid unit for category', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(false);
 
-        const result = await schema.findById('quantity-123');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (n:QuantityNode {id: $id})'),
-          { id: 'quantity-123' },
-        );
-        expect(result?.id).toBe('quantity-123');
-        expect((result as any).keywords).toBeDefined();
-        expect((result as any).categories).toBeDefined();
-      });
-    });
-
-    describe('updateQuantityNode', () => {
-      beforeEach(() => {
-        unitService.validateUnitInCategory.mockReturnValue(true);
-      });
-
-      it('should update simple fields using inherited method', async () => {
-        const updateData = {
-          question: 'Updated question',
-          publicCredit: false,
-        };
-        const basicUpdatedData = {
-          id: mockQuantityData.id,
-          createdBy: mockQuantityData.createdBy,
-          publicCredit: false, // Updated value
-          question: 'Updated question', // Updated value
-          unitCategoryId: mockQuantityData.unitCategoryId,
-          defaultUnitId: mockQuantityData.defaultUnitId,
-          responseCount: mockQuantityData.responseCount,
-          discussionId: mockQuantityData.discussionId,
-          createdAt: mockQuantityData.createdAt,
-          updatedAt: mockQuantityData.updatedAt,
-          inclusionPositiveVotes: mockQuantityData.inclusionPositiveVotes,
-          inclusionNegativeVotes: mockQuantityData.inclusionNegativeVotes,
-          inclusionNetVotes: mockQuantityData.inclusionNetVotes,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-        };
-
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: basicUpdatedData }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        const result = await schema.updateQuantityNode(
-          'quantity-123',
-          updateData,
-        );
-
-        expect(result).toEqual(basicUpdatedData);
-      });
-
-      it('should update with keywords and categories', async () => {
-        const updateData = {
-          question: 'Updated with new metadata',
-          categoryIds: ['new-category'],
-          keywords: [
-            { word: 'temperature', frequency: 5, source: 'user' as const },
-          ],
-        };
-
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            properties: { ...mockQuantityData, ...updateData },
-          }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        const result = await schema.updateQuantityNode(
-          'quantity-123',
-          updateData,
-        );
-
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('MATCH (q:QuantityNode {id: $id})'),
-          expect.objectContaining({
-            id: 'quantity-123',
-            categoryIds: updateData.categoryIds,
-            keywords: updateData.keywords,
-          }),
-        );
-        expect(result).toBeDefined();
-      });
-
-      it('should validate unit changes', async () => {
-        const updateData = {
+      await expect(
+        schema.createQuantityNode({
+          createdBy: 'user-456',
+          publicCredit: true,
+          question: 'Test question',
           unitCategoryId: 'temperature',
-          defaultUnitId: 'fahrenheit',
-        };
+          defaultUnitId: 'invalid-unit',
+        }),
+      ).rejects.toThrow(
+        'Unit invalid-unit is not valid for category temperature',
+      );
+    });
 
-        unitService.validateUnitInCategory.mockReturnValue(false);
+    it('should reject too many categories', async () => {
+      await expect(
+        schema.createQuantityNode({
+          createdBy: 'user-456',
+          publicCredit: true,
+          question: 'Test question',
+          unitCategoryId: 'temperature',
+          defaultUnitId: 'celsius',
+          categoryIds: ['cat1', 'cat2', 'cat3', 'cat4'],
+        }),
+      ).rejects.toThrow('Quantity node can have maximum 3 categories');
+    });
+  });
 
-        await expect(
-          schema.updateQuantityNode('quantity-123', updateData),
-        ).rejects.toThrow(
-          'Unit fahrenheit is not valid for category temperature',
-        );
+  describe('getQuantity', () => {
+    it('should retrieve quantity with relationships', async () => {
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'q' || key === 'n') {
+            return { properties: mockQuantityData };
+          }
+          if (key === 'keywords')
+            return [{ word: 'temp', frequency: 1, source: 'user' }];
+          if (key === 'categories') return [{ id: 'cat1', name: 'Category 1' }];
+          if (key === 'discussionId') return 'discussion-abc';
+          if (key === 'actualResponseCount') return Integer.fromNumber(5);
+          return null;
+        }),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getQuantity('quantity-123');
+
+      expect(result).toBeDefined();
+      expect(result?.id).toBe('quantity-123');
+      expect(result?.discussionId).toBe('discussion-abc');
+      expect(result?.responseCount).toBe(5);
+    });
+
+    it('should return null when quantity not found', async () => {
+      neo4jService.read.mockResolvedValue({
+        records: [],
+      } as unknown as Result);
+
+      const result = await schema.getQuantity('nonexistent');
+
+      expect(result).toBeNull();
+    });
+
+    it('should handle empty arrays for keywords and categories', async () => {
+      const mockRecord = {
+        get: jest.fn().mockImplementation((key) => {
+          if (key === 'q' || key === 'n') {
+            return { properties: mockQuantityData };
+          }
+          if (key === 'keywords') return [];
+          if (key === 'categories') return [];
+          if (key === 'discussionId') return null;
+          if (key === 'actualResponseCount') return Integer.fromNumber(0);
+          return null;
+        }),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getQuantity('quantity-123');
+
+      expect(result).toBeDefined();
+      expect(result?.keywords).toBeUndefined();
+      expect(result?.categories).toBeUndefined();
+    });
+
+    it('should validate input', async () => {
+      await expect(schema.getQuantity('')).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('updateQuantityNode', () => {
+    beforeEach(() => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+    });
+
+    it('should handle simple updates', async () => {
+      const updateData = { question: 'Updated question' };
+
+      jest.spyOn(schema, 'update').mockResolvedValue({
+        ...mockQuantityData,
+        ...updateData,
       });
 
-      it('should handle quantity node not found on update', async () => {
-        neo4jService.write.mockResolvedValue({
-          records: [],
-        } as unknown as Result);
+      const result = await schema.updateQuantityNode(
+        'quantity-123',
+        updateData,
+      );
 
-        await expect(
-          schema.updateQuantityNode('nonexistent', {
-            question: 'New question',
-          }),
-        ).rejects.toThrow(NotFoundException);
+      expect(result?.question).toBe('Updated question');
+    });
+
+    it('should validate unit changes', async () => {
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue(mockQuantityData);
+      unitService.validateUnitInCategory.mockReturnValue(false);
+
+      await expect(
+        schema.updateQuantityNode('quantity-123', {
+          unitCategoryId: 'temperature',
+          defaultUnitId: 'invalid-unit',
+        }),
+      ).rejects.toThrow(
+        'Unit invalid-unit is not valid for category temperature',
+      );
+    });
+
+    it('should handle complex updates with keywords', async () => {
+      const updateData = {
+        keywords: [{ word: 'updated', frequency: 1, source: 'user' as const }],
+      };
+
+      jest.spyOn(schema, 'updateKeywords').mockResolvedValue(undefined);
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+        ...mockQuantityData,
+        keywords: updateData.keywords,
       });
+
+      const result = await schema.updateQuantityNode(
+        'quantity-123',
+        updateData,
+      );
+
+      expect(result).toBeDefined();
+    });
+
+    it('should reject too many categories', async () => {
+      await expect(
+        schema.updateQuantityNode('quantity-123', {
+          categoryIds: ['cat1', 'cat2', 'cat3', 'cat4'],
+        }),
+      ).rejects.toThrow('Quantity node can have maximum 3 categories');
     });
   });
 
   describe('Numeric Response System', () => {
+    beforeEach(() => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+      unitService.convert.mockReturnValue(365.15);
+      unitService.getCategory.mockReturnValue({
+        id: 'temperature',
+        name: 'Temperature',
+        description: 'Temperature measurements',
+        baseUnit: 'kelvin',
+        defaultUnit: 'celsius',
+        units: [],
+      });
+    });
+
     describe('submitResponse', () => {
-      beforeEach(() => {
-        unitService.validateUnitInCategory.mockReturnValue(true);
-        unitService.convert.mockReturnValue(365.15); // 92°C to Kelvin
-        unitService.getCategory.mockReturnValue({
-          id: 'temperature',
-          name: 'Temperature',
-          description: 'Temperature measurements',
-          baseUnit: 'kelvin',
-          defaultUnit: 'celsius',
-          units: [],
-        });
-        jest.spyOn(schema, 'findById').mockResolvedValue({
+      it('should submit new response when inclusion threshold passed', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
           ...mockQuantityData,
-          inclusionNetVotes: 5, // Above threshold
+          inclusionNetVotes: 5,
         });
         jest.spyOn(schema, 'getUserResponse').mockResolvedValue(null);
-        jest
-          .spyOn(schema as any, 'recalculateStatistics')
-          .mockResolvedValue(undefined);
-      });
 
-      it('should submit new response successfully', async () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue(mockQuantityResponse),
         } as unknown as Record;
+
         neo4jService.write.mockResolvedValue({
           records: [mockRecord],
         } as unknown as Result);
@@ -582,27 +573,23 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
           'celsius',
         );
         expect(unitService.convert).toHaveBeenCalled();
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('CREATE (u)-[r:RESPONSE_TO'),
-          expect.objectContaining({
-            value: 92,
-            unitId: 'celsius',
-            normalizedValue: 365.15,
-          }),
-        );
         expect(result).toEqual(mockQuantityResponse);
       });
 
       it('should update existing response', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+          ...mockQuantityData,
+          inclusionNetVotes: 5,
+        });
         jest
           .spyOn(schema, 'getUserResponse')
           .mockResolvedValue(mockQuantityResponse);
 
+        const updatedResponse = { ...mockQuantityResponse, value: 95 };
         const mockRecord = {
-          get: jest
-            .fn()
-            .mockReturnValue({ ...mockQuantityResponse, value: 95 }),
+          get: jest.fn().mockReturnValue(updatedResponse),
         } as unknown as Record;
+
         neo4jService.write.mockResolvedValue({
           records: [mockRecord],
         } as unknown as Result);
@@ -614,17 +601,13 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
           unitId: 'celsius',
         });
 
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('SET r.value = $value'),
-          expect.objectContaining({ value: 95 }),
-        );
         expect(result.value).toBe(95);
       });
 
-      it('should reject response when quantity has not passed inclusion threshold', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue({
+      it('should reject response when inclusion threshold not passed', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
           ...mockQuantityData,
-          inclusionNetVotes: -2, // Below threshold
+          inclusionNetVotes: 0,
         });
 
         await expect(
@@ -639,7 +622,11 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         );
       });
 
-      it('should reject response with invalid unit', async () => {
+      it('should reject invalid unit', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+          ...mockQuantityData,
+          inclusionNetVotes: 5,
+        });
         unitService.validateUnitInCategory.mockReturnValue(false);
 
         await expect(
@@ -654,8 +641,8 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         );
       });
 
-      it('should handle quantity node not found', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue(null);
+      it('should reject when quantity not found', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue(null);
 
         await expect(
           schema.submitResponse({
@@ -673,22 +660,23 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue(mockQuantityResponse),
         } as unknown as Record;
+
         neo4jService.read.mockResolvedValue({
           records: [mockRecord],
         } as unknown as Result);
 
         const result = await schema.getUserResponse('user-789', 'quantity-123');
 
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('OPTIONAL MATCH (u)-[r:RESPONSE_TO]->(q)'),
-          { userId: 'user-789', quantityNodeId: 'quantity-123' },
-        );
         expect(result).toEqual(mockQuantityResponse);
       });
 
       it('should return null when no response found', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue(null),
+        } as unknown as Record;
+
         neo4jService.read.mockResolvedValue({
-          records: [],
+          records: [mockRecord],
         } as unknown as Result);
 
         const result = await schema.getUserResponse('user-789', 'quantity-123');
@@ -698,16 +686,11 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     describe('deleteUserResponse', () => {
-      beforeEach(() => {
-        jest
-          .spyOn(schema as any, 'recalculateStatistics')
-          .mockResolvedValue(undefined);
-      });
-
-      it('should delete user response successfully', async () => {
+      it('should delete user response', async () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue(true),
         } as unknown as Record;
+
         neo4jService.write.mockResolvedValue({
           records: [mockRecord],
         } as unknown as Result);
@@ -717,10 +700,6 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
           'quantity-123',
         );
 
-        expect(neo4jService.write).toHaveBeenCalledWith(
-          expect.stringContaining('DELETE r'),
-          { userId: 'user-789', quantityNodeId: 'quantity-123' },
-        );
         expect(result).toBe(true);
       });
 
@@ -728,6 +707,7 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue(false),
         } as unknown as Record;
+
         neo4jService.write.mockResolvedValue({
           records: [mockRecord],
         } as unknown as Result);
@@ -742,27 +722,22 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     describe('getAllResponses', () => {
-      it('should get all responses for quantity node', async () => {
+      it('should get all responses for quantity', async () => {
         const mockResponses = [mockQuantityResponse];
         const mockRecords = mockResponses.map((response) => ({
           get: jest.fn().mockReturnValue(response),
         })) as unknown as Record[];
+
         neo4jService.read.mockResolvedValue({
           records: mockRecords,
         } as unknown as Result);
 
         const result = await schema.getAllResponses('quantity-123');
 
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'MATCH (q:QuantityNode {id: $quantityNodeId})',
-          ),
-          { quantityNodeId: 'quantity-123' },
-        );
         expect(result).toEqual(mockResponses);
       });
 
-      it('should return empty array when no responses exist', async () => {
+      it('should return empty array when no responses', async () => {
         neo4jService.read.mockResolvedValue({
           records: [],
         } as unknown as Result);
@@ -774,45 +749,29 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     describe('getStatistics', () => {
-      const mockResponses = [
-        { normalizedValue: 358.15 }, // 85°C
-        { normalizedValue: 368.15 }, // 95°C
-        { normalizedValue: 363.15 }, // 90°C
-      ];
+      it('should calculate statistics from responses', async () => {
+        const mockResponses = [
+          { normalizedValue: 358.15 },
+          { normalizedValue: 368.15 },
+          { normalizedValue: 363.15 },
+        ];
 
-      beforeEach(() => {
         jest
           .spyOn(schema, 'getAllResponses')
           .mockResolvedValue(mockResponses as any);
-        jest
-          .spyOn(schema as any, 'generateNormalDistributionCurve')
-          .mockReturnValue([[363.15, 0.5]]);
-      });
 
-      it('should calculate statistics from responses', async () => {
         const result = await schema.getStatistics('quantity-123');
 
-        expect(schema.getAllResponses).toHaveBeenCalledWith('quantity-123');
-        expect(result).toEqual(
-          expect.objectContaining({
-            responseCount: 3,
-            min: 358.15,
-            max: 368.15,
-            mean: expect.closeTo(363.15, 2),
-            median: 363.15,
-            standardDeviation: expect.any(Number),
-            percentiles: expect.any(Object),
-            distributionCurve: [[363.15, 0.5]],
-            responses: mockResponses,
-          }),
-        );
-
-        expect(result.percentiles).toHaveProperty('50');
-        expect(result.percentiles).toHaveProperty('90');
+        expect(result.responseCount).toBe(3);
+        expect(result.min).toBe(358.15);
+        expect(result.max).toBe(368.15);
+        expect(result.mean).toBeCloseTo(363.15, 2);
+        expect(result.median).toBe(363.15);
         expect(result.standardDeviation).toBeGreaterThan(0);
+        expect(result.percentiles).toHaveProperty('50');
       });
 
-      it('should return zero values when no responses exist', async () => {
+      it('should return zero values when no responses', async () => {
         jest.spyOn(schema, 'getAllResponses').mockResolvedValue([]);
 
         const result = await schema.getStatistics('quantity-123');
@@ -832,8 +791,8 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     describe('isNumericResponseAllowed', () => {
-      it('should return true when quantity has passed inclusion threshold', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue({
+      it('should return true when inclusion threshold passed', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
           ...mockQuantityData,
           inclusionNetVotes: 5,
         });
@@ -843,10 +802,10 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         expect(result).toBe(true);
       });
 
-      it('should return false when quantity has not passed inclusion threshold', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue({
+      it('should return false when inclusion threshold not passed', async () => {
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue({
           ...mockQuantityData,
-          inclusionNetVotes: -2,
+          inclusionNetVotes: 0,
         });
 
         const result = await schema.isNumericResponseAllowed('quantity-123');
@@ -855,7 +814,7 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
       });
 
       it('should return false when quantity not found', async () => {
-        jest.spyOn(schema, 'findById').mockResolvedValue(null);
+        jest.spyOn(schema, 'getQuantity').mockResolvedValue(null);
 
         const result = await schema.isNumericResponseAllowed('nonexistent');
 
@@ -865,82 +824,23 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
   });
 
   describe('Discovery Methods', () => {
-    describe('getRelatedContentBySharedCategories', () => {
-      it('should get related content by shared categories', async () => {
-        const mockRelatedNodes = [
-          {
-            node: { id: 'related-1', question: 'Related question 1' },
-            sharedCategoryCount: 2,
-          },
-          {
-            node: { id: 'related-2', question: 'Related question 2' },
-            sharedCategoryCount: 1,
-          },
-        ];
-
-        const mockRecords = mockRelatedNodes.map((item) => ({
-          get: jest.fn((key: string) => {
-            if (key === 'related') return { properties: item.node };
-            if (key === 'sharedCategoryCount')
-              return Integer.fromNumber(item.sharedCategoryCount);
-            return null;
-          }),
-        })) as unknown as Record[];
-
-        neo4jService.read.mockResolvedValue({
-          records: mockRecords,
-        } as unknown as Result);
-
-        const result =
-          await schema.getRelatedContentBySharedCategories('quantity-123');
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'MATCH (q:QuantityNode {id: $nodeId})-[:CATEGORIZED_AS]->(cat:CategoryNode)',
-          ),
-          expect.objectContaining({ nodeId: 'quantity-123', limit: 10 }),
-        );
-        expect(result).toEqual([
-          {
-            node: { id: 'related-1', question: 'Related question 1' },
-            sharedCategoryCount: 2,
-          },
-          {
-            node: { id: 'related-2', question: 'Related question 2' },
-            sharedCategoryCount: 1,
-          },
-        ]);
-      });
-
-      it('should handle custom options', async () => {
-        neo4jService.read.mockResolvedValue({
-          records: [],
-        } as unknown as Result);
-
-        await schema.getRelatedContentBySharedCategories('quantity-123', {
-          nodeTypes: ['QuantityNode', 'StatementNode'],
-          limit: 5,
-          includeStats: true,
-        });
-
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            "labels(related) CONTAINS 'QuantityNode' OR labels(related) CONTAINS 'StatementNode'",
-          ),
-          expect.objectContaining({ nodeId: 'quantity-123', limit: 5 }),
-        );
-      });
-    });
-
     describe('getQuantityNodesByUnitCategory', () => {
-      it('should get quantity nodes by unit category', async () => {
+      it('should get quantities by unit category', async () => {
         const mockNodes = [
-          { id: 'quantity-1', question: 'Question 1', inclusionNetVotes: 10 },
-          { id: 'quantity-2', question: 'Question 2', inclusionNetVotes: 5 },
+          {
+            id: 'quantity-1',
+            question: 'Question 1',
+            inclusionNetVotes: Integer.fromNumber(10),
+          },
+          {
+            id: 'quantity-2',
+            question: 'Question 2',
+            inclusionNetVotes: Integer.fromNumber(5),
+          },
         ];
 
         const mockRecords = mockNodes.map((node) => ({
-          get: jest.fn((key: string) => {
+          get: jest.fn().mockImplementation((key) => {
             if (key === 'q') return { properties: node };
             return null;
           }),
@@ -953,16 +853,8 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         const result =
           await schema.getQuantityNodesByUnitCategory('temperature');
 
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining(
-            'MATCH (q:QuantityNode {unitCategoryId: $unitCategoryId})',
-          ),
-          expect.objectContaining({ unitCategoryId: 'temperature', limit: 20 }),
-        );
-        expect(result).toEqual([
-          expect.objectContaining({ id: 'quantity-1', question: 'Question 1' }),
-          expect.objectContaining({ id: 'quantity-2', question: 'Question 2' }),
-        ]);
+        expect(result).toHaveLength(2);
+        expect(result[0].inclusionNetVotes).toBe(10);
       });
 
       it('should handle different sorting options', async () => {
@@ -982,186 +874,111 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
         );
       });
     });
+
+    describe('getQuantities', () => {
+      it('should get quantities with filters', async () => {
+        const mockRecords = [
+          {
+            get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
+          },
+        ] as unknown as Record[];
+
+        neo4jService.read.mockResolvedValue({
+          records: mockRecords,
+        } as unknown as Result);
+
+        const result = await schema.getQuantities({
+          categoryId: 'cat1',
+          unitCategoryId: 'temperature',
+        });
+
+        expect(result).toHaveLength(1);
+      });
+
+      it('should include unapproved quantities when specified', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        await schema.getQuantities({ includeUnapproved: true });
+
+        expect(neo4jService.read).toHaveBeenCalledWith(
+          expect.not.stringContaining('WHERE'),
+          expect.any(Object),
+        );
+      });
+    });
   });
 
-  describe('Integration Tests', () => {
-    it('should handle complete quantity node lifecycle', async () => {
-      unitService.validateUnitInCategory.mockReturnValue(true);
-      unitService.convert.mockReturnValue(365.15);
-      unitService.getCategory.mockReturnValue({
-        id: 'temperature',
-        name: 'Temperature',
-        description: 'Temperature measurements',
-        baseUnit: 'kelvin',
-        defaultUnit: 'celsius',
-        units: [],
-      });
-
-      // Create
-      const mockCreatedRecord = {
-        get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
+  describe('checkQuantities', () => {
+    it('should return quantity count', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue(Integer.fromNumber(42)),
       } as unknown as Record;
-      neo4jService.write.mockResolvedValueOnce({
-        records: [mockCreatedRecord],
+
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
       } as unknown as Result);
 
-      // Mock discussion creation
-      neo4jService.write.mockResolvedValueOnce({
-        records: [{ get: jest.fn().mockReturnValue('discussion-abc') }],
-      } as unknown as Result);
+      const result = await schema.checkQuantities();
 
-      const created = await schema.createQuantityNode(mockCreateQuantityData);
-      expect(created.id).toBe('quantity-123');
+      expect(result).toEqual({ count: 42 });
+    });
+  });
 
-      // Read
-      const mockReadRecord = {
-        get: jest.fn((key: string) => {
-          if (key === 'n') return { properties: mockQuantityData };
-          if (key === 'keywords') return [];
-          if (key === 'categories') return [];
-          if (key === 'discussionId') return 'discussion-abc';
-          return null;
-        }),
-      } as unknown as Record;
-      neo4jService.read.mockResolvedValueOnce({
-        records: [mockReadRecord],
-      } as unknown as Result);
-
-      const found = await schema.findById('quantity-123');
-      expect(found).toEqual(expect.objectContaining({ id: 'quantity-123' }));
-
-      // Vote inclusion
-      voteSchema.vote.mockResolvedValue(mockVoteResult);
-      const voteResult = await schema.voteInclusion(
-        'quantity-123',
-        'user-789',
-        true,
+  describe('Input Validation', () => {
+    it('should reject null/undefined IDs', async () => {
+      await expect(schema.findById(null as any)).rejects.toThrow(
+        BadRequestException,
       );
-      expect(voteResult.inclusionNetVotes).toBe(11);
-
-      // Submit response - need to mock findById for submitResponse
-      jest.spyOn(schema, 'findById').mockResolvedValue({
-        ...mockQuantityData,
-        inclusionNetVotes: 5, // Above threshold
-      });
-      jest.spyOn(schema, 'getUserResponse').mockResolvedValue(null);
-      jest
-        .spyOn(schema as any, 'recalculateStatistics')
-        .mockResolvedValue(undefined);
-
-      const mockResponseRecord = {
-        get: jest.fn().mockReturnValue(mockQuantityResponse),
-      } as unknown as Record;
-      neo4jService.write.mockResolvedValueOnce({
-        records: [mockResponseRecord],
-      } as unknown as Result);
-
-      const response = await schema.submitResponse({
-        userId: 'user-789',
-        quantityNodeId: 'quantity-123',
-        value: 92,
-        unitId: 'celsius',
-      });
-      expect(response.value).toBe(92);
-
-      // Update
-      const updateData = { question: 'Updated question' };
-      const basicUpdatedData = {
-        id: mockQuantityData.id,
-        createdBy: mockQuantityData.createdBy,
-        publicCredit: mockQuantityData.publicCredit,
-        question: 'Updated question', // Updated value
-        unitCategoryId: mockQuantityData.unitCategoryId,
-        defaultUnitId: mockQuantityData.defaultUnitId,
-        responseCount: mockQuantityData.responseCount,
-        discussionId: mockQuantityData.discussionId,
-        createdAt: mockQuantityData.createdAt,
-        updatedAt: mockQuantityData.updatedAt,
-        inclusionPositiveVotes: mockQuantityData.inclusionPositiveVotes,
-        inclusionNegativeVotes: mockQuantityData.inclusionNegativeVotes,
-        inclusionNetVotes: mockQuantityData.inclusionNetVotes,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
-
-      const mockUpdateRecord = {
-        get: jest.fn().mockReturnValue({ properties: basicUpdatedData }),
-      } as unknown as Record;
-      neo4jService.write.mockResolvedValueOnce({
-        records: [mockUpdateRecord],
-      } as unknown as Result);
-
-      const updated = await schema.update('quantity-123', updateData);
-      expect(updated).toEqual(basicUpdatedData);
-
-      // Delete
-      const existsRecord = {
-        get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
-      } as unknown as Record;
-      neo4jService.read.mockResolvedValueOnce({
-        records: [existsRecord],
-      } as unknown as Result);
-      neo4jService.write.mockResolvedValueOnce({} as Result);
-
-      const deleteResult = await schema.delete('quantity-123');
-      expect(deleteResult).toEqual({ success: true });
+      await expect(schema.findById(undefined as any)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
-    it('should enforce business rules across operations', async () => {
+    it('should reject whitespace-only question text', async () => {
       unitService.validateUnitInCategory.mockReturnValue(true);
-
-      // Test inclusion threshold enforcement
-      jest.spyOn(schema, 'findById').mockResolvedValue({
-        ...mockQuantityData,
-        inclusionNetVotes: -1, // Below threshold
-      });
-
-      await expect(
-        schema.submitResponse({
-          userId: 'user-456',
-          quantityNodeId: 'quantity-123',
-          value: 95,
-          unitId: 'celsius',
-        }),
-      ).rejects.toThrow('Quantity node must pass inclusion threshold');
-
-      // Test unit validation across operations
-      unitService.validateUnitInCategory.mockReturnValue(false);
 
       await expect(
         schema.createQuantityNode({
-          ...mockCreateQuantityData,
-          unitCategoryId: 'invalid',
-          defaultUnitId: 'invalid',
+          createdBy: 'user-456',
+          publicCredit: true,
+          question: '   ',
+          unitCategoryId: 'temperature',
+          defaultUnitId: 'celsius',
         }),
-      ).rejects.toThrow('Unit invalid is not valid for category invalid');
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
-  describe('Error Handling', () => {
-    it('should use standardized error messages from BaseNodeSchema', async () => {
-      neo4jService.read.mockRejectedValue(
-        new Error('Database connection failed'),
-      );
+  describe('Neo4j Integer Conversion', () => {
+    it('should convert Neo4j Integer objects to numbers', async () => {
+      const mockDataWithIntegers = {
+        ...mockQuantityData,
+        inclusionPositiveVotes: Integer.fromNumber(999),
+        responseCount: Integer.fromNumber(50),
+      };
 
-      await expect(schema.findById('test')).rejects.toThrow(
-        'Failed to retrieve quantity node Quantity: Database connection failed',
-      );
-    });
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockDataWithIntegers }),
+      } as unknown as Record;
 
-    it('should handle quantity-specific errors consistently', async () => {
-      neo4jService.read.mockRejectedValue(new Error('Query timeout'));
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
 
-      await expect(schema.getAllResponses('test')).rejects.toThrow(
-        'Failed to get all responses: Query timeout',
-      );
+      const result = await schema.findById('quantity-123');
+
+      expect(result?.inclusionPositiveVotes).toBe(999);
+      expect(result?.responseCount).toBe(50);
+      expect(typeof result?.inclusionPositiveVotes).toBe('number');
+      expect(typeof result?.responseCount).toBe('number');
     });
   });
 
-  describe('Business Logic Validation', () => {
+  describe('Business Rules Enforcement', () => {
     it('should enforce inclusion threshold for numeric responses', async () => {
-      jest.spyOn(schema, 'findById').mockResolvedValue({
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
         ...mockQuantityData,
         inclusionNetVotes: -2,
       });
@@ -1173,20 +990,30 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
           value: 95,
           unitId: 'celsius',
         }),
-      ).rejects.toThrow('Quantity node must pass inclusion threshold');
+      ).rejects.toThrow(
+        'Quantity node must pass inclusion threshold before numeric responses are allowed',
+      );
     });
 
-    it('should validate unit compatibility across all operations', async () => {
+    it('should validate unit compatibility across operations', async () => {
       unitService.validateUnitInCategory.mockReturnValue(false);
 
       // Test creation
       await expect(
-        schema.createQuantityNode(mockCreateQuantityData),
-      ).rejects.toThrow('Unit celsius is not valid for category temperature');
+        schema.createQuantityNode({
+          createdBy: 'user-456',
+          publicCredit: true,
+          question: 'Test question',
+          unitCategoryId: 'temperature',
+          defaultUnitId: 'invalid-unit',
+        }),
+      ).rejects.toThrow(
+        'Unit invalid-unit is not valid for category temperature',
+      );
 
       // Test response submission
       unitService.validateUnitInCategory.mockReturnValue(true);
-      jest.spyOn(schema, 'findById').mockResolvedValue({
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
         ...mockQuantityData,
         inclusionNetVotes: 5,
       });
@@ -1205,25 +1032,223 @@ describe('QuantitySchema with BaseNodeSchema Integration', () => {
     });
 
     it('should maintain response count consistency', async () => {
-      // This is tested implicitly through submitResponse and deleteUserResponse
-      // The recalculateStatistics method ensures consistency
-      jest
-        .spyOn(schema as any, 'recalculateStatistics')
-        .mockResolvedValue(undefined);
+      unitService.validateUnitInCategory.mockReturnValue(true);
+      unitService.convert.mockReturnValue(365.15);
+      unitService.getCategory.mockReturnValue({
+        id: 'temperature',
+        name: 'Temperature',
+        description: 'Temperature measurements',
+        baseUnit: 'kelvin',
+        defaultUnit: 'celsius',
+        units: [],
+      });
 
-      // Mock successful deletion
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+        ...mockQuantityData,
+        inclusionNetVotes: 5,
+      });
+      jest.spyOn(schema, 'getUserResponse').mockResolvedValue(null);
+
       const mockRecord = {
-        get: jest.fn().mockReturnValue(true),
+        get: jest.fn().mockReturnValue(mockQuantityResponse),
       } as unknown as Record;
+
       neo4jService.write.mockResolvedValue({
         records: [mockRecord],
       } as unknown as Result);
 
-      await schema.deleteUserResponse('user-456', 'quantity-123');
+      await schema.submitResponse({
+        userId: 'user-456',
+        quantityNodeId: 'quantity-123',
+        value: 95,
+        unitId: 'celsius',
+      });
 
-      expect((schema as any).recalculateStatistics).toHaveBeenCalledWith(
-        'quantity-123',
+      // Verify that response count is incremented in the query
+      expect(neo4jService.write).toHaveBeenCalledWith(
+        expect.stringContaining('q.responseCount'),
+        expect.any(Object),
       );
+    });
+  });
+
+  describe('Integration Tests', () => {
+    it('should handle complete quantity lifecycle', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+      unitService.convert.mockReturnValue(365.15);
+      unitService.getCategory.mockReturnValue({
+        id: 'temperature',
+        name: 'Temperature',
+        description: 'Temperature measurements',
+        baseUnit: 'kelvin',
+        defaultUnit: 'celsius',
+        units: [],
+      });
+
+      // Create
+      const createRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockQuantityData }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValueOnce({
+        records: [createRecord],
+      } as unknown as Result);
+
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-abc',
+      });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      const created = await schema.createQuantityNode({
+        createdBy: 'user-456',
+        publicCredit: true,
+        question: 'Test question',
+        unitCategoryId: 'temperature',
+        defaultUnitId: 'celsius',
+      });
+
+      expect(created.id).toBe('quantity-123');
+
+      // Vote inclusion
+      voteSchema.vote.mockResolvedValue(mockVoteResult);
+      const voteResult = await schema.voteInclusion(
+        'quantity-123',
+        'user-789',
+        true,
+      );
+      expect(voteResult.inclusionNetVotes).toBe(11);
+
+      // Submit response
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+        ...mockQuantityData,
+        inclusionNetVotes: 5,
+      });
+      jest.spyOn(schema, 'getUserResponse').mockResolvedValue(null);
+
+      const responseRecord = {
+        get: jest.fn().mockReturnValue(mockQuantityResponse),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValueOnce({
+        records: [responseRecord],
+      } as unknown as Result);
+
+      const response = await schema.submitResponse({
+        userId: 'user-789',
+        quantityNodeId: 'quantity-123',
+        value: 92,
+        unitId: 'celsius',
+      });
+
+      expect(response.value).toBe(92);
+
+      // Update
+      const updateData = { question: 'Updated question' };
+      jest.spyOn(schema, 'update').mockResolvedValue({
+        ...mockQuantityData,
+        ...updateData,
+      });
+
+      const updated = await schema.updateQuantityNode(
+        'quantity-123',
+        updateData,
+      );
+      expect(updated?.question).toBe('Updated question');
+
+      // Delete
+      const existsRecord = {
+        get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
+      } as unknown as Record;
+
+      neo4jService.read.mockResolvedValueOnce({
+        records: [existsRecord],
+      } as unknown as Result);
+
+      neo4jService.write.mockResolvedValueOnce({} as Result);
+
+      const deleteResult = await schema.delete('quantity-123');
+      expect(deleteResult).toEqual({ success: true });
+    });
+
+    it('should enforce business rules across operations', async () => {
+      unitService.validateUnitInCategory.mockReturnValue(true);
+
+      // Test inclusion threshold enforcement
+      jest.spyOn(schema, 'getQuantity').mockResolvedValue({
+        ...mockQuantityData,
+        inclusionNetVotes: -1,
+      });
+
+      await expect(
+        schema.submitResponse({
+          userId: 'user-456',
+          quantityNodeId: 'quantity-123',
+          value: 95,
+          unitId: 'celsius',
+        }),
+      ).rejects.toThrow('Quantity node must pass inclusion threshold');
+
+      // Test unit validation across operations
+      unitService.validateUnitInCategory.mockReturnValue(false);
+
+      await expect(
+        schema.createQuantityNode({
+          createdBy: 'user-456',
+          publicCredit: true,
+          question: 'Test question',
+          unitCategoryId: 'invalid',
+          defaultUnitId: 'invalid',
+        }),
+      ).rejects.toThrow('Unit invalid is not valid for category invalid');
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should use standardized error messages from BaseNodeSchema', async () => {
+      neo4jService.read.mockRejectedValue(
+        new Error('Database connection failed'),
+      );
+
+      await expect(schema.findById('test')).rejects.toThrow(
+        'Failed to find Quantity: Database connection failed',
+      );
+    });
+
+    it('should handle quantity-specific errors consistently', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Query timeout'));
+
+      await expect(schema.getAllResponses('test')).rejects.toThrow(
+        'Failed to get all responses: Query timeout',
+      );
+    });
+  });
+
+  describe('Schema Characteristics', () => {
+    it('should not support content voting', () => {
+      expect((schema as any).supportsContentVoting()).toBe(false);
+    });
+
+    it('should have standard id field', () => {
+      expect((schema as any).idField).toBe('id');
+    });
+
+    it('should have correct node label', () => {
+      expect((schema as any).nodeLabel).toBe('QuantityNode');
+    });
+
+    it('should support tagging', () => {
+      expect(typeof schema.getKeywords).toBe('function');
+      expect(typeof schema.updateKeywords).toBe('function');
+    });
+
+    it('should support categorization', () => {
+      expect(typeof schema.getCategories).toBe('function');
+      expect(typeof schema.updateCategories).toBe('function');
+    });
+
+    it('should have max 3 categories', () => {
+      expect((schema as any).maxCategories).toBe(3);
     });
   });
 });

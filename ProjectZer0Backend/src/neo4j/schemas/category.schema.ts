@@ -1,4 +1,5 @@
-// src/neo4j/schemas/category.schema.ts
+// src/neo4j/schemas/category.schema.ts - FIXED
+
 import {
   Injectable,
   BadRequestException,
@@ -6,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
+import { DiscussionSchema } from './discussion.schema';
 import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
 import { Record } from 'neo4j-driver';
 
@@ -47,7 +49,11 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
   protected readonly nodeLabel = 'CategoryNode';
   protected readonly idField = 'id';
 
-  constructor(neo4jService: Neo4jService, voteSchema: VoteSchema) {
+  constructor(
+    neo4jService: Neo4jService,
+    voteSchema: VoteSchema,
+    private readonly discussionSchema: DiscussionSchema,
+  ) {
     super(neo4jService, voteSchema, CategorySchema.name);
   }
 
@@ -150,7 +156,7 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
           inclusionNetVotes: 0
         })
         
-        WITH c, validWords
+        WITH c, validWords, parent
         UNWIND validWords as word
         CREATE (c)-[:COMPOSED_OF]->(word)
         
@@ -180,14 +186,17 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       const createdCategory = result.records[0].get('c').properties;
 
-      const discussionId = await this.createDiscussion({
-        nodeId: categoryData.id,
-        nodeType: this.nodeLabel,
-        createdBy: categoryData.createdBy,
-        initialComment: categoryData.initialComment,
-      });
+      // Use the centralized DiscussionSchema to create discussion
+      const discussionResult =
+        await this.discussionSchema.createDiscussionForNode({
+          nodeId: categoryData.id,
+          nodeType: this.nodeLabel,
+          nodeIdField: 'id',
+          createdBy: categoryData.createdBy,
+          initialComment: categoryData.initialComment,
+        });
 
-      createdCategory.discussionId = discussionId;
+      createdCategory.discussionId = discussionResult.discussionId;
 
       return createdCategory;
     } catch (error) {
