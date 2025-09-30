@@ -366,6 +366,25 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
   describe('Inherited CRUD Operations', () => {
     describe('findById', () => {
       it('should find answer by id using inherited method', async () => {
+        // findById uses mapNodeFromRecord which only returns basic AnswerData
+        // without the enhanced fields (keywords, categories, relatedAnswers)
+        const baseAnswerData = {
+          id: mockAnswerData.id,
+          createdBy: mockAnswerData.createdBy,
+          publicCredit: mockAnswerData.publicCredit,
+          answerText: mockAnswerData.answerText,
+          parentQuestionId: mockAnswerData.parentQuestionId,
+          discussionId: mockAnswerData.discussionId,
+          createdAt: mockAnswerData.createdAt,
+          updatedAt: mockAnswerData.updatedAt,
+          inclusionPositiveVotes: mockAnswerData.inclusionPositiveVotes,
+          inclusionNegativeVotes: mockAnswerData.inclusionNegativeVotes,
+          inclusionNetVotes: mockAnswerData.inclusionNetVotes,
+          contentPositiveVotes: mockAnswerData.contentPositiveVotes,
+          contentNegativeVotes: mockAnswerData.contentNegativeVotes,
+          contentNetVotes: mockAnswerData.contentNetVotes,
+        };
+
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockAnswerData }),
         } as unknown as Record;
@@ -379,7 +398,7 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
           'MATCH (n:AnswerNode {id: $id}) RETURN n',
           { id: 'answer-123' },
         );
-        expect(result).toEqual(mockAnswerData);
+        expect(result).toEqual(baseAnswerData);
       });
 
       it('should return null when answer not found', async () => {
@@ -754,9 +773,30 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
           records: [mockRecord],
         } as unknown as Result);
 
+        // Mock the getAnswer call that updateAnswer makes internally
+        // Since updateAnswer with no keywords/categories calls update() which returns the updated data
         const result = await schema.updateAnswer('answer-123', updateData);
 
-        expect(result).toEqual(updatedAnswer);
+        // updateAnswer without keywords/categories uses inherited update()
+        // which returns basic data via mapNodeFromRecord (no enhanced fields)
+        const expectedResult = {
+          id: updatedAnswer.id,
+          createdBy: updatedAnswer.createdBy,
+          publicCredit: updatedAnswer.publicCredit,
+          answerText: updatedAnswer.answerText,
+          parentQuestionId: updatedAnswer.parentQuestionId,
+          discussionId: updatedAnswer.discussionId,
+          createdAt: updatedAnswer.createdAt,
+          updatedAt: updatedAnswer.updatedAt,
+          inclusionPositiveVotes: updatedAnswer.inclusionPositiveVotes,
+          inclusionNegativeVotes: updatedAnswer.inclusionNegativeVotes,
+          inclusionNetVotes: updatedAnswer.inclusionNetVotes,
+          contentPositiveVotes: updatedAnswer.contentPositiveVotes,
+          contentNegativeVotes: updatedAnswer.contentNegativeVotes,
+          contentNetVotes: updatedAnswer.contentNetVotes,
+        };
+
+        expect(result).toEqual(expectedResult);
       });
 
       it('should update with keywords and categories', async () => {
