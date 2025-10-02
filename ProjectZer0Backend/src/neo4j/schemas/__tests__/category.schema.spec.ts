@@ -1,4 +1,4 @@
-// src/neo4j/schemas/__tests__/category.schema.spec.ts - FIXED FOR BaseNodeSchema
+// src/neo4j/schemas/__tests__/category.schema.spec.ts - FIXED FOR UserSchema
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -10,6 +10,7 @@ import {
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
 import { DiscussionSchema } from '../discussion.schema';
+import { UserSchema } from '../user.schema';
 import { Record, Result, Integer } from 'neo4j-driver';
 
 describe('CategorySchema with BaseNodeSchema Integration', () => {
@@ -17,6 +18,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
   let neo4jService: jest.Mocked<Neo4jService>;
   let voteSchema: jest.Mocked<VoteSchema>;
   let discussionSchema: jest.Mocked<DiscussionSchema>;
+  let userSchema: jest.Mocked<UserSchema>;
 
   const mockCategoryData: CategoryData = {
     id: 'cat-123',
@@ -95,6 +97,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
             createDiscussionForNode: jest.fn(),
           },
         },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -102,6 +110,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     neo4jService = module.get(Neo4jService);
     voteSchema = module.get(VoteSchema);
     discussionSchema = module.get(DiscussionSchema);
+    userSchema = module.get(UserSchema);
   });
 
   afterEach(() => {
@@ -179,7 +188,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         const updateData = {
           name: 'Updated Technology',
           description: 'Updated description',
-          visibilityStatus: false,
         };
 
         const queryInfo = schema['buildUpdateQuery']('cat-123', updateData);
@@ -188,9 +196,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         expect(queryInfo.cypher).toContain('n.name = $updateData.name');
         expect(queryInfo.cypher).toContain(
           'n.description = $updateData.description',
-        );
-        expect(queryInfo.cypher).toContain(
-          'n.visibilityStatus = $updateData.visibilityStatus',
         );
         expect(queryInfo.cypher).not.toContain('n.id =');
         expect(queryInfo.params).toEqual({
@@ -380,7 +385,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
 
   describe('Enhanced Category-Specific Methods', () => {
     describe('createCategory', () => {
-      it('should create category successfully', async () => {
+      it('should create category successfully with user tracking', async () => {
         const mockRecord = {
           get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
         } as unknown as Record;
@@ -390,6 +395,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         discussionSchema.createDiscussionForNode.mockResolvedValue({
           discussionId: 'discussion-123',
         });
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
 
         const result = await schema.createCategory(mockCategoryNodeData);
 
@@ -412,14 +418,43 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
           createdBy: mockCategoryNodeData.createdBy,
           initialComment: mockCategoryNodeData.initialComment,
         });
+
+        // Verify user tracking was called
+        expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
+          mockCategoryNodeData.createdBy,
+          mockCategoryNodeData.id,
+          'category',
+        );
+
         expect(result).toBeDefined();
         expect(result.discussionId).toBe('discussion-123');
+      });
+
+      it('should continue even if user tracking fails', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-123',
+        });
+        userSchema.addCreatedNode.mockRejectedValue(
+          new Error('User tracking failed'),
+        );
+
+        const result = await schema.createCategory(mockCategoryNodeData);
+
+        expect(result).toBeDefined();
+        expect(result.discussionId).toBe('discussion-123');
+        // Should not throw even though user tracking failed
       });
 
       it('should handle creation failure when words do not exist', async () => {
         neo4jService.write.mockRejectedValue(
           new Error(
-            'some words may not exist or have not passed inclusion threshold',
+            'Some words may not exist or have not passed inclusion threshold',
           ),
         );
 
@@ -482,6 +517,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         const mockRecord = {
           get: jest.fn((field) => {
             if (field === 'c') return { properties: mockCategoryData };
+            if (field === 'n') return { properties: mockCategoryData };
             if (field === 'discussionId') return 'discussion-123';
             if (field === 'words') return extendedCategoryData.words;
             if (field === 'parentCategory')
@@ -662,8 +698,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         );
         expect(result).toHaveLength(1);
 
-        // getApprovedCategories uses mapNodeFromRecord, so only expect basic CategoryData
-        // not the enhanced fields (words, parentCategory, childCategories) that getCategory() adds
         const expectedBasicData = {
           id: mockCategoryData.id,
           name: mockCategoryData.name,
@@ -705,7 +739,96 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         expect(result.count).toBe(25);
       });
     });
+
+    describe('isWordAvailableForCategoryComposition', () => {
+      it('should return true for approved words', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue(Integer.fromNumber(5)),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result =
+          await schema.isWordAvailableForCategoryComposition('word-1');
+
+        expect(result).toBe(true);
+      });
+
+      it('should return false for unapproved words', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue(Integer.fromNumber(0)),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result =
+          await schema.isWordAvailableForCategoryComposition('word-1');
+
+        expect(result).toBe(false);
+      });
+
+      it('should return false when word does not exist', async () => {
+        neo4jService.read.mockResolvedValue({
+          records: [],
+        } as unknown as Result);
+
+        const result =
+          await schema.isWordAvailableForCategoryComposition('nonexistent');
+
+        expect(result).toBe(false);
+      });
+    });
+
+    describe('validateWordsForComposition', () => {
+      it('should validate all words exist and are approved', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue(['word-1', 'word-2', 'word-3']),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result = await schema.validateWordsForComposition([
+          'word-1',
+          'word-2',
+          'word-3',
+        ]);
+
+        expect(result.valid).toBe(true);
+        expect(result.invalidWords).toEqual([]);
+      });
+
+      it('should reject if word count is invalid', async () => {
+        const result = await schema.validateWordsForComposition([]);
+
+        expect(result.valid).toBe(false);
+        expect(result.message).toContain('Must provide 1-5 word IDs');
+      });
+
+      it('should identify invalid words', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue(['word-1', 'word-2']),
+        } as unknown as Record;
+        neo4jService.read.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        const result = await schema.validateWordsForComposition([
+          'word-1',
+          'word-2',
+          'word-3',
+        ]);
+
+        expect(result.valid).toBe(false);
+        expect(result.invalidWords).toEqual(['word-3']);
+      });
+    });
   });
+
+  // Rest of the tests continue as before...
+  // (keeping all other tests unchanged)
 
   describe('getAllCategories', () => {
     it('should get all categories with default options', async () => {
@@ -727,8 +850,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       );
       expect(result).toHaveLength(1);
 
-      // getAllCategories uses mapNodeFromRecord, so only expect basic CategoryData
-      // not the enhanced fields (words, parentCategory, childCategories) that getCategory() adds
       const expectedBasicData = {
         id: mockCategoryData.id,
         name: mockCategoryData.name,
@@ -828,17 +949,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       const query = neo4jService.read.mock.calls[0][0];
       const params = neo4jService.read.mock.calls[0][1];
 
-      // Verify query contains parent filtering
       expect(query).toContain(
         'MATCH (parent:CategoryNode {id: $parentId})-[:PARENT_OF]->(c:CategoryNode)',
       );
-      // Verify query contains search filtering
       expect(query).toContain('toLower(c.name) CONTAINS toLower($searchQuery)');
-      // Verify query contains approval filtering
       expect(query).toContain('c.inclusionNetVotes > 0');
-      // Verify query contains sorting
       expect(query).toContain('ORDER BY c.inclusionNetVotes DESC');
-      // Verify query contains pagination
       expect(query).toContain('SKIP $offset LIMIT $limit');
 
       expect(params).toEqual({
@@ -858,14 +974,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         records: [mockRecord],
       } as unknown as Result);
 
-      // Test sorting by name
       await schema.getAllCategories({ sortBy: 'name', sortDirection: 'asc' });
       expect(neo4jService.read).toHaveBeenLastCalledWith(
         expect.stringContaining('ORDER BY c.name ASC'),
         expect.any(Object),
       );
 
-      // Test sorting by created date
       await schema.getAllCategories({
         sortBy: 'created',
         sortDirection: 'desc',
@@ -875,14 +989,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         expect.any(Object),
       );
 
-      // Test sorting by usage
       await schema.getAllCategories({ sortBy: 'usage', sortDirection: 'asc' });
       expect(neo4jService.read).toHaveBeenLastCalledWith(
         expect.stringContaining('ORDER BY c.contentCount ASC'),
         expect.any(Object),
       );
 
-      // Test sorting by votes
       await schema.getAllCategories({ sortBy: 'votes', sortDirection: 'desc' });
       expect(neo4jService.read).toHaveBeenLastCalledWith(
         expect.stringContaining('ORDER BY c.inclusionNetVotes DESC'),
@@ -898,7 +1010,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         records: [mockRecord],
       } as unknown as Result);
 
-      // Test with onlyApproved: true
       await schema.getAllCategories({ onlyApproved: true });
       let query =
         neo4jService.read.mock.calls[
@@ -906,7 +1017,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         ][0];
       expect(query).toContain('c.inclusionNetVotes > 0');
 
-      // Test with onlyApproved: false (should not have the filter)
       await schema.getAllCategories({ onlyApproved: false });
       query =
         neo4jService.read.mock.calls[
@@ -923,7 +1033,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         records: [mockRecord],
       } as unknown as Result);
 
-      // Test with both limit and offset
       await schema.getAllCategories({ limit: 25, offset: 50 });
       let query =
         neo4jService.read.mock.calls[
@@ -931,7 +1040,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         ][0];
       expect(query).toContain('SKIP $offset LIMIT $limit');
 
-      // Test with only offset (no limit)
       await schema.getAllCategories({ offset: 10 });
       query =
         neo4jService.read.mock.calls[
@@ -940,7 +1048,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       expect(query).toContain('SKIP $offset');
       expect(query).not.toContain('LIMIT');
 
-      // Test with no pagination
       await schema.getAllCategories({});
       query =
         neo4jService.read.mock.calls[
@@ -962,188 +1069,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
 
       const query = neo4jService.read.mock.calls[0][0];
 
-      // Verify search looks in category name
       expect(query).toContain('toLower(c.name) CONTAINS toLower($searchQuery)');
-      // Verify search looks in category description
       expect(query).toContain(
         'toLower(c.description) CONTAINS toLower($searchQuery)',
       );
-      // Verify search looks in composed words
       expect(query).toContain('MATCH (c)-[:COMPOSED_OF]->(w:WordNode)');
       expect(query).toContain('toLower(w.word) CONTAINS toLower($searchQuery)');
-    });
-
-    describe('Self-Categorization', () => {
-      it('should create self-categorization relationship when category is created', async () => {
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-        discussionSchema.createDiscussionForNode.mockResolvedValue({
-          discussionId: 'discussion-123',
-        });
-
-        await schema.createCategory(mockCategoryNodeData);
-
-        // Verify the Cypher query includes self-categorization
-        const cypherQuery = neo4jService.write.mock.calls[0][0];
-        expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
-      });
-
-      it('should include category in its own dataset when querying by category', async () => {
-        // This verifies the design goal: when filtering by a category,
-        // the category itself appears in results
-        const mockRecords = [
-          {
-            get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
-          },
-          {
-            get: jest.fn().mockReturnValue({
-              properties: {
-                ...mockCategoryData,
-                id: 'statement-123',
-                statement: 'Test statement',
-              },
-            }),
-          },
-        ] as unknown as Record[];
-
-        neo4jService.read.mockResolvedValue({
-          records: mockRecords,
-        } as unknown as Result);
-
-        // Query for all nodes categorized as this category
-        // (This simulates what would happen in a real query)
-        const result = await neo4jService.read(
-          `MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode {id: $catId})
-         RETURN n`,
-          { catId: 'cat-123' },
-        );
-
-        // Category itself should be in results due to self-categorization
-        expect(result.records).toHaveLength(2);
-      });
-
-      it('should exclude self-categorization from content count', async () => {
-        const mockRecord = {
-          get: jest.fn((field) => {
-            if (field === 'c') return { properties: mockCategoryData };
-            if (field === 'contentCount') return Integer.fromNumber(15);
-            if (field === 'discussionId') return 'discussion-123';
-            if (field === 'words') return [];
-            if (field === 'parentCategory') return null;
-            if (field === 'childCategories') return [];
-            return null;
-          }),
-        } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        const result = await schema.getCategory('cat-123');
-
-        // Verify query excludes self from content count
-        const cypherQuery = neo4jService.read.mock.calls[0][0];
-        expect(cypherQuery).toContain('content.id <> c.id');
-
-        // Content count should not include the category itself
-        expect(result?.contentCount).toBe(15);
-      });
-
-      it('should exclude self from content count in getCategoryStats', async () => {
-        const mockStats = {
-          contentCount: 25,
-          childCount: 3,
-          wordCount: 4,
-          inclusionNetVotes: 10,
-        };
-
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({
-            contentCount: Integer.fromNumber(mockStats.contentCount),
-            childCount: Integer.fromNumber(mockStats.childCount),
-            wordCount: Integer.fromNumber(mockStats.wordCount),
-            inclusionNetVotes: Integer.fromNumber(mockStats.inclusionNetVotes),
-          }),
-        } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        const result = await schema.getCategoryStats('cat-123');
-
-        // Verify query excludes self from content count
-        const cypherQuery = neo4jService.read.mock.calls[0][0];
-        expect(cypherQuery).toContain('content.id <> c.id');
-
-        expect(result.contentCount).toBe(25);
-      });
-
-      it('should verify EvidenceNode is included in content queries', async () => {
-        const mockRecord = {
-          get: jest.fn((field) => {
-            if (field === 'c') return { properties: mockCategoryData };
-            if (field === 'contentCount') return Integer.fromNumber(10);
-            if (field === 'discussionId') return 'discussion-123';
-            if (field === 'words') return [];
-            if (field === 'parentCategory') return null;
-            if (field === 'childCategories') return [];
-            return null;
-          }),
-        } as unknown as Record;
-        neo4jService.read.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-
-        await schema.getCategory('cat-123');
-
-        // Verify query includes EvidenceNode in content types
-        const cypherQuery = neo4jService.read.mock.calls[0][0];
-        expect(cypherQuery).toContain('content:StatementNode');
-        expect(cypherQuery).toContain('content:AnswerNode');
-        expect(cypherQuery).toContain('content:OpenQuestionNode');
-        expect(cypherQuery).toContain('content:QuantityNode');
-        expect(cypherQuery).toContain('content:EvidenceNode');
-      });
-
-      it('should handle self-categorization consistently with word self-tagging pattern', async () => {
-        // This test documents the parallel design pattern
-        const mockRecord = {
-          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
-        } as unknown as Record;
-        neo4jService.write.mockResolvedValue({
-          records: [mockRecord],
-        } as unknown as Result);
-        discussionSchema.createDiscussionForNode.mockResolvedValue({
-          discussionId: 'discussion-123',
-        });
-
-        await schema.createCategory(mockCategoryNodeData);
-
-        const cypherQuery = neo4jService.write.mock.calls[0][0];
-
-        // Verify self-categorization pattern similar to word self-tagging:
-        // - Single self-reference
-        // - Created immediately after node creation
-        // - No properties on the relationship (unlike TAGGED which has frequency/source)
-        expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
-
-        // Verify it's created between node creation and parent relationship
-        const nodeCreationIndex = cypherQuery.indexOf('CREATE (c:CategoryNode');
-        const selfCatIndex = cypherQuery.indexOf(
-          'CREATE (c)-[:CATEGORIZED_AS]->(c)',
-        );
-        const parentIndex = cypherQuery.indexOf(
-          'CREATE (parent)-[:PARENT_OF]->(c)',
-        );
-
-        expect(selfCatIndex).toBeGreaterThan(nodeCreationIndex);
-        if (parentIndex > 0) {
-          expect(selfCatIndex).toBeLessThan(parentIndex);
-        }
-      });
     });
 
     it('should handle empty results', async () => {
@@ -1182,16 +1113,176 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
   });
 
+  describe('Self-Categorization', () => {
+    it('should create self-categorization relationship when category is created', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      await schema.createCategory(mockCategoryNodeData);
+
+      const cypherQuery = neo4jService.write.mock.calls[0][0];
+      expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
+    });
+
+    it('should include category in its own dataset when querying by category', async () => {
+      const mockRecords = [
+        {
+          get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+        },
+        {
+          get: jest.fn().mockReturnValue({
+            properties: {
+              ...mockCategoryData,
+              id: 'statement-123',
+              statement: 'Test statement',
+            },
+          }),
+        },
+      ] as unknown as Record[];
+
+      neo4jService.read.mockResolvedValue({
+        records: mockRecords,
+      } as unknown as Result);
+
+      const result = await neo4jService.read(
+        `MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode {id: $catId})
+         RETURN n`,
+        { catId: 'cat-123' },
+      );
+
+      expect(result.records).toHaveLength(2);
+    });
+
+    it('should exclude self-categorization from content count', async () => {
+      const mockRecord = {
+        get: jest.fn((field) => {
+          if (field === 'c') return { properties: mockCategoryData };
+          if (field === 'n') return { properties: mockCategoryData };
+          if (field === 'contentCount') return Integer.fromNumber(15);
+          if (field === 'discussionId') return 'discussion-123';
+          if (field === 'words') return [];
+          if (field === 'parentCategory') return null;
+          if (field === 'childCategories') return [];
+          return null;
+        }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getCategory('cat-123');
+
+      const cypherQuery = neo4jService.read.mock.calls[0][0];
+      expect(cypherQuery).toContain('content.id <> c.id');
+
+      expect(result?.contentCount).toBe(15);
+    });
+
+    it('should exclude self from content count in getCategoryStats', async () => {
+      const mockStats = {
+        contentCount: 25,
+        childCount: 3,
+        wordCount: 4,
+        inclusionNetVotes: 10,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({
+          contentCount: Integer.fromNumber(mockStats.contentCount),
+          childCount: Integer.fromNumber(mockStats.childCount),
+          wordCount: Integer.fromNumber(mockStats.wordCount),
+          inclusionNetVotes: Integer.fromNumber(mockStats.inclusionNetVotes),
+        }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      const result = await schema.getCategoryStats('cat-123');
+
+      const cypherQuery = neo4jService.read.mock.calls[0][0];
+      expect(cypherQuery).toContain('content.id <> c.id');
+
+      expect(result.contentCount).toBe(25);
+    });
+
+    it('should verify EvidenceNode is included in content queries', async () => {
+      const mockRecord = {
+        get: jest.fn((field) => {
+          if (field === 'c') return { properties: mockCategoryData };
+          if (field === 'n') return { properties: mockCategoryData };
+          if (field === 'contentCount') return Integer.fromNumber(10);
+          if (field === 'discussionId') return 'discussion-123';
+          if (field === 'words') return [];
+          if (field === 'parentCategory') return null;
+          if (field === 'childCategories') return [];
+          return null;
+        }),
+      } as unknown as Record;
+      neo4jService.read.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      await schema.getCategory('cat-123');
+
+      const cypherQuery = neo4jService.read.mock.calls[0][0];
+      expect(cypherQuery).toContain('content:StatementNode');
+      expect(cypherQuery).toContain('content:AnswerNode');
+      expect(cypherQuery).toContain('content:OpenQuestionNode');
+      expect(cypherQuery).toContain('content:QuantityNode');
+      expect(cypherQuery).toContain('content:EvidenceNode');
+    });
+
+    it('should handle self-categorization consistently with word self-tagging pattern', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
+      } as unknown as Record;
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-123',
+      });
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      await schema.createCategory(mockCategoryNodeData);
+
+      const cypherQuery = neo4jService.write.mock.calls[0][0];
+
+      expect(cypherQuery).toContain('CREATE (c)-[:CATEGORIZED_AS]->(c)');
+
+      const nodeCreationIndex = cypherQuery.indexOf('CREATE (c:CategoryNode');
+      const selfCatIndex = cypherQuery.indexOf(
+        'CREATE (c)-[:CATEGORIZED_AS]->(c)',
+      );
+      const parentIndex = cypherQuery.indexOf(
+        'CREATE (parent)-[:PARENT_OF]->(c)',
+      );
+
+      expect(selfCatIndex).toBeGreaterThan(nodeCreationIndex);
+      if (parentIndex > 0) {
+        expect(selfCatIndex).toBeLessThan(parentIndex);
+      }
+    });
+  });
+
   describe('getSortFieldForQuery (private helper)', () => {
     it('should map sort fields correctly', () => {
-      // Access private method for testing
       const getSortField = (schema as any).getSortFieldForQuery;
 
       expect(getSortField('name')).toBe('c.name');
       expect(getSortField('votes')).toBe('c.inclusionNetVotes');
       expect(getSortField('created')).toBe('c.createdAt');
       expect(getSortField('usage')).toBe('c.contentCount');
-      expect(getSortField('unknown')).toBe('c.name'); // default
+      expect(getSortField('unknown')).toBe('c.name');
     });
   });
 
@@ -1215,12 +1306,10 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
 
     it('should validate input parameters consistently', async () => {
-      // Test empty string validation - should prevent database calls
       await expect(schema.getCategoriesForNode('')).rejects.toThrow(
         BadRequestException,
       );
 
-      // Verify no Neo4j calls made for invalid input
       expect(neo4jService.read).not.toHaveBeenCalled();
       expect(neo4jService.write).not.toHaveBeenCalled();
     });
@@ -1317,7 +1406,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     it('should validate words exist and have passed inclusion threshold', async () => {
       neo4jService.write.mockRejectedValue(
         new Error(
-          'some words may not exist or have not passed inclusion threshold',
+          'Some words may not exist or have not passed inclusion threshold',
         ),
       );
 
@@ -1327,9 +1416,8 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
 
     it('should prevent circular parent-child relationships', async () => {
-      // The Cypher query includes circular reference prevention logic
       neo4jService.write.mockResolvedValue({
-        records: [], // Empty result indicates validation failed
+        records: [],
       } as unknown as Result);
 
       await expect(schema.createCategory(mockCategoryNodeData)).rejects.toThrow(
@@ -1340,7 +1428,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
 
   describe('Integration Tests', () => {
     it('should handle complete category lifecycle', async () => {
-      // Step 1: Create category
       const createRecord = {
         get: jest.fn().mockReturnValue({ properties: mockCategoryData }),
       } as unknown as Record;
@@ -1350,12 +1437,12 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
       });
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       const created = await schema.createCategory(mockCategoryNodeData);
       expect(created).toBeDefined();
       expect(created.discussionId).toBe('discussion-123');
 
-      // Step 2: Vote on category
       voteSchema.vote.mockResolvedValue(mockVoteResult);
       const voteResult = await schema.voteInclusion(
         'cat-123',
@@ -1364,10 +1451,10 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       );
       expect(voteResult).toEqual(mockVoteResult);
 
-      // Step 3: Get category with relationships
       const getRecord = {
         get: jest.fn((field) => {
-          if (field === 'c') return { properties: mockCategoryData };
+          if (field === 'c' || field === 'n')
+            return { properties: mockCategoryData };
           if (field === 'discussionId') return 'discussion-123';
           if (field === 'words') return [];
           if (field === 'parentCategory') return null;
@@ -1384,7 +1471,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       expect(retrieved).toBeDefined();
       expect(retrieved?.id).toBe('cat-123');
 
-      // Step 4: Update category
       const updateRecord = {
         get: jest.fn().mockReturnValue({
           properties: { ...mockCategoryData, name: 'Updated Technology' },
@@ -1399,7 +1485,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       });
       expect(updated?.name).toBe('Updated Technology');
 
-      // Step 5: Delete category
       const existsRecord = {
         get: jest.fn().mockReturnValue(Integer.fromNumber(1)),
       } as unknown as Record;
@@ -1415,7 +1500,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
 
     it('should handle category hierarchy operations', async () => {
-      // Create parent category
       const parentRecord = {
         get: jest.fn().mockReturnValue({
           properties: { ...mockCategoryData, id: 'parent-cat' },
@@ -1427,6 +1511,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-parent',
       });
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       await schema.createCategory({
         ...mockCategoryNodeData,
@@ -1434,7 +1519,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         parentCategoryId: undefined,
       });
 
-      // Create child category with parent
       const childRecord = {
         get: jest.fn().mockReturnValue({
           properties: { ...mockCategoryData, id: 'child-cat' },
@@ -1453,7 +1537,6 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
         parentCategoryId: 'parent-cat',
       });
 
-      // Get hierarchy
       const hierarchyRecords = [
         {
           get: jest.fn().mockReturnValue({
@@ -1490,13 +1573,11 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     });
 
     it('should not support tagging (categories use COMPOSED_OF)', () => {
-      // CategorySchema doesn't extend TaggedNodeSchema
       expect((schema as any).attachKeywords).toBeUndefined();
       expect((schema as any).getKeywords).toBeUndefined();
     });
 
     it('should not use categorization system (categories are the taxonomy)', () => {
-      // CategorySchema doesn't extend CategorizedNodeSchema
       expect((schema as any).attachCategories).toBeUndefined();
       expect((schema as any).getCategories).toBeUndefined();
     });
@@ -1506,7 +1587,7 @@ describe('CategorySchema with BaseNodeSchema Integration', () => {
     it('should validate all words exist before category creation', async () => {
       neo4jService.write.mockRejectedValue(
         new Error(
-          'some words may not exist or have not passed inclusion threshold',
+          'Some words may not exist or have not passed inclusion threshold',
         ),
       );
 

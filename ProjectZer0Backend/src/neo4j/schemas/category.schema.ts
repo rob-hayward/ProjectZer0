@@ -1,4 +1,4 @@
-// src/neo4j/schemas/category.schema.ts - UPDATED WITH SELF-CATEGORIZATION
+// src/neo4j/schemas/category.schema.ts - CORRECTED & UPDATED
 
 import {
   Injectable,
@@ -8,7 +8,9 @@ import {
 import { Neo4jService } from '../neo4j.service';
 import { VoteSchema } from './vote.schema';
 import { DiscussionSchema } from './discussion.schema';
+import { UserSchema } from './user.schema';
 import { BaseNodeSchema, BaseNodeData } from './base/base-node.schema';
+import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
 
 export interface CategoryData extends BaseNodeData {
@@ -56,6 +58,7 @@ export interface CategoryNodeData {
  * - Composed of: 1-5 approved WordNodes via COMPOSED_OF relationships
  * - Hierarchical: Can have parent/child categories via PARENT_OF relationships
  * - Has discussions (via injected DiscussionSchema)
+ * - Tracks user creation (via injected UserSchema)
  *
  * Self-Categorization Pattern:
  * - Similar to WordNode self-tagging
@@ -63,6 +66,8 @@ export interface CategoryNodeData {
  * - Safe: Categories only belong to themselves, never to other categories
  * - Pattern: (CategoryNode)-[:CATEGORIZED_AS]->(CategoryNode) [same node]
  * - Content counts exclude the self-reference to maintain accurate statistics
+ *
+ * IMPORTANT: Visibility is handled by VisibilityService, NOT by this schema
  */
 @Injectable()
 export class CategorySchema extends BaseNodeSchema<CategoryData> {
@@ -73,12 +78,17 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
     private readonly discussionSchema: DiscussionSchema,
+    private readonly userSchema: UserSchema,
   ) {
     super(neo4jService, voteSchema, CategorySchema.name);
   }
 
+  // ============================================
+  // ABSTRACT METHOD IMPLEMENTATIONS
+  // ============================================
+
   protected supportsContentVoting(): boolean {
-    return false;
+    return false; // Categories only have inclusion voting
   }
 
   protected mapNodeFromRecord(record: Record): CategoryData {
@@ -120,65 +130,17 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
     };
   }
 
-  // Add to src/neo4j/schemas/category.schema.ts
+  // ============================================
+  // CATEGORY-SPECIFIC METHODS
+  // ============================================
 
   /**
-   * Set visibility status for a category
+   * Creates a new category composed of 1-5 approved words.
+   * Implements self-categorization pattern.
    */
-  async setVisibilityStatus(
-    id: string,
-    isVisible: boolean,
-  ): Promise<CategoryData | null> {
-    this.validateId(id);
-
+  async createCategory(categoryData: CategoryNodeData): Promise<CategoryData> {
     try {
-      const result = await this.neo4jService.write(
-        `
-      MATCH (n:CategoryNode {id: $id})
-      SET n.visibilityStatus = $isVisible,
-          n.updatedAt = datetime()
-      RETURN n
-      `,
-        { id, isVisible },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        return null;
-      }
-
-      return this.mapNodeFromRecord(result.records[0]);
-    } catch (error) {
-      throw this.standardError('set visibility status', error);
-    }
-  }
-
-  /**
-   * Get visibility status for a category
-   */
-  async getVisibilityStatus(id: string): Promise<boolean> {
-    this.validateId(id);
-
-    try {
-      const result = await this.neo4jService.read(
-        `
-      MATCH (n:CategoryNode {id: $id})
-      RETURN COALESCE(n.visibilityStatus, true) as isVisible
-      `,
-        { id },
-      );
-
-      if (!result.records || result.records.length === 0) {
-        throw new Error(`Category with ID ${id} not found`);
-      }
-
-      return result.records[0].get('isVisible');
-    } catch (error) {
-      throw this.standardError('get visibility status', error);
-    }
-  }
-
-  async createCategory(categoryData: CategoryNodeData) {
-    try {
+      // Validate word count
       if (
         !categoryData.wordIds ||
         categoryData.wordIds.length < 1 ||
@@ -187,9 +149,12 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         throw new BadRequestException('Category must be composed of 1-5 words');
       }
 
+      // Validate category name
       if (!categoryData.name || categoryData.name.trim() === '') {
         throw new BadRequestException('Category name cannot be empty');
       }
+
+      this.logger.debug(`Creating category: ${categoryData.id}`);
 
       const result = await this.neo4jService.write(
         `
@@ -247,7 +212,7 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
           CREATE (parent)-[:PARENT_OF]->(c)
         )
         
-        RETURN c
+        RETURN c as n
         `,
         {
           id: categoryData.id,
@@ -262,13 +227,13 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       if (!result.records || result.records.length === 0) {
         throw new Error(
-          'some words may not exist or have not passed inclusion threshold',
+          'Some words may not exist or have not passed inclusion threshold',
         );
       }
 
-      const createdCategory = result.records[0].get('c').properties;
+      const createdCategory = this.mapNodeFromRecord(result.records[0]);
 
-      // Use the centralized DiscussionSchema to create discussion
+      // Create discussion using the centralized DiscussionSchema
       const discussionResult =
         await this.discussionSchema.createDiscussionForNode({
           nodeId: categoryData.id,
@@ -280,22 +245,47 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       createdCategory.discussionId = discussionResult.discussionId;
 
+      // Track user creation
+      try {
+        await this.userSchema.addCreatedNode(
+          categoryData.createdBy,
+          categoryData.id,
+          'category',
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not track user creation for category ${categoryData.id}: ${error.message}`,
+        );
+        // Non-blocking - continue even if tracking fails
+      }
+
+      this.logger.log(`Successfully created category: ${categoryData.id}`);
       return createdCategory;
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
       }
 
-      if (error.message.includes('some words may not exist')) {
+      if (
+        error.message.includes('Some words may not exist') ||
+        error.message.includes('some words may not exist')
+      ) {
         throw new BadRequestException(
           'All words must exist and have passed inclusion threshold before being used in a category',
         );
       }
 
+      this.logger.error(
+        `Error creating category: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('create category', error);
     }
   }
 
+  /**
+   * Gets a category with its composition, hierarchy, and content statistics
+   */
   async getCategory(id: string): Promise<CategoryData | null> {
     if (!id || id.trim() === '') {
       throw new BadRequestException('Category ID cannot be empty');
@@ -315,7 +305,7 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
                content:EvidenceNode)
           AND content.id <> c.id  // Exclude self-categorization from content count
         
-        RETURN c,
+        RETURN c as n,
         disc.id as discussionId,
         collect(DISTINCT {
           id: w.id,
@@ -341,17 +331,7 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
       }
 
       const record = result.records[0];
-      const category = record.get('c').properties;
-
-      [
-        'inclusionPositiveVotes',
-        'inclusionNegativeVotes',
-        'inclusionNetVotes',
-      ].forEach((prop) => {
-        if (category[prop] !== undefined) {
-          category[prop] = this.toNumber(category[prop]);
-        }
-      });
+      const category = this.mapNodeFromRecord(record);
 
       category.discussionId = record.get('discussionId');
       category.words = (record.get('words') || []).filter((w) => w && w.id);
@@ -367,10 +347,17 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         throw error;
       }
 
+      this.logger.error(
+        `Error retrieving category: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('retrieve category', error);
     }
   }
 
+  /**
+   * Gets all categories with optional filtering and sorting
+   */
   async getAllCategories(
     options: {
       limit?: number;
@@ -440,25 +427,48 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
       const result = await this.neo4jService.read(query, params);
       return result.records.map((record) => this.mapNodeFromRecord(record));
     } catch (error) {
+      this.logger.error(
+        `Error getting all categories: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('get all categories', error);
     }
   }
 
-  private getSortFieldForQuery(sortBy: string): string {
-    switch (sortBy) {
-      case 'votes':
-        return 'c.inclusionNetVotes';
-      case 'created':
-        return 'c.createdAt';
-      case 'usage':
-        return 'c.contentCount';
-      case 'name':
-      default:
-        return 'c.name';
+  /**
+   * Gets approved categories (passed inclusion threshold)
+   */
+  async getApprovedCategories(): Promise<CategoryData[]> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (c:CategoryNode)
+        WHERE c.inclusionNetVotes > 0
+        RETURN c as n
+        ORDER BY c.inclusionNetVotes DESC, c.name ASC
+        `,
+        {},
+      );
+
+      return result.records.map((record) => this.mapNodeFromRecord(record));
+    } catch (error) {
+      this.logger.error(
+        `Error getting approved categories: ${error.message}`,
+        error.stack,
+      );
+      throw this.standardError('get approved categories', error);
     }
   }
 
-  async getCategoryStats(categoryId: string): Promise<any> {
+  /**
+   * Gets detailed statistics for a category
+   */
+  async getCategoryStats(categoryId: string): Promise<{
+    contentCount: number;
+    childCount: number;
+    wordCount: number;
+    inclusionNetVotes: number;
+  }> {
     if (!categoryId || categoryId.trim() === '') {
       throw new BadRequestException('Category ID cannot be empty');
     }
@@ -493,11 +503,13 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       const stats = result.records[0].get('stats');
 
-      Object.keys(stats).forEach((key) => {
-        stats[key] = this.toNumber(stats[key]);
-      });
-
-      return stats;
+      // Convert Neo4j integers to numbers
+      return {
+        contentCount: this.toNumber(stats.contentCount),
+        childCount: this.toNumber(stats.childCount),
+        wordCount: this.toNumber(stats.wordCount),
+        inclusionNetVotes: this.toNumber(stats.inclusionNetVotes),
+      };
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -506,11 +518,26 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         throw error;
       }
 
+      this.logger.error(
+        `Error getting category stats: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('get category stats', error);
     }
   }
 
-  async getCategoriesForNode(nodeId: string): Promise<any[]> {
+  /**
+   * Gets all categories associated with a specific node
+   */
+  async getCategoriesForNode(nodeId: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      description?: string;
+      inclusionNetVotes: number;
+      path: Array<{ id: string; name: string }>;
+    }>
+  > {
     if (!nodeId || nodeId.trim() === '') {
       throw new BadRequestException('Node ID cannot be empty');
     }
@@ -547,7 +574,8 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       const categories = result.records[0].get('categories') || [];
 
-      categories.forEach((cat) => {
+      // Convert Neo4j integers
+      categories.forEach((cat: any) => {
         cat.inclusionNetVotes = this.toNumber(cat.inclusionNetVotes);
       });
 
@@ -557,11 +585,31 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         throw error;
       }
 
+      this.logger.error(
+        `Error getting categories for node: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('get categories for node', error);
     }
   }
 
-  async getCategoryHierarchy(rootId?: string): Promise<any[]> {
+  /**
+   * Gets the category hierarchy starting from root categories or a specific category
+   */
+  async getCategoryHierarchy(rootId?: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      description?: string;
+      inclusionNetVotes: number;
+      children: Array<{
+        id: string;
+        name: string;
+        description?: string;
+        inclusionNetVotes: number;
+      }>;
+    }>
+  > {
     try {
       let query = `
         MATCH (root:CategoryNode)
@@ -604,7 +652,7 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
         hierarchy.inclusionNetVotes = this.toNumber(
           hierarchy.inclusionNetVotes,
         );
-        hierarchy.children.forEach((child) => {
+        hierarchy.children.forEach((child: any) => {
           child.inclusionNetVotes = this.toNumber(child.inclusionNetVotes);
         });
         return hierarchy;
@@ -612,28 +660,17 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
 
       return hierarchies;
     } catch (error) {
+      this.logger.error(
+        `Error getting category hierarchy: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('get category hierarchy', error);
     }
   }
 
-  async getApprovedCategories(): Promise<CategoryData[]> {
-    try {
-      const result = await this.neo4jService.read(
-        `
-        MATCH (c:CategoryNode)
-        WHERE c.inclusionNetVotes > 0
-        RETURN c as n
-        ORDER BY c.inclusionNetVotes DESC, c.name ASC
-        `,
-        {},
-      );
-
-      return result.records.map((record) => this.mapNodeFromRecord(record));
-    } catch (error) {
-      throw this.standardError('get approved categories', error);
-    }
-  }
-
+  /**
+   * Gets total category count
+   */
   async checkCategories(): Promise<{ count: number }> {
     try {
       const result = await this.neo4jService.read(
@@ -644,7 +681,114 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
       const count = this.toNumber(result.records[0].get('count'));
       return { count };
     } catch (error) {
+      this.logger.error(
+        `Error checking categories: ${error.message}`,
+        error.stack,
+      );
       throw this.standardError('check categories', error);
+    }
+  }
+
+  /**
+   * Checks if a word is available for category composition
+   * (exists and has passed inclusion threshold)
+   */
+  async isWordAvailableForCategoryComposition(
+    wordId: string,
+  ): Promise<boolean> {
+    try {
+      const result = await this.neo4jService.read(
+        `
+        MATCH (w:WordNode {id: $wordId})
+        RETURN w.inclusionNetVotes as inclusionNetVotes
+        `,
+        { wordId },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return false;
+      }
+
+      const inclusionNetVotes = this.toNumber(
+        result.records[0].get('inclusionNetVotes'),
+      );
+
+      return VotingUtils.hasPassedInclusion(inclusionNetVotes);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Checks if multiple words are available for category composition
+   * Useful for validating before category creation
+   */
+  async validateWordsForComposition(wordIds: string[]): Promise<{
+    valid: boolean;
+    invalidWords: string[];
+    message?: string;
+  }> {
+    if (!wordIds || wordIds.length < 1 || wordIds.length > 5) {
+      return {
+        valid: false,
+        invalidWords: [],
+        message: 'Must provide 1-5 word IDs',
+      };
+    }
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+        UNWIND $wordIds as wordId
+        MATCH (w:WordNode {id: wordId})
+        WHERE w.inclusionNetVotes > 0
+        RETURN collect(w.id) as validWords
+        `,
+        { wordIds },
+      );
+
+      const validWords = result.records[0]?.get('validWords') || [];
+      const invalidWords = wordIds.filter((id) => !validWords.includes(id));
+
+      if (invalidWords.length > 0) {
+        return {
+          valid: false,
+          invalidWords,
+          message: `The following words are not available: ${invalidWords.join(', ')}`,
+        };
+      }
+
+      return {
+        valid: true,
+        invalidWords: [],
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error validating words for composition: ${error.message}`,
+      );
+      return {
+        valid: false,
+        invalidWords: wordIds,
+        message: 'Error validating words',
+      };
+    }
+  }
+
+  // ============================================
+  // HELPER METHODS
+  // ============================================
+
+  private getSortFieldForQuery(sortBy: string): string {
+    switch (sortBy) {
+      case 'votes':
+        return 'c.inclusionNetVotes';
+      case 'created':
+        return 'c.createdAt';
+      case 'usage':
+        return 'c.contentCount';
+      case 'name':
+      default:
+        return 'c.name';
     }
   }
 }

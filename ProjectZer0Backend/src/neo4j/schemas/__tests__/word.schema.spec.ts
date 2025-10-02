@@ -1020,10 +1020,13 @@ describe('WordSchema with BaseNodeSchema', () => {
       );
     });
 
-    it('should not allow updateKeywords for words', async () => {
-      await expect(wordSchema.updateKeywords()).rejects.toThrow(
-        'Cannot update keywords for a word node - words are self-tagged',
-      );
+    it('should handle updateKeywords as no-op for self-tagged words', async () => {
+      // Words are always self-tagged, so updateKeywords is a no-op
+      const result = await wordSchema.updateKeywords();
+
+      expect(result).toBeUndefined();
+      expect(neo4jService.write).not.toHaveBeenCalled();
+      expect(neo4jService.read).not.toHaveBeenCalled();
     });
   });
 
