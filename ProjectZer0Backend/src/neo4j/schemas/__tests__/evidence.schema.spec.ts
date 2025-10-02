@@ -11,6 +11,7 @@ import {
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
 import { DiscussionSchema } from '../discussion.schema';
+import { UserSchema } from '../user.schema';
 import { Record, Result, Integer } from 'neo4j-driver';
 
 describe('EvidenceSchema', () => {
@@ -18,6 +19,7 @@ describe('EvidenceSchema', () => {
   let neo4jService: jest.Mocked<Neo4jService>;
   let voteSchema: jest.Mocked<VoteSchema>;
   let discussionSchema: jest.Mocked<DiscussionSchema>;
+  let userSchema: jest.Mocked<UserSchema>;
 
   const mockEvidenceData: EvidenceData = {
     id: 'evidence-123',
@@ -104,6 +106,12 @@ describe('EvidenceSchema', () => {
             createDiscussionForNode: jest.fn(),
           },
         },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -111,6 +119,7 @@ describe('EvidenceSchema', () => {
     neo4jService = module.get(Neo4jService);
     voteSchema = module.get(VoteSchema);
     discussionSchema = module.get(DiscussionSchema);
+    userSchema = module.get(UserSchema);
   });
 
   afterEach(() => {
@@ -322,10 +331,23 @@ describe('EvidenceSchema', () => {
         discussionId: 'discussion-abc',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       const result = await schema.createEvidence(createData);
 
       expect(neo4jService.write).toHaveBeenCalled();
-      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalled();
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
+        nodeId: expect.any(String),
+        nodeType: 'EvidenceNode',
+        nodeIdField: 'id',
+        createdBy: 'user-456',
+        initialComment: 'Initial comment',
+      });
+      expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
+        'user-456',
+        expect.any(String),
+        'evidence',
+      );
       expect(result.id).toBe('evidence-123');
     });
 
@@ -418,6 +440,39 @@ describe('EvidenceSchema', () => {
       ).rejects.toThrow(
         'Parent node must exist and have passed inclusion threshold',
       );
+    });
+
+    it('should handle user tracking failure gracefully', async () => {
+      const createData = {
+        title: 'Test Evidence',
+        url: 'https://example.com/paper',
+        evidenceType: 'academic_paper' as EvidenceType,
+        parentNodeId: 'statement-456',
+        parentNodeType: 'StatementNode' as const,
+        createdBy: 'user-456',
+        publicCredit: true,
+      };
+
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockEvidenceData }),
+      } as unknown as Record;
+
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-abc',
+      });
+
+      userSchema.addCreatedNode.mockRejectedValue(
+        new Error('User tracking failed'),
+      );
+
+      const result = await schema.createEvidence(createData);
+
+      expect(result.id).toBe('evidence-123');
+      expect(userSchema.addCreatedNode).toHaveBeenCalled();
     });
   });
 
@@ -534,6 +589,33 @@ describe('EvidenceSchema', () => {
       const result = await schema.updateEvidence('evidence-123', updateData);
 
       expect(result).toBeDefined();
+      expect(schema.updateKeywords).toHaveBeenCalledWith(
+        'evidence-123',
+        updateData.keywords,
+      );
+    });
+
+    it('should handle complex updates with categories', async () => {
+      const updateData = {
+        categoryIds: ['cat1', 'cat2'],
+      };
+
+      jest.spyOn(schema, 'updateCategories').mockResolvedValue(undefined);
+      jest.spyOn(schema, 'getEvidence').mockResolvedValue({
+        ...mockEvidenceData,
+        categories: [
+          { id: 'cat1', name: 'Category 1' },
+          { id: 'cat2', name: 'Category 2' },
+        ],
+      });
+
+      const result = await schema.updateEvidence('evidence-123', updateData);
+
+      expect(result).toBeDefined();
+      expect(schema.updateCategories).toHaveBeenCalledWith(
+        'evidence-123',
+        updateData.categoryIds,
+      );
     });
 
     it('should reject too many categories', async () => {
@@ -542,6 +624,26 @@ describe('EvidenceSchema', () => {
           categoryIds: ['cat1', 'cat2', 'cat3', 'cat4'],
         }),
       ).rejects.toThrow('Evidence can have maximum 3 categories');
+    });
+
+    it('should handle publicationDate conversion', async () => {
+      const updateData = {
+        publicationDate: new Date('2024-01-01'),
+      };
+
+      jest.spyOn(schema, 'update').mockResolvedValue({
+        ...mockEvidenceData,
+        publicationDate: updateData.publicationDate,
+      });
+
+      await schema.updateEvidence('evidence-123', updateData);
+
+      expect(schema.update).toHaveBeenCalledWith(
+        'evidence-123',
+        expect.objectContaining({
+          publicationDate: '2024-01-01T00:00:00.000Z',
+        }),
+      );
     });
   });
 
@@ -576,6 +678,7 @@ describe('EvidenceSchema', () => {
 
         expect(result).toBeDefined();
         expect(result.qualityScore).toBe(4);
+        expect(neo4jService.write).toHaveBeenCalledTimes(2);
       });
 
       it('should reject review when inclusion threshold not passed', async () => {
@@ -1077,6 +1180,20 @@ describe('EvidenceSchema', () => {
         }),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it('should reject empty parent node ID', async () => {
+      await expect(
+        schema.createEvidence({
+          title: 'Test',
+          url: 'https://example.com',
+          evidenceType: 'academic_paper',
+          parentNodeId: '',
+          parentNodeType: 'StatementNode',
+          createdBy: 'user-456',
+          publicCredit: true,
+        }),
+      ).rejects.toThrow('Parent node ID cannot be empty');
+    });
   });
 
   describe('Neo4j Integer Conversion', () => {
@@ -1174,6 +1291,8 @@ describe('EvidenceSchema', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-abc',
       });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       const created = await schema.createEvidence({
         title: 'Test Evidence',
