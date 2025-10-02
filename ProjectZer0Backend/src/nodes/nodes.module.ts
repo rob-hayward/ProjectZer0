@@ -9,6 +9,7 @@ import { CommentModule } from './comment/comment.module';
 import { QuantityModule } from './quantity/quantity.module';
 import { CategoryModule } from './category/category.module';
 import { AnswerModule } from './answer/answer.module'; // NEW: Added AnswerModule
+import { EvidenceModule } from './evidence/evidence.module';
 
 @Module({
   imports: [
@@ -20,7 +21,8 @@ import { AnswerModule } from './answer/answer.module'; // NEW: Added AnswerModul
     CommentModule,
     QuantityModule,
     CategoryModule,
-    AnswerModule, // NEW: Added AnswerModule
+    AnswerModule,
+    EvidenceModule,
   ],
   exports: [
     WordModule,
@@ -31,7 +33,8 @@ import { AnswerModule } from './answer/answer.module'; // NEW: Added AnswerModul
     CommentModule,
     QuantityModule,
     CategoryModule,
-    AnswerModule, // NEW: Added AnswerModule export
+    AnswerModule,
+    EvidenceModule,
   ],
 })
 export class NodesModule {}

@@ -120,6 +120,63 @@ export class CategorySchema extends BaseNodeSchema<CategoryData> {
     };
   }
 
+  // Add to src/neo4j/schemas/category.schema.ts
+
+  /**
+   * Set visibility status for a category
+   */
+  async setVisibilityStatus(
+    id: string,
+    isVisible: boolean,
+  ): Promise<CategoryData | null> {
+    this.validateId(id);
+
+    try {
+      const result = await this.neo4jService.write(
+        `
+      MATCH (n:CategoryNode {id: $id})
+      SET n.visibilityStatus = $isVisible,
+          n.updatedAt = datetime()
+      RETURN n
+      `,
+        { id, isVisible },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        return null;
+      }
+
+      return this.mapNodeFromRecord(result.records[0]);
+    } catch (error) {
+      throw this.standardError('set visibility status', error);
+    }
+  }
+
+  /**
+   * Get visibility status for a category
+   */
+  async getVisibilityStatus(id: string): Promise<boolean> {
+    this.validateId(id);
+
+    try {
+      const result = await this.neo4jService.read(
+        `
+      MATCH (n:CategoryNode {id: $id})
+      RETURN COALESCE(n.visibilityStatus, true) as isVisible
+      `,
+        { id },
+      );
+
+      if (!result.records || result.records.length === 0) {
+        throw new Error(`Category with ID ${id} not found`);
+      }
+
+      return result.records[0].get('isVisible');
+    } catch (error) {
+      throw this.standardError('get visibility status', error);
+    }
+  }
+
   async createCategory(categoryData: CategoryNodeData) {
     try {
       if (

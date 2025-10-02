@@ -1,317 +1,326 @@
-// src/nodes/discussion/discussion.service.spec.ts - UPDATED FOR BaseNodeSchema
+// src/nodes/discussion/discussion.service.ts - REFACTORED TO USE NEW SCHEMA METHODS
 
-import { Test, TestingModule } from '@nestjs/testing';
-import { DiscussionService } from './discussion.service';
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  BadRequestException,
+} from '@nestjs/common';
 import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
 import { CommentService } from '../comment/comment.service';
 
-describe('DiscussionService with BaseNodeSchema Integration', () => {
-  let service: DiscussionService;
-  let schema: jest.Mocked<DiscussionSchema>;
-  let commentService: jest.Mocked<CommentService>;
+@Injectable()
+export class DiscussionService {
+  private readonly logger = new Logger(DiscussionService.name);
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        DiscussionService,
-        {
-          provide: DiscussionSchema,
-          useValue: {
-            // ✅ BaseNodeSchema inherited methods
-            findById: jest.fn(),
-            update: jest.fn(),
-            delete: jest.fn(),
+  constructor(
+    private readonly discussionSchema: DiscussionSchema,
+    private readonly commentService: CommentService,
+  ) {}
 
-            // ✅ DiscussionSchema specific methods
-            createDiscussion: jest.fn(),
-            getDiscussionsByAssociatedNode: jest.fn(),
-            getDiscussionCommentCount: jest.fn(),
+  /**
+   * Create a discussion for a node
+   * This method now uses the refactored schema method createDiscussionForNode
+   */
+  async createDiscussion(discussionData: {
+    createdBy: string;
+    associatedNodeId: string;
+    associatedNodeType: string;
+    initialComment?: string;
+  }) {
+    // Validate inputs
+    if (!discussionData.createdBy || discussionData.createdBy.trim() === '') {
+      throw new BadRequestException('Created by is required');
+    }
 
-            // ❌ REMOVED: Old custom methods no longer exist
-            // getDiscussion, updateDiscussion, deleteDiscussion
-            // setVisibilityStatus, getVisibilityStatus
-          },
-        },
-        {
-          provide: CommentService,
-          useValue: {
-            createComment: jest.fn(),
-            getCommentsByDiscussionId: jest.fn(),
-          },
-        },
-      ],
-    }).compile();
+    if (
+      !discussionData.associatedNodeId ||
+      discussionData.associatedNodeId.trim() === ''
+    ) {
+      throw new BadRequestException('Associated node ID is required');
+    }
 
-    service = module.get<DiscussionService>(DiscussionService);
-    schema = module.get(DiscussionSchema);
-    commentService = module.get(CommentService);
-  });
+    if (
+      !discussionData.associatedNodeType ||
+      discussionData.associatedNodeType.trim() === ''
+    ) {
+      throw new BadRequestException('Associated node type is required');
+    }
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
+    this.logger.log(
+      `Creating discussion for ${discussionData.associatedNodeType}: ${discussionData.associatedNodeId}`,
+    );
 
-  describe('createDiscussion', () => {
-    it('should call schema.createDiscussion with correct parameters', async () => {
-      const discussionData = {
-        createdBy: 'user1',
-        associatedNodeId: 'node1',
-        associatedNodeType: 'BeliefNode',
-      };
-
-      const mockDiscussion = {
-        id: 'discussion1',
-        ...discussionData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
-
-      schema.createDiscussion.mockResolvedValue(mockDiscussion);
-
-      await service.createDiscussion(discussionData);
-
-      expect(schema.createDiscussion).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ...discussionData,
-          id: expect.any(String),
-        }),
-      );
-    });
-
-    it('should create an initial comment if provided', async () => {
-      const discussionData = {
-        createdBy: 'user1',
-        associatedNodeId: 'node1',
-        associatedNodeType: 'BeliefNode',
-        initialComment: 'Initial comment',
-      };
-
-      const mockDiscussion = {
-        id: 'discussion1',
-        ...discussionData,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
-
-      const mockComment = {
-        id: 'comment1',
-        createdBy: 'user1',
-        discussionId: 'discussion1',
-        commentText: 'Initial comment',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      schema.createDiscussion.mockResolvedValue(mockDiscussion);
-      commentService.createComment.mockResolvedValue(mockComment);
-
-      await service.createDiscussion(discussionData);
-
-      expect(schema.createDiscussion).toHaveBeenCalledWith(
-        expect.objectContaining({
-          ...discussionData,
-          id: expect.any(String),
-        }),
-      );
-      expect(commentService.createComment).toHaveBeenCalledWith({
+    try {
+      // Use the new refactored schema method
+      const result = await this.discussionSchema.createDiscussionForNode({
+        nodeId: discussionData.associatedNodeId,
+        nodeType: discussionData.associatedNodeType,
+        nodeIdField: 'id', // Default to 'id', override if needed (e.g., 'word' for WordNode)
         createdBy: discussionData.createdBy,
-        discussionId: mockDiscussion.id,
-        commentText: discussionData.initialComment,
-        parentCommentId: undefined,
+        initialComment: discussionData.initialComment,
       });
-    });
-  });
 
-  // ✅ UPDATED: Use inherited findById() method
-  describe('getDiscussion', () => {
-    it('should call schema.findById with correct parameters', async () => {
-      const discussionId = 'discussion1';
-      const mockDiscussion = {
-        id: discussionId,
-        createdBy: 'user1',
-        associatedNodeId: 'node1',
-        associatedNodeType: 'BeliefNode',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
+      this.logger.log(`Created discussion: ${result.discussionId}`);
+
+      // If initial comment was provided and created
+      if (result.commentId) {
+        this.logger.log(`Created initial comment: ${result.commentId}`);
+      }
+
+      // Return a DiscussionData-like object for backward compatibility
+      return {
+        id: result.discussionId,
+        createdBy: discussionData.createdBy,
+        associatedNodeId: discussionData.associatedNodeId,
+        associatedNodeType: discussionData.associatedNodeType,
+        commentId: result.commentId,
       };
-
-      schema.findById.mockResolvedValue(mockDiscussion);
-
-      const result = await service.getDiscussion(discussionId);
-
-      expect(schema.findById).toHaveBeenCalledWith(discussionId);
-      expect(result).toEqual(mockDiscussion);
-    });
-
-    it('should return null when discussion not found', async () => {
-      schema.findById.mockResolvedValue(null);
-
-      const result = await service.getDiscussion('nonexistent');
-
-      expect(result).toBeNull();
-    });
-  });
-
-  // ✅ UPDATED: Use inherited update() method
-  describe('updateDiscussion', () => {
-    it('should call schema.update with correct parameters', async () => {
-      const id = 'discussion1';
-      const updateData = { associatedNodeType: 'UpdatedType' };
-      const updatedDiscussion = {
-        id,
-        createdBy: 'user1',
-        associatedNodeId: 'node1',
-        associatedNodeType: 'UpdatedType',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
-
-      schema.update.mockResolvedValue(updatedDiscussion);
-
-      const result = await service.updateDiscussion(id, updateData);
-
-      expect(schema.update).toHaveBeenCalledWith(id, updateData);
-      expect(result).toEqual(updatedDiscussion);
-    });
-  });
-
-  // ✅ UPDATED: Use inherited delete() method
-  describe('deleteDiscussion', () => {
-    it('should call schema.delete with correct parameters', async () => {
-      const id = 'discussion1';
-      const deleteResult = { success: true };
-
-      schema.delete.mockResolvedValue(deleteResult);
-
-      const result = await service.deleteDiscussion(id);
-
-      expect(schema.delete).toHaveBeenCalledWith(id);
-      expect(result).toEqual(deleteResult);
-    });
-  });
-
-  // ✅ PRESERVED: Container-specific methods
-  describe('getDiscussionsByAssociatedNode', () => {
-    it('should call schema.getDiscussionsByAssociatedNode with correct parameters', async () => {
-      const nodeId = 'node1';
-      const nodeType = 'BeliefNode';
-      const mockDiscussions = [
-        {
-          id: 'discussion1',
-          createdBy: 'user1',
-          associatedNodeId: nodeId,
-          associatedNodeType: nodeType,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-        },
-      ];
-
-      schema.getDiscussionsByAssociatedNode.mockResolvedValue(mockDiscussions);
-
-      const result = await service.getDiscussionsByAssociatedNode(
-        nodeId,
-        nodeType,
+    } catch (error) {
+      this.logger.error(
+        `Error creating discussion: ${error.message}`,
+        error.stack,
       );
 
-      expect(schema.getDiscussionsByAssociatedNode).toHaveBeenCalledWith(
-        nodeId,
-        nodeType,
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+
+      throw new HttpException(
+        `Failed to create discussion: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
       );
-      expect(result).toEqual(mockDiscussions);
-    });
-  });
+    }
+  }
 
-  describe('getDiscussionWithComments', () => {
-    it('should get discussion with comments using inherited findById', async () => {
-      const discussionId = 'discussion1';
-      const mockDiscussion = {
-        id: discussionId,
-        createdBy: 'user1',
-        associatedNodeId: 'node1',
-        associatedNodeType: 'BeliefNode',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        inclusionPositiveVotes: 0,
-        inclusionNegativeVotes: 0,
-        inclusionNetVotes: 0,
-        contentPositiveVotes: 0,
-        contentNegativeVotes: 0,
-        contentNetVotes: 0,
-      };
+  /**
+   * Get a discussion by ID
+   */
+  async getDiscussion(id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
 
-      const mockComments = [
-        {
-          id: 'comment1',
-          createdBy: 'user1',
-          discussionId,
-          commentText: 'Test comment',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ];
+    this.logger.debug(`Getting discussion: ${id}`);
 
-      schema.findById.mockResolvedValue(mockDiscussion);
-      commentService.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+    try {
+      const discussion = await this.discussionSchema.findById(id);
 
-      const result = await service.getDiscussionWithComments(discussionId);
+      if (!discussion) {
+        throw new HttpException(
+          `Discussion with ID ${id} not found`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
 
-      expect(schema.findById).toHaveBeenCalledWith(discussionId);
-      expect(commentService.getCommentsByDiscussionId).toHaveBeenCalledWith(
+      return discussion;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error getting discussion: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get discussion: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Get the discussion ID for a specific node
+   */
+  async getDiscussionIdForNode(
+    nodeType: string,
+    nodeId: string,
+    idField: string = 'id',
+  ): Promise<string | null> {
+    if (!nodeType || nodeType.trim() === '') {
+      throw new BadRequestException('Node type is required');
+    }
+
+    if (!nodeId || nodeId.trim() === '') {
+      throw new BadRequestException('Node ID is required');
+    }
+
+    try {
+      return await this.discussionSchema.getDiscussionIdForNode(
+        nodeType,
+        nodeId,
+        idField,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error getting discussion ID for node: ${error.message}`,
+        error.stack,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Check if a node has a discussion
+   */
+  async hasDiscussion(
+    nodeType: string,
+    nodeId: string,
+    idField: string = 'id',
+  ): Promise<boolean> {
+    if (!nodeType || nodeType.trim() === '') {
+      throw new BadRequestException('Node type is required');
+    }
+
+    if (!nodeId || nodeId.trim() === '') {
+      throw new BadRequestException('Node ID is required');
+    }
+
+    try {
+      return await this.discussionSchema.hasDiscussion(
+        nodeType,
+        nodeId,
+        idField,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Error checking if node has discussion: ${error.message}`,
+        error.stack,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Get all comments for a discussion
+   */
+  async getDiscussionComments(discussionId: string) {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    this.logger.debug(`Getting comments for discussion: ${discussionId}`);
+
+    try {
+      // Verify discussion exists
+      await this.getDiscussion(discussionId);
+
+      // Get comments
+      const comments =
+        await this.commentService.getCommentsByDiscussionId(discussionId);
+
+      return { comments };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error getting discussion comments: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to get discussion comments: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  /**
+   * Add a comment to a discussion
+   */
+  async addCommentToDiscussion(
+    discussionId: string,
+    commentData: {
+      commentText: string;
+      parentCommentId?: string;
+    },
+    createdBy: string,
+  ) {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    if (!commentData.commentText || commentData.commentText.trim() === '') {
+      throw new BadRequestException('Comment text is required');
+    }
+
+    if (!createdBy || createdBy.trim() === '') {
+      throw new BadRequestException('Creator is required');
+    }
+
+    this.logger.log(`Adding comment to discussion: ${discussionId}`);
+
+    try {
+      // Verify discussion exists
+      await this.getDiscussion(discussionId);
+
+      // Create comment
+      const comment = await this.commentService.createComment({
+        createdBy,
         discussionId,
-      );
-      expect(result).toEqual({
-        ...mockDiscussion,
-        comments: mockComments,
+        commentText: commentData.commentText.trim(),
+        parentCommentId: commentData.parentCommentId,
       });
-    });
-  });
 
-  describe('getDiscussionCommentCount', () => {
-    it('should call schema.getDiscussionCommentCount with correct parameters', async () => {
-      const discussionId = 'discussion1';
-      const commentCount = 5;
+      this.logger.log(`Created comment: ${comment.id}`);
+      return comment;
+    } catch (error) {
+      if (
+        error instanceof HttpException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
 
-      schema.getDiscussionCommentCount.mockResolvedValue(commentCount);
-
-      const result = await service.getDiscussionCommentCount(discussionId);
-
-      expect(schema.getDiscussionCommentCount).toHaveBeenCalledWith(
-        discussionId,
+      this.logger.error(
+        `Error adding comment to discussion: ${error.message}`,
+        error.stack,
       );
-      expect(result).toBe(commentCount);
-    });
-  });
+      throw new HttpException(
+        `Failed to add comment to discussion: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 
-  // ❌ REMOVED: Visibility methods are no longer part of DiscussionService
-  // These methods don't exist anymore since discussions don't use user visibility preferences
-});
+  /**
+   * Delete a discussion (admin/cleanup operation)
+   */
+  async deleteDiscussion(id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    this.logger.log(`Deleting discussion: ${id}`);
+
+    try {
+      // Verify discussion exists
+      await this.getDiscussion(id);
+
+      // Delete discussion using schema
+      await this.discussionSchema.delete(id);
+
+      this.logger.log(`Successfully deleted discussion: ${id}`);
+      return { success: true, message: 'Discussion deleted successfully' };
+    } catch (error) {
+      if (
+        error instanceof HttpException ||
+        error instanceof BadRequestException
+      ) {
+        throw error;
+      }
+
+      this.logger.error(
+        `Error deleting discussion: ${error.message}`,
+        error.stack,
+      );
+      throw new HttpException(
+        `Failed to delete discussion: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+}
