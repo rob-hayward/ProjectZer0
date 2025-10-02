@@ -1,4 +1,4 @@
-// src/neo4j/schemas/openquestion.schema.ts - REFACTORED
+// src/neo4j/schemas/openquestion.schema.ts - REFACTORED & FIXED
 
 import {
   Injectable,
@@ -12,6 +12,7 @@ import {
   CategorizedNodeData,
 } from './base/categorized.schema';
 import { DiscussionSchema } from './discussion.schema';
+import { UserSchema } from './user.schema';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 import { Record } from 'neo4j-driver';
 import { v4 as uuidv4 } from 'uuid';
@@ -58,6 +59,7 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
     private readonly discussionSchema: DiscussionSchema,
+    private readonly userSchema: UserSchema, // ✅ FIXED: Added UserSchema injection
   ) {
     super(neo4jService, voteSchema, OpenQuestionSchema.name);
   }
@@ -273,6 +275,20 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
         });
 
       createdQuestion.discussionId = discussionResult.discussionId;
+
+      // ✅ FIXED: Added user tracking with proper non-blocking pattern
+      // Track user participation
+      try {
+        await this.userSchema.addCreatedNode(
+          questionData.createdBy,
+          questionId,
+          'openquestion',
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not track user creation for open question ${questionId}: ${error.message}`,
+        );
+      }
 
       this.logger.log(`Successfully created open question: ${questionId}`);
       return createdQuestion;

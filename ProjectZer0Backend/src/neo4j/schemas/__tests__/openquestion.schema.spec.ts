@@ -6,6 +6,7 @@ import { OpenQuestionSchema, OpenQuestionData } from '../openquestion.schema';
 import { Neo4jService } from '../../neo4j.service';
 import { VoteSchema, VoteResult, VoteStatus } from '../vote.schema';
 import { DiscussionSchema } from '../discussion.schema';
+import { UserSchema } from '../user.schema';
 import { Record, Result, Integer } from 'neo4j-driver';
 import { KeywordWithFrequency } from '../../../services/keyword-extraction/keyword-extraction.interface';
 
@@ -14,6 +15,7 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
   let neo4jService: jest.Mocked<Neo4jService>;
   let voteSchema: jest.Mocked<VoteSchema>;
   let discussionSchema: jest.Mocked<DiscussionSchema>;
+  let userSchema: jest.Mocked<UserSchema>;
 
   const mockOpenQuestionData: OpenQuestionData = {
     id: 'question-123',
@@ -91,6 +93,12 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
             createDiscussionForNode: jest.fn(),
           },
         },
+        {
+          provide: UserSchema,
+          useValue: {
+            addCreatedNode: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -98,6 +106,7 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
     neo4jService = module.get(Neo4jService);
     voteSchema = module.get(VoteSchema);
     discussionSchema = module.get(DiscussionSchema);
+    userSchema = module.get(UserSchema);
   });
 
   afterEach(() => {
@@ -434,6 +443,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
           discussionId: 'discussion-789',
         });
 
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
+
         const result = await schema.createOpenQuestion(mockCreateQuestionData);
 
         expect(neo4jService.write).toHaveBeenCalledWith(
@@ -456,6 +467,12 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
           initialComment: 'This is an important question about AI',
         });
 
+        expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
+          'user-456',
+          'question-123',
+          'openquestion',
+        );
+
         expect(result).toEqual(
           expect.objectContaining({
             id: 'question-123',
@@ -463,6 +480,29 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
             discussionId: 'discussion-789',
           }),
         );
+      });
+
+      it('should handle user tracking failure gracefully', async () => {
+        const mockRecord = {
+          get: jest.fn().mockReturnValue({ properties: mockOpenQuestionData }),
+        } as unknown as Record;
+        neo4jService.write.mockResolvedValue({
+          records: [mockRecord],
+        } as unknown as Result);
+
+        discussionSchema.createDiscussionForNode.mockResolvedValue({
+          discussionId: 'discussion-789',
+        });
+
+        userSchema.addCreatedNode.mockRejectedValue(
+          new Error('User service unavailable'),
+        );
+
+        // Should not throw - user tracking is non-blocking
+        const result = await schema.createOpenQuestion(mockCreateQuestionData);
+
+        expect(result).toBeDefined();
+        expect(result.id).toBe('question-123');
       });
 
       it('should automatically add question mark if missing', async () => {
@@ -486,6 +526,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionSchema.createDiscussionForNode.mockResolvedValue({
           discussionId: 'discussion-789',
         });
+
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
 
         await schema.createOpenQuestion(dataWithoutQuestionMark);
 
@@ -514,6 +556,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
           discussionId: 'discussion-789',
         });
 
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
+
         await schema.createOpenQuestion(dataWithQuestionMark);
 
         expect(neo4jService.write).toHaveBeenCalledWith(
@@ -540,6 +584,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionSchema.createDiscussionForNode.mockResolvedValue({
           discussionId: 'discussion-789',
         });
+
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
 
         await schema.createOpenQuestion(dataWithoutId);
 
@@ -568,6 +614,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
           discussionId: 'discussion-789',
         });
 
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
+
         const result = await schema.createOpenQuestion(
           questionDataNoCategories,
         );
@@ -591,6 +639,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionSchema.createDiscussionForNode.mockResolvedValue({
           discussionId: 'discussion-789',
         });
+
+        userSchema.addCreatedNode.mockResolvedValue(undefined);
 
         await schema.createOpenQuestion(questionDataNoKeywords);
 
@@ -954,6 +1004,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       const created = await schema.createOpenQuestion(mockCreateQuestionData);
       expect(created.id).toBe('question-123');
 
@@ -1043,6 +1095,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-789',
       });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       await schema.createOpenQuestion(questionWithoutMark);
       expect(neo4jService.write).toHaveBeenCalledWith(
@@ -1207,6 +1261,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       await schema.createOpenQuestion(dataWithCategories);
 
       expect(neo4jService.write).toHaveBeenCalledWith(
@@ -1234,6 +1290,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       await schema.createOpenQuestion(dataWithKeywords);
 
       expect(neo4jService.write).toHaveBeenCalledWith(
@@ -1256,6 +1314,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       await schema.createOpenQuestion(mockCreateQuestionData);
 
       expect(neo4jService.write).toHaveBeenCalledWith(
@@ -1276,6 +1336,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       await schema.createOpenQuestion(mockCreateQuestionData);
 
       expect(neo4jService.write).toHaveBeenCalledWith(
@@ -1295,6 +1357,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-789',
       });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       await schema.createOpenQuestion(mockCreateQuestionData);
 
@@ -1319,6 +1383,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-789',
       });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
 
       await schema.createOpenQuestion(mockCreateQuestionData);
 
@@ -1348,6 +1414,8 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         discussionId: 'discussion-789',
       });
 
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
       await schema.createOpenQuestion(dataNoComment);
 
       expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
@@ -1357,6 +1425,54 @@ describe('OpenQuestionSchema with BaseNodeSchema Integration', () => {
         createdBy: 'user-456',
         initialComment: undefined,
       });
+    });
+  });
+
+  describe('User Tracking Integration', () => {
+    it('should track user creation', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockOpenQuestionData }),
+      } as unknown as Record;
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-789',
+      });
+
+      userSchema.addCreatedNode.mockResolvedValue(undefined);
+
+      await schema.createOpenQuestion(mockCreateQuestionData);
+
+      expect(userSchema.addCreatedNode).toHaveBeenCalledWith(
+        'user-456',
+        'question-123',
+        'openquestion',
+      );
+    });
+
+    it('should not throw if user tracking fails', async () => {
+      const mockRecord = {
+        get: jest.fn().mockReturnValue({ properties: mockOpenQuestionData }),
+      } as unknown as Record;
+      neo4jService.write.mockResolvedValue({
+        records: [mockRecord],
+      } as unknown as Result);
+
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-789',
+      });
+
+      userSchema.addCreatedNode.mockRejectedValue(
+        new Error('User tracking failed'),
+      );
+
+      // Should not throw - user tracking is non-blocking
+      const result = await schema.createOpenQuestion(mockCreateQuestionData);
+
+      expect(result).toBeDefined();
+      expect(result.id).toBe('question-123');
     });
   });
 });

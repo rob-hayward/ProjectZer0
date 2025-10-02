@@ -1,4 +1,4 @@
-// src/neo4j/schemas/evidence.schema.ts - REFACTORED
+// src/neo4j/schemas/evidence.schema.ts - REFACTORED & FIXED
 
 import {
   Injectable,
@@ -12,8 +12,7 @@ import {
   CategorizedNodeData,
 } from './base/categorized.schema';
 import { DiscussionSchema } from './discussion.schema';
-// Remove UserSchema import if not tracking, or update UserSchema to support 'evidence' type
-// import { UserSchema } from './user.schema';
+import { UserSchema } from './user.schema';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
 import { VotingUtils } from '../../config/voting.config';
 import { Record } from 'neo4j-driver';
@@ -120,8 +119,7 @@ export class EvidenceSchema extends CategorizedNodeSchema<EvidenceData> {
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
     private readonly discussionSchema: DiscussionSchema,
-    // TODO: Add UserSchema when it supports 'evidence' node type
-    // private readonly userSchema: UserSchema,
+    private readonly userSchema: UserSchema,
   ) {
     super(neo4jService, voteSchema, EvidenceSchema.name);
   }
@@ -420,11 +418,17 @@ export class EvidenceSchema extends CategorizedNodeSchema<EvidenceData> {
       createdEvidence.discussionId = discussionResult.discussionId;
 
       // Track user participation
-      // Note: UserSchema may not have 'evidence' type yet, so we'll skip for now
-      // TODO: Update UserSchema to include 'evidence' in node types
-      this.logger.debug(
-        `Evidence node created by ${evidenceData.createdBy}: ${evidenceId}`,
-      );
+      try {
+        await this.userSchema.addCreatedNode(
+          evidenceData.createdBy,
+          evidenceId,
+          'evidence',
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Could not track user creation for evidence ${evidenceId}: ${error.message}`,
+        );
+      }
 
       this.logger.log(`Successfully created evidence: ${createdEvidence.id}`);
       return createdEvidence;
