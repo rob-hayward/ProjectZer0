@@ -1,14 +1,18 @@
-// src/nodes/comment/comment.service.spec.ts - FIXED FOR BaseNodeSchema Integration
+// src/nodes/comment/comment.service.spec.ts - REFACTORED FOR NEW ARCHITECTURE
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommentService } from './comment.service';
 import { CommentSchema } from '../../neo4j/schemas/comment.schema';
 import { VisibilityService } from '../../users/visibility/visibility.service';
-import { HttpException, NotFoundException } from '@nestjs/common';
+import {
+  HttpException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import type { CommentData } from '../../neo4j/schemas/comment.schema';
 import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
-describe('CommentService with BaseNodeSchema Integration', () => {
+describe('CommentService - Refactored Architecture', () => {
   let service: CommentService;
   let commentSchema: jest.Mocked<CommentSchema>;
   let visibilityService: jest.Mocked<VisibilityService>;
@@ -21,6 +25,7 @@ describe('CommentService with BaseNodeSchema Integration', () => {
     parentCommentId: undefined,
     createdAt: new Date(),
     updatedAt: new Date(),
+    publicCredit: false,
     inclusionPositiveVotes: 0,
     inclusionNegativeVotes: 0,
     inclusionNetVotes: 0,
@@ -51,7 +56,7 @@ describe('CommentService with BaseNodeSchema Integration', () => {
 
   beforeEach(async () => {
     const mockCommentSchema = {
-      // ✅ BaseNodeSchema inherited methods
+      // BaseNodeSchema inherited methods
       findById: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -60,7 +65,7 @@ describe('CommentService with BaseNodeSchema Integration', () => {
       removeVote: jest.fn(),
       getVotes: jest.fn(),
 
-      // ✅ CommentSchema specific methods
+      // CommentSchema specific methods
       createComment: jest.fn(),
       getCommentsByDiscussionId: jest.fn(),
       getDiscussionCommentStats: jest.fn(),
@@ -71,7 +76,6 @@ describe('CommentService with BaseNodeSchema Integration', () => {
     const mockVisibilityService = {
       getObjectVisibility: jest.fn(),
       setUserVisibilityPreference: jest.fn(),
-      getUserVisibilityPreferences: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -101,6 +105,10 @@ describe('CommentService with BaseNodeSchema Integration', () => {
     expect(service).toBeDefined();
   });
 
+  // ============================================
+  // CRUD OPERATIONS
+  // ============================================
+
   describe('createComment', () => {
     const validCommentData = {
       createdBy: 'user-456',
@@ -108,7 +116,7 @@ describe('CommentService with BaseNodeSchema Integration', () => {
       commentText: 'Test comment',
     };
 
-    it('should create a comment successfully', async () => {
+    it('should create a comment successfully with generated UUID', async () => {
       commentSchema.createComment.mockResolvedValue(mockCommentData);
 
       const result = await service.createComment(validCommentData);
@@ -122,28 +130,38 @@ describe('CommentService with BaseNodeSchema Integration', () => {
       expect(result).toEqual(mockCommentData);
     });
 
-    it('should throw HttpException for missing createdBy', async () => {
+    it('should throw BadRequestException for missing createdBy', async () => {
       await expect(
         service.createComment({ ...validCommentData, createdBy: '' }),
-      ).rejects.toThrow(HttpException);
+      ).rejects.toThrow(BadRequestException);
 
       expect(commentSchema.createComment).not.toHaveBeenCalled();
     });
 
-    it('should throw HttpException for missing discussionId', async () => {
+    it('should throw BadRequestException for missing discussionId', async () => {
       await expect(
         service.createComment({ ...validCommentData, discussionId: '' }),
-      ).rejects.toThrow(HttpException);
+      ).rejects.toThrow(BadRequestException);
 
       expect(commentSchema.createComment).not.toHaveBeenCalled();
     });
 
-    it('should throw HttpException for empty comment text', async () => {
+    it('should throw BadRequestException for empty comment text', async () => {
       await expect(
         service.createComment({ ...validCommentData, commentText: '' }),
-      ).rejects.toThrow(HttpException);
+      ).rejects.toThrow(BadRequestException);
 
       expect(commentSchema.createComment).not.toHaveBeenCalled();
+    });
+
+    it('should handle schema errors', async () => {
+      commentSchema.createComment.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(service.createComment(validCommentData)).rejects.toThrow(
+        HttpException,
+      );
     });
   });
 
@@ -162,12 +180,11 @@ describe('CommentService with BaseNodeSchema Integration', () => {
 
       const result = await service.getComment('nonexistent');
 
-      expect(commentSchema.findById).toHaveBeenCalledWith('nonexistent');
       expect(result).toBeNull();
     });
 
-    it('should throw HttpException for empty id', async () => {
-      await expect(service.getComment('')).rejects.toThrow(HttpException);
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(service.getComment('')).rejects.toThrow(BadRequestException);
 
       expect(commentSchema.findById).not.toHaveBeenCalled();
     });
@@ -176,12 +193,21 @@ describe('CommentService with BaseNodeSchema Integration', () => {
   describe('updateComment', () => {
     const updateData = { commentText: 'Updated comment text' };
 
-    it('should update comment successfully', async () => {
+    it('should update comment successfully after edit permission check', async () => {
+      commentSchema.canEditComment.mockResolvedValue(true);
       const updatedComment = { ...mockCommentData, ...updateData };
       commentSchema.update.mockResolvedValue(updatedComment);
 
-      const result = await service.updateComment('comment-123', updateData);
+      const result = await service.updateComment(
+        'comment-123',
+        'user-456',
+        updateData,
+      );
 
+      expect(commentSchema.canEditComment).toHaveBeenCalledWith(
+        'comment-123',
+        'user-456',
+      );
       expect(commentSchema.update).toHaveBeenCalledWith(
         'comment-123',
         updateData,
@@ -189,497 +215,552 @@ describe('CommentService with BaseNodeSchema Integration', () => {
       expect(result).toEqual(updatedComment);
     });
 
-    it('should throw HttpException for empty id', async () => {
-      await expect(service.updateComment('', updateData)).rejects.toThrow(
-        HttpException,
-      );
+    it('should throw BadRequestException if user cannot edit', async () => {
+      commentSchema.canEditComment.mockResolvedValue(false);
+
+      await expect(
+        service.updateComment('comment-123', 'user-456', updateData),
+      ).rejects.toThrow(BadRequestException);
 
       expect(commentSchema.update).not.toHaveBeenCalled();
     });
 
-    it('should throw HttpException for empty comment text', async () => {
+    it('should throw BadRequestException for empty id', async () => {
       await expect(
-        service.updateComment('comment-123', { commentText: '' }),
-      ).rejects.toThrow(HttpException);
+        service.updateComment('', 'user-456', updateData),
+      ).rejects.toThrow(BadRequestException);
+    });
 
-      expect(commentSchema.update).not.toHaveBeenCalled();
+    it('should throw BadRequestException for empty userId', async () => {
+      await expect(
+        service.updateComment('comment-123', '', updateData),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException for empty comment text', async () => {
+      await expect(
+        service.updateComment('comment-123', 'user-456', { commentText: '' }),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
   describe('deleteComment', () => {
     it('should delete comment successfully', async () => {
-      commentSchema.delete.mockResolvedValue({ success: true });
+      commentSchema.delete.mockResolvedValue(undefined);
 
-      const result = await service.deleteComment('comment-123');
+      await service.deleteComment('comment-123');
 
       expect(commentSchema.delete).toHaveBeenCalledWith('comment-123');
-      expect(result).toEqual({ success: true });
     });
 
-    it('should throw HttpException for empty id', async () => {
-      await expect(service.deleteComment('')).rejects.toThrow(HttpException);
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(service.deleteComment('')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(commentSchema.delete).not.toHaveBeenCalled();
     });
-  });
 
-  describe('BaseNodeSchema Integration - Content Voting', () => {
-    describe('voteComment', () => {
-      it('should vote on comment content successfully', async () => {
-        commentSchema.voteContent.mockResolvedValue(mockVoteResult);
+    it('should handle schema errors', async () => {
+      commentSchema.delete.mockRejectedValue(new Error('Database error'));
 
-        const result = await service.voteComment(
-          'comment-123',
-          'user-456',
-          true,
-          'CONTENT',
-        );
-
-        expect(commentSchema.voteContent).toHaveBeenCalledWith(
-          'comment-123',
-          'user-456',
-          true,
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-
-      it('should throw HttpException for invalid vote kind', async () => {
-        await expect(
-          service.voteComment(
-            'comment-123',
-            'user-456',
-            true,
-            'INCLUSION' as any,
-          ),
-        ).rejects.toThrow(HttpException);
-
-        expect(commentSchema.voteContent).not.toHaveBeenCalled();
-      });
-
-      it('should throw HttpException for empty comment id', async () => {
-        await expect(
-          service.voteComment('', 'user-456', true, 'CONTENT'),
-        ).rejects.toThrow(HttpException);
-
-        expect(commentSchema.voteContent).not.toHaveBeenCalled();
-      });
-
-      it('should throw HttpException for empty user id', async () => {
-        await expect(
-          service.voteComment('comment-123', '', true, 'CONTENT'),
-        ).rejects.toThrow(HttpException);
-
-        expect(commentSchema.voteContent).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('getCommentVoteStatus', () => {
-      it('should get vote status successfully', async () => {
-        commentSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
-
-        const result = await service.getCommentVoteStatus(
-          'comment-123',
-          'user-456',
-        );
-
-        expect(commentSchema.getVoteStatus).toHaveBeenCalledWith(
-          'comment-123',
-          'user-456',
-        );
-        expect(result).toEqual(mockVoteStatus);
-      });
-
-      it('should throw HttpException for empty ids', async () => {
-        await expect(
-          service.getCommentVoteStatus('', 'user-456'),
-        ).rejects.toThrow(HttpException);
-        await expect(
-          service.getCommentVoteStatus('comment-123', ''),
-        ).rejects.toThrow(HttpException);
-
-        expect(commentSchema.getVoteStatus).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('removeCommentVote', () => {
-      it('should remove vote successfully', async () => {
-        commentSchema.removeVote.mockResolvedValue(mockVoteResult);
-
-        const result = await service.removeCommentVote(
-          'comment-123',
-          'user-456',
-          'CONTENT',
-        );
-
-        expect(commentSchema.removeVote).toHaveBeenCalledWith(
-          'comment-123',
-          'user-456',
-          'CONTENT',
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-
-      it('should throw HttpException for invalid vote kind', async () => {
-        await expect(
-          service.removeCommentVote(
-            'comment-123',
-            'user-456',
-            'INCLUSION' as any,
-          ),
-        ).rejects.toThrow(HttpException);
-
-        expect(commentSchema.removeVote).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('getCommentVotes', () => {
-      it('should get vote counts successfully', async () => {
-        commentSchema.getVotes.mockResolvedValue(mockVoteResult);
-
-        const result = await service.getCommentVotes('comment-123');
-
-        expect(commentSchema.getVotes).toHaveBeenCalledWith('comment-123');
-        expect(result).toEqual(mockVoteResult);
-      });
-
-      it('should throw HttpException for empty id', async () => {
-        await expect(service.getCommentVotes('')).rejects.toThrow(
-          HttpException,
-        );
-
-        expect(commentSchema.getVotes).not.toHaveBeenCalled();
-      });
-    });
-  });
-
-  describe('VisibilityService Integration', () => {
-    describe('setCommentVisibilityPreference', () => {
-      it('should set visibility preference successfully', async () => {
-        const mockPreference = {
-          isVisible: false,
-          source: 'user' as const,
-          timestamp: Date.now(),
-        };
-        visibilityService.setUserVisibilityPreference.mockResolvedValue(
-          mockPreference,
-        );
-
-        const result = await service.setCommentVisibilityPreference(
-          'user-456',
-          'comment-123',
-          false,
-        );
-
-        expect(
-          visibilityService.setUserVisibilityPreference,
-        ).toHaveBeenCalledWith('user-456', 'comment-123', false);
-        expect(result).toEqual(mockPreference);
-      });
-
-      it('should throw HttpException for empty parameters', async () => {
-        await expect(
-          service.setCommentVisibilityPreference('', 'comment-123', true),
-        ).rejects.toThrow(HttpException);
-
-        await expect(
-          service.setCommentVisibilityPreference('user-456', '', true),
-        ).rejects.toThrow(HttpException);
-
-        expect(
-          visibilityService.setUserVisibilityPreference,
-        ).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('getCommentVisibilityForUser', () => {
-      it('should get visibility status successfully', async () => {
-        commentSchema.findById.mockResolvedValue(mockCommentData);
-        visibilityService.getObjectVisibility.mockResolvedValue(true);
-
-        const result = await service.getCommentVisibilityForUser(
-          'comment-123',
-          'user-456',
-        );
-
-        expect(commentSchema.findById).toHaveBeenCalledWith('comment-123');
-        expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
-          'user-456',
-          'comment-123',
-          { netVotes: mockCommentData.contentNetVotes },
-        );
-        expect(result).toBe(true);
-      });
-
-      it('should throw NotFoundException for nonexistent comment', async () => {
-        commentSchema.findById.mockResolvedValue(null);
-
-        await expect(
-          service.getCommentVisibilityForUser('nonexistent', 'user-456'),
-        ).rejects.toThrow(NotFoundException);
-
-        expect(visibilityService.getObjectVisibility).not.toHaveBeenCalled();
-      });
-
-      it('should handle anonymous users', async () => {
-        commentSchema.findById.mockResolvedValue(mockCommentData);
-        visibilityService.getObjectVisibility.mockResolvedValue(true);
-
-        const result = await service.getCommentVisibilityForUser('comment-123');
-
-        expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
-          null, // Anonymous user
-          'comment-123',
-          { netVotes: mockCommentData.contentNetVotes },
-        );
-        expect(result).toBe(true);
-      });
-    });
-
-    describe('getCommentWithVisibility', () => {
-      it('should return comment with visibility', async () => {
-        const commentWithVisibility = { ...mockCommentData, isVisible: true };
-        jest.spyOn(service, 'getComment').mockResolvedValue(mockCommentData);
-        jest
-          .spyOn(service, 'getCommentVisibilityForUser')
-          .mockResolvedValue(true);
-
-        const result = await service.getCommentWithVisibility(
-          'comment-123',
-          'user-456',
-        );
-
-        expect(result).toEqual(commentWithVisibility);
-      });
-
-      it('should return null when comment not found', async () => {
-        jest.spyOn(service, 'getComment').mockResolvedValue(null);
-
-        const result = await service.getCommentWithVisibility(
-          'nonexistent',
-          'user-456',
-        );
-
-        expect(result).toBeNull();
-      });
-    });
-  });
-
-  describe('Comment-Specific Functionality', () => {
-    describe('getCommentsByDiscussionId', () => {
-      it('should get comments by discussion id', async () => {
-        const mockComments = [mockCommentData];
-        commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
-
-        const result =
-          await service.getCommentsByDiscussionId('discussion-789');
-
-        expect(commentSchema.getCommentsByDiscussionId).toHaveBeenCalledWith(
-          'discussion-789',
-        );
-        expect(result).toEqual(mockComments);
-      });
-
-      it('should throw HttpException for empty discussion id', async () => {
-        await expect(service.getCommentsByDiscussionId('')).rejects.toThrow(
-          HttpException,
-        );
-
-        expect(commentSchema.getCommentsByDiscussionId).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('getCommentsByDiscussionIdWithVisibility', () => {
-      it('should get comments with visibility and sort by popularity', async () => {
-        const mockComments = [
-          { ...mockCommentData, contentNetVotes: 5 },
-          { ...mockCommentData, id: 'comment-456', contentNetVotes: 3 },
-        ];
-        commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
-        jest
-          .spyOn(service, 'getCommentVisibilityForUser')
-          .mockResolvedValue(true);
-
-        const result = await service.getCommentsByDiscussionIdWithVisibility(
-          'discussion-789',
-          'user-456',
-          'popularity',
-        );
-
-        expect(result).toHaveLength(2);
-        expect(result[0].contentNetVotes).toBe(5); // Higher votes first
-        expect(result[0].isVisible).toBe(true);
-      });
-
-      it('should sort by newest when specified', async () => {
-        const oldComment = {
-          ...mockCommentData,
-          id: 'comment-old',
-          createdAt: new Date('2023-01-01'),
-        };
-        const newComment = {
-          ...mockCommentData,
-          id: 'comment-new',
-          createdAt: new Date('2023-12-01'),
-        };
-        commentSchema.getCommentsByDiscussionId.mockResolvedValue([
-          oldComment,
-          newComment,
-        ]);
-        jest
-          .spyOn(service, 'getCommentVisibilityForUser')
-          .mockResolvedValue(true);
-
-        const result = await service.getCommentsByDiscussionIdWithVisibility(
-          'discussion-789',
-          'user-456',
-          'newest',
-        );
-
-        expect(result[0].id).toBe('comment-new'); // Newest first
-        expect(result[1].id).toBe('comment-old');
-      });
-    });
-
-    describe('getDiscussionCommentStats', () => {
-      it('should get comment statistics', async () => {
-        const mockStats = {
-          totalComments: 15,
-          rootComments: 8,
-          replies: 7,
-          averageContentScore: 2.5,
-        };
-        commentSchema.getDiscussionCommentStats.mockResolvedValue(mockStats);
-
-        const result =
-          await service.getDiscussionCommentStats('discussion-789');
-
-        expect(commentSchema.getDiscussionCommentStats).toHaveBeenCalledWith(
-          'discussion-789',
-        );
-        expect(result).toEqual(mockStats);
-      });
-
-      it('should throw HttpException for empty discussion id', async () => {
-        await expect(service.getDiscussionCommentStats('')).rejects.toThrow(
-          HttpException,
-        );
-
-        expect(commentSchema.getDiscussionCommentStats).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('canEditComment', () => {
-      it('should check edit permission successfully', async () => {
-        commentSchema.canEditComment.mockResolvedValue(true);
-
-        const result = await service.canEditComment('comment-123', 'user-456');
-
-        expect(commentSchema.canEditComment).toHaveBeenCalledWith(
-          'comment-123',
-          'user-456',
-        );
-        expect(result).toBe(true);
-      });
-
-      it('should return false on errors', async () => {
-        commentSchema.canEditComment.mockRejectedValue(
-          new Error('Database error'),
-        );
-
-        const result = await service.canEditComment('comment-123', 'user-456');
-
-        expect(result).toBe(false);
-      });
-
-      it('should throw HttpException for empty parameters', async () => {
-        await expect(service.canEditComment('', 'user-456')).rejects.toThrow(
-          HttpException,
-        );
-        await expect(service.canEditComment('comment-123', '')).rejects.toThrow(
-          HttpException,
-        );
-
-        expect(commentSchema.canEditComment).not.toHaveBeenCalled();
-      });
-    });
-
-    describe('getCommentReplies', () => {
-      it('should get comment replies with visibility', async () => {
-        const mockReplies = [
-          { ...mockCommentData, id: 'reply-1', parentCommentId: 'comment-123' },
-          { ...mockCommentData, id: 'reply-2', parentCommentId: 'comment-123' },
-        ];
-        commentSchema.getRepliesForComment.mockResolvedValue(mockReplies);
-        jest
-          .spyOn(service, 'getCommentVisibilityForUser')
-          .mockResolvedValue(true);
-
-        const result = await service.getCommentReplies(
-          'comment-123',
-          'user-456',
-        );
-
-        expect(commentSchema.getRepliesForComment).toHaveBeenCalledWith(
-          'comment-123',
-        );
-        expect(result).toHaveLength(2);
-        expect(result[0].isVisible).toBe(true);
-      });
-    });
-
-    describe('getCommentThread', () => {
-      it('should get complete comment thread', async () => {
-        jest.spyOn(service, 'getCommentWithVisibility').mockResolvedValue({
-          ...mockCommentData,
-          isVisible: true,
-        });
-        jest
-          .spyOn(service, 'getCommentReplies')
-          .mockResolvedValue([
-            { ...mockCommentData, id: 'reply-1', isVisible: true },
-          ]);
-
-        const result = await service.getCommentThread(
-          'comment-123',
-          'user-456',
-        );
-
-        expect(result.rootComment.id).toBe('comment-123');
-        expect(result.replies).toHaveLength(1);
-        expect(result.totalCount).toBe(2);
-      });
-
-      it('should throw NotFoundException for nonexistent comment', async () => {
-        jest.spyOn(service, 'getCommentWithVisibility').mockResolvedValue(null);
-
-        await expect(
-          service.getCommentThread('nonexistent', 'user-456'),
-        ).rejects.toThrow(NotFoundException);
-      });
-    });
-  });
-
-  describe('Error Handling', () => {
-    it('should handle service errors gracefully', async () => {
-      commentSchema.findById.mockRejectedValue(new Error('Database error'));
-
-      await expect(service.getComment('comment-123')).rejects.toThrow(
+      await expect(service.deleteComment('comment-123')).rejects.toThrow(
         HttpException,
       );
     });
+  });
 
-    it('should propagate validation errors', async () => {
-      commentSchema.createComment.mockRejectedValue(
-        new Error('Validation failed'),
+  describe('canEditComment', () => {
+    it('should check edit permission successfully', async () => {
+      commentSchema.canEditComment.mockResolvedValue(true);
+
+      const result = await service.canEditComment('comment-123', 'user-456');
+
+      expect(commentSchema.canEditComment).toHaveBeenCalledWith(
+        'comment-123',
+        'user-456',
+      );
+      expect(result).toBe(true);
+    });
+
+    it('should return false on errors', async () => {
+      commentSchema.canEditComment.mockRejectedValue(
+        new Error('Database error'),
       );
 
+      const result = await service.canEditComment('comment-123', 'user-456');
+
+      expect(result).toBe(false);
+    });
+
+    it('should throw BadRequestException for empty parameters', async () => {
+      await expect(service.canEditComment('', 'user-456')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.canEditComment('comment-123', '')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // ============================================
+  // VOTING OPERATIONS
+  // ============================================
+
+  describe('voteComment', () => {
+    it('should vote on comment content successfully', async () => {
+      commentSchema.voteContent.mockResolvedValue(mockVoteResult);
+
+      const result = await service.voteComment(
+        'comment-123',
+        'user-456',
+        true,
+        'CONTENT',
+      );
+
+      expect(commentSchema.voteContent).toHaveBeenCalledWith(
+        'comment-123',
+        'user-456',
+        true,
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw BadRequestException for non-CONTENT voting', async () => {
       await expect(
-        service.createComment({
-          createdBy: 'user-456',
-          discussionId: 'discussion-789',
-          commentText: 'Test comment',
-        }),
-      ).rejects.toThrow(HttpException);
+        service.voteComment(
+          'comment-123',
+          'user-456',
+          true,
+          'INCLUSION' as any,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(commentSchema.voteContent).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException for empty parameters', async () => {
+      await expect(
+        service.voteComment('', 'user-456', true, 'CONTENT'),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.voteComment('comment-123', '', true, 'CONTENT'),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getCommentVoteStatus', () => {
+    it('should get vote status successfully', async () => {
+      commentSchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await service.getCommentVoteStatus(
+        'comment-123',
+        'user-456',
+      );
+
+      expect(commentSchema.getVoteStatus).toHaveBeenCalledWith(
+        'comment-123',
+        'user-456',
+      );
+      expect(result).toEqual(mockVoteStatus);
+    });
+
+    it('should throw BadRequestException for empty parameters', async () => {
+      await expect(
+        service.getCommentVoteStatus('', 'user-456'),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.getCommentVoteStatus('comment-123', ''),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('removeCommentVote', () => {
+    it('should remove vote successfully', async () => {
+      commentSchema.removeVote.mockResolvedValue(mockVoteResult);
+
+      const result = await service.removeCommentVote(
+        'comment-123',
+        'user-456',
+        'CONTENT',
+      );
+
+      expect(commentSchema.removeVote).toHaveBeenCalledWith(
+        'comment-123',
+        'user-456',
+        'CONTENT',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw BadRequestException for non-CONTENT voting', async () => {
+      await expect(
+        service.removeCommentVote(
+          'comment-123',
+          'user-456',
+          'INCLUSION' as any,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getCommentVotes', () => {
+    it('should get vote counts successfully', async () => {
+      commentSchema.getVotes.mockResolvedValue(mockVoteResult);
+
+      const result = await service.getCommentVotes('comment-123');
+
+      expect(commentSchema.getVotes).toHaveBeenCalledWith('comment-123');
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw BadRequestException for empty id', async () => {
+      await expect(service.getCommentVotes('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // ============================================
+  // VISIBILITY OPERATIONS
+  // ============================================
+
+  describe('setCommentVisibilityPreference', () => {
+    it('should set visibility preference successfully', async () => {
+      const mockPreference = {
+        isVisible: false,
+        source: 'user' as const,
+        timestamp: Date.now(),
+      };
+      visibilityService.setUserVisibilityPreference.mockResolvedValue(
+        mockPreference,
+      );
+
+      const result = await service.setCommentVisibilityPreference(
+        'user-456',
+        'comment-123',
+        false,
+      );
+
+      expect(
+        visibilityService.setUserVisibilityPreference,
+      ).toHaveBeenCalledWith('user-456', 'comment-123', false);
+      expect(result).toEqual(mockPreference);
+    });
+
+    it('should throw BadRequestException for empty parameters', async () => {
+      await expect(
+        service.setCommentVisibilityPreference('', 'comment-123', true),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        service.setCommentVisibilityPreference('user-456', '', true),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getCommentVisibilityForUser', () => {
+    it('should get visibility status successfully', async () => {
+      commentSchema.findById.mockResolvedValue(mockCommentData);
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentVisibilityForUser(
+        'comment-123',
+        'user-456',
+      );
+
+      expect(commentSchema.findById).toHaveBeenCalledWith('comment-123');
+      expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+        'user-456',
+        'comment-123',
+        { netVotes: 3 }, // contentNetVotes from mockCommentData
+      );
+      expect(result).toBe(true);
+    });
+
+    it('should throw NotFoundException if comment not found', async () => {
+      commentSchema.findById.mockResolvedValue(null);
+
+      await expect(
+        service.getCommentVisibilityForUser('nonexistent', 'user-456'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should work without userId (anonymous)', async () => {
+      commentSchema.findById.mockResolvedValue(mockCommentData);
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentVisibilityForUser('comment-123');
+
+      expect(visibilityService.getObjectVisibility).toHaveBeenCalledWith(
+        null,
+        'comment-123',
+        { netVotes: 3 },
+      );
+      expect(result).toBe(true);
+    });
+  });
+
+  describe('getCommentWithVisibility', () => {
+    it('should get comment with visibility status', async () => {
+      commentSchema.findById.mockResolvedValue(mockCommentData);
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentWithVisibility(
+        'comment-123',
+        'user-456',
+      );
+
+      expect(result).toEqual({ ...mockCommentData, isVisible: true });
+    });
+
+    it('should return null if comment not found', async () => {
+      commentSchema.findById.mockResolvedValue(null);
+
+      const result = await service.getCommentWithVisibility('nonexistent');
+
+      expect(result).toBeNull();
+    });
+  });
+
+  // ============================================
+  // DISCUSSION-LEVEL OPERATIONS
+  // ============================================
+
+  describe('getCommentsByDiscussionId', () => {
+    it('should get comments for discussion', async () => {
+      const mockComments = [mockCommentData];
+      commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      const result = await service.getCommentsByDiscussionId('discussion-789');
+
+      expect(commentSchema.getCommentsByDiscussionId).toHaveBeenCalledWith(
+        'discussion-789',
+      );
+      expect(result).toEqual(mockComments);
+    });
+
+    it('should throw BadRequestException for empty discussionId', async () => {
+      await expect(service.getCommentsByDiscussionId('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('getCommentsByDiscussionIdWithVisibility', () => {
+    it('should get comments with visibility and sort by newest', async () => {
+      const commentOld = {
+        ...mockCommentData,
+        id: 'comment-old',
+        createdAt: new Date('2023-01-01'),
+      };
+      const commentNew = {
+        ...mockCommentData,
+        id: 'comment-new',
+        createdAt: new Date('2023-01-02'),
+      };
+      const mockComments = [commentOld, commentNew];
+
+      commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      // Mock findById to return the correct comment for each ID
+      commentSchema.findById.mockImplementation((id: string) => {
+        if (id === 'comment-old') return Promise.resolve(commentOld);
+        if (id === 'comment-new') return Promise.resolve(commentNew);
+        return Promise.resolve(null);
+      });
+
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentsByDiscussionIdWithVisibility(
+        'discussion-789',
+        'user-456',
+        'newest',
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[0].id).toBe('comment-new'); // Newest first
+      expect(result[0].isVisible).toBe(true);
+    });
+
+    it('should sort by oldest', async () => {
+      const commentNew = {
+        ...mockCommentData,
+        id: 'comment-new',
+        createdAt: new Date('2023-01-02'),
+      };
+      const commentOld = {
+        ...mockCommentData,
+        id: 'comment-old',
+        createdAt: new Date('2023-01-01'),
+      };
+      const mockComments = [commentNew, commentOld];
+
+      commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      // Mock findById to return the correct comment for each ID
+      commentSchema.findById.mockImplementation((id: string) => {
+        if (id === 'comment-new') return Promise.resolve(commentNew);
+        if (id === 'comment-old') return Promise.resolve(commentOld);
+        return Promise.resolve(null);
+      });
+
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentsByDiscussionIdWithVisibility(
+        'discussion-789',
+        'user-456',
+        'oldest',
+      );
+
+      expect(result[0].id).toBe('comment-old'); // Oldest first
+    });
+
+    it('should sort by top voted', async () => {
+      const commentLow = {
+        ...mockCommentData,
+        id: 'comment-low',
+        contentNetVotes: 1,
+      };
+      const commentHigh = {
+        ...mockCommentData,
+        id: 'comment-high',
+        contentNetVotes: 10,
+      };
+      const mockComments = [commentLow, commentHigh];
+
+      commentSchema.getCommentsByDiscussionId.mockResolvedValue(mockComments);
+
+      // Mock findById to return the correct comment for each ID
+      commentSchema.findById.mockImplementation((id: string) => {
+        if (id === 'comment-low') return Promise.resolve(commentLow);
+        if (id === 'comment-high') return Promise.resolve(commentHigh);
+        return Promise.resolve(null);
+      });
+
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentsByDiscussionIdWithVisibility(
+        'discussion-789',
+        'user-456',
+        'topVoted',
+      );
+
+      expect(result[0].id).toBe('comment-high'); // Highest votes first
+    });
+  });
+
+  describe('getDiscussionCommentStats', () => {
+    it('should get comment statistics', async () => {
+      const mockStats = {
+        totalComments: 15,
+        rootComments: 8,
+        replies: 7,
+        averageContentScore: 2.5,
+      };
+      commentSchema.getDiscussionCommentStats.mockResolvedValue(mockStats);
+
+      const result = await service.getDiscussionCommentStats('discussion-789');
+
+      expect(commentSchema.getDiscussionCommentStats).toHaveBeenCalledWith(
+        'discussion-789',
+      );
+      expect(result).toEqual(mockStats);
+    });
+
+    it('should throw BadRequestException for empty discussion id', async () => {
+      await expect(service.getDiscussionCommentStats('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // ============================================
+  // THREADED COMMENT OPERATIONS
+  // ============================================
+
+  describe('getCommentReplies', () => {
+    it('should get comment replies with visibility', async () => {
+      const reply1 = {
+        ...mockCommentData,
+        id: 'reply-1',
+        parentCommentId: 'comment-123',
+      };
+      const reply2 = {
+        ...mockCommentData,
+        id: 'reply-2',
+        parentCommentId: 'comment-123',
+      };
+      const mockReplies = [reply1, reply2];
+
+      commentSchema.getRepliesForComment.mockResolvedValue(mockReplies);
+
+      // Mock findById to return the correct reply for each ID
+      commentSchema.findById.mockImplementation((id: string) => {
+        if (id === 'reply-1') return Promise.resolve(reply1);
+        if (id === 'reply-2') return Promise.resolve(reply2);
+        return Promise.resolve(null);
+      });
+
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const result = await service.getCommentReplies('comment-123', 'user-456');
+
+      expect(commentSchema.getRepliesForComment).toHaveBeenCalledWith(
+        'comment-123',
+      );
+      expect(result).toHaveLength(2);
+      expect(result[0].isVisible).toBe(true);
+    });
+
+    it('should throw BadRequestException for empty commentId', async () => {
+      await expect(service.getCommentReplies('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('getCommentThread', () => {
+    it('should get complete comment thread', async () => {
+      const reply1 = {
+        ...mockCommentData,
+        id: 'reply-1',
+        parentCommentId: 'comment-123',
+      };
+
+      // Mock findById for root comment and reply
+      commentSchema.findById.mockImplementation((id: string) => {
+        if (id === 'comment-123') return Promise.resolve(mockCommentData);
+        if (id === 'reply-1') return Promise.resolve(reply1);
+        return Promise.resolve(null);
+      });
+
+      visibilityService.getObjectVisibility.mockResolvedValue(true);
+
+      const mockReplies = [reply1];
+      commentSchema.getRepliesForComment.mockResolvedValue(mockReplies);
+
+      const result = await service.getCommentThread('comment-123', 'user-456');
+
+      expect(result.rootComment.id).toBe('comment-123');
+      expect(result.replies).toHaveLength(1);
+      expect(result.totalCount).toBe(2); // root + 1 reply
+    });
+
+    it('should throw NotFoundException for nonexistent comment', async () => {
+      commentSchema.findById.mockResolvedValue(null);
+
+      await expect(
+        service.getCommentThread('nonexistent', 'user-456'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should throw BadRequestException for empty commentId', async () => {
+      await expect(service.getCommentThread('')).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

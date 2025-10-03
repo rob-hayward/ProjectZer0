@@ -1,4 +1,4 @@
-// src/nodes/comment/comment.controller.ts - UPDATED FOR BaseNodeSchema + VisibilityService
+// src/nodes/comment/comment.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Controller,
@@ -8,19 +8,65 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
-  Query,
   Logger,
   BadRequestException,
   NotFoundException,
   HttpException,
   HttpStatus,
+  HttpCode,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { CommentService } from './comment.service';
+import { TEXT_LIMITS } from '../../constants/validation';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
+/**
+ * DTOs for type safety and validation
+ */
+interface CreateCommentDto {
+  createdBy: string;
+  discussionId: string;
+  commentText: string;
+  parentCommentId?: string;
+}
+
+interface UpdateCommentDto {
+  commentText: string;
+}
+
+interface VoteDto {
+  isPositive: boolean;
+}
+
+interface VisibilityDto {
+  isVisible: boolean;
+}
+
+/**
+ * CommentController - HTTP layer for comment operations
+ *
+ * ARCHITECTURE:
+ * - Handles HTTP concerns (request/response, status codes, validation)
+ * - Delegates all business logic to CommentService
+ * - Uses DTOs for input validation
+ * - Applies authentication guards
+ * - Returns appropriate HTTP status codes
+ *
+ * RESPONSIBILITIES:
+ * ✅ HTTP request/response handling
+ * ✅ Input validation at the boundary
+ * ✅ Authentication/authorization checks
+ * ✅ Proper status codes
+ * ✅ Route parameter extraction
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic
+ * ❌ Database operations
+ * ❌ Calling schemas directly
+ */
 @Controller('comments')
 @UseGuards(JwtAuthGuard)
 export class CommentController {
@@ -28,17 +74,22 @@ export class CommentController {
 
   constructor(private readonly commentService: CommentService) {}
 
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
+
+  /**
+   * Create a new comment
+   * POST /comments
+   */
   @Post()
+  @HttpCode(HttpStatus.CREATED)
   async createComment(
-    @Body()
-    commentData: {
-      createdBy: string;
-      discussionId: string;
-      commentText: string;
-      parentCommentId?: string;
-    },
+    @Body() commentData: CreateCommentDto,
+    @Request() req: any,
   ) {
-    if (!commentData.discussionId) {
+    // Validate required fields
+    if (!commentData.discussionId || commentData.discussionId.trim() === '') {
       throw new BadRequestException('Discussion ID is required');
     }
 
@@ -46,31 +97,64 @@ export class CommentController {
       throw new BadRequestException('Comment text is required');
     }
 
-    this.logger.debug(
+    if (commentData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
+      throw new BadRequestException(
+        `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
+      );
+    }
+
+    // Validate user authentication
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.log(
       `Creating comment for discussion: ${commentData.discussionId}`,
     );
-    return this.commentService.createComment(commentData);
+
+    return await this.commentService.createComment({
+      ...commentData,
+      createdBy: req.user.sub,
+    });
   }
 
+  /**
+   * Get a single comment with visibility status
+   * GET /comments/:id
+   */
   @Get(':id')
   async getComment(@Param('id') id: string, @Request() req: any) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
     this.logger.debug(
       `Getting comment: ${id} for user: ${req.user?.sub || 'anonymous'}`,
     );
-    return this.commentService.getCommentWithVisibility(id, req.user?.sub);
+
+    const comment = await this.commentService.getCommentWithVisibility(
+      id,
+      req.user?.sub,
+    );
+
+    if (!comment) {
+      throw new NotFoundException(`Comment with ID ${id} not found`);
+    }
+
+    return comment;
   }
 
+  /**
+   * Update a comment (with edit permission check)
+   * PUT /comments/:id
+   */
   @Put(':id')
   async updateComment(
     @Param('id') id: string,
-    @Body() updateData: { commentText: string },
+    @Body() updateData: UpdateCommentDto,
     @Request() req: any,
   ) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
@@ -78,29 +162,44 @@ export class CommentController {
       throw new BadRequestException('Comment text is required');
     }
 
-    this.logger.debug(`Updating comment: ${id}`);
-
-    // Check if user can edit the comment
-    const canEdit = await this.commentService.canEditComment(id, req.user.sub);
-    if (!canEdit) {
-      throw new HttpException(
-        'You can only edit your own comments within 15 minutes of creation',
-        HttpStatus.FORBIDDEN,
+    if (updateData.commentText.length > TEXT_LIMITS.MAX_COMMENT_LENGTH) {
+      throw new BadRequestException(
+        `Comment text must not exceed ${TEXT_LIMITS.MAX_COMMENT_LENGTH} characters`,
       );
     }
 
-    return this.commentService.updateComment(id, updateData);
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    this.logger.log(`Updating comment: ${id}`);
+
+    // Service will handle edit permission check
+    return await this.commentService.updateComment(
+      id,
+      req.user.sub,
+      updateData,
+    );
   }
 
+  /**
+   * Delete a comment
+   * DELETE /comments/:id
+   */
   @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
   async deleteComment(@Param('id') id: string, @Request() req: any) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
-    this.logger.debug(`Deleting comment: ${id}`);
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
 
-    // Verify user can delete the comment (typically only creator or admin)
+    this.logger.log(`Deleting comment: ${id}`);
+
+    // Verify comment exists and user is the creator
     const comment = await this.commentService.getComment(id);
     if (!comment) {
       throw new NotFoundException(`Comment with ID ${id} not found`);
@@ -108,40 +207,47 @@ export class CommentController {
 
     if (comment.createdBy !== req.user.sub) {
       throw new HttpException(
-        'You can only delete your own comments',
+        'Only the comment creator can delete this comment',
         HttpStatus.FORBIDDEN,
       );
     }
 
-    return this.commentService.deleteComment(id);
+    await this.commentService.deleteComment(id);
   }
 
-  @Get('discussion/:discussionId')
-  async getCommentsByDiscussion(
-    @Param('discussionId') discussionId: string,
-    @Request() req: any,
-    @Query('sortBy') sortBy: 'popularity' | 'newest' | 'oldest' = 'popularity',
-  ) {
-    if (!discussionId) {
-      throw new BadRequestException('Discussion ID is required');
+  /**
+   * Check if user can edit a comment
+   * GET /comments/:id/can-edit
+   */
+  @Get(':id/can-edit')
+  async canEditComment(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Comment ID is required');
     }
 
-    this.logger.debug(`Getting comments for discussion: ${discussionId}`);
-    return this.commentService.getCommentsByDiscussionIdWithVisibility(
-      discussionId,
-      req.user?.sub,
-      sortBy,
-    );
+    if (!req.user?.sub) {
+      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+    }
+
+    const canEdit = await this.commentService.canEditComment(id, req.user.sub);
+    return { canEdit };
   }
 
-  // ✅ UPDATED: Content voting only (comments don't have inclusion voting)
+  // ============================================
+  // VOTING ENDPOINTS - Content Voting Only
+  // ============================================
+
+  /**
+   * Vote on comment content (comments only support content voting)
+   * POST /comments/:id/vote
+   */
   @Post(':id/vote')
   async voteCommentContent(
     @Param('id') id: string,
-    @Body() voteData: { isPositive: boolean },
+    @Body() voteData: VoteDto,
     @Request() req: any,
   ): Promise<VoteResult> {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
@@ -153,11 +259,11 @@ export class CommentController {
       throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
     }
 
-    this.logger.debug(
+    this.logger.log(
       `Voting ${voteData.isPositive ? 'positive' : 'negative'} on comment content: ${id}`,
     );
 
-    return this.commentService.voteComment(
+    return await this.commentService.voteComment(
       id,
       req.user.sub,
       voteData.isPositive,
@@ -165,12 +271,16 @@ export class CommentController {
     );
   }
 
+  /**
+   * Get user's vote status for a comment
+   * GET /comments/:id/vote-status
+   */
   @Get(':id/vote-status')
   async getCommentVoteStatus(
     @Param('id') id: string,
     @Request() req: any,
   ): Promise<VoteStatus | null> {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
@@ -179,21 +289,20 @@ export class CommentController {
     }
 
     this.logger.debug(`Getting vote status for comment: ${id}`);
-    return this.commentService.getCommentVoteStatus(id, req.user.sub);
+    return await this.commentService.getCommentVoteStatus(id, req.user.sub);
   }
 
+  /**
+   * Remove vote from a comment
+   * DELETE /comments/:id/vote
+   */
   @Delete(':id/vote')
   async removeCommentVote(
     @Param('id') id: string,
-    @Body() voteData: { kind: 'CONTENT' },
     @Request() req: any,
   ): Promise<VoteResult> {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
-    }
-
-    if (voteData.kind !== 'CONTENT') {
-      throw new BadRequestException('Comments only support CONTENT voting');
     }
 
     if (!req.user?.sub) {
@@ -201,27 +310,42 @@ export class CommentController {
     }
 
     this.logger.debug(`Removing content vote from comment: ${id}`);
-    return this.commentService.removeCommentVote(id, req.user.sub, 'CONTENT');
+    return await this.commentService.removeCommentVote(
+      id,
+      req.user.sub,
+      'CONTENT',
+    );
   }
 
+  /**
+   * Get vote counts for a comment
+   * GET /comments/:id/votes
+   */
   @Get(':id/votes')
   async getCommentVotes(@Param('id') id: string): Promise<VoteResult | null> {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
     this.logger.debug(`Getting vote counts for comment: ${id}`);
-    return this.commentService.getCommentVotes(id);
+    return await this.commentService.getCommentVotes(id);
   }
 
-  // ✅ NEW: Centralized visibility preference endpoints
+  // ============================================
+  // VISIBILITY ENDPOINTS
+  // ============================================
+
+  /**
+   * Set user's visibility preference for a comment
+   * POST /comments/:id/visibility
+   */
   @Post(':id/visibility')
   async setCommentVisibilityPreference(
     @Param('id') id: string,
-    @Body() visibilityData: { isVisible: boolean },
+    @Body() visibilityData: VisibilityDto,
     @Request() req: any,
   ) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
@@ -233,22 +357,24 @@ export class CommentController {
       throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
     }
 
-    this.logger.debug(
+    this.logger.log(
       `Setting visibility preference for comment ${id}: ${visibilityData.isVisible}`,
     );
 
-    const result = await this.commentService.setCommentVisibilityPreference(
+    return await this.commentService.setCommentVisibilityPreference(
       req.user.sub,
       id,
       visibilityData.isVisible,
     );
-
-    return result;
   }
 
+  /**
+   * Get visibility status for a comment
+   * GET /comments/:id/visibility
+   */
   @Get(':id/visibility')
   async getCommentVisibility(@Param('id') id: string, @Request() req: any) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
@@ -258,24 +384,56 @@ export class CommentController {
       req.user?.sub,
     );
 
-    this.logger.debug(`Comment ${id} visibility: ${isVisible}`);
     return { isVisible };
   }
 
-  // ✅ PRESERVE: Unique comment functionality
+  // ============================================
+  // DISCUSSION-LEVEL ENDPOINTS
+  // ============================================
+
+  /**
+   * Get all comments for a discussion with visibility
+   * GET /comments/discussion/:discussionId
+   */
+  @Get('discussion/:discussionId')
+  async getCommentsByDiscussion(
+    @Param('discussionId') discussionId: string,
+    @Query('sortBy') sortBy?: 'newest' | 'oldest' | 'topVoted',
+    @Request() req?: any,
+  ) {
+    if (!discussionId || discussionId.trim() === '') {
+      throw new BadRequestException('Discussion ID is required');
+    }
+
+    this.logger.debug(`Getting comments for discussion: ${discussionId}`);
+    return await this.commentService.getCommentsByDiscussionIdWithVisibility(
+      discussionId,
+      req?.user?.sub,
+      sortBy || 'newest',
+    );
+  }
+
+  /**
+   * Get comment statistics for a discussion
+   * GET /comments/discussion/:discussionId/stats
+   */
   @Get('discussion/:discussionId/stats')
   async getDiscussionCommentStats(@Param('discussionId') discussionId: string) {
-    if (!discussionId) {
+    if (!discussionId || discussionId.trim() === '') {
       throw new BadRequestException('Discussion ID is required');
     }
 
     this.logger.debug(`Getting comment stats for discussion: ${discussionId}`);
-    return this.commentService.getDiscussionCommentStats(discussionId);
+    return await this.commentService.getDiscussionCommentStats(discussionId);
   }
 
+  /**
+   * Get comment count for a discussion
+   * GET /comments/discussion/:discussionId/count
+   */
   @Get('discussion/:discussionId/count')
   async getDiscussionCommentCount(@Param('discussionId') discussionId: string) {
-    if (!discussionId) {
+    if (!discussionId || discussionId.trim() === '') {
       throw new BadRequestException('Discussion ID is required');
     }
 
@@ -285,24 +443,35 @@ export class CommentController {
     return { count: stats.totalComments };
   }
 
-  // ✅ NEW: Comment hierarchy endpoints
+  // ============================================
+  // THREADED COMMENT ENDPOINTS
+  // ============================================
+
+  /**
+   * Get replies to a comment
+   * GET /comments/:id/replies
+   */
   @Get(':id/replies')
   async getCommentReplies(@Param('id') id: string, @Request() req: any) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
     this.logger.debug(`Getting replies for comment: ${id}`);
-    return this.commentService.getCommentReplies(id, req.user?.sub);
+    return await this.commentService.getCommentReplies(id, req.user?.sub);
   }
 
+  /**
+   * Get complete comment thread (comment + all replies)
+   * GET /comments/:id/thread
+   */
   @Get(':id/thread')
   async getCommentThread(@Param('id') id: string, @Request() req: any) {
-    if (!id) {
+    if (!id || id.trim() === '') {
       throw new BadRequestException('Comment ID is required');
     }
 
     this.logger.debug(`Getting comment thread for: ${id}`);
-    return this.commentService.getCommentThread(id, req.user?.sub);
+    return await this.commentService.getCommentThread(id, req.user?.sub);
   }
 }
