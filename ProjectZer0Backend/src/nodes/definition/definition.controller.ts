@@ -1,4 +1,5 @@
-// src/nodes/definition/definition.controller.ts
+// src/nodes/definition/definition.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
+
 import {
   Controller,
   Get,
@@ -9,450 +10,424 @@ import {
   Param,
   UseGuards,
   Request,
-  Logger,
-  HttpException,
+  HttpCode,
   HttpStatus,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { DefinitionService } from './definition.service';
-import { DiscussionService } from '../discussion/discussion.service';
-import { CommentService } from '../comment/comment.service';
-import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
-import { TEXT_LIMITS } from '../../constants/validation';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
-// Define DTOs for better type safety
+/**
+ * DTOs for Definition endpoints
+ */
 interface CreateDefinitionDto {
   word: string;
   createdBy: string;
   definitionText: string;
-  discussion?: string;
+  publicCredit?: boolean;
+  initialComment?: string;
+  isApiDefinition?: boolean;
+  isAICreated?: boolean;
 }
 
 interface UpdateDefinitionDto {
-  definitionText: string;
+  definitionText?: string;
+  publicCredit?: boolean;
 }
 
-interface VoteDefinitionDto {
+interface VoteDto {
   isPositive: boolean;
 }
 
-interface VisibilityDto {
-  isVisible: boolean;
-}
-
+/**
+ * DefinitionController - HTTP layer for definition operations
+ *
+ * ARCHITECTURE:
+ * - All endpoints delegate to DefinitionService
+ * - DTOs for input validation
+ * - Proper HTTP status codes
+ * - Authentication via JWT guards
+ * - User ID extracted from req.user.sub
+ *
+ * RESPONSIBILITIES:
+ * ✅ Handle HTTP request/response
+ * ✅ Input validation via DTOs
+ * ✅ Apply authentication guards
+ * ✅ Return proper HTTP status codes
+ * ✅ Extract user info from request
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic (that's DefinitionService)
+ * ❌ Database operations (that's DefinitionSchema)
+ * ❌ Calling schemas directly
+ */
 @Controller('definitions')
 @UseGuards(JwtAuthGuard)
 export class DefinitionController {
   private readonly logger = new Logger(DefinitionController.name);
 
-  constructor(
-    private readonly definitionService: DefinitionService,
-    private readonly discussionService: DiscussionService,
-    private readonly commentService: CommentService,
-  ) {}
+  constructor(private readonly definitionService: DefinitionService) {}
 
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
+
+  /**
+   * Create a new definition
+   * POST /definitions
+   */
   @Post()
-  async createDefinition(@Body() definitionData: CreateDefinitionDto) {
-    try {
-      // Validate data
-      if (!definitionData.word || definitionData.word.trim() === '') {
-        throw new BadRequestException('Word is required');
-      }
-
-      if (!definitionData.createdBy || definitionData.createdBy.trim() === '') {
-        throw new BadRequestException('Creator ID is required');
-      }
-
-      if (
-        !definitionData.definitionText ||
-        definitionData.definitionText.trim() === ''
-      ) {
-        throw new BadRequestException('Definition text is required');
-      }
-
-      if (
-        definitionData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
-      ) {
-        throw new BadRequestException(
-          `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`,
-        );
-      }
-
-      this.logger.log(`Creating definition for word: ${definitionData.word}`);
-      const result =
-        await this.definitionService.createDefinition(definitionData);
-      this.logger.log(`Successfully created definition with ID: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error creating definition for word: ${definitionData.word}`,
-      );
+  @HttpCode(HttpStatus.CREATED)
+  async createDefinition(
+    @Body() createDto: CreateDefinitionDto,
+    @Request() req: any,
+  ) {
+    // Validate required fields
+    if (!createDto.word || createDto.word.trim() === '') {
+      throw new BadRequestException('Word is required');
     }
+
+    if (!createDto.definitionText || createDto.definitionText.trim() === '') {
+      throw new BadRequestException('Definition text is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Creating definition for word: ${createDto.word}`);
+
+    const createdDefinition = await this.definitionService.createDefinition({
+      word: createDto.word,
+      createdBy: req.user.sub,
+      definitionText: createDto.definitionText,
+      publicCredit: createDto.publicCredit,
+      initialComment: createDto.initialComment,
+      isApiDefinition: createDto.isApiDefinition,
+      isAICreated: createDto.isAICreated,
+    });
+
+    this.logger.debug(
+      `Created definition: ${JSON.stringify(createdDefinition)}`,
+    );
+    return createdDefinition;
   }
 
+  /**
+   * Get a single definition by ID
+   * GET /definitions/:id
+   */
   @Get(':id')
   async getDefinition(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Getting definition: ${id}`);
-      const definition = await this.definitionService.getDefinition(id);
-      return definition;
-    } catch (error) {
-      this.handleError(error, `Error retrieving definition: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
+
+    this.logger.debug(`Getting definition: ${id}`);
+
+    const definition = await this.definitionService.getDefinition(id);
+
+    if (!definition) {
+      this.logger.debug(`Definition not found: ${id}`);
+      throw new NotFoundException(`Definition with ID ${id} not found`);
+    }
+
+    return definition;
   }
 
+  /**
+   * Update a definition
+   * PUT /definitions/:id
+   */
   @Put(':id')
   async updateDefinition(
     @Param('id') id: string,
-    @Body() updateData: UpdateDefinitionDto,
+    @Body() updateDto: UpdateDefinitionDto,
+    @Request() req: any,
   ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (
-        !updateData.definitionText ||
-        updateData.definitionText.trim() === ''
-      ) {
-        throw new BadRequestException('Definition text is required');
-      }
-
-      if (
-        updateData.definitionText.length > TEXT_LIMITS.MAX_DEFINITION_LENGTH
-      ) {
-        throw new BadRequestException(
-          `Definition text must not exceed ${TEXT_LIMITS.MAX_DEFINITION_LENGTH} characters`,
-        );
-      }
-
-      this.logger.log(`Updating definition: ${id}`);
-      const result = await this.definitionService.updateDefinition(
-        id,
-        updateData,
-      );
-      this.logger.log(`Successfully updated definition: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error updating definition: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Updating definition: ${id} with data: ${JSON.stringify(updateDto)}`,
+    );
+
+    const updatedDefinition = await this.definitionService.updateDefinition(
+      id,
+      updateDto,
+    );
+
+    this.logger.debug(
+      `Updated definition: ${JSON.stringify(updatedDefinition)}`,
+    );
+    return updatedDefinition;
   }
 
+  /**
+   * Delete a definition
+   * DELETE /definitions/:id
+   */
   @Delete(':id')
-  async deleteDefinition(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Deleting definition: ${id}`);
-      const result = await this.definitionService.deleteDefinition(id);
-      this.logger.log(`Successfully deleted definition: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error deleting definition: ${id}`);
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteDefinition(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Deleting definition: ${id}`);
+    await this.definitionService.deleteDefinition(id);
+    this.logger.debug(`Deleted definition: ${id}`);
   }
 
-  @Post(':id/vote')
-  async voteDefinition(
+  // ============================================
+  // VOTING ENDPOINTS
+  // ============================================
+
+  /**
+   * Vote on definition inclusion
+   * POST /definitions/:id/vote-inclusion
+   */
+  @Post(':id/vote-inclusion')
+  async voteInclusion(
     @Param('id') id: string,
-    @Body() voteData: VoteDefinitionDto,
+    @Body() voteDto: VoteDto,
     @Request() req: any,
   ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (!req.user || !req.user.sub) {
-        throw new BadRequestException('User authentication is required');
-      }
-
-      if (voteData.isPositive === undefined) {
-        throw new BadRequestException('Vote value (isPositive) is required');
-      }
-
-      this.logger.log(
-        `Received request to vote on definition: ${id} with data: ${JSON.stringify(voteData)}`,
-      );
-
-      const result = await this.definitionService.voteDefinition(
-        id,
-        req.user.sub,
-        voteData.isPositive,
-      );
-
-      this.logger.log(`Successfully processed vote on definition: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error processing vote on definition: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.debug(
+      `Voting on definition inclusion: ${id} with value: ${voteDto.isPositive}`,
+    );
+
+    const result = await this.definitionService.voteInclusion(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
+    return result;
   }
 
-  @Get(':id/vote')
-  async getDefinitionVoteStatus(
+  /**
+   * Vote on definition content (quality)
+   * POST /definitions/:id/vote-content
+   */
+  @Post(':id/vote-content')
+  async voteContent(
+    @Param('id') id: string,
+    @Body() voteDto: VoteDto,
+    @Request() req: any,
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.debug(
+      `Voting on definition content: ${id} with value: ${voteDto.isPositive}`,
+    );
+
+    const result = await this.definitionService.voteContent(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    this.logger.debug(`Content vote result: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  /**
+   * Get vote status for current user
+   * GET /definitions/:id/vote-status
+   */
+  @Get(':id/vote-status')
+  async getVoteStatus(
     @Param('id') id: string,
     @Request() req: any,
   ): Promise<VoteStatus | null> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (!req.user || !req.user.sub) {
-        throw new BadRequestException('User authentication is required');
-      }
-
-      this.logger.log(
-        `Getting vote status for definition: ${id} from user: ${req.user.sub}`,
-      );
-
-      const status = await this.definitionService.getDefinitionVoteStatus(
-        id,
-        req.user.sub,
-      );
-
-      return status;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting vote status for definition: ${id}`,
-      );
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Getting vote status for definition: ${id}`);
+
+    const status = await this.definitionService.getVoteStatus(id, req.user.sub);
+    this.logger.debug(`Vote status: ${JSON.stringify(status)}`);
+    return status;
   }
 
-  @Post(':id/vote/remove')
-  async removeDefinitionVote(
+  /**
+   * Remove inclusion vote from a definition
+   * DELETE /definitions/:id/vote-inclusion
+   */
+  @Delete(':id/vote-inclusion')
+  async removeInclusionVote(
     @Param('id') id: string,
     @Request() req: any,
   ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (!req.user || !req.user.sub) {
-        throw new BadRequestException('User authentication is required');
-      }
-
-      this.logger.log(
-        `Removing vote for definition: ${id} from user: ${req.user.sub}`,
-      );
-
-      const result = await this.definitionService.removeDefinitionVote(
-        id,
-        req.user.sub,
-      );
-
-      this.logger.log(`Successfully removed vote for definition: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error removing vote for definition: ${id}`);
-    }
-  }
-
-  @Get(':id/votes')
-  async getDefinitionVotes(
-    @Param('id') id: string,
-  ): Promise<VoteResult | null> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Getting votes for definition: ${id}`);
-      const votes = await this.definitionService.getDefinitionVotes(id);
-      return votes;
-    } catch (error) {
-      this.handleError(error, `Error getting votes for definition: ${id}`);
-    }
-  }
-
-  @Put(':id/visibility')
-  async setVisibilityStatus(
-    @Param('id') id: string,
-    @Body() visibilityData: VisibilityDto,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (visibilityData.isVisible === undefined) {
-        throw new BadRequestException('Visibility status is required');
-      }
-
-      this.logger.log(
-        `Setting visibility for definition ${id}: ${visibilityData.isVisible}`,
-      );
-
-      const result = await this.definitionService.setVisibilityStatus(
-        id,
-        visibilityData.isVisible,
-      );
-
-      this.logger.log(`Successfully updated visibility for definition: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error setting visibility for definition: ${id}`);
-    }
-  }
-
-  @Get(':id/visibility')
-  async getVisibilityStatus(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Getting visibility status for definition: ${id}`);
-      const status = await this.definitionService.getVisibilityStatus(id);
-      return { visibilityStatus: status };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting visibility status for definition: ${id}`,
-      );
-    }
-  }
-
-  // ADDED: Discussion and comment endpoints for definitions
-  @Get(':id/discussion')
-  async getDefinitionWithDiscussion(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Getting definition with discussion: ${id}`);
-      const definition =
-        await this.definitionService.getDefinitionWithDiscussion(id);
-
-      if (!definition) {
-        throw new NotFoundException(`Definition with ID ${id} not found`);
-      }
-
-      return definition;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error retrieving definition with discussion: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/comments')
-  async getDefinitionComments(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      this.logger.log(`Getting comments for definition: ${id}`);
-
-      const definition = await this.definitionService.getDefinition(id);
-
-      if (!definition) {
-        throw new NotFoundException(`Definition with ID ${id} not found`);
-      }
-
-      if (!definition.discussionId) {
-        return { comments: [] };
-      }
-
-      const comments = await this.commentService.getCommentsByDiscussionId(
-        definition.discussionId,
-      );
-      return { comments };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error retrieving comments for definition: ${id}`,
-      );
-    }
-  }
-
-  @Post(':id/comments')
-  async addDefinitionComment(
-    @Param('id') id: string,
-    @Body() commentData: { commentText: string; parentCommentId?: string },
-    @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Definition ID is required');
-      }
-
-      if (!commentData.commentText || commentData.commentText.trim() === '') {
-        throw new BadRequestException('Comment text is required');
-      }
-
-      this.logger.log(`Adding comment to definition: ${id}`);
-
-      const definition = await this.definitionService.getDefinition(id);
-
-      if (!definition) {
-        throw new NotFoundException(`Definition with ID ${id} not found`);
-      }
-
-      // If no discussion exists, create one
-      let discussionId = definition.discussionId;
-
-      if (!discussionId) {
-        const discussion = await this.discussionService.createDiscussion({
-          createdBy: req.user.sub,
-          associatedNodeId: id,
-          associatedNodeType: 'DefinitionNode',
-        });
-
-        discussionId = discussion.id;
-
-        // Note: We don't update the definition with discussionId here
-        // as the DefinitionService.updateDefinition may not support it
-        // The discussion is linked by associatedNodeId anyway
-      }
-
-      // Create the comment
-      const comment = await this.commentService.createComment({
-        createdBy: req.user.sub,
-        discussionId,
-        commentText: commentData.commentText,
-        parentCommentId: commentData.parentCommentId,
-      });
-
-      this.logger.log(`Successfully added comment to definition: ${id}`);
-      return comment;
-    } catch (error) {
-      this.handleError(error, `Error adding comment to definition: ${id}`);
-    }
-  }
-
-  // Helper method to standardize error handling
-  private handleError(error: any, logMessage: string): never {
-    if (error instanceof BadRequestException) {
-      this.logger.warn(`${logMessage}: ${error.message}`);
-      throw error;
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
     }
 
-    if (error instanceof NotFoundException) {
-      this.logger.warn(`${logMessage}: ${error.message}`);
-      throw error;
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
     }
 
-    // For other types of errors
-    this.logger.error(`${logMessage}: ${error.message}`, error.stack);
+    this.logger.debug(`Removing inclusion vote from definition: ${id}`);
 
-    throw new HttpException(
-      error.message || 'An unexpected error occurred',
-      error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+    const result = await this.definitionService.removeVote(
+      id,
+      req.user.sub,
+      'INCLUSION',
     );
+
+    this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  /**
+   * Remove content vote from a definition
+   * DELETE /definitions/:id/vote-content
+   */
+  @Delete(':id/vote-content')
+  async removeContentVote(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Removing content vote from definition: ${id}`);
+
+    const result = await this.definitionService.removeVote(
+      id,
+      req.user.sub,
+      'CONTENT',
+    );
+
+    this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
+    return result;
+  }
+
+  /**
+   * Get vote totals for a definition
+   * GET /definitions/:id/votes
+   */
+  @Get(':id/votes')
+  async getVotes(@Param('id') id: string): Promise<VoteResult | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Definition ID is required');
+    }
+
+    this.logger.debug(`Getting votes for definition: ${id}`);
+
+    const votes = await this.definitionService.getVotes(id);
+    this.logger.debug(`Votes: ${JSON.stringify(votes)}`);
+    return votes;
+  }
+
+  // ============================================
+  // QUERY ENDPOINTS
+  // ============================================
+
+  /**
+   * Get all definitions for a word
+   * GET /definitions/word/:word
+   */
+  @Get('word/:word')
+  async getDefinitionsByWord(@Param('word') word: string) {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    this.logger.debug(`Getting definitions for word: ${word}`);
+
+    const definitions = await this.definitionService.getDefinitionsByWord(word);
+    return { definitions };
+  }
+
+  /**
+   * Get top-rated definition for a word
+   * GET /definitions/word/:word/top
+   */
+  @Get('word/:word/top')
+  async getTopDefinitionForWord(@Param('word') word: string) {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    this.logger.debug(`Getting top definition for word: ${word}`);
+
+    const definition =
+      await this.definitionService.getTopDefinitionForWord(word);
+
+    if (!definition) {
+      throw new NotFoundException(
+        `No approved definition found for word: ${word}`,
+      );
+    }
+
+    return definition;
+  }
+
+  /**
+   * Check if a word can have definitions created
+   * GET /definitions/word/:word/can-create
+   */
+  @Get('word/:word/can-create')
+  async canCreateDefinitionForWord(
+    @Param('word') word: string,
+  ): Promise<{ canCreate: boolean }> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    this.logger.debug(
+      `Checking if definitions can be created for word: ${word}`,
+    );
+
+    const canCreate =
+      await this.definitionService.canCreateDefinitionForWord(word);
+    return { canCreate };
   }
 }

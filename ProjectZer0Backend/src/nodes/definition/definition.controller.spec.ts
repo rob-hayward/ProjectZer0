@@ -1,92 +1,70 @@
-// src/nodes/definition/definition.controller.spec.ts - UPDATED FOR HYBRID PATTERN SERVICE
+// src/nodes/definition/definition.controller.spec.ts - REFACTORED ARCHITECTURE TESTS
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { DefinitionController } from './definition.controller';
 import { DefinitionService } from './definition.service';
-import { DiscussionService } from './../discussion/discussion.service';
-import { CommentService } from './../comment/comment.service';
-import {
-  BadRequestException,
-  NotFoundException,
-  HttpException,
-  Logger,
-} from '@nestjs/common';
-import { TEXT_LIMITS } from './../../constants/validation';
-import type { VoteResult } from './../../neo4j/schemas/vote.schema';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
-// Define proper types for mocks
-type MockedDefinitionService = {
-  [K in keyof DefinitionService]: jest.Mock;
-};
-
-type MockedDiscussionService = {
-  [K in keyof DiscussionService]: jest.Mock;
-};
-
-type MockedCommentService = {
-  [K in keyof CommentService]: jest.Mock;
-};
-
-describe('DefinitionController - Updated for Hybrid Pattern', () => {
+describe('DefinitionController - Refactored Architecture', () => {
   let controller: DefinitionController;
-  let definitionService: MockedDefinitionService;
-  let discussionService: MockedDiscussionService;
-  let commentService: MockedCommentService;
+  let definitionService: jest.Mocked<DefinitionService>;
 
-  const mockVoteResult: VoteResult = {
+  // Mock data
+  const mockDefinitionData = {
+    id: 'def-123',
+    word: 'test',
+    definitionText: 'A test definition',
+    createdBy: 'user-123',
+    publicCredit: true,
+    createdAt: new Date('2023-01-01'),
+    updatedAt: new Date('2023-01-01'),
     inclusionPositiveVotes: 5,
-    inclusionNegativeVotes: 1,
-    inclusionNetVotes: 4,
-    contentPositiveVotes: 3,
-    contentNegativeVotes: 0,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 3,
+    contentPositiveVotes: 4,
+    contentNegativeVotes: 1,
+    contentNetVotes: 3,
+    discussionId: 'discussion-123',
+    isApiDefinition: false,
+    isAICreated: false,
+  };
+
+  const mockVoteResult = {
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 3,
+    contentPositiveVotes: 4,
+    contentNegativeVotes: 1,
     contentNetVotes: 3,
   };
 
+  const mockVoteStatus = {
+    inclusionStatus: 'agree' as const,
+    inclusionPositiveVotes: 5,
+    inclusionNegativeVotes: 2,
+    inclusionNetVotes: 3,
+    contentStatus: 'agree' as const,
+    contentPositiveVotes: 4,
+    contentNegativeVotes: 1,
+    contentNetVotes: 3,
+  };
+
+  const mockReq = { user: { sub: 'user-456' } };
+
   beforeEach(async () => {
-    // Create properly typed mock services matching hybrid pattern methods
     const mockDefinitionService = {
-      // Enhanced domain methods
       createDefinition: jest.fn(),
       getDefinition: jest.fn(),
-      getDefinitionWithDiscussion: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
-
-      // Hybrid update method
       updateDefinition: jest.fn(),
-
-      // BaseNodeSchema methods
       deleteDefinition: jest.fn(),
-      voteDefinitionInclusion: jest.fn(),
-      voteDefinitionContent: jest.fn(),
-      getDefinitionVoteStatus: jest.fn(),
-      removeDefinitionVote: jest.fn(),
-      getDefinitionVotes: jest.fn(),
-
-      // Utility methods
-      isDefinitionApproved: jest.fn(),
-      isContentVotingAvailable: jest.fn(),
-      getDefinitionStats: jest.fn(),
-    };
-
-    const mockDiscussionService = {
-      createDiscussion: jest.fn(),
-      getDiscussion: jest.fn(),
-      updateDiscussion: jest.fn(),
-      deleteDiscussion: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
-    };
-
-    const mockCommentService = {
-      createComment: jest.fn(),
-      getComment: jest.fn(),
-      updateComment: jest.fn(),
-      deleteComment: jest.fn(),
-      getCommentsByDiscussionId: jest.fn(),
-      getCommentsByDiscussionIdWithVisibility: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
+      voteInclusion: jest.fn(),
+      voteContent: jest.fn(),
+      getVoteStatus: jest.fn(),
+      removeVote: jest.fn(),
+      getVotes: jest.fn(),
+      getDefinitionsByWord: jest.fn(),
+      getTopDefinitionForWord: jest.fn(),
+      canCreateDefinitionForWord: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -96,37 +74,14 @@ describe('DefinitionController - Updated for Hybrid Pattern', () => {
           provide: DefinitionService,
           useValue: mockDefinitionService,
         },
-        {
-          provide: DiscussionService,
-          useValue: mockDiscussionService,
-        },
-        {
-          provide: CommentService,
-          useValue: mockCommentService,
-        },
-        {
-          provide: Logger,
-          useValue: {
-            log: jest.fn(),
-            error: jest.fn(),
-            warn: jest.fn(),
-            debug: jest.fn(),
-          },
-        },
       ],
     }).compile();
 
     controller = module.get<DefinitionController>(DefinitionController);
     definitionService = module.get(
       DefinitionService,
-    ) as MockedDefinitionService;
-    discussionService = module.get(
-      DiscussionService,
-    ) as MockedDiscussionService;
-    commentService = module.get(CommentService) as MockedCommentService;
-  });
+    ) as jest.Mocked<DefinitionService>;
 
-  afterEach(() => {
     jest.clearAllMocks();
   });
 
@@ -134,759 +89,729 @@ describe('DefinitionController - Updated for Hybrid Pattern', () => {
     expect(controller).toBeDefined();
   });
 
-  describe('createDefinition - Mandatory Discussion Architecture', () => {
-    const validDefinitionData = {
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
+
+  describe('POST /definitions', () => {
+    const createDto = {
       word: 'test',
-      createdBy: 'user1',
+      createdBy: 'user-123',
       definitionText: 'A test definition',
-      discussion: 'Initial discussion comment', // Controller still accepts 'discussion' field
+      publicCredit: true,
     };
 
-    it('should create a definition with valid data', async () => {
-      const expectedResult = {
-        id: 'test-id',
-        ...validDefinitionData,
-        discussionId: 'discussion-id',
+    it('should create definition with all fields', async () => {
+      definitionService.createDefinition.mockResolvedValue(mockDefinitionData);
+
+      const result = await controller.createDefinition(createDto, mockReq);
+
+      expect(definitionService.createDefinition).toHaveBeenCalledWith({
+        word: 'test',
+        createdBy: 'user-456', // From req.user.sub
+        definitionText: 'A test definition',
+        publicCredit: true,
+        initialComment: undefined,
+        isApiDefinition: undefined,
+        isAICreated: undefined,
+      });
+      expect(result).toEqual(mockDefinitionData);
+    });
+
+    it('should create definition with minimal fields', async () => {
+      definitionService.createDefinition.mockResolvedValue(mockDefinitionData);
+      const minimalDto = {
+        word: 'test',
+        createdBy: 'ignored',
+        definitionText: 'Test',
       };
 
-      definitionService.createDefinition.mockResolvedValue(expectedResult);
+      const result = await controller.createDefinition(minimalDto, mockReq);
 
-      const result = await controller.createDefinition(validDefinitionData);
-
-      // Verify service was called with the data (service will handle discussion->initialComment mapping)
       expect(definitionService.createDefinition).toHaveBeenCalledWith(
-        validDefinitionData,
+        expect.objectContaining({
+          word: 'test',
+          createdBy: 'user-456',
+          definitionText: 'Test',
+        }),
       );
-      expect(result).toEqual(expectedResult);
+      expect(result).toEqual(mockDefinitionData);
     });
 
-    it('should throw BadRequestException for empty word', async () => {
-      await expect(
-        controller.createDefinition({
-          ...validDefinitionData,
-          word: '',
+    it('should create definition with initial comment', async () => {
+      definitionService.createDefinition.mockResolvedValue(mockDefinitionData);
+      const dtoWithComment = {
+        ...createDto,
+        initialComment: 'Initial comment',
+      };
+
+      await controller.createDefinition(dtoWithComment, mockReq);
+
+      expect(definitionService.createDefinition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialComment: 'Initial comment',
         }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.createDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for empty creator ID', async () => {
-      await expect(
-        controller.createDefinition({
-          ...validDefinitionData,
-          createdBy: '',
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.createDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for empty definition text', async () => {
-      await expect(
-        controller.createDefinition({
-          ...validDefinitionData,
-          definitionText: '',
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.createDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for definition text exceeding max length', async () => {
-      const longText = 'a'.repeat(TEXT_LIMITS.MAX_DEFINITION_LENGTH + 1);
-
-      await expect(
-        controller.createDefinition({
-          ...validDefinitionData,
-          definitionText: longText,
-        }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.createDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.createDefinition.mockRejectedValue(
-        new Error('Service error'),
       );
-
-      await expect(
-        controller.createDefinition(validDefinitionData),
-      ).rejects.toThrow(HttpException);
     });
 
-    it('should handle mandatory discussion creation failure', async () => {
-      definitionService.createDefinition.mockRejectedValue(
-        new Error(
-          'Failed to create discussion for definition - definition creation aborted',
+    it('should extract user ID from req.user.sub', async () => {
+      definitionService.createDefinition.mockResolvedValue(mockDefinitionData);
+
+      await controller.createDefinition(createDto, mockReq);
+
+      expect(definitionService.createDefinition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          createdBy: 'user-456',
+        }),
+      );
+    });
+
+    it('should throw BadRequestException if word is missing', async () => {
+      await expect(
+        controller.createDefinition(
+          { word: '', createdBy: 'user', definitionText: 'test' },
+          mockReq,
         ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.createDefinition(
+          { word: '', createdBy: 'user', definitionText: 'test' },
+          mockReq,
+        ),
+      ).rejects.toThrow('Word is required');
+    });
+
+    it('should throw BadRequestException if definitionText is missing', async () => {
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: '' },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: '' },
+          mockReq,
+        ),
+      ).rejects.toThrow('Definition text is required');
+    });
+
+    it('should throw BadRequestException if user is missing', async () => {
+      await expect(
+        controller.createDefinition(createDto, { user: null }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.createDefinition(createDto, { user: null }),
+      ).rejects.toThrow('User ID is required');
+    });
+
+    it('should re-throw service exceptions', async () => {
+      definitionService.createDefinition.mockRejectedValue(
+        new BadRequestException('Service error'),
       );
 
       await expect(
-        controller.createDefinition(validDefinitionData),
-      ).rejects.toThrow(HttpException);
+        controller.createDefinition(createDto, mockReq),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
-  describe('getDefinition', () => {
-    it('should return a definition when found', async () => {
-      const mockDefinition = {
-        id: 'test-id',
-        word: 'test',
-        definitionText: 'Test definition',
-        discussionId: 'discussion-id',
-      };
-      definitionService.getDefinition.mockResolvedValue(mockDefinition);
+  describe('GET /definitions/:id', () => {
+    it('should get definition by ID', async () => {
+      definitionService.getDefinition.mockResolvedValue(mockDefinitionData);
 
-      const result = await controller.getDefinition('test-id');
+      const result = await controller.getDefinition('def-123');
 
-      expect(definitionService.getDefinition).toHaveBeenCalledWith('test-id');
-      expect(result).toEqual(mockDefinition);
+      expect(definitionService.getDefinition).toHaveBeenCalledWith('def-123');
+      expect(result).toEqual(mockDefinitionData);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw NotFoundException if definition not found', async () => {
+      definitionService.getDefinition.mockResolvedValue(null);
+
+      await expect(controller.getDefinition('nonexistent')).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(controller.getDefinition('nonexistent')).rejects.toThrow(
+        'Definition with ID nonexistent not found',
+      );
+    });
+
+    it('should throw BadRequestException if id is empty', async () => {
       await expect(controller.getDefinition('')).rejects.toThrow(
         BadRequestException,
       );
-      expect(definitionService.getDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should handle NotFoundException', async () => {
-      definitionService.getDefinition.mockRejectedValue(
-        new NotFoundException('Definition not found'),
-      );
-
-      await expect(controller.getDefinition('test-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.getDefinition.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(controller.getDefinition('test-id')).rejects.toThrow(
-        HttpException,
+      await expect(controller.getDefinition('  ')).rejects.toThrow(
+        'Definition ID is required',
       );
     });
   });
 
-  describe('updateDefinition - Hybrid Pattern', () => {
-    const validUpdateData = { definitionText: 'Updated definition' };
+  describe('PUT /definitions/:id', () => {
+    const updateDto = { definitionText: 'Updated definition' };
 
-    it('should update a definition with valid data', async () => {
-      const expectedResult = {
-        id: 'test-id',
-        definitionText: 'Updated definition',
-      };
-
-      definitionService.updateDefinition.mockResolvedValue(expectedResult);
+    it('should update definition', async () => {
+      const updatedDefinition = { ...mockDefinitionData, ...updateDto };
+      definitionService.updateDefinition.mockResolvedValue(updatedDefinition);
 
       const result = await controller.updateDefinition(
-        'test-id',
-        validUpdateData,
+        'def-123',
+        updateDto,
+        mockReq,
       );
 
       expect(definitionService.updateDefinition).toHaveBeenCalledWith(
-        'test-id',
-        validUpdateData,
+        'def-123',
+        updateDto,
       );
-      expect(result).toEqual(expectedResult);
+      expect(result).toEqual(updatedDefinition);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
+    it('should throw BadRequestException if id is empty', async () => {
       await expect(
-        controller.updateDefinition('', validUpdateData),
+        controller.updateDefinition('', updateDto, mockReq),
       ).rejects.toThrow(BadRequestException);
-      expect(definitionService.updateDefinition).not.toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException for empty definition text', async () => {
+    it('should throw BadRequestException if user is missing', async () => {
       await expect(
-        controller.updateDefinition('test-id', { definitionText: '' }),
+        controller.updateDefinition('def-123', updateDto, { user: null }),
       ).rejects.toThrow(BadRequestException);
-      expect(definitionService.updateDefinition).not.toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException for definition text exceeding max length', async () => {
-      const longText = 'a'.repeat(TEXT_LIMITS.MAX_DEFINITION_LENGTH + 1);
-
-      await expect(
-        controller.updateDefinition('test-id', { definitionText: longText }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.updateDefinition).not.toHaveBeenCalled();
-    });
-
-    it('should handle NotFoundException when definition not found', async () => {
+    it('should re-throw service exceptions', async () => {
       definitionService.updateDefinition.mockRejectedValue(
         new NotFoundException('Definition not found'),
       );
 
       await expect(
-        controller.updateDefinition('test-id', validUpdateData),
+        controller.updateDefinition('def-123', updateDto, mockReq),
       ).rejects.toThrow(NotFoundException);
     });
-
-    it('should handle service errors', async () => {
-      definitionService.updateDefinition.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(
-        controller.updateDefinition('test-id', validUpdateData),
-      ).rejects.toThrow(HttpException);
-    });
   });
 
-  describe('deleteDefinition - BaseNodeSchema Method', () => {
-    it('should delete a definition successfully', async () => {
-      const mockResult = {
-        success: true,
-        message: 'Definition deleted successfully',
-      };
-      definitionService.deleteDefinition.mockResolvedValue(mockResult);
+  describe('DELETE /definitions/:id', () => {
+    it('should delete definition', async () => {
+      definitionService.deleteDefinition.mockResolvedValue(undefined);
 
-      const result = await controller.deleteDefinition('test-id');
+      await controller.deleteDefinition('def-123', mockReq);
 
       expect(definitionService.deleteDefinition).toHaveBeenCalledWith(
-        'test-id',
+        'def-123',
       );
-      expect(result).toEqual(mockResult);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(controller.deleteDefinition('')).rejects.toThrow(
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(controller.deleteDefinition('', mockReq)).rejects.toThrow(
         BadRequestException,
       );
-      expect(definitionService.deleteDefinition).not.toHaveBeenCalled();
     });
 
-    it('should handle NotFoundException', async () => {
+    it('should throw BadRequestException if user is missing', async () => {
+      await expect(
+        controller.deleteDefinition('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should re-throw service exceptions', async () => {
       definitionService.deleteDefinition.mockRejectedValue(
         new NotFoundException('Definition not found'),
       );
 
-      await expect(controller.deleteDefinition('test-id')).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.deleteDefinition.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(controller.deleteDefinition('test-id')).rejects.toThrow(
-        HttpException,
-      );
+      await expect(
+        controller.deleteDefinition('def-123', mockReq),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('voteDefinition - Dual Voting System', () => {
-    const mockRequest = {
-      user: { sub: 'user1' },
-    };
+  // ============================================
+  // VOTING ENDPOINTS (DUAL VOTING)
+  // ============================================
 
-    describe('Inclusion Voting', () => {
-      it('should process inclusion vote successfully', async () => {
-        definitionService.voteDefinitionInclusion.mockResolvedValue(
-          mockVoteResult,
-        );
+  describe('POST /definitions/:id/vote-inclusion', () => {
+    const voteDto = { isPositive: true };
 
-        const result = await controller.voteDefinition(
-          'test-id',
-          { isPositive: true },
-          mockRequest,
-        );
+    it('should vote on inclusion', async () => {
+      definitionService.voteInclusion.mockResolvedValue(mockVoteResult);
 
-        expect(definitionService.voteDefinitionInclusion).toHaveBeenCalledWith(
-          'test-id',
-          'user1',
-          true,
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-
-      it('should process negative inclusion vote', async () => {
-        definitionService.voteDefinitionInclusion.mockResolvedValue({
-          ...mockVoteResult,
-          inclusionPositiveVotes: 2,
-          inclusionNegativeVotes: 3,
-          inclusionNetVotes: -1,
-        });
-
-        const result = await controller.voteDefinition(
-          'test-id',
-          { isPositive: false },
-          mockRequest,
-        );
-
-        expect(definitionService.voteDefinitionInclusion).toHaveBeenCalledWith(
-          'test-id',
-          'user1',
-          false,
-        );
-        expect(result.inclusionNetVotes).toBe(-1);
-      });
-    });
-
-    describe('Content Voting', () => {
-      it('should process content vote when definition is approved', async () => {
-        // First, definition needs to pass inclusion threshold
-        definitionService.isContentVotingAvailable.mockResolvedValue(true);
-        definitionService.voteDefinitionContent.mockResolvedValue({
-          ...mockVoteResult,
-          contentPositiveVotes: 4,
-          contentNetVotes: 4,
-        });
-
-        // Mock a content vote endpoint (this would be a separate endpoint in real implementation)
-        // For now, we'll test through the general vote endpoint
-        const result = await controller.voteDefinition(
-          'test-id',
-          { isPositive: true },
-          mockRequest,
-        );
-
-        // This tests inclusion voting, but in real implementation there would be separate endpoints
-        expect(definitionService.voteDefinitionInclusion).toHaveBeenCalledWith(
-          'test-id',
-          'user1',
-          true,
-        );
-        expect(result).toEqual(mockVoteResult);
-      });
-    });
-
-    it('should throw BadRequestException for empty definition ID', async () => {
-      await expect(
-        controller.voteDefinition('', { isPositive: true }, mockRequest),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.voteDefinitionInclusion).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for missing user authentication', async () => {
-      await expect(
-        controller.voteDefinition(
-          'test-id',
-          { isPositive: true },
-          { user: {} },
-        ),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.voteDefinitionInclusion).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for missing vote data', async () => {
-      await expect(
-        controller.voteDefinition('test-id', {} as any, mockRequest),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.voteDefinitionInclusion).not.toHaveBeenCalled();
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.voteDefinitionInclusion.mockRejectedValue(
-        new Error('Service error'),
+      const result = await controller.voteInclusion(
+        'def-123',
+        voteDto,
+        mockReq,
       );
 
-      await expect(
-        controller.voteDefinition('test-id', { isPositive: true }, mockRequest),
-      ).rejects.toThrow(HttpException);
-    });
-  });
-
-  describe('getDefinitionVotes', () => {
-    it('should get definition vote counts', async () => {
-      definitionService.getDefinitionVotes.mockResolvedValue(mockVoteResult);
-
-      const result = await controller.getDefinitionVotes('test-id');
-
-      expect(definitionService.getDefinitionVotes).toHaveBeenCalledWith(
-        'test-id',
+      expect(definitionService.voteInclusion).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        true,
       );
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(controller.getDefinitionVotes('')).rejects.toThrow(
-        BadRequestException,
+    it('should handle negative votes', async () => {
+      definitionService.voteInclusion.mockResolvedValue(mockVoteResult);
+      const negativeVote = { isPositive: false };
+
+      await controller.voteInclusion('def-123', negativeVote, mockReq);
+
+      expect(definitionService.voteInclusion).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        false,
       );
-      expect(definitionService.getDefinitionVotes).not.toHaveBeenCalled();
     });
 
-    it('should handle service errors', async () => {
-      definitionService.getDefinitionVotes.mockRejectedValue(
-        new Error('Service error'),
-      );
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(
+        controller.voteInclusion('', voteDto, mockReq),
+      ).rejects.toThrow(BadRequestException);
+    });
 
-      await expect(controller.getDefinitionVotes('test-id')).rejects.toThrow(
-        HttpException,
-      );
+    it('should throw BadRequestException if user is missing', async () => {
+      await expect(
+        controller.voteInclusion('def-123', voteDto, { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if isPositive is not boolean', async () => {
+      await expect(
+        controller.voteInclusion(
+          'def-123',
+          { isPositive: 'true' as any },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.voteInclusion(
+          'def-123',
+          { isPositive: 'true' as any },
+          mockReq,
+        ),
+      ).rejects.toThrow('isPositive must be a boolean');
     });
   });
 
-  describe('getDefinitionVoteStatus', () => {
-    const mockRequest = {
-      user: { sub: 'user1' },
-    };
+  describe('POST /definitions/:id/vote-content', () => {
+    const voteDto = { isPositive: true };
 
-    it('should get user vote status for definition', async () => {
-      const mockVoteStatus = {
-        inclusionStatus: 'agree' as const,
-        inclusionPositiveVotes: 5,
-        inclusionNegativeVotes: 1,
-        inclusionNetVotes: 4,
-        contentStatus: 'agree' as const,
-        contentPositiveVotes: 3,
-        contentNegativeVotes: 0,
-        contentNetVotes: 3,
-      };
+    it('should vote on content', async () => {
+      definitionService.voteContent.mockResolvedValue(mockVoteResult);
 
-      definitionService.getDefinitionVoteStatus.mockResolvedValue(
-        mockVoteStatus,
+      const result = await controller.voteContent('def-123', voteDto, mockReq);
+
+      expect(definitionService.voteContent).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        true,
       );
+      expect(result).toEqual(mockVoteResult);
+    });
 
-      const result = await controller.getDefinitionVoteStatus(
-        'test-id',
-        mockRequest,
+    it('should handle negative votes', async () => {
+      definitionService.voteContent.mockResolvedValue(mockVoteResult);
+      const negativeVote = { isPositive: false };
+
+      await controller.voteContent('def-123', negativeVote, mockReq);
+
+      expect(definitionService.voteContent).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        false,
       );
+    });
 
-      expect(definitionService.getDefinitionVoteStatus).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(
+        controller.voteContent('', voteDto, mockReq),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if user is missing', async () => {
+      await expect(
+        controller.voteContent('def-123', voteDto, { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw BadRequestException if isPositive is not boolean', async () => {
+      await expect(
+        controller.voteContent(
+          'def-123',
+          { isPositive: 'true' as any },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('GET /definitions/:id/vote-status', () => {
+    it('should get vote status', async () => {
+      definitionService.getVoteStatus.mockResolvedValue(mockVoteStatus);
+
+      const result = await controller.getVoteStatus('def-123', mockReq);
+
+      expect(definitionService.getVoteStatus).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
       );
       expect(result).toEqual(mockVoteStatus);
     });
 
-    it('should return null when user has not voted', async () => {
-      definitionService.getDefinitionVoteStatus.mockResolvedValue(null);
+    it('should return null if no vote', async () => {
+      definitionService.getVoteStatus.mockResolvedValue(null);
 
-      const result = await controller.getDefinitionVoteStatus(
-        'test-id',
-        mockRequest,
-      );
+      const result = await controller.getVoteStatus('def-123', mockReq);
 
       expect(result).toBeNull();
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(
-        controller.getDefinitionVoteStatus('', mockRequest),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.getDefinitionVoteStatus).not.toHaveBeenCalled();
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(controller.getVoteStatus('', mockReq)).rejects.toThrow(
+        BadRequestException,
+      );
     });
 
-    it('should throw BadRequestException for missing user authentication', async () => {
+    it('should require authentication', async () => {
       await expect(
-        controller.getDefinitionVoteStatus('test-id', { user: {} }),
+        controller.getVoteStatus('def-123', { user: null }),
       ).rejects.toThrow(BadRequestException);
-      expect(definitionService.getDefinitionVoteStatus).not.toHaveBeenCalled();
     });
   });
 
-  describe('removeDefinitionVote', () => {
-    const mockRequest = {
-      user: { sub: 'user1' },
-    };
+  describe('DELETE /definitions/:id/vote-inclusion', () => {
+    it('should remove inclusion vote', async () => {
+      definitionService.removeVote.mockResolvedValue(mockVoteResult);
 
-    it('should remove definition vote successfully', async () => {
-      definitionService.removeDefinitionVote.mockResolvedValue(mockVoteResult);
+      const result = await controller.removeInclusionVote('def-123', mockReq);
 
-      const result = await controller.removeDefinitionVote(
-        'test-id',
-        mockRequest,
-      );
-
-      expect(definitionService.removeDefinitionVote).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
-        'INCLUSION', // Default vote type
+      expect(definitionService.removeVote).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        'INCLUSION',
       );
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(
-        controller.removeDefinitionVote('', mockRequest),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.removeDefinitionVote).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for missing user authentication', async () => {
-      await expect(
-        controller.removeDefinitionVote('test-id', { user: {} }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.removeDefinitionVote).not.toHaveBeenCalled();
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.removeDefinitionVote.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(
-        controller.removeDefinitionVote('test-id', mockRequest),
-      ).rejects.toThrow(HttpException);
-    });
-  });
-
-  describe('setVisibilityStatus - Enhanced Domain Method', () => {
-    it('should set definition visibility status', async () => {
-      const mockResult = { success: true };
-      definitionService.setVisibilityStatus.mockResolvedValue(mockResult);
-
-      const result = await controller.setVisibilityStatus('test-id', {
-        isVisible: true,
-      });
-
-      expect(definitionService.setVisibilityStatus).toHaveBeenCalledWith(
-        'test-id',
-        true,
-      );
-      expect(result).toEqual(mockResult);
-    });
-
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(
-        controller.setVisibilityStatus('', { isVisible: true }),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.setVisibilityStatus).not.toHaveBeenCalled();
-    });
-
-    it('should throw BadRequestException for missing visibility data', async () => {
-      await expect(
-        controller.setVisibilityStatus('test-id', {} as any),
-      ).rejects.toThrow(BadRequestException);
-      expect(definitionService.setVisibilityStatus).not.toHaveBeenCalled();
-    });
-
-    it('should handle service errors', async () => {
-      definitionService.setVisibilityStatus.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(
-        controller.setVisibilityStatus('test-id', { isVisible: true }),
-      ).rejects.toThrow(HttpException);
-    });
-  });
-
-  describe('getVisibilityStatus - Enhanced Domain Method', () => {
-    it('should get definition visibility status', async () => {
-      const mockStatus = { isVisible: true };
-      definitionService.getVisibilityStatus.mockResolvedValue(mockStatus);
-
-      const result = await controller.getVisibilityStatus('test-id');
-
-      expect(definitionService.getVisibilityStatus).toHaveBeenCalledWith(
-        'test-id',
-      );
-      expect(result).toEqual(mockStatus);
-    });
-
-    it('should throw BadRequestException for empty ID', async () => {
-      await expect(controller.getVisibilityStatus('')).rejects.toThrow(
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(controller.removeInclusionVote('', mockReq)).rejects.toThrow(
         BadRequestException,
       );
-      expect(definitionService.getVisibilityStatus).not.toHaveBeenCalled();
     });
 
-    it('should handle service errors', async () => {
-      definitionService.getVisibilityStatus.mockRejectedValue(
-        new Error('Service error'),
-      );
+    it('should require authentication', async () => {
+      await expect(
+        controller.removeInclusionVote('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 
-      await expect(controller.getVisibilityStatus('test-id')).rejects.toThrow(
-        HttpException,
+  describe('DELETE /definitions/:id/vote-content', () => {
+    it('should remove content vote', async () => {
+      definitionService.removeVote.mockResolvedValue(mockVoteResult);
+
+      const result = await controller.removeContentVote('def-123', mockReq);
+
+      expect(definitionService.removeVote).toHaveBeenCalledWith(
+        'def-123',
+        'user-456',
+        'CONTENT',
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(controller.removeContentVote('', mockReq)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should require authentication', async () => {
+      await expect(
+        controller.removeContentVote('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('GET /definitions/:id/votes', () => {
+    it('should get vote totals', async () => {
+      definitionService.getVotes.mockResolvedValue(mockVoteResult);
+
+      const result = await controller.getVotes('def-123');
+
+      expect(definitionService.getVotes).toHaveBeenCalledWith('def-123');
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should return null if no votes', async () => {
+      definitionService.getVotes.mockResolvedValue(null);
+
+      const result = await controller.getVotes('def-123');
+
+      expect(result).toBeNull();
+    });
+
+    it('should throw BadRequestException if id is empty', async () => {
+      await expect(controller.getVotes('')).rejects.toThrow(
+        BadRequestException,
       );
     });
   });
 
-  // ERROR HANDLING AND PATTERN VERIFICATION
+  // ============================================
+  // QUERY ENDPOINTS
+  // ============================================
+
+  describe('GET /definitions/word/:word', () => {
+    it('should get definitions by word', async () => {
+      const mockDefinitions = [mockDefinitionData];
+      definitionService.getDefinitionsByWord.mockResolvedValue(mockDefinitions);
+
+      const result = await controller.getDefinitionsByWord('test');
+
+      expect(definitionService.getDefinitionsByWord).toHaveBeenCalledWith(
+        'test',
+      );
+      expect(result).toEqual({ definitions: mockDefinitions });
+    });
+
+    it('should throw BadRequestException if word is empty', async () => {
+      await expect(controller.getDefinitionsByWord('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('GET /definitions/word/:word/top', () => {
+    it('should get top definition for word', async () => {
+      definitionService.getTopDefinitionForWord.mockResolvedValue(
+        mockDefinitionData,
+      );
+
+      const result = await controller.getTopDefinitionForWord('test');
+
+      expect(definitionService.getTopDefinitionForWord).toHaveBeenCalledWith(
+        'test',
+      );
+      expect(result).toEqual(mockDefinitionData);
+    });
+
+    it('should throw NotFoundException if no definition found', async () => {
+      definitionService.getTopDefinitionForWord.mockResolvedValue(null);
+
+      await expect(controller.getTopDefinitionForWord('test')).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(controller.getTopDefinitionForWord('test')).rejects.toThrow(
+        'No approved definition found for word: test',
+      );
+    });
+
+    it('should throw BadRequestException if word is empty', async () => {
+      await expect(controller.getTopDefinitionForWord('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  describe('GET /definitions/word/:word/can-create', () => {
+    it('should check if definitions can be created', async () => {
+      definitionService.canCreateDefinitionForWord.mockResolvedValue(true);
+
+      const result = await controller.canCreateDefinitionForWord('test');
+
+      expect(definitionService.canCreateDefinitionForWord).toHaveBeenCalledWith(
+        'test',
+      );
+      expect(result).toEqual({ canCreate: true });
+    });
+
+    it('should return false if word not eligible', async () => {
+      definitionService.canCreateDefinitionForWord.mockResolvedValue(false);
+
+      const result = await controller.canCreateDefinitionForWord('test');
+
+      expect(result).toEqual({ canCreate: false });
+    });
+
+    it('should throw BadRequestException if word is empty', async () => {
+      await expect(controller.canCreateDefinitionForWord('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+  });
+
+  // ============================================
+  // VALIDATION
+  // ============================================
+
+  describe('Input Validation', () => {
+    it('should validate all required fields in createDefinition', async () => {
+      await expect(
+        controller.createDefinition(
+          { word: '', createdBy: 'user', definitionText: 'test' },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: '' },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: 'test' },
+          { user: null },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should validate parameter formats', async () => {
+      await expect(controller.getDefinition('')).rejects.toThrow(
+        BadRequestException,
+      );
+
+      await expect(controller.getDefinitionsByWord('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should validate body DTOs', async () => {
+      await expect(
+        controller.voteInclusion(
+          'def-123',
+          { isPositive: 'not-bool' as any },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.voteContent('def-123', { isPositive: 123 as any }, mockReq),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  // ============================================
+  // AUTHENTICATION
+  // ============================================
+
+  describe('Authentication', () => {
+    it('should require authentication for createDefinition', async () => {
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: 'test' },
+          { user: null },
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should require authentication for updateDefinition', async () => {
+      await expect(
+        controller.updateDefinition('def-123', {}, { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should require authentication for deleteDefinition', async () => {
+      await expect(
+        controller.deleteDefinition('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should require authentication for voting', async () => {
+      await expect(
+        controller.voteInclusion(
+          'def-123',
+          { isPositive: true },
+          { user: null },
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.voteContent('def-123', { isPositive: true }, { user: null }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.getVoteStatus('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.removeInclusionVote('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+
+      await expect(
+        controller.removeContentVote('def-123', { user: null }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should allow anonymous access for getDefinition', async () => {
+      definitionService.getDefinition.mockResolvedValue(mockDefinitionData);
+
+      const result = await controller.getDefinition('def-123');
+
+      expect(result).toEqual(mockDefinitionData);
+    });
+
+    it('should allow anonymous access for query endpoints', async () => {
+      definitionService.getDefinitionsByWord.mockResolvedValue([
+        mockDefinitionData,
+      ]);
+
+      const result = await controller.getDefinitionsByWord('test');
+
+      expect(result).toEqual({ definitions: [mockDefinitionData] });
+    });
+  });
+
+  // ============================================
+  // ERROR HANDLING
+  // ============================================
 
   describe('Error Handling', () => {
-    it('should handle controller-level validation errors', async () => {
-      // Test empty word validation
-      await expect(
-        controller.createDefinition({
-          word: '',
-          createdBy: 'user1',
-          definitionText: 'Test definition',
-          discussion: 'Initial comment',
-        }),
-      ).rejects.toThrow(BadRequestException);
+    it('should re-throw BadRequestException from service', async () => {
+      definitionService.createDefinition.mockRejectedValue(
+        new BadRequestException('Invalid input'),
+      );
 
-      // Test empty creator validation
       await expect(
-        controller.createDefinition({
-          word: 'test',
-          createdBy: '',
-          definitionText: 'Test definition',
-          discussion: 'Initial comment',
-        }),
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: 'test' },
+          mockReq,
+        ),
       ).rejects.toThrow(BadRequestException);
-
-      // Test empty definition text validation
-      await expect(
-        controller.createDefinition({
-          word: 'test',
-          createdBy: 'user1',
-          definitionText: '',
-          discussion: 'Initial comment',
-        }),
-      ).rejects.toThrow(BadRequestException);
-
-      // Verify service was never called due to validation failures
-      expect(definitionService.createDefinition).not.toHaveBeenCalled();
     });
 
-    it('should preserve service error types', async () => {
-      // BadRequestException should be preserved
-      definitionService.getDefinition.mockRejectedValue(
-        new BadRequestException('Service validation error'),
-      );
+    it('should re-throw NotFoundException from service', async () => {
+      definitionService.getDefinition.mockResolvedValue(null);
 
-      await expect(controller.getDefinition('test-id')).rejects.toThrow(
-        BadRequestException,
-      );
-
-      // NotFoundException should be preserved
-      definitionService.getDefinition.mockRejectedValue(
-        new NotFoundException('Definition not found'),
-      );
-
-      await expect(controller.getDefinition('test-id')).rejects.toThrow(
+      await expect(controller.getDefinition('nonexistent')).rejects.toThrow(
         NotFoundException,
       );
     });
-  });
 
-  describe('Hybrid Pattern Integration Verification', () => {
-    it('should work with enhanced domain methods', async () => {
-      // Test enhanced domain methods are properly called
-      const mockDefinition = {
-        id: 'test-id',
-        word: 'test',
-        definitionText: 'Test',
-      };
-      definitionService.getDefinition.mockResolvedValue(mockDefinition);
+    it('should propagate all service errors', async () => {
+      const serviceError = new Error('Service error');
+      definitionService.createDefinition.mockRejectedValue(serviceError);
 
-      await controller.getDefinition('test-id');
-
-      expect(definitionService.getDefinition).toHaveBeenCalledWith('test-id');
-    });
-
-    it('should work with BaseNodeSchema methods', async () => {
-      // Test BaseNodeSchema methods are properly called
-      const mockResult = { success: true };
-      definitionService.deleteDefinition.mockResolvedValue(mockResult);
-
-      await controller.deleteDefinition('test-id');
-
-      expect(definitionService.deleteDefinition).toHaveBeenCalledWith(
-        'test-id',
-      );
-    });
-
-    it('should work with hybrid update method', async () => {
-      // Test hybrid update method handles both simple and complex updates
-      const updateData = { definitionText: 'Updated definition' };
-      const mockResult = { id: 'test-id', ...updateData };
-      definitionService.updateDefinition.mockResolvedValue(mockResult);
-
-      await controller.updateDefinition('test-id', updateData);
-
-      expect(definitionService.updateDefinition).toHaveBeenCalledWith(
-        'test-id',
-        updateData,
-      );
-    });
-  });
-
-  describe('Mandatory Discussion Architecture Integration', () => {
-    it('should handle mandatory discussion creation in definition creation', async () => {
-      const definitionData = {
-        word: 'test',
-        createdBy: 'user1',
-        definitionText: 'A test definition',
-        discussion: 'Initial discussion comment',
-      };
-
-      const expectedResult = {
-        id: 'test-id',
-        ...definitionData,
-        discussionId: 'discussion-id',
-      };
-
-      definitionService.createDefinition.mockResolvedValue(expectedResult);
-
-      const result = await controller.createDefinition(definitionData);
-
-      // Verify service handles mandatory discussion architecture
-      expect(definitionService.createDefinition).toHaveBeenCalledWith(
-        definitionData,
-      );
-      expect(result.discussionId).toBeDefined();
-      expect(result).toEqual(expectedResult);
-    });
-
-    it('should handle discussion creation failures gracefully', async () => {
-      const definitionData = {
-        word: 'test',
-        createdBy: 'user1',
-        definitionText: 'A test definition',
-        discussion: 'Initial discussion comment',
-      };
-
-      // Service should throw error when discussion creation fails
-      definitionService.createDefinition.mockRejectedValue(
-        new Error(
-          'Failed to create discussion for definition - definition creation aborted',
+      await expect(
+        controller.createDefinition(
+          { word: 'test', createdBy: 'user', definitionText: 'test' },
+          mockReq,
         ),
-      );
-
-      await expect(controller.createDefinition(definitionData)).rejects.toThrow(
-        HttpException,
-      );
-    });
-  });
-
-  describe('Voting System Integration', () => {
-    const mockRequest = { user: { sub: 'user1' } };
-
-    it('should support dual voting system (inclusion + content)', async () => {
-      // Test inclusion voting
-      definitionService.voteDefinitionInclusion.mockResolvedValue(
-        mockVoteResult,
-      );
-
-      await controller.voteDefinition(
-        'test-id',
-        { isPositive: true },
-        mockRequest,
-      );
-
-      expect(definitionService.voteDefinitionInclusion).toHaveBeenCalledWith(
-        'test-id',
-        'user1',
-        true,
-      );
-
-      // In a real implementation, there would be separate endpoints for content voting
-      // This test verifies the controller can handle the service's dual voting methods
-      expect(typeof definitionService.voteDefinitionContent).toBe('function');
-      expect(typeof definitionService.voteDefinitionInclusion).toBe('function');
+      ).rejects.toThrow(serviceError);
     });
 
-    it('should provide comprehensive vote information', async () => {
-      definitionService.getDefinitionVotes.mockResolvedValue(mockVoteResult);
+    it('should handle validation errors before calling service', async () => {
+      // Empty word should be caught by controller
+      await expect(
+        controller.createDefinition(
+          { word: '', createdBy: 'user', definitionText: 'test' },
+          mockReq,
+        ),
+      ).rejects.toThrow(BadRequestException);
 
-      const result = await controller.getDefinitionVotes('test-id');
-
-      // Verify both inclusion and content vote counts are available
-      expect(result).toHaveProperty('inclusionPositiveVotes');
-      expect(result).toHaveProperty('inclusionNegativeVotes');
-      expect(result).toHaveProperty('inclusionNetVotes');
-      expect(result).toHaveProperty('contentPositiveVotes');
-      expect(result).toHaveProperty('contentNegativeVotes');
-      expect(result).toHaveProperty('contentNetVotes');
+      // Service should not be called
+      expect(definitionService.createDefinition).not.toHaveBeenCalled();
     });
   });
 });

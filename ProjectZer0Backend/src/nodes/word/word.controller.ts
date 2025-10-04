@@ -1,4 +1,5 @@
-// src/nodes/word/word.controller.ts - UPDATED FOR CONVERSION
+// src/nodes/word/word.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
+
 import {
   Controller,
   Get,
@@ -7,146 +8,126 @@ import {
   Delete,
   Body,
   Param,
-  UseGuards,
-  Logger,
-  Request,
-  HttpException,
-  HttpStatus,
   Query,
+  UseGuards,
+  Request,
+  HttpCode,
+  HttpStatus,
+  BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { WordService } from './word.service';
-import { DiscussionService } from '../discussion/discussion.service';
-import { CommentService } from '../comment/comment.service';
-import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
-// Define standardized DTO for word creation
+/**
+ * DTOs for Word endpoints
+ */
 interface CreateWordDto {
   word: string;
-  definitionText?: string;
-  discussion?: string;
-  publicCredit: boolean;
-  shareToX?: boolean; // For social media sharing
   createdBy: string;
+  publicCredit?: boolean;
+  initialDefinition?: string;
+  initialComment?: string;
+  isApiDefinition?: boolean;
+  isAICreated?: boolean;
 }
 
-@Controller('nodes/word')
+interface UpdateWordDto {
+  publicCredit?: boolean;
+  // Add other updatable fields as needed
+}
+
+interface VoteDto {
+  isPositive: boolean;
+}
+
+/**
+ * WordController - HTTP layer for word operations
+ *
+ * ARCHITECTURE:
+ * - All endpoints delegate to WordService
+ * - DTOs for input validation
+ * - Proper HTTP status codes
+ * - Authentication via JWT guards
+ * - User ID extracted from req.user.sub
+ *
+ * RESPONSIBILITIES:
+ * ✅ Handle HTTP request/response
+ * ✅ Input validation via DTOs
+ * ✅ Apply authentication guards
+ * ✅ Return proper HTTP status codes
+ * ✅ Extract user info from request
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic (that's WordService)
+ * ❌ Database operations (that's WordSchema)
+ * ❌ Calling schemas directly
+ */
+@Controller('words')
 @UseGuards(JwtAuthGuard)
 export class WordController {
   private readonly logger = new Logger(WordController.name);
 
-  constructor(
-    private readonly wordService: WordService,
-    private readonly discussionService: DiscussionService,
-    private readonly commentService: CommentService,
-  ) {}
+  constructor(private readonly wordService: WordService) {}
 
-  // IMPORTANT: The 'all' route must be defined before any parameterized routes
-  // to ensure proper routing in NestJS
-  @Get('all')
-  async getAllWords(@Request() req: any) {
-    this.logger.log('Received request to get all words');
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
 
-    try {
-      // ✅ UPDATED: Use new method for visibility-aware retrieval
-      const userId = req.user?.sub; // Optional - for visibility calculations
-
-      // Get words directly from the service
-      const words = await this.wordService.getAllWords();
-
-      // Add detailed logging
-      if (words && words.length > 0) {
-        this.logger.debug(`Found ${words.length} words in database`);
-        this.logger.debug(
-          `Sample words: ${words
-            .slice(0, 5)
-            .map((w) => w.word)
-            .join(', ')}...`,
-        );
-      } else {
-        this.logger.warn('No words found in database');
-      }
-
-      // ✅ NEW: Optionally add visibility information for authenticated users
-      if (userId) {
-        // For performance, we could add batch visibility checking here in the future
-        // For now, visibility is checked per-word when needed
-      }
-
-      // Return the words array directly
-      return words;
-    } catch (error) {
-      this.logger.error(
-        `Error getting all words: ${error.message}`,
-        error.stack,
-      );
-      throw error;
-    }
-  }
-
-  @Get('check/:word')
-  async checkWordExistence(@Param('word') word: string) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(`Checking existence of word: ${word}`);
-    const exists = await this.wordService.checkWordExistence(word);
-    this.logger.debug(`Word '${word}' exists: ${exists}`);
-    return { exists };
-  }
-
+  /**
+   * Create a new word
+   * POST /words
+   */
   @Post()
-  async createWord(@Body() wordData: CreateWordDto) {
-    if (!wordData.word) {
-      throw new HttpException('Word is required', HttpStatus.BAD_REQUEST);
+  @HttpCode(HttpStatus.CREATED)
+  async createWord(@Body() createDto: CreateWordDto, @Request() req: any) {
+    // Validate required fields
+    if (!createDto.word || createDto.word.trim() === '') {
+      throw new BadRequestException('Word is required');
     }
 
-    this.logger.log(`Creating word: ${wordData.word}`);
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Creating word: ${createDto.word}`);
 
     try {
-      // Ensure we're using definitionText consistently
       const createdWord = await this.wordService.createWord({
-        word: wordData.word,
-        createdBy: wordData.createdBy,
-        definitionText: wordData.definitionText,
-        discussion: wordData.discussion,
-        publicCredit: wordData.publicCredit,
+        word: createDto.word,
+        createdBy: req.user.sub,
+        publicCredit: createDto.publicCredit,
+        initialDefinition: createDto.initialDefinition,
+        initialComment: createDto.initialComment,
+        isApiDefinition: createDto.isApiDefinition,
+        isAICreated: createDto.isAICreated,
       });
 
       this.logger.debug(`Created word: ${JSON.stringify(createdWord)}`);
       return createdWord;
     } catch (error) {
       this.logger.error(`Error creating word: ${error.message}`, error.stack);
-
-      if (error instanceof HttpException) {
-        throw error;
-      }
-
-      throw new HttpException(
-        `Failed to create word: ${error.message}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw error; // Re-throw to let NestJS handle it
     }
   }
 
+  /**
+   * Get a single word by its word value
+   * GET /words/:word
+   */
   @Get(':word')
   async getWord(@Param('word') word: string, @Request() req: any) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     this.logger.debug(`Getting word: ${word}`);
 
-    // Use new visibility-aware method
-    const userId = req.user?.sub; // Optional for anonymous access
+    // Get user ID for visibility context (optional for anonymous access)
+    const userId = req.user?.sub;
+
     const fetchedWord = await this.wordService.getWordWithVisibility(
       word.toLowerCase(),
       userId,
@@ -154,367 +135,320 @@ export class WordController {
 
     if (!fetchedWord) {
       this.logger.debug(`Word not found: ${word}`);
-      // ✅ FIXED: Throw NotFoundException instead of returning null
       throw new NotFoundException(`Word '${word}' not found`);
     }
 
     return fetchedWord;
   }
 
+  /**
+   * Update a word
+   * PUT /words/:word
+   */
   @Put(':word')
-  async updateWord(@Param('word') word: string, @Body() updateData: any) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+  async updateWord(
+    @Param('word') word: string,
+    @Body() updateDto: UpdateWordDto,
+    @Request() req: any,
+  ) {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
     }
 
     this.logger.debug(
-      `Updating word: ${word} with data: ${JSON.stringify(updateData)}`,
+      `Updating word: ${word} with data: ${JSON.stringify(updateDto)}`,
     );
 
-    const updatedWord = await this.wordService.updateWord(word, updateData);
+    const updatedWord = await this.wordService.updateWord(word, updateDto);
     this.logger.debug(`Updated word: ${JSON.stringify(updatedWord)}`);
     return updatedWord;
   }
 
+  /**
+   * Delete a word
+   * DELETE /words/:word
+   */
   @Delete(':word')
-  async deleteWord(@Param('word') word: string) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(`Deleting word: ${word}`);
-    const result = await this.wordService.deleteWord(word);
-    this.logger.debug(`Deleted word: ${word}`);
-    return result;
-  }
-
-  // ✅ UPDATED: Voting endpoints now use inherited BaseNodeSchema methods
-  @Post(':word/vote')
-  async voteWord(
-    @Param('word') word: string,
-    @Body() voteData: { isPositive: boolean },
-    @Request() req: any,
-  ): Promise<VoteResult> {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteWord(@Param('word') word: string, @Request() req: any) {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     if (!req.user?.sub) {
-      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Deleting word: ${word}`);
+    await this.wordService.deleteWord(word);
+    this.logger.debug(`Deleted word: ${word}`);
+  }
+
+  // ============================================
+  // VOTING ENDPOINTS
+  // ============================================
+
+  /**
+   * Vote on word inclusion
+   * POST /words/:word/vote-inclusion
+   */
+  @Post(':word/vote-inclusion')
+  async voteInclusion(
+    @Param('word') word: string,
+    @Body() voteDto: VoteDto,
+    @Request() req: any,
+  ): Promise<VoteResult> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
     }
 
     this.logger.debug(
-      `Voting on word: ${word} with value: ${voteData.isPositive}`,
+      `Voting on word inclusion: ${word} with value: ${voteDto.isPositive}`,
     );
 
-    const result = await this.wordService.voteWord(
+    const result = await this.wordService.voteInclusion(
       word,
       req.user.sub,
-      voteData.isPositive,
+      voteDto.isPositive,
     );
 
     this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
     return result;
   }
 
-  @Get(':word/vote')
-  async getWordVoteStatus(
+  /**
+   * Get vote status for current user
+   * GET /words/:word/vote-status
+   */
+  @Get(':word/vote-status')
+  async getVoteStatus(
     @Param('word') word: string,
     @Request() req: any,
   ): Promise<VoteStatus | null> {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     if (!req.user?.sub) {
-      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+      throw new BadRequestException('User ID is required');
     }
 
     this.logger.debug(`Getting vote status for word: ${word}`);
 
-    const status = await this.wordService.getWordVoteStatus(word, req.user.sub);
+    const status = await this.wordService.getVoteStatus(word, req.user.sub);
     this.logger.debug(`Vote status: ${JSON.stringify(status)}`);
     return status;
   }
 
-  @Post(':word/vote/remove')
-  async removeWordVote(
+  /**
+   * Remove vote from a word
+   * DELETE /words/:word/vote
+   */
+  @Delete(':word/vote')
+  async removeVote(
     @Param('word') word: string,
     @Request() req: any,
   ): Promise<VoteResult> {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     if (!req.user?.sub) {
-      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+      throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(`Removing vote for word: ${word}`);
+    this.logger.debug(`Removing vote from word: ${word}`);
 
-    const result = await this.wordService.removeWordVote(word, req.user.sub);
+    const result = await this.wordService.removeVote(word, req.user.sub);
     this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
     return result;
   }
 
+  /**
+   * Get vote totals for a word
+   * GET /words/:word/votes
+   */
   @Get(':word/votes')
-  async getWordVotes(@Param('word') word: string): Promise<VoteResult | null> {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+  async getVotes(@Param('word') word: string): Promise<VoteResult | null> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     this.logger.debug(`Getting votes for word: ${word}`);
 
-    const votes = await this.wordService.getWordVotes(word);
+    const votes = await this.wordService.getVotes(word);
     this.logger.debug(`Votes: ${JSON.stringify(votes)}`);
     return votes;
   }
 
-  // ✅ UPDATED: Visibility endpoints now use VisibilityService
-  @Put(':wordId/visibility')
-  async setWordVisibilityPreference(
-    @Param('wordId') wordId: string,
-    @Body() visibilityData: { isVisible: boolean },
+  // ============================================
+  // VISIBILITY ENDPOINTS
+  // ============================================
+
+  /**
+   * Set visibility preference for a word
+   * POST /words/:word/visibility
+   */
+  @Post(':word/visibility')
+  async setVisibilityPreference(
+    @Param('word') word: string,
+    @Body() visibilityDto: { isVisible: boolean },
     @Request() req: any,
   ) {
-    if (!wordId) {
-      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
     if (!req.user?.sub) {
-      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof visibilityDto.isVisible !== 'boolean') {
+      throw new BadRequestException('isVisible must be a boolean');
     }
 
     this.logger.debug(
-      `Setting visibility preference for word ${wordId} by user ${req.user.sub}: ${visibilityData.isVisible}`,
+      `Setting visibility preference for word ${word}: ${visibilityDto.isVisible}`,
     );
 
-    const result = await this.wordService.setWordVisibilityPreference(
+    await this.wordService.setVisibilityPreference(
       req.user.sub,
-      wordId,
-      visibilityData.isVisible,
+      word,
+      visibilityDto.isVisible,
     );
 
-    this.logger.debug(
-      `Set visibility preference result: ${JSON.stringify(result)}`,
-    );
-    return result;
+    return { success: true };
   }
 
-  @Get(':wordId/visibility')
-  async getWordVisibilityStatus(
-    @Param('wordId') wordId: string,
+  /**
+   * Get visibility status for a word
+   * GET /words/:word/visibility
+   */
+  @Get(':word/visibility')
+  async getVisibility(
+    @Param('word') word: string,
     @Request() req: any,
-  ) {
-    if (!wordId) {
-      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
+  ): Promise<{ isVisible: boolean }> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
-    const userId = req.user?.sub; // Optional for anonymous users
-    this.logger.debug(`Getting visibility status for word ${wordId}`);
+    // User ID is optional for anonymous access
+    const userId = req.user?.sub;
 
-    const isVisible = await this.wordService.getWordVisibilityForUser(
-      wordId,
-      userId,
+    this.logger.debug(
+      `Getting visibility for word ${word} and user ${userId || 'anonymous'}`,
     );
 
-    this.logger.debug(`Visibility status: ${isVisible}`);
+    const isVisible = await this.wordService.getVisibilityForUser(word, userId);
     return { isVisible };
   }
 
-  // ✅ NEW: Endpoint to get user's visibility preferences
-  @Get('user/visibility-preferences')
-  async getUserVisibilityPreferences(@Request() req: any) {
-    if (!req.user?.sub) {
-      throw new HttpException('User ID is required', HttpStatus.UNAUTHORIZED);
-    }
+  // ============================================
+  // QUERY ENDPOINTS
+  // ============================================
 
-    this.logger.debug(
-      `Getting visibility preferences for user ${req.user.sub}`,
-    );
-
-    // This would typically be handled by a UserController, but we can provide
-    // a word-specific endpoint for convenience
-    // Note: This might be better moved to a dedicated UserVisibilityController
-    return { message: 'Use /users/visibility-preferences endpoint instead' };
-  }
-
-  // Discussion and comment endpoints remain the same
-  @Get(':word/discussion')
-  async getWordWithDiscussion(@Param('word') word: string) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(`Getting word with discussion: ${word}`);
-    const wordNode = await this.wordService.getWord(word.toLowerCase());
-
-    if (!wordNode) {
-      this.logger.debug(`Word not found: ${word}`);
-      return null;
-    }
-
-    return wordNode; // The getWord method already includes discussion info
-  }
-
-  @Get(':word/comments')
-  async getWordComments(@Param('word') word: string) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
-
-    this.logger.debug(`Getting comments for word: ${word}`);
-    const wordNode = await this.wordService.getWord(word.toLowerCase());
-
-    if (!wordNode) {
-      this.logger.debug(`Word not found: ${word}`);
-      return { comments: [] };
-    }
-
-    if (!wordNode.discussionId) {
-      return { comments: [] };
-    }
-
-    const comments = await this.commentService.getCommentsByDiscussionId(
-      wordNode.discussionId,
-    );
-    return { comments };
-  }
-
-  @Post(':word/comments')
-  async addWordComment(
+  /**
+   * Check if a word exists
+   * GET /words/check/:word
+   */
+  @Get('check/:word')
+  async checkWordExistence(
     @Param('word') word: string,
-    @Body() commentData: { commentText: string; parentCommentId?: string },
-    @Request() req: any,
-  ) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+  ): Promise<{ exists: boolean }> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
-    if (!commentData.commentText || commentData.commentText.trim() === '') {
-      throw new HttpException(
-        'Comment text is required',
-        HttpStatus.BAD_REQUEST,
-      );
-    }
+    this.logger.debug(`Checking existence of word: ${word}`);
 
-    this.logger.debug(`Adding comment to word: ${word}`);
-    const wordNode = await this.wordService.getWord(word.toLowerCase());
-
-    if (!wordNode) {
-      this.logger.debug(`Word not found: ${word}`);
-      throw new HttpException(`Word "${word}" not found`, HttpStatus.NOT_FOUND);
-    }
-
-    // If no discussion exists, create one
-    let discussionId = wordNode.discussionId;
-
-    if (!discussionId) {
-      const discussion = await this.discussionService.createDiscussion({
-        createdBy: req.user.sub,
-        associatedNodeId: wordNode.id,
-        associatedNodeType: 'WordNode',
-      });
-
-      discussionId = discussion.id;
-
-      // Update word with discussion ID
-      await this.wordService.updateWord(word, { discussionId });
-    }
-
-    // Create the comment
-    const comment = await this.commentService.createComment({
-      createdBy: req.user.sub,
-      discussionId,
-      commentText: commentData.commentText,
-      parentCommentId: commentData.parentCommentId,
-    });
-
-    return comment;
+    const exists = await this.wordService.checkWordExistence(word);
+    return { exists };
   }
 
-  // ✅ NEW: Additional endpoints for word-specific functionality
-  @Get('approved')
+  /**
+   * Get all words
+   * GET /words
+   */
+  @Get()
+  async getAllWords() {
+    this.logger.debug('Getting all words');
+    return await this.wordService.getAllWords();
+  }
+
+  /**
+   * Get approved words (passed inclusion threshold)
+   * GET /words/approved
+   */
+  @Get('approved/list')
   async getApprovedWords(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
     @Query('sortBy') sortBy?: 'alphabetical' | 'votes' | 'created',
     @Query('sortDirection') sortDirection?: 'asc' | 'desc',
   ) {
     this.logger.debug('Getting approved words');
 
+    // Parse query parameters
     const options = {
-      limit: limit ? parseInt(limit.toString()) : undefined,
-      offset: offset ? parseInt(offset.toString()) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
       sortBy,
       sortDirection,
     };
 
-    const words = await this.wordService.getApprovedWords(options);
-    return words;
+    // Validate parsed numbers
+    if (options.limit !== undefined && isNaN(options.limit)) {
+      throw new BadRequestException('Invalid limit parameter');
+    }
+
+    if (options.offset !== undefined && isNaN(options.offset)) {
+      throw new BadRequestException('Invalid offset parameter');
+    }
+
+    return await this.wordService.getApprovedWords(options);
   }
 
-  @Get(':word/availability/definition-creation')
-  async checkWordAvailabilityForDefinitionCreation(
+  /**
+   * Check word statistics
+   * GET /words/stats/count
+   */
+  @Get('stats/count')
+  async checkWords(): Promise<{ count: number }> {
+    this.logger.debug('Checking word statistics');
+    return await this.wordService.checkWords();
+  }
+
+  /**
+   * Check if word is available for definition creation
+   * GET /words/:word/available-for-definition
+   */
+  @Get(':word/available-for-definition')
+  async isAvailableForDefinition(
     @Param('word') word: string,
-  ) {
-    if (!word) {
-      throw new HttpException(
-        'Word parameter is required',
-        HttpStatus.BAD_REQUEST,
-      );
+  ): Promise<{ available: boolean }> {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
     }
 
-    const isAvailable =
+    this.logger.debug(
+      `Checking if word ${word} is available for definition creation`,
+    );
+
+    const available =
       await this.wordService.isWordAvailableForDefinitionCreation(word);
-    return { isAvailable };
-  }
-
-  @Get(':wordId/availability/category-composition')
-  async checkWordAvailabilityForCategoryComposition(
-    @Param('wordId') wordId: string,
-  ) {
-    if (!wordId) {
-      throw new HttpException('Word ID is required', HttpStatus.BAD_REQUEST);
-    }
-
-    const isAvailable =
-      await this.wordService.isWordAvailableForCategoryComposition(wordId);
-    return { isAvailable };
-  }
-
-  @Get('admin/count')
-  async getWordCount() {
-    // This might require admin permissions in the future
-    this.logger.debug('Getting word count');
-    const result = await this.wordService.checkWords();
-    return result;
+    return { available };
   }
 }
