@@ -1,4 +1,4 @@
-// src/nodes/statement/statement.controller.ts
+// src/nodes/statement/statement.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Controller,
@@ -11,23 +11,25 @@ import {
   Query,
   UseGuards,
   Request,
-  Logger,
-  HttpException,
+  HttpCode,
   HttpStatus,
   BadRequestException,
   NotFoundException,
-  HttpCode,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { StatementService } from './statement.service';
-import type { VoteResult } from '../../neo4j/schemas/vote.schema';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
-// Define DTOs for better type safety - Following consistent patterns
+/**
+ * DTOs for Statement endpoints
+ */
 interface CreateStatementDto {
   statement: string;
-  publicCredit: boolean;
+  publicCredit?: boolean;
   categoryIds?: string[]; // 0-3 categories
   userKeywords?: string[];
+  parentStatementId?: string;
   initialComment: string;
 }
 
@@ -35,25 +37,32 @@ interface UpdateStatementDto {
   statement?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  categoryIds?: string[];
 }
 
-interface VoteStatementDto {
+interface VoteDto {
   isPositive: boolean;
 }
 
 interface RemoveVoteDto {
-  kind?: 'INCLUSION' | 'CONTENT';
+  kind: 'INCLUSION' | 'CONTENT';
 }
 
-interface VisibilityDto {
-  isVisible: boolean;
-}
-
-interface AddCommentDto {
-  commentText: string;
-  parentCommentId?: string;
-}
-
+/**
+ * StatementController - HTTP layer for statement operations
+ *
+ * RESPONSIBILITIES:
+ * ✅ Parse and validate HTTP requests
+ * ✅ Extract user from JWT (req.user.sub)
+ * ✅ Call StatementService methods
+ * ✅ Return appropriate HTTP status codes
+ * ✅ Handle HTTP-specific errors
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic (that's StatementService)
+ * ❌ Database queries (that's StatementSchema)
+ * ❌ Complex validation (that's StatementService)
+ */
 @Controller('nodes/statement')
 @UseGuards(JwtAuthGuard)
 export class StatementController {
@@ -61,653 +70,466 @@ export class StatementController {
 
   constructor(private readonly statementService: StatementService) {}
 
-  // NETWORK AND LISTING ENDPOINTS
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
 
-  @Get('network')
-  async getStatementNetwork(
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
-    @Query('sortBy') sortBy = 'netPositive',
-    @Query('sortDirection') sortDirection = 'desc',
-    @Query('keyword') keywords?: string[],
-    @Query('userId') userId?: string,
-  ): Promise<any[]> {
-    return await this.statementService.getStatementNetwork({
-      limit: limit ? Number(limit) : undefined,
-      offset: offset !== undefined ? Number(offset) : undefined, // ✅ FIXED: Properly handle 0
-      sortBy,
-      sortDirection,
-      keywords,
-      userId,
-    });
-  }
-
-  // CRUD OPERATIONS - Following consistent patterns
-
+  /**
+   * Create a new statement
+   * POST /nodes/statement
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createStatement(
-    @Body() statementData: CreateStatementDto,
+    @Body() createDto: CreateStatementDto,
     @Request() req: any,
   ) {
-    try {
-      this.logger.log(`Creating statement from user ${req.user.sub}`);
-
-      // Validate required fields
-      if (!statementData.statement || statementData.statement.trim() === '') {
-        throw new BadRequestException('Statement text is required');
-      }
-
-      if (typeof statementData.publicCredit !== 'boolean') {
-        throw new BadRequestException('Public credit flag is required');
-      }
-
-      if (
-        !statementData.initialComment ||
-        statementData.initialComment.trim() === ''
-      ) {
-        throw new BadRequestException('Initial comment is required');
-      }
-
-      const result = await this.statementService.createStatement({
-        ...statementData,
-        createdBy: req.user.sub, // Use authenticated user ID from JWT
-      });
-
-      this.logger.log(`Successfully created statement with ID: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error creating statement`);
+    if (!createDto.statement || createDto.statement.trim() === '') {
+      throw new BadRequestException('Statement text is required');
     }
+
+    if (!createDto.initialComment || createDto.initialComment.trim() === '') {
+      throw new BadRequestException('Initial comment is required');
+    }
+
+    if (createDto.categoryIds && createDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Creating statement from user ${req.user.sub}`);
+
+    const result = await this.statementService.createStatement({
+      ...createDto,
+      createdBy: req.user.sub, // Extract from JWT
+      publicCredit: createDto.publicCredit ?? true,
+    });
+
+    this.logger.log(`Successfully created statement with ID: ${result.id}`);
+    return result;
   }
 
+  /**
+   * Get a statement by ID
+   * GET /nodes/statement/:id
+   */
   @Get(':id')
   async getStatement(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Retrieving statement: ${id}`);
-
-      const statement = await this.statementService.getStatement(id);
-
-      this.logger.debug(
-        `Retrieved statement: ${statement.statement.substring(0, 50)}...`,
-      );
-      return statement;
-    } catch (error) {
-      this.handleError(error, `Error retrieving statement: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    this.logger.debug(`Retrieving statement: ${id}`);
+
+    const statement = await this.statementService.getStatement(id);
+
+    if (!statement) {
+      throw new NotFoundException(`Statement with ID ${id} not found`);
+    }
+
+    return statement;
   }
 
+  /**
+   * Update a statement
+   * PUT /nodes/statement/:id
+   */
   @Put(':id')
   async updateStatement(
     @Param('id') id: string,
-    @Body() updateData: UpdateStatementDto,
+    @Body() updateDto: UpdateStatementDto,
+    @Request() req: any,
   ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.log(`Updating statement: ${id}`);
-
-      const result = await this.statementService.updateStatement(
-        id,
-        updateData,
-      );
-
-      this.logger.log(`Successfully updated statement: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error updating statement: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    // Validate at least one field provided
+    if (
+      !updateDto.statement &&
+      updateDto.publicCredit === undefined &&
+      !updateDto.userKeywords &&
+      !updateDto.categoryIds
+    ) {
+      throw new BadRequestException(
+        'At least one field must be provided for update',
+      );
+    }
+
+    if (updateDto.categoryIds && updateDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    this.logger.log(`Updating statement: ${id}`);
+
+    const result = await this.statementService.updateStatement(id, updateDto);
+
+    if (!result) {
+      throw new NotFoundException(`Statement with ID ${id} not found`);
+    }
+
+    this.logger.log(`Successfully updated statement: ${id}`);
+    return result;
   }
 
+  /**
+   * Delete a statement
+   * DELETE /nodes/statement/:id
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteStatement(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.log(`Deleting statement: ${id}`);
-
-      await this.statementService.deleteStatement(id);
-
-      this.logger.log(`Successfully deleted statement: ${id}`);
-    } catch (error) {
-      this.handleError(error, `Error deleting statement: ${id}`);
+  async deleteStatement(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Deleting statement: ${id}`);
+
+    await this.statementService.deleteStatement(id);
+
+    this.logger.log(`Successfully deleted statement: ${id}`);
   }
 
+  // ============================================
   // VOTING ENDPOINTS - DUAL VOTING (INCLUSION + CONTENT)
+  // ============================================
 
-  @Post(':id/vote/inclusion')
-  async voteStatementInclusion(
+  /**
+   * Vote on statement inclusion
+   * POST /nodes/statement/:id/vote-inclusion
+   */
+  @Post(':id/vote-inclusion')
+  async voteInclusion(
     @Param('id') id: string,
-    @Body() voteData: VoteStatementDto,
+    @Body() voteDto: VoteDto,
     @Request() req: any,
   ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      if (typeof voteData.isPositive !== 'boolean') {
-        throw new BadRequestException(
-          'Vote direction (isPositive) is required',
-        );
-      }
-
-      this.logger.log(
-        `Processing inclusion vote on statement ${id}: ${voteData.isPositive ? 'positive' : 'negative'}`,
-      );
-
-      const result = await this.statementService.voteStatementInclusion(
-        id,
-        req.user.sub,
-        voteData.isPositive,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error voting on statement inclusion: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.log(
+      `Processing inclusion vote on statement ${id}: ${voteDto.isPositive ? 'positive' : 'negative'}`,
+    );
+
+    const result = await this.statementService.voteInclusion(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    return result;
   }
 
-  @Post(':id/vote/content')
-  async voteStatementContent(
+  /**
+   * Vote on statement content
+   * POST /nodes/statement/:id/vote-content
+   */
+  @Post(':id/vote-content')
+  async voteContent(
     @Param('id') id: string,
-    @Body() voteData: VoteStatementDto,
+    @Body() voteDto: VoteDto,
     @Request() req: any,
   ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      if (typeof voteData.isPositive !== 'boolean') {
-        throw new BadRequestException(
-          'Vote direction (isPositive) is required',
-        );
-      }
-
-      this.logger.log(
-        `Processing content vote on statement ${id}: ${voteData.isPositive ? 'positive' : 'negative'}`,
-      );
-
-      const result = await this.statementService.voteStatementContent(
-        id,
-        req.user.sub,
-        voteData.isPositive,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error voting on statement content: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.log(
+      `Processing content vote on statement ${id}: ${voteDto.isPositive ? 'positive' : 'negative'}`,
+    );
+
+    const result = await this.statementService.voteContent(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    return result;
   }
 
-  @Get(':id/vote')
-  async getStatementVoteStatus(@Param('id') id: string, @Request() req: any) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting vote status for statement: ${id}`);
-
-      const voteStatus = await this.statementService.getStatementVoteStatus(
-        id,
-        req.user.sub,
-      );
-
-      return { voteStatus };
-    } catch (error) {
-      this.handleError(error, `Error getting vote status for statement: ${id}`);
+  /**
+   * Get vote status for current user
+   * GET /nodes/statement/:id/vote-status
+   */
+  @Get(':id/vote-status')
+  async getVoteStatus(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<VoteStatus | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    return await this.statementService.getVoteStatus(id, req.user.sub);
   }
 
+  /**
+   * Remove vote (inclusion or content)
+   * DELETE /nodes/statement/:id/vote
+   */
   @Delete(':id/vote')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async removeStatementVote(
+  async removeVote(
     @Param('id') id: string,
-    @Body() removeVoteData: RemoveVoteDto,
+    @Body() removeVoteDto: RemoveVoteDto,
     @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      const kind = removeVoteData.kind || 'INCLUSION';
-      this.logger.log(`Removing ${kind} vote from statement: ${id}`);
-
-      await this.statementService.removeStatementVote(id, req.user.sub, kind);
-    } catch (error) {
-      this.handleError(error, `Error removing vote from statement: ${id}`);
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (
+      !removeVoteDto.kind ||
+      !['INCLUSION', 'CONTENT'].includes(removeVoteDto.kind)
+    ) {
+      throw new BadRequestException(
+        'Vote kind must be either INCLUSION or CONTENT',
+      );
+    }
+
+    this.logger.log(`Removing ${removeVoteDto.kind} vote on statement: ${id}`);
+
+    return await this.statementService.removeVote(
+      id,
+      req.user.sub,
+      removeVoteDto.kind,
+    );
   }
 
+  /**
+   * Get vote counts
+   * GET /nodes/statement/:id/votes
+   */
   @Get(':id/votes')
-  async getStatementVotes(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting vote counts for statement: ${id}`);
-
-      const votes = await this.statementService.getStatementVotes(id);
-
-      return { votes };
-    } catch (error) {
-      this.handleError(error, `Error getting votes for statement: ${id}`);
+  async getVotes(@Param('id') id: string): Promise<VoteResult | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
+
+    return await this.statementService.getVotes(id);
   }
 
-  // VISIBILITY ENDPOINTS - Following consistent patterns
+  // ============================================
+  // RELATIONSHIP ENDPOINTS
+  // ============================================
 
-  @Put(':id/visibility')
-  async setVisibilityStatus(
-    @Param('id') id: string,
-    @Body() visibilityData: VisibilityDto,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      if (typeof visibilityData.isVisible !== 'boolean') {
-        throw new BadRequestException(
-          'Visibility status (isVisible) is required',
-        );
-      }
-
-      this.logger.log(
-        `Setting visibility for statement ${id} to ${visibilityData.isVisible}`,
-      );
-
-      const result = await this.statementService.setVisibilityStatus(
-        id,
-        visibilityData.isVisible,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error setting visibility for statement: ${id}`);
-    }
-  }
-
-  @Get(':id/visibility')
-  async getVisibilityStatus(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting visibility status for statement: ${id}`);
-
-      const status = await this.statementService.getVisibilityStatus(id);
-
-      return { visibilityStatus: status };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting visibility status for statement: ${id}`,
-      );
-    }
-  }
-
-  // DISCOVERY ENDPOINTS - New functionality following established patterns
-
-  @Get(':id/related')
-  async getRelatedContentBySharedCategories(
-    @Param('id') id: string,
-    @Query('nodeTypes') nodeTypes?: string,
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
-    @Query('sortBy')
-    sortBy:
-      | 'category_overlap'
-      | 'created'
-      | 'inclusion_votes'
-      | 'content_votes' = 'category_overlap',
-    @Query('sortDirection') sortDirection: 'asc' | 'desc' = 'desc',
-    @Query('excludeSelf') excludeSelf?: string,
-    @Query('minCategoryOverlap') minCategoryOverlap?: number,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting related content for statement: ${id}`);
-
-      const options = {
-        nodeTypes: nodeTypes
-          ? (nodeTypes.split(',') as (
-              | 'statement'
-              | 'answer'
-              | 'openquestion'
-              | 'quantity'
-            )[])
-          : undefined,
-        limit: limit ? Number(limit) : undefined,
-        offset: offset ? Number(offset) : 0,
-        sortBy,
-        sortDirection,
-        excludeSelf: excludeSelf === 'true',
-        minCategoryOverlap: minCategoryOverlap
-          ? Number(minCategoryOverlap)
-          : undefined,
-      };
-
-      const relatedContent =
-        await this.statementService.getRelatedContentBySharedCategories(
-          id,
-          options,
-        );
-
-      return { relatedContent };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting related content for statement: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/categories')
-  async getStatementCategories(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting categories for statement: ${id}`);
-
-      const categories = await this.statementService.getStatementCategories(id);
-
-      return { categories };
-    } catch (error) {
-      this.handleError(error, `Error getting categories for statement: ${id}`);
-    }
-  }
-
-  // DISCUSSION AND COMMENT ENDPOINTS - Following consistent patterns
-
-  @Get(':id/discussion')
-  async getStatementWithDiscussion(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.log(`Getting statement with discussion: ${id}`);
-
-      const statement =
-        await this.statementService.getStatementWithDiscussion(id);
-
-      return statement;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error retrieving statement with discussion: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/comments')
-  async getStatementComments(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.log(`Getting comments for statement: ${id}`);
-
-      const result = await this.statementService.getStatementComments(id);
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error retrieving comments for statement: ${id}`);
-    }
-  }
-
-  @Post(':id/comments')
-  async addStatementComment(
-    @Param('id') id: string,
-    @Body() commentData: AddCommentDto,
-    @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      if (!commentData.commentText || commentData.commentText.trim() === '') {
-        throw new BadRequestException('Comment text is required');
-      }
-
-      this.logger.log(`Adding comment to statement: ${id}`);
-
-      const comment = await this.statementService.addStatementComment(
-        id,
-        commentData,
-        req.user.sub,
-      );
-
-      return comment;
-    } catch (error) {
-      this.handleError(error, `Error adding comment to statement: ${id}`);
-    }
-  }
-
-  // STATEMENT RELATIONSHIP ENDPOINTS
-
+  /**
+   * Create a related statement (child statement)
+   * POST /nodes/statement/:id/related
+   */
   @Post(':id/related')
   @HttpCode(HttpStatus.CREATED)
   async createRelatedStatement(
-    @Param('id') existingStatementId: string,
-    @Body() statementData: CreateStatementDto,
+    @Param('id') parentStatementId: string,
+    @Body() createDto: CreateStatementDto,
     @Request() req: any,
   ) {
-    try {
-      if (!existingStatementId || existingStatementId.trim() === '') {
-        throw new BadRequestException('Existing statement ID is required');
-      }
-
-      this.logger.log(`Creating related statement to: ${existingStatementId}`);
-
-      const result = await this.statementService.createRelatedStatement(
-        existingStatementId,
-        {
-          ...statementData,
-          createdBy: req.user.sub,
-        },
-      );
-
-      this.logger.log(
-        `Successfully created related statement with ID: ${result.id}`,
-      );
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error creating related statement to: ${existingStatementId}`,
-      );
+    if (!parentStatementId || parentStatementId.trim() === '') {
+      throw new BadRequestException('Parent statement ID is required');
     }
+
+    if (!createDto.statement || createDto.statement.trim() === '') {
+      throw new BadRequestException('Statement text is required');
+    }
+
+    if (!createDto.initialComment || createDto.initialComment.trim() === '') {
+      throw new BadRequestException('Initial comment is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Creating related statement to: ${parentStatementId}`);
+
+    const result = await this.statementService.createRelatedStatement(
+      parentStatementId,
+      {
+        ...createDto,
+        createdBy: req.user.sub,
+        publicCredit: createDto.publicCredit ?? true,
+      },
+    );
+
+    this.logger.log(
+      `Successfully created related statement with ID: ${result.id}`,
+    );
+    return result;
   }
 
+  /**
+   * Create direct relationship between two statements
+   * POST /nodes/statement/:id1/relationship/:id2
+   */
   @Post(':id1/relationship/:id2')
   async createDirectRelationship(
     @Param('id1') id1: string,
     @Param('id2') id2: string,
   ) {
-    try {
-      if (!id1 || !id2) {
-        throw new BadRequestException('Both statement IDs are required');
-      }
-
-      this.logger.log(
-        `Creating relationship between statements ${id1} and ${id2}`,
-      );
-
-      const result = await this.statementService.createDirectRelationship(
-        id1,
-        id2,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error creating relationship between statements ${id1} and ${id2}`,
-      );
+    if (!id1 || !id2) {
+      throw new BadRequestException('Both statement IDs are required');
     }
+
+    this.logger.log(
+      `Creating relationship between statements ${id1} and ${id2}`,
+    );
+
+    const result = await this.statementService.createDirectRelationship(
+      id1,
+      id2,
+    );
+
+    return result;
   }
 
+  /**
+   * Remove direct relationship between two statements
+   * DELETE /nodes/statement/:id1/relationship/:id2
+   */
   @Delete(':id1/relationship/:id2')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeDirectRelationship(
     @Param('id1') id1: string,
     @Param('id2') id2: string,
   ) {
-    try {
-      if (!id1 || !id2) {
-        throw new BadRequestException('Both statement IDs are required');
-      }
-
-      this.logger.log(
-        `Removing relationship between statements ${id1} and ${id2}`,
-      );
-
-      await this.statementService.removeDirectRelationship(id1, id2);
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error removing relationship between statements ${id1} and ${id2}`,
-      );
+    if (!id1 || !id2) {
+      throw new BadRequestException('Both statement IDs are required');
     }
+
+    this.logger.log(
+      `Removing relationship between statements ${id1} and ${id2}`,
+    );
+
+    await this.statementService.removeDirectRelationship(id1, id2);
   }
-
-  @Get(':id/direct-relationships')
-  async getDirectlyRelatedStatements(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting directly related statements for: ${id}`);
-
-      const relatedStatements =
-        await this.statementService.getDirectlyRelatedStatements(id);
-
-      return { relatedStatements };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting directly related statements for: ${id}`,
-      );
-    }
-  }
-
-  // UTILITY ENDPOINTS
-
-  @Get(':id/approved')
-  async isStatementApproved(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Checking approval status for statement: ${id}`);
-
-      const isApproved = await this.statementService.isStatementApproved(id);
-
-      return { isApproved };
-    } catch (error) {
-      this.handleError(error, `Error checking approval for statement: ${id}`);
-    }
-  }
-
-  @Get(':id/content-voting')
-  async isContentVotingAvailable(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(
-        `Checking content voting availability for statement: ${id}`,
-      );
-
-      const isAvailable =
-        await this.statementService.isContentVotingAvailable(id);
-
-      return { contentVotingAvailable: isAvailable };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error checking content voting availability for statement: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/stats')
-  async getStatementStats(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Statement ID is required');
-      }
-
-      this.logger.debug(`Getting statement stats for: ${id}`);
-
-      const stats = await this.statementService.getStatementStats(id);
-
-      return stats;
-    } catch (error) {
-      this.handleError(error, `Error getting statement stats: ${id}`);
-    }
-  }
-
-  @Get('check')
-  async checkStatements(): Promise<{ count: number }> {
-    try {
-      this.logger.debug('Received request to check statements count');
-      return await this.statementService.checkStatements();
-    } catch (error) {
-      this.handleError(error, 'Error checking statements count');
-    }
-  }
-
-  // PRIVATE HELPER METHODS
 
   /**
-   * Centralized error handling
+   * Get statements directly related to a statement
+   * GET /nodes/statement/:id/direct-relationships
    */
-  private handleError(error: any, context: string): never {
-    this.logger.error(`${context}: ${error.message}`, error.stack);
-
-    if (
-      error instanceof BadRequestException ||
-      error instanceof NotFoundException
-    ) {
-      throw error;
+  @Get(':id/direct-relationships')
+  async getDirectlyRelatedStatements(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
     }
 
-    // Log the full error for debugging while throwing a generic message
-    throw new HttpException(
-      {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'An internal server error occurred',
-        error: 'Internal Server Error',
-      },
-      HttpStatus.INTERNAL_SERVER_ERROR,
+    this.logger.debug(`Getting directly related statements for: ${id}`);
+
+    const relatedStatements =
+      await this.statementService.getDirectlyRelatedStatements(id);
+
+    return { relatedStatements };
+  }
+
+  // ============================================
+  // QUERY ENDPOINTS
+  // ============================================
+
+  /**
+   * Get statement network
+   * GET /nodes/statement/network
+   */
+  @Get('network')
+  async getStatementNetwork(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortDirection') sortDirection?: string,
+    @Query('keywords') keywords?: string[],
+    @Query('userId') userId?: string,
+  ) {
+    return await this.statementService.getStatementNetwork({
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+      sortBy: sortBy || 'netPositive',
+      sortDirection: sortDirection || 'desc',
+      keywords,
+      userId,
+    });
+  }
+
+  /**
+   * Check statements count
+   * GET /nodes/statement/count
+   */
+  @Get('count')
+  async checkStatements() {
+    return await this.statementService.checkStatements();
+  }
+
+  // ============================================
+  // UTILITY ENDPOINTS
+  // ============================================
+
+  /**
+   * Check if statement is approved
+   * GET /nodes/statement/:id/approved
+   */
+  @Get(':id/approved')
+  async isStatementApproved(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
+    }
+
+    this.logger.debug(`Checking approval status for statement: ${id}`);
+
+    const isApproved = await this.statementService.isStatementApproved(id);
+
+    return { isApproved };
+  }
+
+  /**
+   * Check if content voting is available
+   * GET /nodes/statement/:id/content-voting-available
+   */
+  @Get(':id/content-voting-available')
+  async isContentVotingAvailable(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Statement ID is required');
+    }
+
+    this.logger.debug(
+      `Checking content voting availability for statement: ${id}`,
     );
+
+    const isAvailable =
+      await this.statementService.isContentVotingAvailable(id);
+
+    return { isAvailable };
   }
 }
