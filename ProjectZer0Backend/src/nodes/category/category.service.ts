@@ -165,36 +165,48 @@ export class CategoryService {
    */
   async updateCategory(
     id: string,
-    updateData: Partial<CategoryData>,
-  ): Promise<CategoryData> {
+    updateData: {
+      name?: string;
+      description?: string;
+      publicCredit?: boolean;
+    },
+  ): Promise<CategoryData | null> {
     if (!id || id.trim() === '') {
       throw new BadRequestException('Category ID is required');
     }
 
-    // Validate update data
-    if (updateData.name !== undefined) {
-      if (!updateData.name || updateData.name.trim() === '') {
-        throw new BadRequestException('Category name cannot be empty');
-      }
+    // Validate at least one field to update
+    if (
+      !updateData.name &&
+      !updateData.description &&
+      updateData.publicCredit === undefined
+    ) {
+      throw new BadRequestException(
+        'At least one field must be provided for update',
+      );
     }
 
-    this.logger.debug(
-      `Updating category: ${id} with data: ${JSON.stringify(updateData)}`,
-    );
+    // Validate name if provided
+    if (updateData.name !== undefined && updateData.name.trim() === '') {
+      throw new BadRequestException('Category name cannot be empty');
+    }
+
+    this.logger.log(`Updating category: ${id}`);
 
     try {
-      const updatedCategory = await this.categorySchema.update(id, updateData);
+      const category = await this.categorySchema.update(id, updateData);
 
-      if (!updatedCategory) {
-        throw new NotFoundException(`Category with ID ${id} not found`);
+      if (!category) {
+        this.logger.debug(`Category not found for update: ${id}`);
+        return null;
       }
 
-      this.logger.debug(`Updated category: ${JSON.stringify(updatedCategory)}`);
-      return updatedCategory;
+      this.logger.debug(`Updated category: ${id}`);
+      return category;
     } catch (error) {
       if (
-        error instanceof NotFoundException ||
-        error instanceof BadRequestException
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
       ) {
         throw error;
       }
@@ -218,12 +230,16 @@ export class CategoryService {
       throw new BadRequestException('Category ID is required');
     }
 
-    this.logger.debug(`Deleting category: ${id}`);
+    this.logger.log(`Deleting category: ${id}`);
 
     try {
       await this.categorySchema.delete(id);
       this.logger.debug(`Deleted category: ${id}`);
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+
       this.logger.error(
         `Error deleting category: ${error.message}`,
         error.stack,
@@ -268,6 +284,13 @@ export class CategoryService {
       this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
       this.logger.error(
         `Error voting on category: ${error.message}`,
         error.stack,
@@ -291,15 +314,11 @@ export class CategoryService {
     }
 
     this.logger.debug(
-      `Getting vote status for category: ${id} and user: ${userId}`,
+      `Getting vote status for category: ${id}, user: ${userId}`,
     );
 
     try {
-      const status = await this.categorySchema.getVoteStatus(id, userId);
-      this.logger.debug(
-        `Vote status for category ${id} and user ${userId}: ${JSON.stringify(status)}`,
-      );
-      return status;
+      return await this.categorySchema.getVoteStatus(id, userId);
     } catch (error) {
       this.logger.error(
         `Error getting vote status: ${error.message}`,
@@ -312,7 +331,7 @@ export class CategoryService {
   }
 
   /**
-   * Remove a vote from a category
+   * Remove a vote
    */
   async removeVote(id: string, userId: string): Promise<VoteResult> {
     if (!id || id.trim() === '') {
@@ -323,17 +342,18 @@ export class CategoryService {
       throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(`Removing vote from category: ${id} by user: ${userId}`);
+    this.logger.debug(`Removing vote for category: ${id}, user: ${userId}`);
 
     try {
-      const result = await this.categorySchema.removeVote(
-        id,
-        userId,
-        'INCLUSION',
-      );
-      this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
-      return result;
+      return await this.categorySchema.removeVote(id, userId, 'INCLUSION');
     } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
       this.logger.error(`Error removing vote: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to remove vote: ${error.message}`,
@@ -342,7 +362,7 @@ export class CategoryService {
   }
 
   /**
-   * Get vote totals for a category
+   * Get vote counts for a category
    */
   async getVotes(id: string): Promise<VoteResult | null> {
     if (!id || id.trim() === '') {
@@ -352,9 +372,7 @@ export class CategoryService {
     this.logger.debug(`Getting votes for category: ${id}`);
 
     try {
-      const votes = await this.categorySchema.getVotes(id);
-      this.logger.debug(`Votes for category ${id}: ${JSON.stringify(votes)}`);
-      return votes;
+      return await this.categorySchema.getVotes(id);
     } catch (error) {
       this.logger.error(`Error getting votes: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
@@ -364,11 +382,11 @@ export class CategoryService {
   }
 
   // ============================================
-  // HIERARCHY OPERATIONS
+  // HIERARCHICAL OPERATIONS
   // ============================================
 
   /**
-   * Get category hierarchy
+   * Get category hierarchy (tree structure)
    * Direct delegation to schema
    */
   async getCategoryHierarchy(rootId?: string) {
@@ -462,28 +480,35 @@ export class CategoryService {
   }
 
   // ============================================
-  // VALIDATION METHODS
+  // PRIVATE VALIDATION HELPERS
   // ============================================
 
-  private validateCategoryInput(data: {
+  /**
+   * Validates category input data
+   * Business rules:
+   * - Name required and not empty
+   * - Description optional
+   * - 1-5 words required
+   * - Parent category prevents circular relationships (checked in schema)
+   */
+  private validateCategoryInput(categoryData: {
     name: string;
-    createdBy: string;
     wordIds: string[];
   }): void {
-    if (!data.name || data.name.trim() === '') {
+    if (!categoryData.name || categoryData.name.trim() === '') {
       throw new BadRequestException('Category name is required');
     }
 
-    if (!data.createdBy || data.createdBy.trim() === '') {
-      throw new BadRequestException('Creator is required');
-    }
-
-    if (!data.wordIds || data.wordIds.length === 0) {
+    if (!categoryData.wordIds || categoryData.wordIds.length === 0) {
       throw new BadRequestException('At least one word is required');
     }
 
-    if (data.wordIds.length > 5) {
-      throw new BadRequestException('Category can have maximum 5 words');
+    if (categoryData.wordIds.length > 5) {
+      throw new BadRequestException(
+        'Maximum 5 words allowed for category composition',
+      );
     }
+
+    // Note: Word approval and circular parent checks done in CategorySchema
   }
 }

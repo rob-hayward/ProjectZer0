@@ -1,4 +1,4 @@
-// src/nodes/category/category.service.spec.ts - COMPREHENSIVE TEST SUITE
+// src/nodes/category/category.service.spec.ts - COMPLETE TEST SUITE
 
 import { Test, TestingModule } from '@nestjs/testing';
 import {
@@ -7,16 +7,16 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { CategoryService } from './category.service';
-import { CategorySchema } from './../../neo4j/schemas/category.schema';
-import { DiscussionService } from './../discussion/discussion.service';
-import { CommentService } from './../comment/comment.service';
-import type { VoteStatus, VoteResult } from './../../neo4j/schemas/vote.schema';
+import { CategorySchema } from '../../neo4j/schemas/category.schema';
+import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
+import { UserSchema } from '../../neo4j/schemas/user.schema';
+import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 
 describe('CategoryService', () => {
   let service: CategoryService;
   let categorySchema: jest.Mocked<CategorySchema>;
-  let discussionService: jest.Mocked<DiscussionService>; // eslint-disable-line @typescript-eslint/no-unused-vars
-  let commentService: jest.Mocked<CommentService>; // eslint-disable-line @typescript-eslint/no-unused-vars
+  let discussionSchema: jest.Mocked<DiscussionSchema>;
+  let userSchema: jest.Mocked<UserSchema>;
 
   const mockCategoryData = {
     id: 'cat-123',
@@ -24,7 +24,6 @@ describe('CategoryService', () => {
     description: 'Technology related content',
     createdBy: 'user-123',
     publicCredit: true,
-    visibilityStatus: true,
     createdAt: new Date('2023-01-01T00:00:00Z'),
     updatedAt: new Date('2023-01-01T00:00:00Z'),
     inclusionPositiveVotes: 8,
@@ -36,6 +35,7 @@ describe('CategoryService', () => {
     wordCount: 3,
     contentCount: 15,
     childCount: 2,
+    discussionId: 'discussion-cat-123',
   };
 
   const mockVoteResult: VoteResult = {
@@ -59,17 +59,9 @@ describe('CategoryService', () => {
   };
 
   beforeEach(async () => {
+    // Mock CategorySchema
     const mockCategorySchema = {
-      // Enhanced domain methods
       createCategory: jest.fn(),
-      getCategory: jest.fn(),
-      getCategoryStats: jest.fn(),
-      setVisibilityStatus: jest.fn(),
-      getVisibilityStatus: jest.fn(),
-      getApprovedCategories: jest.fn(),
-      getAllCategories: jest.fn(),
-
-      // BaseNodeSchema inherited methods
       findById: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
@@ -77,16 +69,23 @@ describe('CategoryService', () => {
       getVoteStatus: jest.fn(),
       removeVote: jest.fn(),
       getVotes: jest.fn(),
+      getCategoryHierarchy: jest.fn(),
+      getCategoriesForNode: jest.fn(),
+      getAllCategories: jest.fn(),
+      getApprovedCategories: jest.fn(),
     };
 
-    const mockDiscussionService = {
-      createDiscussion: jest.fn(),
-      getDiscussion: jest.fn(),
+    // Mock DiscussionSchema (CRITICAL - not DiscussionService!)
+    const mockDiscussionSchema = {
+      createDiscussionForNode: jest.fn(),
+      getDiscussionIdForNode: jest.fn(),
+      hasDiscussion: jest.fn(),
     };
 
-    const mockCommentService = {
-      createComment: jest.fn(),
-      getComments: jest.fn(),
+    // Mock UserSchema
+    const mockUserSchema = {
+      addCreatedNode: jest.fn(),
+      getUserCreatedNodes: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -97,27 +96,50 @@ describe('CategoryService', () => {
           useValue: mockCategorySchema,
         },
         {
-          provide: DiscussionService,
-          useValue: mockDiscussionService,
+          provide: DiscussionSchema, // ← Direct injection, not DiscussionService!
+          useValue: mockDiscussionSchema,
         },
         {
-          provide: CommentService,
-          useValue: mockCommentService,
+          provide: UserSchema,
+          useValue: mockUserSchema,
         },
       ],
     }).compile();
 
     service = module.get<CategoryService>(CategoryService);
     categorySchema = module.get(CategorySchema);
-    discussionService = module.get(DiscussionService);
-    commentService = module.get(CommentService);
+    discussionSchema = module.get(DiscussionSchema);
+    userSchema = module.get(UserSchema);
   });
 
   afterEach(() => {
     jest.clearAllMocks();
   });
 
-  // CRUD OPERATIONS TESTS
+  // ============================================
+  // SERVICE INITIALIZATION
+  // ============================================
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+
+  it('should inject CategorySchema', () => {
+    expect(categorySchema).toBeDefined();
+  });
+
+  it('should inject DiscussionSchema directly (not DiscussionService)', () => {
+    expect(discussionSchema).toBeDefined();
+    expect(discussionSchema.createDiscussionForNode).toBeDefined();
+  });
+
+  it('should inject UserSchema', () => {
+    expect(userSchema).toBeDefined();
+  });
+
+  // ============================================
+  // CREATE CATEGORY TESTS
+  // ============================================
 
   describe('createCategory', () => {
     const createCategoryData = {
@@ -135,6 +157,7 @@ describe('CategoryService', () => {
 
       const result = await service.createCategory(createCategoryData);
 
+      // Verify schema called with UUID (any string)
       expect(categorySchema.createCategory).toHaveBeenCalledWith(
         expect.objectContaining({
           id: expect.any(String),
@@ -144,23 +167,95 @@ describe('CategoryService', () => {
           publicCredit: true,
           wordIds: ['word-1', 'word-2', 'word-3'],
           parentCategoryId: 'parent-cat',
-          initialComment: 'Initial comment',
         }),
       );
       expect(result).toEqual(mockCategoryData);
     });
 
-    it('should validate required fields', async () => {
+    it('should create discussion if initialComment provided', async () => {
+      categorySchema.createCategory.mockResolvedValue(mockCategoryData);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-cat-123',
+      });
+
+      await service.createCategory(createCategoryData);
+
+      // Verify DiscussionSchema called directly
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
+        nodeId: mockCategoryData.id,
+        nodeType: 'CategoryNode',
+        nodeIdField: 'id', // ← Standard 'id' for CategoryNode
+        createdBy: 'user-123',
+        initialComment: 'Initial comment',
+      });
+    });
+
+    it('should use correct nodeIdField for CategoryNode', async () => {
+      categorySchema.createCategory.mockResolvedValue(mockCategoryData);
+      discussionSchema.createDiscussionForNode.mockResolvedValue({
+        discussionId: 'discussion-cat-123',
+      });
+
+      await service.createCategory(createCategoryData);
+
+      // Verify nodeIdField is 'id' (standard, unlike WordNode's 'word')
+      expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith(
+        expect.objectContaining({
+          nodeIdField: 'id', // ← Must be 'id' for CategoryNode
+        }),
+      );
+    });
+
+    it('should continue if discussion creation fails', async () => {
+      categorySchema.createCategory.mockResolvedValue(mockCategoryData);
+      discussionSchema.createDiscussionForNode.mockRejectedValue(
+        new Error('Discussion creation failed'),
+      );
+
+      // Should not throw - category creation succeeded
+      const result = await service.createCategory(createCategoryData);
+
+      expect(categorySchema.createCategory).toHaveBeenCalled();
+      expect(result).toEqual(mockCategoryData);
+    });
+
+    it('should not create discussion if no initialComment', async () => {
+      const dataWithoutComment = { ...createCategoryData };
+      delete dataWithoutComment.initialComment;
+
+      categorySchema.createCategory.mockResolvedValue(mockCategoryData);
+
+      await service.createCategory(dataWithoutComment);
+
+      expect(categorySchema.createCategory).toHaveBeenCalled();
+      expect(discussionSchema.createDiscussionForNode).not.toHaveBeenCalled();
+    });
+
+    it('should validate required name field', async () => {
       const invalidData = { ...createCategoryData, name: '' };
 
       await expect(service.createCategory(invalidData)).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.createCategory(invalidData)).rejects.toThrow(
+        'Category name is required',
+      );
 
       expect(categorySchema.createCategory).not.toHaveBeenCalled();
     });
 
-    it('should validate word count (1-5 words)', async () => {
+    it('should validate wordIds array exists', async () => {
+      const noWordsData = { ...createCategoryData, wordIds: [] };
+
+      await expect(service.createCategory(noWordsData)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.createCategory(noWordsData)).rejects.toThrow(
+        'At least one word is required',
+      );
+    });
+
+    it('should validate maximum 5 words', async () => {
       const tooManyWords = {
         ...createCategoryData,
         wordIds: ['w1', 'w2', 'w3', 'w4', 'w5', 'w6'],
@@ -169,16 +264,18 @@ describe('CategoryService', () => {
       await expect(service.createCategory(tooManyWords)).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.createCategory(tooManyWords)).rejects.toThrow(
+        'Maximum 5 words allowed',
+      );
     });
 
-    it('should trim input data', async () => {
+    it('should trim name and description', async () => {
       categorySchema.createCategory.mockResolvedValue(mockCategoryData);
 
       const dataWithSpaces = {
         ...createCategoryData,
         name: '  Technology  ',
         description: '  Tech description  ',
-        initialComment: '  Initial comment  ',
       };
 
       await service.createCategory(dataWithSpaces);
@@ -187,52 +284,107 @@ describe('CategoryService', () => {
         expect.objectContaining({
           name: 'Technology',
           description: 'Tech description',
-          initialComment: 'Initial comment',
         }),
+      );
+    });
+
+    it('should default publicCredit to true', async () => {
+      const dataWithoutCredit = { ...createCategoryData };
+      delete dataWithoutCredit.publicCredit;
+
+      categorySchema.createCategory.mockResolvedValue(mockCategoryData);
+
+      await service.createCategory(dataWithoutCredit);
+
+      expect(categorySchema.createCategory).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicCredit: true,
+        }),
+      );
+    });
+
+    it('should preserve BadRequestException from schema', async () => {
+      categorySchema.createCategory.mockRejectedValue(
+        new BadRequestException('Invalid words'),
+      );
+
+      await expect(service.createCategory(createCategoryData)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.createCategory(createCategoryData)).rejects.toThrow(
+        'Invalid words',
+      );
+    });
+
+    it('should preserve NotFoundException from schema', async () => {
+      categorySchema.createCategory.mockRejectedValue(
+        new NotFoundException('Parent category not found'),
+      );
+
+      await expect(service.createCategory(createCategoryData)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('should wrap unknown errors in InternalServerErrorException', async () => {
+      categorySchema.createCategory.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(service.createCategory(createCategoryData)).rejects.toThrow(
+        InternalServerErrorException,
+      );
+      await expect(service.createCategory(createCategoryData)).rejects.toThrow(
+        'Failed to create category',
       );
     });
   });
 
+  // ============================================
+  // READ CATEGORY TESTS
+  // ============================================
+
   describe('getCategory', () => {
-    it('should get category by ID using enhanced method', async () => {
-      categorySchema.getCategory.mockResolvedValue(mockCategoryData);
+    it('should get category by ID', async () => {
+      categorySchema.findById.mockResolvedValue(mockCategoryData);
 
       const result = await service.getCategory('cat-123');
 
-      expect(categorySchema.getCategory).toHaveBeenCalledWith('cat-123');
+      expect(categorySchema.findById).toHaveBeenCalledWith('cat-123');
       expect(result).toEqual(mockCategoryData);
     });
 
-    it('should handle options parameter', async () => {
-      categorySchema.getCategory.mockResolvedValue(mockCategoryData);
+    it('should return null when category not found', async () => {
+      categorySchema.findById.mockResolvedValue(null);
 
-      const options = {
-        includeHierarchy: true,
-        includeUsageStats: true,
-        includeDiscussion: true,
-      };
+      const result = await service.getCategory('nonexistent');
 
-      await service.getCategory('cat-123', options);
-
-      expect(categorySchema.getCategory).toHaveBeenCalledWith('cat-123');
-    });
-
-    it('should throw NotFoundException when category not found', async () => {
-      categorySchema.getCategory.mockResolvedValue(null);
-
-      await expect(service.getCategory('nonexistent')).rejects.toThrow(
-        NotFoundException,
-      );
+      expect(result).toBeNull();
     });
 
     it('should validate ID parameter', async () => {
       await expect(service.getCategory('')).rejects.toThrow(
         BadRequestException,
       );
+      await expect(service.getCategory('')).rejects.toThrow(
+        'Category ID is required',
+      );
 
-      expect(categorySchema.getCategory).not.toHaveBeenCalled();
+      expect(categorySchema.findById).not.toHaveBeenCalled();
+    });
+
+    it('should wrap schema errors', async () => {
+      categorySchema.findById.mockRejectedValue(new Error('Database error'));
+
+      await expect(service.getCategory('cat-123')).rejects.toThrow(
+        InternalServerErrorException,
+      );
     });
   });
+
+  // ============================================
+  // UPDATE CATEGORY TESTS
+  // ============================================
 
   describe('updateCategory', () => {
     const updateData = {
@@ -241,221 +393,144 @@ describe('CategoryService', () => {
       publicCredit: false,
     };
 
-    it('should update category using BaseNodeSchema method', async () => {
-      categorySchema.update.mockResolvedValue({
+    it('should update category successfully', async () => {
+      const updatedCategory = {
         ...mockCategoryData,
-        ...updateData,
-      });
+        name: 'Updated Technology',
+        description: 'Updated description',
+        publicCredit: false,
+      };
+      categorySchema.update.mockResolvedValue(updatedCategory);
 
       const result = await service.updateCategory('cat-123', updateData);
 
       expect(categorySchema.update).toHaveBeenCalledWith('cat-123', updateData);
-      expect(result.name).toBe('Updated Technology');
+      expect(result).toEqual(updatedCategory);
     });
 
-    it('should validate update data is not empty', async () => {
-      await expect(service.updateCategory('cat-123', {})).rejects.toThrow(
+    it('should return null when category not found', async () => {
+      categorySchema.update.mockResolvedValue(null);
+
+      const result = await service.updateCategory('nonexistent', updateData);
+
+      expect(result).toBeNull();
+    });
+
+    it('should validate ID parameter', async () => {
+      await expect(service.updateCategory('', updateData)).rejects.toThrow(
         BadRequestException,
       );
 
       expect(categorySchema.update).not.toHaveBeenCalled();
     });
 
-    it('should validate name length', async () => {
-      const longName = { name: 'a'.repeat(101) };
-
-      await expect(service.updateCategory('cat-123', longName)).rejects.toThrow(
+    it('should validate at least one field provided', async () => {
+      await expect(service.updateCategory('cat-123', {})).rejects.toThrow(
         BadRequestException,
+      );
+      await expect(service.updateCategory('cat-123', {})).rejects.toThrow(
+        'At least one field must be provided',
       );
     });
 
-    it('should throw NotFoundException when category not found', async () => {
-      categorySchema.update.mockResolvedValue(null);
+    it('should validate name is not empty if provided', async () => {
+      await expect(
+        service.updateCategory('cat-123', { name: '' }),
+      ).rejects.toThrow(BadRequestException);
+      await expect(
+        service.updateCategory('cat-123', { name: '   ' }),
+      ).rejects.toThrow('Category name cannot be empty');
+    });
+
+    it('should allow updating only description', async () => {
+      const descriptionOnly = { description: 'New description' };
+      const updated = {
+        ...mockCategoryData,
+        description: 'New description',
+      };
+      categorySchema.update.mockResolvedValue(updated);
+
+      await service.updateCategory('cat-123', descriptionOnly);
+
+      expect(categorySchema.update).toHaveBeenCalledWith(
+        'cat-123',
+        descriptionOnly,
+      );
+    });
+
+    it('should allow updating only publicCredit', async () => {
+      const creditOnly = { publicCredit: false };
+      const updated = {
+        ...mockCategoryData,
+        publicCredit: false,
+      };
+      categorySchema.update.mockResolvedValue(updated);
+
+      await service.updateCategory('cat-123', creditOnly);
+
+      expect(categorySchema.update).toHaveBeenCalledWith('cat-123', creditOnly);
+    });
+
+    it('should preserve errors from schema', async () => {
+      categorySchema.update.mockRejectedValue(
+        new BadRequestException('Invalid update'),
+      );
 
       await expect(
-        service.updateCategory('nonexistent', updateData),
-      ).rejects.toThrow(NotFoundException);
+        service.updateCategory('cat-123', updateData),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 
+  // ============================================
+  // DELETE CATEGORY TESTS
+  // ============================================
+
   describe('deleteCategory', () => {
-    it('should delete category using BaseNodeSchema method', async () => {
-      categorySchema.findById.mockResolvedValue(mockCategoryData);
+    it('should delete category successfully', async () => {
       categorySchema.delete.mockResolvedValue(undefined);
 
-      const result = await service.deleteCategory('cat-123');
+      await service.deleteCategory('cat-123');
 
-      expect(categorySchema.findById).toHaveBeenCalledWith('cat-123');
       expect(categorySchema.delete).toHaveBeenCalledWith('cat-123');
-      expect(result).toEqual({ success: true });
     });
 
-    it('should throw NotFoundException when category not found', async () => {
-      categorySchema.findById.mockResolvedValue(null);
-
-      await expect(service.deleteCategory('nonexistent')).rejects.toThrow(
-        NotFoundException,
+    it('should validate ID parameter', async () => {
+      await expect(service.deleteCategory('')).rejects.toThrow(
+        BadRequestException,
       );
 
       expect(categorySchema.delete).not.toHaveBeenCalled();
     });
-  });
 
-  // LISTING AND FILTERING TESTS
-
-  describe('getCategories', () => {
-    const mockCategories = [mockCategoryData];
-
-    it('should get categories with default options', async () => {
-      categorySchema.getAllCategories.mockResolvedValue(mockCategories);
-
-      const result = await service.getCategories();
-
-      expect(categorySchema.getAllCategories).toHaveBeenCalledWith({
-        limit: undefined,
-        offset: 0,
-        sortBy: 'name',
-        sortDirection: 'asc',
-        onlyApproved: false,
-        parentId: undefined,
-        searchQuery: undefined,
-      });
-      expect(result).toEqual(mockCategories);
-    });
-
-    it('should handle all filtering options', async () => {
-      categorySchema.findById.mockResolvedValue(mockCategoryData); // Parent validation
-      categorySchema.getAllCategories.mockResolvedValue(mockCategories);
-
-      const options = {
-        limit: 20,
-        offset: 10,
-        sortBy: 'votes' as const,
-        sortDirection: 'desc' as const,
-        onlyApproved: true,
-        parentId: 'parent-cat',
-        searchQuery: 'technology',
-      };
-
-      const result = await service.getCategories(options);
-
-      expect(categorySchema.findById).toHaveBeenCalledWith('parent-cat');
-      expect(categorySchema.getAllCategories).toHaveBeenCalledWith(options);
-      expect(result).toEqual(mockCategories);
-    });
-
-    it('should validate parent category exists', async () => {
-      categorySchema.findById.mockResolvedValue(null);
-
-      await expect(
-        service.getCategories({ parentId: 'nonexistent' }),
-      ).rejects.toThrow(NotFoundException);
-
-      expect(categorySchema.getAllCategories).not.toHaveBeenCalled();
-    });
-
-    it('should validate limit parameter', async () => {
-      await expect(service.getCategories({ limit: 0 })).rejects.toThrow(
-        BadRequestException,
+    it('should preserve NotFoundException from schema', async () => {
+      categorySchema.delete.mockRejectedValue(
+        new NotFoundException('Category not found'),
       );
 
-      await expect(service.getCategories({ limit: 1001 })).rejects.toThrow(
-        BadRequestException,
+      await expect(service.deleteCategory('nonexistent')).rejects.toThrow(
+        NotFoundException,
       );
     });
 
-    it('should validate offset parameter', async () => {
-      await expect(service.getCategories({ offset: -1 })).rejects.toThrow(
-        BadRequestException,
-      );
-    });
+    it('should wrap unknown errors', async () => {
+      categorySchema.delete.mockRejectedValue(new Error('Database error'));
 
-    it('should validate sortBy parameter', async () => {
-      await expect(
-        service.getCategories({ sortBy: 'invalid' as any }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should validate sortDirection parameter', async () => {
-      await expect(
-        service.getCategories({ sortDirection: 'invalid' as any }),
-      ).rejects.toThrow(BadRequestException);
-    });
-  });
-
-  describe('getCategoriesByParent', () => {
-    it('should get child categories for parent', async () => {
-      const mockCategories = [mockCategoryData];
-      categorySchema.getAllCategories.mockResolvedValue(mockCategories);
-
-      const result = await service.getCategoriesByParent('parent-cat', {
-        limit: 10,
-        sortBy: 'name',
-      });
-
-      expect(categorySchema.getAllCategories).toHaveBeenCalledWith({
-        parentId: 'parent-cat',
-        limit: 10,
-        sortBy: 'name',
-      });
-      expect(result).toEqual(mockCategories);
-    });
-
-    it('should validate parent ID', async () => {
-      await expect(service.getCategoriesByParent('')).rejects.toThrow(
-        BadRequestException,
+      await expect(service.deleteCategory('cat-123')).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });
 
-  describe('searchCategories', () => {
-    it('should search categories by query', async () => {
-      const mockCategories = [mockCategoryData];
-      categorySchema.getAllCategories.mockResolvedValue(mockCategories);
-
-      const result = await service.searchCategories('technology', {
-        onlyApproved: true,
-      });
-
-      expect(categorySchema.getAllCategories).toHaveBeenCalledWith({
-        searchQuery: 'technology',
-        onlyApproved: true,
-      });
-      expect(result).toEqual(mockCategories);
-    });
-
-    it('should validate search query is not empty', async () => {
-      await expect(service.searchCategories('')).rejects.toThrow(
-        BadRequestException,
-      );
-
-      await expect(service.searchCategories('   ')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should trim search query', async () => {
-      categorySchema.getAllCategories.mockResolvedValue([]);
-
-      await service.searchCategories('  technology  ');
-
-      expect(categorySchema.getAllCategories).toHaveBeenCalledWith({
-        searchQuery: 'technology',
-      });
-    });
-  });
-
+  // ============================================
   // VOTING TESTS
+  // ============================================
 
-  describe('voteCategoryInclusion', () => {
-    it('should vote on category inclusion using BaseNodeSchema method', async () => {
+  describe('voteInclusion', () => {
+    it('should vote on category inclusion', async () => {
       categorySchema.voteInclusion.mockResolvedValue(mockVoteResult);
 
-      const result = await service.voteCategoryInclusion(
-        'cat-123',
-        'user-456',
-        true,
-      );
+      const result = await service.voteInclusion('cat-123', 'user-456', true);
 
       expect(categorySchema.voteInclusion).toHaveBeenCalledWith(
         'cat-123',
@@ -465,22 +540,34 @@ describe('CategoryService', () => {
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should validate parameters', async () => {
-      await expect(
-        service.voteCategoryInclusion('', 'user-456', true),
-      ).rejects.toThrow(BadRequestException);
+    it('should validate category ID', async () => {
+      await expect(service.voteInclusion('', 'user-456', true)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should validate user ID', async () => {
+      await expect(service.voteInclusion('cat-123', '', true)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should preserve errors from schema', async () => {
+      categorySchema.voteInclusion.mockRejectedValue(
+        new NotFoundException('Category not found'),
+      );
 
       await expect(
-        service.voteCategoryInclusion('cat-123', '', true),
-      ).rejects.toThrow(BadRequestException);
+        service.voteInclusion('cat-123', 'user-456', true),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
-  describe('getCategoryVoteStatus', () => {
-    it('should get vote status using BaseNodeSchema method', async () => {
+  describe('getVoteStatus', () => {
+    it('should get vote status for user', async () => {
       categorySchema.getVoteStatus.mockResolvedValue(mockVoteStatus);
 
-      const result = await service.getCategoryVoteStatus('cat-123', 'user-456');
+      const result = await service.getVoteStatus('cat-123', 'user-456');
 
       expect(categorySchema.getVoteStatus).toHaveBeenCalledWith(
         'cat-123',
@@ -488,13 +575,22 @@ describe('CategoryService', () => {
       );
       expect(result).toEqual(mockVoteStatus);
     });
+
+    it('should validate parameters', async () => {
+      await expect(service.getVoteStatus('', 'user-456')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.getVoteStatus('cat-123', '')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
-  describe('removeCategoryVote', () => {
-    it('should remove vote using BaseNodeSchema method', async () => {
+  describe('removeVote', () => {
+    it('should remove vote', async () => {
       categorySchema.removeVote.mockResolvedValue(mockVoteResult);
 
-      const result = await service.removeCategoryVote('cat-123', 'user-456');
+      const result = await service.removeVote('cat-123', 'user-456');
 
       expect(categorySchema.removeVote).toHaveBeenCalledWith(
         'cat-123',
@@ -503,206 +599,185 @@ describe('CategoryService', () => {
       );
       expect(result).toEqual(mockVoteResult);
     });
+
+    it('should validate parameters', async () => {
+      await expect(service.removeVote('', 'user-456')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.removeVote('cat-123', '')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
-  describe('getCategoryVotes', () => {
-    it('should get vote counts using BaseNodeSchema method', async () => {
+  describe('getVotes', () => {
+    it('should get vote counts', async () => {
       categorySchema.getVotes.mockResolvedValue(mockVoteResult);
 
-      const result = await service.getCategoryVotes('cat-123');
+      const result = await service.getVotes('cat-123');
 
       expect(categorySchema.getVotes).toHaveBeenCalledWith('cat-123');
       expect(result).toEqual(mockVoteResult);
     });
-  });
 
-  // UTILITY METHODS TESTS
-
-  describe('getCategoryStats', () => {
-    it('should get category statistics', async () => {
-      const mockStats = {
-        contentCount: 25,
-        childCount: 3,
-        wordCount: 4,
-        inclusionNetVotes: 10,
-      };
-      categorySchema.getCategoryStats.mockResolvedValue(mockStats);
-
-      const result = await service.getCategoryStats('cat-123');
-
-      expect(categorySchema.getCategoryStats).toHaveBeenCalledWith('cat-123');
-      expect(result).toEqual(mockStats);
+    it('should validate ID', async () => {
+      await expect(service.getVotes('')).rejects.toThrow(BadRequestException);
     });
   });
 
-  describe('setVisibilityStatus', () => {
-    it('should set visibility status', async () => {
-      const mockResult = { ...mockCategoryData, visibilityStatus: false };
-      categorySchema.setVisibilityStatus.mockResolvedValue(mockResult);
+  // ============================================
+  // HIERARCHICAL OPERATIONS TESTS
+  // ============================================
 
-      const result = await service.setVisibilityStatus('cat-123', false);
+  describe('getCategoryHierarchy', () => {
+    const mockHierarchy = [
+      {
+        id: 'cat-1',
+        name: 'Parent',
+        description: 'Parent category',
+        inclusionNetVotes: 5,
+        children: [],
+      },
+      {
+        id: 'cat-2',
+        name: 'Child',
+        description: 'Child category',
+        inclusionNetVotes: 3,
+        children: [],
+      },
+    ];
 
-      expect(categorySchema.setVisibilityStatus).toHaveBeenCalledWith(
-        'cat-123',
-        false,
+    it('should get full category hierarchy', async () => {
+      categorySchema.getCategoryHierarchy.mockResolvedValue(mockHierarchy);
+
+      const result = await service.getCategoryHierarchy();
+
+      expect(categorySchema.getCategoryHierarchy).toHaveBeenCalledWith(
+        undefined,
       );
-      expect(result).toEqual(mockResult);
+      expect(result).toEqual(mockHierarchy);
     });
 
-    it('should validate boolean parameter', async () => {
-      await expect(
-        service.setVisibilityStatus('cat-123', 'invalid' as any),
-      ).rejects.toThrow(BadRequestException);
+    it('should get hierarchy from specific root', async () => {
+      const mockHierarchy = [
+        {
+          id: 'cat-1',
+          name: 'Parent',
+          description: 'Parent category',
+          inclusionNetVotes: 5,
+          children: [],
+        },
+      ];
+      categorySchema.getCategoryHierarchy.mockResolvedValue(mockHierarchy);
+
+      const result = await service.getCategoryHierarchy('cat-1');
+
+      expect(categorySchema.getCategoryHierarchy).toHaveBeenCalledWith('cat-1');
+      expect(result).toEqual(mockHierarchy);
     });
 
-    it('should throw NotFoundException when category not found', async () => {
-      categorySchema.setVisibilityStatus.mockResolvedValue(null);
-
-      await expect(
-        service.setVisibilityStatus('nonexistent', true),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('getVisibilityStatus', () => {
-    it('should get visibility status', async () => {
-      categorySchema.getVisibilityStatus.mockResolvedValue(true);
-
-      const result = await service.getVisibilityStatus('cat-123');
-
-      expect(categorySchema.getVisibilityStatus).toHaveBeenCalledWith(
-        'cat-123',
+    it('should wrap schema errors', async () => {
+      categorySchema.getCategoryHierarchy.mockRejectedValue(
+        new Error('Database error'),
       );
-      expect(result).toBe(true);
-    });
-  });
 
-  // DISCUSSION AND COMMENT TESTS
-
-  describe('getCategoryWithDiscussion', () => {
-    it('should get category with discussion placeholder', async () => {
-      categorySchema.getCategory.mockResolvedValue(mockCategoryData);
-
-      const result = await service.getCategoryWithDiscussion('cat-123');
-
-      expect(categorySchema.getCategory).toHaveBeenCalledWith('cat-123');
-      expect(result).toEqual(mockCategoryData);
-    });
-
-    it('should throw NotFoundException when category not found', async () => {
-      categorySchema.getCategory.mockResolvedValue(null);
-
-      await expect(
-        service.getCategoryWithDiscussion('nonexistent'),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe('getCategoryComments', () => {
-    it('should get category comments placeholder', async () => {
-      categorySchema.getCategory.mockResolvedValue(mockCategoryData);
-
-      const result = await service.getCategoryComments('cat-123');
-
-      expect(categorySchema.getCategory).toHaveBeenCalledWith('cat-123');
-      expect(result).toEqual({ comments: [] });
-    });
-  });
-
-  // UNIMPLEMENTED METHODS TESTS (should log warnings)
-
-  describe('getNodesUsingCategory', () => {
-    it('should return empty array with warning log', async () => {
-      const result = await service.getNodesUsingCategory('cat-123');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getCategoryPath', () => {
-    it('should return empty array with warning log', async () => {
-      const result = await service.getCategoryPath('cat-123');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getRelatedContentBySharedCategories', () => {
-    it('should return empty array with warning log', async () => {
-      const result =
-        await service.getRelatedContentBySharedCategories('cat-123');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  describe('getNodeCategories', () => {
-    it('should return empty array with warning log', async () => {
-      const result = await service.getNodeCategories('node-123');
-
-      expect(result).toEqual([]);
-    });
-  });
-
-  // ERROR HANDLING TESTS
-
-  describe('Error Handling', () => {
-    it('should handle schema errors consistently', async () => {
-      categorySchema.getCategory.mockRejectedValue(new Error('Database error'));
-
-      await expect(service.getCategory('test-id')).rejects.toThrow(
+      await expect(service.getCategoryHierarchy()).rejects.toThrow(
         InternalServerErrorException,
       );
     });
+  });
 
-    it('should preserve HttpExceptions from dependencies', async () => {
-      const badRequestError = new BadRequestException('Invalid input');
-      categorySchema.getCategory.mockRejectedValue(badRequestError);
+  describe('getCategoriesForNode', () => {
+    const mockCategories = [
+      {
+        id: 'cat-1',
+        name: 'Technology',
+        description: 'Tech category',
+        inclusionNetVotes: 5,
+        path: [
+          { id: 'root-1', name: 'Root' },
+          { id: 'cat-1', name: 'Technology' },
+        ],
+      },
+    ];
 
-      await expect(service.getCategory('test-id')).rejects.toThrow(
+    it('should get categories for a node', async () => {
+      categorySchema.getCategoriesForNode.mockResolvedValue(mockCategories);
+
+      const result = await service.getCategoriesForNode('node-123');
+
+      expect(categorySchema.getCategoriesForNode).toHaveBeenCalledWith(
+        'node-123',
+      );
+      expect(result).toEqual(mockCategories);
+    });
+
+    it('should validate node ID', async () => {
+      await expect(service.getCategoriesForNode('')).rejects.toThrow(
         BadRequestException,
       );
     });
 
-    it('should validate empty IDs across methods', async () => {
-      await expect(service.getCategory('')).rejects.toThrow(
-        BadRequestException,
+    it('should wrap schema errors', async () => {
+      categorySchema.getCategoriesForNode.mockRejectedValue(
+        new Error('Database error'),
       );
-      await expect(service.updateCategory('', {})).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.deleteCategory('')).rejects.toThrow(
-        BadRequestException,
+
+      await expect(service.getCategoriesForNode('node-123')).rejects.toThrow(
+        InternalServerErrorException,
       );
     });
   });
 
-  // HYBRID PATTERN VERIFICATION
+  // ============================================
+  // QUERY OPERATIONS TESTS
+  // ============================================
 
-  describe('Hybrid Pattern Implementation', () => {
-    it('should use enhanced methods for complex operations', () => {
-      // Verify service uses enhanced domain methods
-      expect(typeof service.createCategory).toBe('function');
-      expect(typeof service.getCategory).toBe('function');
-      expect(typeof service.getCategoryStats).toBe('function');
-      expect(typeof service.setVisibilityStatus).toBe('function');
-      expect(typeof service.getVisibilityStatus).toBe('function');
+  describe('getAllCategories', () => {
+    const mockCategories = [mockCategoryData];
+
+    it('should get all categories', async () => {
+      categorySchema.getAllCategories.mockResolvedValue(mockCategories);
+
+      const result = await service.getAllCategories();
+
+      expect(categorySchema.getAllCategories).toHaveBeenCalled();
+      expect(result).toEqual(mockCategories);
     });
 
-    it('should use BaseNodeSchema methods for standard operations', () => {
-      // These are called through the service methods
-      expect(typeof service.updateCategory).toBe('function');
-      expect(typeof service.deleteCategory).toBe('function');
-      expect(typeof service.voteCategoryInclusion).toBe('function');
-      expect(typeof service.getCategoryVoteStatus).toBe('function');
-      expect(typeof service.removeCategoryVote).toBe('function');
-      expect(typeof service.getCategoryVotes).toBe('function');
+    it('should wrap schema errors', async () => {
+      categorySchema.getAllCategories.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(service.getAllCategories()).rejects.toThrow(
+        InternalServerErrorException,
+      );
+    });
+  });
+
+  describe('getApprovedCategories', () => {
+    const mockApprovedCategories = [mockCategoryData];
+
+    it('should get approved categories', async () => {
+      categorySchema.getApprovedCategories.mockResolvedValue(
+        mockApprovedCategories,
+      );
+
+      const result = await service.getApprovedCategories();
+
+      expect(categorySchema.getApprovedCategories).toHaveBeenCalled();
+      expect(result).toEqual(mockApprovedCategories);
     });
 
-    it('should use new filtering capabilities', () => {
-      expect(typeof service.getCategories).toBe('function');
-      expect(typeof service.getCategoriesByParent).toBe('function');
-      expect(typeof service.searchCategories).toBe('function');
+    it('should wrap schema errors', async () => {
+      categorySchema.getApprovedCategories.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(service.getApprovedCategories()).rejects.toThrow(
+        InternalServerErrorException,
+      );
     });
   });
 });

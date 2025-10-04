@@ -26,7 +26,6 @@ import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 interface CreateCategoryDto {
   name: string;
   description?: string;
-  createdBy: string;
   publicCredit?: boolean;
   wordIds: string[]; // 1-5 words
   parentCategoryId?: string;
@@ -43,6 +42,21 @@ interface VoteDto {
   isPositive: boolean;
 }
 
+/**
+ * CategoryController - HTTP layer for category operations
+ *
+ * RESPONSIBILITIES:
+ * ✅ Parse and validate HTTP requests
+ * ✅ Extract user from JWT (req.user.sub)
+ * ✅ Call CategoryService methods
+ * ✅ Return appropriate HTTP status codes
+ * ✅ Handle HTTP-specific errors
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic (that's CategoryService)
+ * ❌ Database queries (that's CategorySchema)
+ * ❌ Complex validation (that's CategoryService)
+ */
 @Controller('categories')
 @UseGuards(JwtAuthGuard)
 export class CategoryController {
@@ -50,6 +64,14 @@ export class CategoryController {
 
   constructor(private readonly categoryService: CategoryService) {}
 
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
+
+  /**
+   * Create a new category
+   * POST /categories
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createCategory(
@@ -88,6 +110,10 @@ export class CategoryController {
     return createdCategory;
   }
 
+  /**
+   * Get a category by ID
+   * GET /categories/:id
+   */
   @Get(':id')
   async getCategory(@Param('id') id: string) {
     if (!id || id.trim() === '') {
@@ -105,6 +131,10 @@ export class CategoryController {
     return category;
   }
 
+  /**
+   * Update a category
+   * PUT /categories/:id
+   */
   @Put(':id')
   async updateCategory(
     @Param('id') id: string,
@@ -119,16 +149,34 @@ export class CategoryController {
       throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(`Updating category: ${id}`);
+    // Validate at least one field provided
+    if (
+      !updateDto.name &&
+      !updateDto.description &&
+      updateDto.publicCredit === undefined
+    ) {
+      throw new BadRequestException(
+        'At least one field must be provided for update',
+      );
+    }
 
-    const updatedCategory = await this.categoryService.updateCategory(
-      id,
-      updateDto,
-    );
-    this.logger.debug(`Updated category: ${JSON.stringify(updatedCategory)}`);
+    this.logger.log(`Updating category: ${id}`);
+
+    const updatedCategory = await this.categoryService.updateCategory(id, {
+      ...updateDto,
+    });
+
+    if (!updatedCategory) {
+      throw new NotFoundException(`Category with ID ${id} not found`);
+    }
+
     return updatedCategory;
   }
 
+  /**
+   * Delete a category
+   * DELETE /categories/:id
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteCategory(@Param('id') id: string, @Request() req: any) {
@@ -145,6 +193,14 @@ export class CategoryController {
     this.logger.debug(`Deleted category: ${id}`);
   }
 
+  // ============================================
+  // VOTING ENDPOINTS
+  // ============================================
+
+  /**
+   * Vote on category inclusion
+   * POST /categories/:id/vote-inclusion
+   */
   @Post(':id/vote-inclusion')
   async voteInclusion(
     @Param('id') id: string,
@@ -163,15 +219,24 @@ export class CategoryController {
       throw new BadRequestException('isPositive must be a boolean');
     }
 
+    this.logger.debug(
+      `Voting on category inclusion: ${id} with value: ${voteDto.isPositive}`,
+    );
+
     const result = await this.categoryService.voteInclusion(
       id,
       req.user.sub,
       voteDto.isPositive,
     );
 
+    this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
     return result;
   }
 
+  /**
+   * Get vote status for current user
+   * GET /categories/:id/vote-status
+   */
   @Get(':id/vote-status')
   async getVoteStatus(
     @Param('id') id: string,
@@ -188,6 +253,10 @@ export class CategoryController {
     return await this.categoryService.getVoteStatus(id, req.user.sub);
   }
 
+  /**
+   * Remove vote
+   * DELETE /categories/:id/vote
+   */
   @Delete(':id/vote')
   async removeVote(
     @Param('id') id: string,
@@ -204,6 +273,10 @@ export class CategoryController {
     return await this.categoryService.removeVote(id, req.user.sub);
   }
 
+  /**
+   * Get vote counts
+   * GET /categories/:id/votes
+   */
   @Get(':id/votes')
   async getVotes(@Param('id') id: string): Promise<VoteResult | null> {
     if (!id || id.trim() === '') {
@@ -213,12 +286,24 @@ export class CategoryController {
     return await this.categoryService.getVotes(id);
   }
 
+  // ============================================
+  // HIERARCHICAL ENDPOINTS
+  // ============================================
+
+  /**
+   * Get full category hierarchy
+   * GET /categories/hierarchy/all
+   */
   @Get('hierarchy/all')
   async getCategoryHierarchy() {
     this.logger.debug('Getting category hierarchy');
     return await this.categoryService.getCategoryHierarchy();
   }
 
+  /**
+   * Get category hierarchy from specific root
+   * GET /categories/hierarchy/:rootId
+   */
   @Get('hierarchy/:rootId')
   async getCategoryHierarchyFrom(@Param('rootId') rootId: string) {
     if (!rootId || rootId.trim() === '') {
@@ -228,6 +313,10 @@ export class CategoryController {
     return await this.categoryService.getCategoryHierarchy(rootId);
   }
 
+  /**
+   * Get categories for a specific node
+   * GET /categories/node/:nodeId/categories
+   */
   @Get('node/:nodeId/categories')
   async getCategoriesForNode(@Param('nodeId') nodeId: string) {
     if (!nodeId || nodeId.trim() === '') {
@@ -237,11 +326,23 @@ export class CategoryController {
     return await this.categoryService.getCategoriesForNode(nodeId);
   }
 
+  // ============================================
+  // QUERY ENDPOINTS
+  // ============================================
+
+  /**
+   * Get all categories
+   * GET /categories
+   */
   @Get()
   async getAllCategories() {
     return await this.categoryService.getAllCategories();
   }
 
+  /**
+   * Get approved categories (passed inclusion threshold)
+   * GET /categories/approved/list
+   */
   @Get('approved/list')
   async getApprovedCategories() {
     return await this.categoryService.getApprovedCategories();
