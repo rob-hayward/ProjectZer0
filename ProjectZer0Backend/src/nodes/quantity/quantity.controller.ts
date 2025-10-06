@@ -1,4 +1,4 @@
-// src/nodes/quantity/quantity.controller.ts
+// src/nodes/quantity/quantity.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Controller,
@@ -8,26 +8,26 @@ import {
   Delete,
   Body,
   Param,
-  Query,
   UseGuards,
   Request,
-  Logger,
-  HttpException,
+  HttpCode,
   HttpStatus,
   BadRequestException,
   NotFoundException,
-  HttpCode,
+  Logger,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { QuantityService } from './quantity.service';
-import type { VoteResult } from '../../neo4j/schemas/vote.schema';
+import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
-// Define DTOs for better type safety - Following consistent patterns
+/**
+ * DTOs for Quantity endpoints
+ */
 interface CreateQuantityNodeDto {
   question: string;
+  publicCredit?: boolean;
   unitCategoryId: string;
   defaultUnitId: string;
-  publicCredit: boolean;
   categoryIds?: string[]; // 0-3 categories
   userKeywords?: string[];
   initialComment?: string;
@@ -35,22 +35,13 @@ interface CreateQuantityNodeDto {
 
 interface UpdateQuantityNodeDto {
   question?: string;
-  unitCategoryId?: string;
-  defaultUnitId?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  categoryIds?: string[];
 }
 
-interface VoteQuantityDto {
+interface VoteDto {
   isPositive: boolean;
-}
-
-interface RemoveVoteDto {
-  kind?: 'INCLUSION' | 'CONTENT';
-}
-
-interface VisibilityDto {
-  isVisible: boolean;
 }
 
 interface SubmitResponseDto {
@@ -58,11 +49,28 @@ interface SubmitResponseDto {
   unitId: string;
 }
 
-interface AddCommentDto {
-  commentText: string;
-  parentCommentId?: string;
-}
-
+/**
+ * QuantityController - HTTP layer for quantity node operations
+ *
+ * RESPONSIBILITIES:
+ * ✅ Parse and validate HTTP requests
+ * ✅ Extract user from JWT (req.user.sub)
+ * ✅ Call QuantityService methods
+ * ✅ Return appropriate HTTP status codes
+ * ✅ Handle HTTP-specific errors
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Business logic (that's QuantityService)
+ * ❌ Database queries (that's QuantitySchema)
+ * ❌ Complex validation (that's QuantityService)
+ *
+ * KEY CHARACTERISTICS:
+ * - Inclusion voting only (no content voting - uses numeric responses)
+ * - Numeric response submission endpoints
+ * - Statistical aggregation endpoints
+ * - Standard CRUD operations
+ * - User context from JWT
+ */
 @Controller('nodes/quantity')
 @UseGuards(JwtAuthGuard)
 export class QuantityController {
@@ -70,667 +78,390 @@ export class QuantityController {
 
   constructor(private readonly quantityService: QuantityService) {}
 
-  // CRUD OPERATIONS - Following consistent patterns
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
 
+  /**
+   * Create a new quantity node
+   * POST /nodes/quantity
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createQuantityNode(
-    @Body() nodeData: CreateQuantityNodeDto,
+    @Body() createDto: CreateQuantityNodeDto,
     @Request() req: any,
   ) {
-    try {
-      this.logger.log(`Creating quantity node from user ${req.user.sub}`);
-
-      // Validate required fields
-      if (!nodeData.question || nodeData.question.trim() === '') {
-        throw new BadRequestException('Question text is required');
-      }
-
-      if (!nodeData.unitCategoryId || nodeData.unitCategoryId.trim() === '') {
-        throw new BadRequestException('Unit category ID is required');
-      }
-
-      if (!nodeData.defaultUnitId || nodeData.defaultUnitId.trim() === '') {
-        throw new BadRequestException('Default unit ID is required');
-      }
-
-      if (typeof nodeData.publicCredit !== 'boolean') {
-        throw new BadRequestException('Public credit flag is required');
-      }
-
-      const result = await this.quantityService.createQuantityNode({
-        ...nodeData,
-        createdBy: req.user.sub, // Use authenticated user ID from JWT
-      });
-
-      this.logger.log(
-        `Successfully created quantity node with ID: ${result.id}`,
-      );
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error creating quantity node`);
+    if (!createDto.question || createDto.question.trim() === '') {
+      throw new BadRequestException('Question text is required');
     }
+
+    if (!createDto.unitCategoryId || createDto.unitCategoryId.trim() === '') {
+      throw new BadRequestException('Unit category ID is required');
+    }
+
+    if (!createDto.defaultUnitId || createDto.defaultUnitId.trim() === '') {
+      throw new BadRequestException('Default unit ID is required');
+    }
+
+    if (createDto.categoryIds && createDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(
+      `Creating quantity node from user ${req.user.sub}: ${createDto.question.substring(0, 50)}...`,
+    );
+
+    const result = await this.quantityService.createQuantityNode({
+      ...createDto,
+      createdBy: req.user.sub, // Extract from JWT
+      publicCredit: createDto.publicCredit ?? true,
+    });
+
+    this.logger.log(`Successfully created quantity node: ${result.id}`);
+    return result;
   }
 
+  /**
+   * Get a quantity node by ID
+   * GET /nodes/quantity/:id
+   */
   @Get(':id')
-  async getQuantityNode(
-    @Param('id') id: string,
-    @Query('includeDiscussion') includeDiscussion?: string,
-    @Query('includeStatistics') includeStatistics?: string,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Retrieving quantity node: ${id}`);
-
-      const options = {
-        includeDiscussion: includeDiscussion === 'true',
-        includeStatistics: includeStatistics === 'true',
-      };
-
-      const quantityNode = await this.quantityService.getQuantityNode(
-        id,
-        options,
-      );
-
-      this.logger.debug(
-        `Retrieved quantity node: ${quantityNode.question.substring(0, 50)}...`,
-      );
-      return quantityNode;
-    } catch (error) {
-      this.handleError(error, `Error retrieving quantity node: ${id}`);
+  async getQuantityNode(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    this.logger.debug(`Getting quantity node: ${id}`);
+
+    const quantityNode = await this.quantityService.getQuantityNode(id);
+
+    if (!quantityNode) {
+      throw new NotFoundException(`Quantity node with ID ${id} not found`);
+    }
+
+    return quantityNode;
   }
 
+  /**
+   * Update a quantity node
+   * PUT /nodes/quantity/:id
+   */
   @Put(':id')
   async updateQuantityNode(
     @Param('id') id: string,
-    @Body() updateData: UpdateQuantityNodeDto,
+    @Body() updateDto: UpdateQuantityNodeDto,
+    @Request() req: any,
   ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.log(`Updating quantity node: ${id}`);
-
-      const result = await this.quantityService.updateQuantityNode(
-        id,
-        updateData,
-      );
-
-      this.logger.log(`Successfully updated quantity node: ${id}`);
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error updating quantity node: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    if (Object.keys(updateDto).length === 0) {
+      throw new BadRequestException('No update data provided');
+    }
+
+    if (updateDto.categoryIds && updateDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Updating quantity node: ${id}`);
+
+    const result = await this.quantityService.updateQuantityNode(id, updateDto);
+
+    this.logger.log(`Successfully updated quantity node: ${id}`);
+    return result;
   }
 
+  /**
+   * Delete a quantity node
+   * DELETE /nodes/quantity/:id
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteQuantityNode(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.log(`Deleting quantity node: ${id}`);
-
-      await this.quantityService.deleteQuantityNode(id);
-
-      this.logger.log(`Successfully deleted quantity node: ${id}`);
-    } catch (error) {
-      this.handleError(error, `Error deleting quantity node: ${id}`);
+  async deleteQuantityNode(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Deleting quantity node: ${id}`);
+
+    await this.quantityService.deleteQuantityNode(id);
+
+    this.logger.log(`Successfully deleted quantity node: ${id}`);
   }
 
-  // VOTING ENDPOINTS - DUAL VOTING (INCLUSION + CONTENT)
+  // ============================================
+  // VOTING ENDPOINTS - INCLUSION ONLY
+  // ============================================
 
-  @Post(':id/vote/inclusion')
-  async voteQuantityInclusion(
+  /**
+   * Vote on quantity node inclusion
+   * POST /nodes/quantity/:id/vote-inclusion
+   */
+  @Post(':id/vote-inclusion')
+  async voteInclusion(
     @Param('id') id: string,
-    @Body() voteData: VoteQuantityDto,
+    @Body() voteDto: VoteDto,
     @Request() req: any,
   ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (typeof voteData.isPositive !== 'boolean') {
-        throw new BadRequestException(
-          'Vote direction (isPositive) is required',
-        );
-      }
-
-      this.logger.log(
-        `Processing inclusion vote on quantity node ${id}: ${voteData.isPositive ? 'positive' : 'negative'}`,
-      );
-
-      const result = await this.quantityService.voteQuantityInclusion(
-        id,
-        req.user.sub,
-        voteData.isPositive,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error voting on quantity node inclusion: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.log(
+      `Processing inclusion vote on quantity node ${id}: ${voteDto.isPositive ? 'positive' : 'negative'}`,
+    );
+
+    const result = await this.quantityService.voteInclusion(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    return result;
   }
 
-  @Post(':id/vote/content')
-  async voteQuantityContent(
+  /**
+   * Get vote status for current user
+   * GET /nodes/quantity/:id/vote-status
+   */
+  @Get(':id/vote-status')
+  async getVoteStatus(
     @Param('id') id: string,
-    @Body() voteData: VoteQuantityDto,
     @Request() req: any,
-  ): Promise<VoteResult> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (typeof voteData.isPositive !== 'boolean') {
-        throw new BadRequestException(
-          'Vote direction (isPositive) is required',
-        );
-      }
-
-      this.logger.log(
-        `Processing content vote on quantity node ${id}: ${voteData.isPositive ? 'positive' : 'negative'}`,
-      );
-
-      const result = await this.quantityService.voteQuantityContent(
-        id,
-        req.user.sub,
-        voteData.isPositive,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error voting on quantity node content: ${id}`);
+  ): Promise<VoteStatus | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Getting vote status for quantity node: ${id}`);
+
+    const status = await this.quantityService.getVoteStatus(id, req.user.sub);
+
+    return status;
   }
 
-  @Get(':id/vote')
-  async getQuantityVoteStatus(@Param('id') id: string, @Request() req: any) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting vote status for quantity node: ${id}`);
-
-      const voteStatus = await this.quantityService.getQuantityVoteStatus(
-        id,
-        req.user.sub,
-      );
-
-      return { voteStatus };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting vote status for quantity node: ${id}`,
-      );
-    }
-  }
-
+  /**
+   * Remove vote from a quantity node
+   * DELETE /nodes/quantity/:id/vote
+   */
   @Delete(':id/vote')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async removeQuantityVote(
+  async removeVote(
     @Param('id') id: string,
-    @Body() removeVoteData: RemoveVoteDto,
     @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      const kind = removeVoteData.kind || 'INCLUSION';
-      this.logger.log(`Removing ${kind} vote from quantity node: ${id}`);
-
-      await this.quantityService.removeQuantityVote(id, req.user.sub, kind);
-    } catch (error) {
-      this.handleError(error, `Error removing vote from quantity node: ${id}`);
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Removing vote from quantity node: ${id}`);
+
+    const result = await this.quantityService.removeVote(id, req.user.sub);
+
+    return result;
   }
 
+  /**
+   * Get vote totals for a quantity node
+   * GET /nodes/quantity/:id/votes
+   */
   @Get(':id/votes')
-  async getQuantityVotes(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting vote counts for quantity node: ${id}`);
-
-      const votes = await this.quantityService.getQuantityVotes(id);
-
-      return { votes };
-    } catch (error) {
-      this.handleError(error, `Error getting votes for quantity node: ${id}`);
+  async getVotes(@Param('id') id: string): Promise<VoteResult | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
+
+    this.logger.debug(`Getting votes for quantity node: ${id}`);
+
+    const votes = await this.quantityService.getVotes(id);
+
+    return votes;
   }
 
-  // VISIBILITY ENDPOINTS - Following consistent patterns
+  // ============================================
+  // NUMERIC RESPONSE ENDPOINTS
+  // ============================================
 
-  @Put(':id/visibility')
-  async setVisibilityStatus(
-    @Param('id') id: string,
-    @Body() visibilityData: VisibilityDto,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (typeof visibilityData.isVisible !== 'boolean') {
-        throw new BadRequestException(
-          'Visibility status (isVisible) is required',
-        );
-      }
-
-      this.logger.log(
-        `Setting visibility for quantity node ${id} to ${visibilityData.isVisible}`,
-      );
-
-      const result = await this.quantityService.setVisibilityStatus(
-        id,
-        visibilityData.isVisible,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error setting visibility for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/visibility')
-  async getVisibilityStatus(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting visibility status for quantity node: ${id}`);
-
-      const status = await this.quantityService.getVisibilityStatus(id);
-
-      return { visibilityStatus: status };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting visibility status for quantity node: ${id}`,
-      );
-    }
-  }
-
-  // NEW: DISCOVERY ENDPOINTS - Following established patterns
-
-  @Get(':id/related')
-  async getRelatedContentBySharedCategories(
-    @Param('id') id: string,
-    @Query('nodeTypes') nodeTypes?: string,
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
-    @Query('sortBy')
-    sortBy:
-      | 'category_overlap'
-      | 'created'
-      | 'inclusion_votes'
-      | 'content_votes' = 'category_overlap',
-    @Query('sortDirection') sortDirection: 'asc' | 'desc' = 'desc',
-    @Query('excludeSelf') excludeSelf?: string,
-    @Query('minCategoryOverlap') minCategoryOverlap?: number,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting related content for quantity node: ${id}`);
-
-      const options = {
-        nodeTypes: nodeTypes
-          ? (nodeTypes.split(',') as (
-              | 'statement'
-              | 'answer'
-              | 'openquestion'
-              | 'quantity'
-            )[])
-          : undefined,
-        limit: limit ? Number(limit) : undefined,
-        offset: offset ? Number(offset) : 0,
-        sortBy,
-        sortDirection,
-        excludeSelf: excludeSelf === 'true',
-        minCategoryOverlap: minCategoryOverlap
-          ? Number(minCategoryOverlap)
-          : undefined,
-      };
-
-      const relatedContent =
-        await this.quantityService.getRelatedContentBySharedCategories(
-          id,
-          options,
-        );
-
-      return { relatedContent };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting related content for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/categories')
-  async getQuantityNodeCategories(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting categories for quantity node: ${id}`);
-
-      const categories =
-        await this.quantityService.getQuantityNodeCategories(id);
-
-      return { categories };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting categories for quantity node: ${id}`,
-      );
-    }
-  }
-
-  // RESPONSE MANAGEMENT ENDPOINTS
-
+  /**
+   * Submit a numeric response to a quantity node
+   * POST /nodes/quantity/:id/response
+   */
   @Post(':id/response')
   async submitResponse(
     @Param('id') id: string,
-    @Body() responseData: SubmitResponseDto,
+    @Body() responseDto: SubmitResponseDto,
     @Request() req: any,
   ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (responseData.value === undefined || isNaN(responseData.value)) {
-        throw new BadRequestException('Response value must be a valid number');
-      }
-
-      if (!responseData.unitId || responseData.unitId.trim() === '') {
-        throw new BadRequestException('Unit ID is required');
-      }
-
-      this.logger.log(`Submitting response to quantity node: ${id}`);
-
-      const result = await this.quantityService.submitResponse({
-        userId: req.user.sub,
-        quantityNodeId: id,
-        value: responseData.value,
-        unitId: responseData.unitId,
-      });
-
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error submitting response to quantity node: ${id}`,
-      );
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
-  }
 
-  @Get(':id/response')
-  async getUserResponse(@Param('id') id: string, @Request() req: any) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting user response for quantity node: ${id}`);
-
-      const response = await this.quantityService.getUserResponse(
-        req.user.sub,
-        id,
-      );
-
-      return response;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting user response for quantity node: ${id}`,
-      );
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
     }
-  }
 
-  @Delete(':id/response')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteUserResponse(@Param('id') id: string, @Request() req: any) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.log(`Deleting user response for quantity node: ${id}`);
-
-      await this.quantityService.deleteUserResponse(req.user.sub, id);
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error deleting user response for quantity node: ${id}`,
-      );
+    if (typeof responseDto.value !== 'number' || isNaN(responseDto.value)) {
+      throw new BadRequestException('Valid numeric value is required');
     }
-  }
 
-  @Get(':id/statistics')
-  async getStatistics(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting statistics for quantity node: ${id}`);
-
-      const statistics = await this.quantityService.getStatistics(id);
-
-      return statistics;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting statistics for quantity node: ${id}`,
-      );
+    if (!responseDto.unitId || responseDto.unitId.trim() === '') {
+      throw new BadRequestException('Unit ID is required');
     }
+
+    this.logger.log(
+      `Submitting response to quantity node ${id}: value=${responseDto.value}, unit=${responseDto.unitId}`,
+    );
+
+    const result = await this.quantityService.submitResponse({
+      userId: req.user.sub,
+      quantityNodeId: id,
+      value: responseDto.value,
+      unitId: responseDto.unitId,
+    });
+
+    this.logger.log(`Successfully submitted response to quantity node ${id}`);
+    return result;
   }
-
-  // DISCUSSION AND COMMENT ENDPOINTS - Following consistent patterns
-
-  @Get(':id/discussion')
-  async getQuantityNodeWithDiscussion(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.log(`Getting quantity node with discussion: ${id}`);
-
-      const quantityNode =
-        await this.quantityService.getQuantityNodeWithDiscussion(id);
-
-      return quantityNode;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error retrieving quantity node with discussion: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/comments')
-  async getQuantityNodeComments(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.log(`Getting comments for quantity node: ${id}`);
-
-      const result = await this.quantityService.getQuantityNodeComments(id);
-
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error retrieving comments for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Post(':id/comments')
-  async addQuantityNodeComment(
-    @Param('id') id: string,
-    @Body() commentData: AddCommentDto,
-    @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (!commentData.commentText || commentData.commentText.trim() === '') {
-        throw new BadRequestException('Comment text is required');
-      }
-
-      this.logger.log(`Adding comment to quantity node: ${id}`);
-
-      const comment = await this.quantityService.addQuantityNodeComment(
-        id,
-        commentData,
-        req.user.sub,
-      );
-
-      return comment;
-    } catch (error) {
-      this.handleError(error, `Error adding comment to quantity node: ${id}`);
-    }
-  }
-
-  // UTILITY ENDPOINTS
-
-  @Get(':id/approved')
-  async isQuantityNodeApproved(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Checking approval status for quantity node: ${id}`);
-
-      const isApproved = await this.quantityService.isQuantityNodeApproved(id);
-
-      return { isApproved };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error checking approval for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/content-voting')
-  async isContentVotingAvailable(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(
-        `Checking content voting availability for quantity node: ${id}`,
-      );
-
-      const isAvailable =
-        await this.quantityService.isContentVotingAvailable(id);
-
-      return { contentVotingAvailable: isAvailable };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error checking content voting availability for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/numeric-response')
-  async isNumericResponseAllowed(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(
-        `Checking numeric response availability for quantity node: ${id}`,
-      );
-
-      const isAllowed = await this.quantityService.isNumericResponseAllowed(id);
-
-      return { numericResponseAllowed: isAllowed };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error checking numeric response availability for quantity node: ${id}`,
-      );
-    }
-  }
-
-  @Get(':id/stats')
-  async getQuantityNodeStats(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting quantity node stats for: ${id}`);
-
-      const stats = await this.quantityService.getQuantityNodeStats(id);
-
-      return stats;
-    } catch (error) {
-      this.handleError(error, `Error getting quantity node stats: ${id}`);
-    }
-  }
-
-  // PRIVATE HELPER METHODS
 
   /**
-   * Centralized error handling
+   * Get current user's response to a quantity node
+   * GET /nodes/quantity/:id/response
    */
-  private handleError(error: any, context: string): never {
-    this.logger.error(`${context}: ${error.message}`, error.stack);
-
-    if (
-      error instanceof BadRequestException ||
-      error instanceof NotFoundException
-    ) {
-      throw error;
+  @Get(':id/response')
+  async getUserResponse(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
 
-    // Log the full error for debugging while throwing a generic message
-    throw new HttpException(
-      {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: 'An internal server error occurred',
-        error: 'Internal Server Error',
-      },
-      HttpStatus.INTERNAL_SERVER_ERROR,
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Getting user response for quantity node ${id}, user ${req.user.sub}`,
     );
+
+    const response = await this.quantityService.getUserResponse(
+      req.user.sub,
+      id,
+    );
+
+    return response;
+  }
+
+  /**
+   * Delete current user's response to a quantity node
+   * DELETE /nodes/quantity/:id/response
+   */
+  @Delete(':id/response')
+  async deleteUserResponse(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(
+      `Deleting user response for quantity node ${id}, user ${req.user.sub}`,
+    );
+
+    const result = await this.quantityService.deleteUserResponse(
+      req.user.sub,
+      id,
+    );
+
+    return result;
+  }
+
+  // ============================================
+  // STATISTICS ENDPOINTS
+  // ============================================
+
+  /**
+   * Get statistics for a quantity node
+   * GET /nodes/quantity/:id/statistics
+   */
+  @Get(':id/statistics')
+  async getStatistics(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(`Getting statistics for quantity node: ${id}`);
+
+    const statistics = await this.quantityService.getStatistics(id);
+
+    return statistics;
+  }
+
+  // ============================================
+  // UTILITY ENDPOINTS
+  // ============================================
+
+  /**
+   * Check if quantity node has passed inclusion threshold
+   * GET /nodes/quantity/:id/approved
+   */
+  @Get(':id/approved')
+  async isQuantityNodeApproved(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(`Checking approval status for quantity node: ${id}`);
+
+    const isApproved = await this.quantityService.isQuantityNodeApproved(id);
+
+    return { isApproved };
+  }
+
+  /**
+   * Check if numeric responses are allowed for quantity node
+   * GET /nodes/quantity/:id/response-allowed
+   */
+  @Get(':id/response-allowed')
+  async isNumericResponseAllowed(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(
+      `Checking numeric response availability for quantity node: ${id}`,
+    );
+
+    const isAllowed = await this.quantityService.isNumericResponseAllowed(id);
+
+    return { isAllowed };
   }
 }

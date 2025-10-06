@@ -1,4 +1,4 @@
-// src/nodes/openquestion/openquestion.service.ts
+// src/nodes/openquestion/openquestion.service.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Injectable,
@@ -8,22 +8,52 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { OpenQuestionSchema } from '../../neo4j/schemas/openquestion.schema';
-import { AnswerService } from '../answer/answer.service'; // NEW: Import AnswerService
-import { CategoryService } from '../category/category.service'; // NEW: Import CategoryService
-import { DiscussionService } from '../discussion/discussion.service';
-import { CommentService } from '../comment/comment.service';
+import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
+import { UserSchema } from '../../neo4j/schemas/user.schema';
+import { CategoryService } from '../category/category.service';
 import { KeywordExtractionService } from '../../services/keyword-extraction/keyword-extraction.service';
 import { WordService } from '../word/word.service';
 import { v4 as uuidv4 } from 'uuid';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
+import { TEXT_LIMITS } from '../../constants/validation';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
+import type { OpenQuestionData } from '../../neo4j/schemas/openquestion.schema';
 
-// Constants
-const TEXT_LIMITS = {
-  MAX_QUESTION_LENGTH: 1000,
-};
+/**
+ * OpenQuestionService - Business logic for open question operations
+ *
+ * ARCHITECTURE:
+ * - Delegates all CRUD operations to OpenQuestionSchema
+ * - Injects DiscussionSchema directly (NOT DiscussionService)
+ * - Orchestrates question creation + keyword extraction + word creation + discussion
+ * - Handles business validation beyond schema rules
+ *
+ * KEY CHARACTERISTICS:
+ * - Uses 'id' as ID field (standard)
+ * - Discussion creation uses nodeIdField: 'id'
+ * - Inclusion voting only (no content voting)
+ * - AI keyword extraction (like Statement)
+ * - Auto-creates missing word nodes (like Statement)
+ * - 0-3 categories (like Statement)
+ * - Question text normalization (in schema layer)
+ *
+ * RESPONSIBILITIES:
+ * ✅ Orchestrate multiple schema calls (question + discussion + keywords + categories)
+ * ✅ Business validation (text limits, category count, etc.)
+ * ✅ Keyword extraction and word creation
+ * ✅ Data transformation and aggregation
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Writing Cypher queries (that's OpenQuestionSchema)
+ * ❌ Direct database access (that's Neo4jService)
+ * ❌ HTTP concerns (that's OpenQuestionController)
+ * ❌ Question normalization (that's OpenQuestionSchema)
+ */
 
-// Interface definitions
+// ============================================
+// INTERFACES
+// ============================================
+
 interface CreateOpenQuestionData {
   createdBy: string;
   publicCredit: boolean;
@@ -37,49 +67,7 @@ interface UpdateOpenQuestionData {
   questionText?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
-}
-
-interface GetOpenQuestionNetworkOptions {
-  limit?: number;
-  offset?: number;
-  sortBy?: string;
-  sortDirection?: string;
-  keywords?: string[];
-  userId?: string;
-}
-
-interface OpenQuestionNodeData {
-  id: string;
-  createdBy: string;
-  publicCredit: boolean;
-  questionText: string;
-  keywords: KeywordWithFrequency[];
   categoryIds?: string[];
-  initialComment: string;
-}
-
-interface GetOpenQuestionOptions {
-  includeDiscussion?: boolean;
-  includeAnswers?: boolean; // NEW: Option to include Answer nodes
-}
-
-interface DiscoveryOptions {
-  nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
-  limit?: number;
-  offset?: number;
-  sortBy?: 'category_overlap' | 'created' | 'inclusion_votes' | 'content_votes';
-  sortDirection?: 'asc' | 'desc';
-  excludeSelf?: boolean;
-  minCategoryOverlap?: number;
-}
-
-// NEW: Interface for Answer creation via OpenQuestion
-interface CreateAnswerForQuestionData {
-  answerText: string;
-  publicCredit: boolean;
-  categoryIds?: string[];
-  userKeywords?: string[];
-  initialComment: string;
 }
 
 @Injectable()
@@ -88,32 +76,32 @@ export class OpenQuestionService {
 
   constructor(
     private readonly openQuestionSchema: OpenQuestionSchema,
-    private readonly answerService: AnswerService, // NEW: Inject AnswerService
-    private readonly categoryService: CategoryService, // NEW: Inject CategoryService
-    private readonly discussionService: DiscussionService,
-    private readonly commentService: CommentService,
+    private readonly discussionSchema: DiscussionSchema, // ← Direct injection
+    private readonly userSchema: UserSchema,
+    private readonly categoryService: CategoryService,
     private readonly keywordExtractionService: KeywordExtractionService,
     private readonly wordService: WordService,
-    // REMOVED: StatementService dependency
   ) {}
 
+  // ============================================
   // CRUD OPERATIONS
+  // ============================================
 
   /**
-   * Create a new open question
+   * Create a new open question with optional discussion
+   * Orchestrates: validation + keyword extraction + word creation + question creation + discussion creation
    */
-  async createOpenQuestion(questionData: CreateOpenQuestionData) {
+  async createOpenQuestion(
+    questionData: CreateOpenQuestionData,
+  ): Promise<OpenQuestionData> {
+    this.validateCreateQuestionData(questionData);
+
+    const questionId = uuidv4();
+    this.logger.log(
+      `Creating open question: ${questionData.questionText.substring(0, 50)}...`,
+    );
+
     try {
-      // Validate input data
-      this.validateCreateQuestionData(questionData);
-
-      const questionId = uuidv4();
-
-      this.logger.log(
-        `Creating open question: ${questionData.questionText.substring(0, 50)}...`,
-      );
-      this.logger.debug(`Question data: ${JSON.stringify(questionData)}`);
-
       // Extract keywords if not provided by user
       let keywords: KeywordWithFrequency[] = [];
       if (questionData.userKeywords && questionData.userKeywords.length > 0) {
@@ -122,25 +110,46 @@ export class OpenQuestionService {
           frequency: 1,
           source: 'user' as const,
         }));
+        this.logger.debug(`Using ${keywords.length} user-provided keywords`);
       } else {
         try {
           const extractionResult =
             await this.keywordExtractionService.extractKeywords({
               text: questionData.questionText,
-              userKeywords: questionData.userKeywords,
             });
           keywords = extractionResult.keywords;
+          this.logger.debug(`Extracted ${keywords.length} keywords via AI`);
         } catch (error) {
-          this.logger.warn(
-            `Keyword extraction failed for open question: ${error.message}`,
+          this.logger.error(
+            `Keyword extraction failed: ${error.message}`,
+            error.stack,
           );
-          keywords = [];
+          throw new InternalServerErrorException(
+            'Failed to extract keywords from question',
+          );
         }
       }
 
-      // Process keywords to ensure Word nodes exist
-      if (keywords.length > 0) {
-        await this.processKeywordsForCreation(keywords, questionData);
+      // Create missing word nodes
+      for (const keyword of keywords) {
+        try {
+          const wordExists = await this.wordService.checkWordExistence(
+            keyword.word,
+          );
+          if (!wordExists) {
+            this.logger.debug(`Creating missing word node: ${keyword.word}`);
+            await this.wordService.createWord({
+              word: keyword.word,
+              createdBy: questionData.createdBy,
+              publicCredit: questionData.publicCredit ?? true,
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to create word '${keyword.word}': ${error.message}`,
+          );
+          // Continue - don't fail question creation if word creation fails
+        }
       }
 
       // Validate categories if provided
@@ -148,43 +157,47 @@ export class OpenQuestionService {
         await this.validateCategories(questionData.categoryIds);
       }
 
-      const questionNodeData: OpenQuestionNodeData = {
+      // Create the open question via schema
+      const createdQuestion = await this.openQuestionSchema.createOpenQuestion({
         id: questionId,
         createdBy: questionData.createdBy,
         publicCredit: questionData.publicCredit,
         questionText: questionData.questionText,
         keywords,
         categoryIds: questionData.categoryIds,
-        initialComment: questionData.initialComment,
-      };
+      });
 
-      // Create the open question node
-      const result =
-        await this.openQuestionSchema.createOpenQuestion(questionNodeData);
-
-      // Create discussion for the question
-      if (questionData.initialComment && questionData.initialComment.trim()) {
+      // Create discussion if initialComment provided
+      // ⚠️ CRITICAL: Use direct DiscussionSchema injection, NOT DiscussionService
+      if (questionData.initialComment) {
         try {
-          await this.discussionService.createDiscussion({
+          await this.discussionSchema.createDiscussionForNode({
+            nodeId: createdQuestion.id,
+            nodeType: 'OpenQuestionNode',
+            nodeIdField: 'id', // ← Standard ID field
             createdBy: questionData.createdBy,
-            associatedNodeId: questionId,
-            associatedNodeType: 'OpenQuestionNode',
             initialComment: questionData.initialComment,
           });
+          this.logger.debug(
+            `Created discussion for question: ${createdQuestion.id}`,
+          );
         } catch (error) {
           this.logger.warn(
-            `Discussion creation failed for open question ${questionId}: ${error.message}`,
+            `Failed to create discussion for question ${createdQuestion.id}: ${error.message}`,
           );
-          // Continue - question created successfully even if discussion fails
+          // Continue - question creation succeeded
         }
       }
 
       this.logger.log(
-        `Successfully created open question with ID: ${result.id}`,
+        `Successfully created open question: ${createdQuestion.id}`,
       );
-      return result;
+      return createdQuestion;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
 
@@ -200,91 +213,131 @@ export class OpenQuestionService {
 
   /**
    * Get an open question by ID
+   * Direct delegation to schema with error handling
    */
-  async getOpenQuestion(id: string, options: GetOpenQuestionOptions = {}) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
+  async getOpenQuestion(id: string): Promise<OpenQuestionData> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
 
-      this.logger.debug(`Getting open question with ID: ${id}`);
-      const question = await this.openQuestionSchema.getOpenQuestion(id);
+    this.logger.debug(`Getting open question: ${id}`);
+
+    try {
+      const question = await this.openQuestionSchema.findById(id);
 
       if (!question) {
-        this.logger.debug(`Open question with ID ${id} not found`);
         throw new NotFoundException(`Open question with ID ${id} not found`);
-      }
-
-      // If includeDiscussion is requested, fetch and attach discussion
-      if (options.includeDiscussion && question.discussionId) {
-        question.discussion = await this.discussionService.getDiscussion(
-          question.discussionId,
-        );
-      }
-
-      // If includeAnswers is requested, fetch Answer nodes (not Statement nodes)
-      if (options.includeAnswers) {
-        try {
-          const answers = await this.answerService.getAnswersForQuestion(id);
-          question.answers = answers;
-        } catch (error) {
-          this.logger.warn(
-            `Failed to fetch answers for question ${id}: ${error.message}`,
-          );
-          question.answers = [];
-        }
       }
 
       return question;
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
 
       this.logger.error(
-        `Error getting open question ${id}: ${error.message}`,
+        `Error getting open question: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to retrieve open question: ${error.message}`,
+        `Failed to get open question: ${error.message}`,
       );
     }
   }
 
   /**
-   * Update an open question
+   * Update an open question with optional keyword re-extraction
+   * Orchestrates: validation + optional keyword re-extraction + word creation + update
    */
-  async updateOpenQuestion(id: string, updateData: UpdateOpenQuestionData) {
+  async updateOpenQuestion(
+    id: string,
+    updateData: UpdateOpenQuestionData,
+  ): Promise<OpenQuestionData> {
+    this.validateUpdateQuestionData(updateData);
+
+    this.logger.debug(`Updating open question: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
+      // Check if question text is changing
+      const textChanged =
+        updateData.questionText !== undefined && updateData.questionText !== '';
+
+      if (textChanged) {
+        // Get original question for user context
+        const originalQuestion = await this.getOpenQuestion(id);
+
+        // Extract keywords for the new text
+        let keywords: KeywordWithFrequency[] = [];
+        if (updateData.userKeywords && updateData.userKeywords.length > 0) {
+          keywords = updateData.userKeywords.map((keyword) => ({
+            word: keyword,
+            frequency: 1,
+            source: 'user' as const,
+          }));
+          this.logger.debug(`Using ${keywords.length} user-provided keywords`);
+        } else {
+          try {
+            const extractionResult =
+              await this.keywordExtractionService.extractKeywords({
+                text: updateData.questionText,
+              });
+            keywords = extractionResult.keywords;
+            this.logger.debug(
+              `Re-extracted ${keywords.length} keywords via AI`,
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Keyword extraction failed during update: ${error.message}`,
+            );
+            keywords = [];
+          }
+        }
+
+        // Create missing word nodes
+        for (const keyword of keywords) {
+          try {
+            const wordExists = await this.wordService.checkWordExistence(
+              keyword.word,
+            );
+            if (!wordExists) {
+              this.logger.debug(`Creating missing word node: ${keyword.word}`);
+              await this.wordService.createWord({
+                word: keyword.word,
+                createdBy: originalQuestion.createdBy,
+                publicCredit:
+                  updateData.publicCredit ?? originalQuestion.publicCredit,
+              });
+            }
+          } catch (error) {
+            this.logger.warn(
+              `Failed to create word '${keyword.word}': ${error.message}`,
+            );
+            // Continue - don't fail update if word creation fails
+          }
+        }
+
+        // Add keywords to update data
+        (updateData as any).keywords = keywords;
       }
 
-      // Validate update data
-      this.validateUpdateQuestionData(updateData);
-
-      this.logger.log(
-        `Updating open question ${id}: ${JSON.stringify(updateData)}`,
-      );
-
-      // If question text is being updated, re-extract keywords
-      if (updateData.questionText) {
-        return this.updateQuestionWithKeywords(id, updateData);
+      // Validate categories if provided
+      if (updateData.categoryIds !== undefined) {
+        if (updateData.categoryIds.length > 0) {
+          await this.validateCategories(updateData.categoryIds);
+        }
       }
 
-      // If only other fields are being updated, no need to re-extract keywords
+      // Update via schema
       const updatedQuestion = await this.openQuestionSchema.updateOpenQuestion(
         id,
         updateData,
       );
+
       if (!updatedQuestion) {
         throw new NotFoundException(`Open question with ID ${id} not found`);
       }
 
-      this.logger.log(`Successfully updated open question: ${id}`);
+      this.logger.debug(`Successfully updated open question: ${id}`);
       return updatedQuestion;
     } catch (error) {
       if (
@@ -295,7 +348,7 @@ export class OpenQuestionService {
       }
 
       this.logger.error(
-        `Error updating open question ${id}: ${error.message}`,
+        `Error updating open question: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -306,25 +359,23 @@ export class OpenQuestionService {
 
   /**
    * Delete an open question
+   * Direct delegation to schema
    */
-  async deleteOpenQuestion(id: string) {
+  async deleteOpenQuestion(id: string): Promise<{ success: boolean }> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
+
+    this.logger.debug(`Deleting open question: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
+      // Verify question exists before deletion
+      await this.getOpenQuestion(id);
 
-      this.logger.log(`Deleting open question: ${id}`);
+      await this.openQuestionSchema.delete(id);
+      this.logger.debug(`Deleted open question: ${id}`);
 
-      // Verify question exists
-      const question = await this.getOpenQuestion(id);
-      if (!question) {
-        throw new NotFoundException(`Open question with ID ${id} not found`);
-      }
-
-      await this.openQuestionSchema.deleteOpenQuestion(id);
-
-      this.logger.log(`Successfully deleted open question: ${id}`);
-      return { success: true, message: 'Open question deleted successfully' };
+      return { success: true };
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -334,7 +385,7 @@ export class OpenQuestionService {
       }
 
       this.logger.error(
-        `Error deleting open question ${id}: ${error.message}`,
+        `Error deleting open question: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -343,220 +394,107 @@ export class OpenQuestionService {
     }
   }
 
-  // NETWORK AND LISTING
+  // ============================================
+  // VOTING OPERATIONS - INCLUSION ONLY
+  // ============================================
 
   /**
-   * Get open question network for display
+   * Vote on open question inclusion
+   * OpenQuestions only support inclusion voting, not content voting
    */
-  async getOpenQuestionNetwork(
-    options: GetOpenQuestionNetworkOptions,
-  ): Promise<any[]> {
-    try {
-      this.logger.debug(
-        `Getting open question network with options: ${JSON.stringify(options)}`,
-      );
-
-      const validatedOptions = {
-        limit: options.limit !== undefined ? Number(options.limit) : undefined,
-        offset:
-          options.offset !== undefined ? Number(options.offset) : undefined,
-        sortBy: options.sortBy || 'netPositive',
-        sortDirection: options.sortDirection || 'desc',
-        keywords: options.keywords || [],
-        userId: options.userId,
-      };
-
-      return await this.openQuestionSchema.getOpenQuestionNetwork(
-        validatedOptions,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error getting open question network: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get open question network: ${error.message}`,
-      );
-    }
-  }
-
-  // VISIBILITY MANAGEMENT
-
-  /**
-   * Set visibility status for an open question
-   */
-  async setVisibilityStatus(id: string, isVisible: boolean) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      if (typeof isVisible !== 'boolean') {
-        throw new BadRequestException('isVisible must be a boolean value');
-      }
-
-      this.logger.log(
-        `Setting visibility for open question ${id}: ${isVisible}`,
-      );
-
-      const updatedQuestion = await this.openQuestionSchema.setVisibilityStatus(
-        id,
-        isVisible,
-      );
-      if (!updatedQuestion) {
-        throw new NotFoundException(`Open question with ID ${id} not found`);
-      }
-
-      this.logger.debug(
-        `Visibility status updated for open question ${id}: ${isVisible}`,
-      );
-      return updatedQuestion;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error setting visibility for open question ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to set open question visibility: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get visibility status for an open question
-   */
-  async getVisibilityStatus(id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      this.logger.debug(`Getting visibility status for open question ${id}`);
-      const status = await this.openQuestionSchema.getVisibilityStatus(id);
-
-      return { isVisible: status };
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting visibility status for open question ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get open question visibility status: ${error.message}`,
-      );
-    }
-  }
-
-  // VOTING METHODS - INCLUSION ONLY (OpenQuestions don't have content voting)
-
-  /**
-   * Vote for open question inclusion
-   */
-  async voteOpenQuestionInclusion(
+  async voteInclusion(
     id: string,
-    sub: string,
+    userId: string,
     isPositive: boolean,
   ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Voting on question inclusion: ${id} by user: ${userId}, isPositive: ${isPositive}`,
+    );
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      this.logger.log(
-        `Processing inclusion vote on open question ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-
-      return await this.openQuestionSchema.voteOpenQuestionInclusion(
+      const result = await this.openQuestionSchema.voteInclusion(
         id,
-        sub,
+        userId,
         isPositive,
       );
+      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
+      return result;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error voting on open question ${id}: ${error.message}`,
+        `Error voting on question: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to vote on open question: ${error.message}`,
+        `Failed to vote on question: ${error.message}`,
       );
     }
   }
 
   /**
-   * Get vote status for an open question by a specific user
+   * Get vote status for a user on an open question
    */
-  async getOpenQuestionVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
+  async getVoteStatus(id: string, userId: string): Promise<VoteStatus | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Getting vote status for question: ${id} and user: ${userId}`,
+    );
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      return await this.openQuestionSchema.getOpenQuestionVoteStatus(id, sub);
+      const status = await this.openQuestionSchema.getVoteStatus(id, userId);
+      this.logger.debug(
+        `Vote status for question ${id} and user ${userId}: ${JSON.stringify(status)}`,
+      );
+      return status;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error getting vote status for open question ${id}: ${error.message}`,
+        `Error getting vote status: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to get open question vote status: ${error.message}`,
+        `Failed to get vote status: ${error.message}`,
       );
     }
   }
 
   /**
-   * Remove vote from an open question
+   * Remove a vote from an open question
    */
-  async removeOpenQuestionVote(id: string, sub: string) {
+  async removeVote(id: string, userId: string): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(`Removing vote on question: ${id} by user: ${userId}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      this.logger.log(`Removing vote from open question ${id} by user ${sub}`);
-
-      return await this.openQuestionSchema.removeOpenQuestionVote(id, sub);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error removing vote from open question ${id}: ${error.message}`,
-        error.stack,
+      const result = await this.openQuestionSchema.removeVote(
+        id,
+        userId,
+        'INCLUSION',
       );
+      this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
+      return result;
+    } catch (error) {
+      this.logger.error(`Error removing vote: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to remove vote: ${error.message}`,
       );
@@ -564,588 +502,30 @@ export class OpenQuestionService {
   }
 
   /**
-   * Get vote counts for an open question
+   * Get vote totals for an open question
    */
-  async getOpenQuestionVotes(id: string): Promise<VoteResult | null> {
+  async getVotes(id: string): Promise<VoteResult | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Open question ID is required');
+    }
+
+    this.logger.debug(`Getting votes for question: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      this.logger.debug(`Getting votes for open question ${id}`);
-      return await this.openQuestionSchema.getOpenQuestionVotes(id);
+      const votes = await this.openQuestionSchema.getVotes(id);
+      this.logger.debug(`Votes for question ${id}: ${JSON.stringify(votes)}`);
+      return votes;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting votes for open question ${id}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error getting votes: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to get votes: ${error.message}`,
       );
     }
   }
 
-  // NEW: ANSWER INTEGRATION - Replacing Statement-based workflow
-
-  /**
-   * Create an Answer for this open question
-   * NEW: Replaces createAnswerStatement() - now uses AnswerService
-   */
-  async createAnswerForQuestion(
-    questionId: string,
-    answerData: CreateAnswerForQuestionData,
-    createdBy: string,
-  ) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Question ID is required');
-      }
-
-      this.logger.log(`Creating answer for question ${questionId}`);
-
-      // Verify the question exists and has passed inclusion threshold
-      const question = await this.getOpenQuestion(questionId);
-      if (!question) {
-        throw new NotFoundException(
-          `Open question with ID ${questionId} not found`,
-        );
-      }
-
-      // Check if question has passed inclusion threshold (required for answer creation)
-      const questionVotes = await this.getOpenQuestionVotes(questionId);
-      if (!questionVotes || questionVotes.inclusionNetVotes <= 0) {
-        throw new BadRequestException(
-          'Question must pass inclusion threshold before answers can be created',
-        );
-      }
-
-      // Prepare answer data for AnswerService
-      const answerCreationData = {
-        answerText: answerData.answerText,
-        publicCredit: answerData.publicCredit,
-        parentQuestionId: questionId,
-        categoryIds: answerData.categoryIds,
-        userKeywords: answerData.userKeywords,
-        initialComment: answerData.initialComment,
-        createdBy,
-      };
-
-      // Create the answer using AnswerService
-      const answer = await this.answerService.createAnswer(answerCreationData);
-
-      this.logger.debug(
-        `Created answer ${answer.id} for question ${questionId}`,
-      );
-      return answer;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error creating answer for question: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to create answer for question: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get all answers for this open question
-   * NEW: Returns Answer nodes instead of Statement nodes
-   */
-  async getQuestionAnswers(
-    questionId: string,
-    options: {
-      limit?: number;
-      offset?: number;
-      sortBy?: 'created' | 'inclusion_votes' | 'content_votes';
-      sortDirection?: 'asc' | 'desc';
-      onlyApproved?: boolean;
-    } = {},
-  ) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Question ID is required');
-      }
-
-      this.logger.debug(`Getting answers for question ${questionId}`);
-
-      // Verify question exists
-      const question = await this.getOpenQuestion(questionId);
-      if (!question) {
-        throw new NotFoundException(
-          `Open question with ID ${questionId} not found`,
-        );
-      }
-
-      // Get answers using AnswerService
-      return await this.answerService.getAnswersForQuestion(
-        questionId,
-        options,
-      );
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting answers for question ${questionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get question answers: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get an open question with its answers included
-   * NEW: Includes Answer nodes instead of Statement nodes
-   */
-  async getQuestionWithAnswers(questionId: string) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Question ID is required');
-      }
-
-      this.logger.debug(`Getting question with answers: ${questionId}`);
-
-      // Get question with answers included
-      const question = await this.getOpenQuestion(questionId, {
-        includeAnswers: true,
-      });
-
-      return question;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting question with answers ${questionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get question with answers: ${error.message}`,
-      );
-    }
-  }
-
-  // DISCOVERY METHODS - Delegating to OpenQuestionSchema
-
-  /**
-   * Get related content that shares categories with the given open question
-   */
-  async getRelatedContentBySharedCategories(
-    questionId: string,
-    options: DiscoveryOptions = {},
-  ) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      this.logger.debug(
-        `Getting related content for open question ${questionId} with options: ${JSON.stringify(options)}`,
-      );
-
-      return await this.openQuestionSchema.getRelatedContentBySharedCategories(
-        questionId,
-        options,
-      );
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting related content for open question ${questionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get related content: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get categories associated with an open question
-   */
-  async getOpenQuestionCategories(questionId: string) {
-    try {
-      if (!questionId || questionId.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      this.logger.debug(`Getting categories for open question ${questionId}`);
-
-      return await this.openQuestionSchema.getNodeCategories(questionId);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting categories for open question ${questionId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get open question categories: ${error.message}`,
-      );
-    }
-  }
-
-  // QUESTION RELATIONSHIPS - Direct question-to-question relationships
-
-  /**
-   * Create a related question with a direct relationship
-   */
-  async createRelatedQuestion(
-    existingQuestionId: string,
-    questionData: CreateOpenQuestionData,
-  ) {
-    try {
-      if (!existingQuestionId || existingQuestionId.trim() === '') {
-        throw new BadRequestException('Existing question ID is required');
-      }
-
-      this.logger.log(`Creating related question to: ${existingQuestionId}`);
-
-      // Verify existing question exists
-      const existingQuestion = await this.getOpenQuestion(existingQuestionId);
-      if (!existingQuestion) {
-        throw new NotFoundException(
-          `Open question with ID ${existingQuestionId} not found`,
-        );
-      }
-
-      // Create the new question
-      const newQuestion = await this.createOpenQuestion(questionData);
-
-      // Create the direct relationship between the questions
-      await this.createDirectRelationship(existingQuestionId, newQuestion.id);
-
-      this.logger.debug(
-        `Created new question ${newQuestion.id} related to ${existingQuestionId}`,
-      );
-      return newQuestion;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error creating related question: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to create related question: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Create a direct relationship between two open questions
-   */
-  async createDirectRelationship(questionId1: string, questionId2: string) {
-    try {
-      if (!questionId1 || !questionId2) {
-        throw new BadRequestException('Both question IDs are required');
-      }
-
-      if (questionId1 === questionId2) {
-        throw new BadRequestException(
-          'Cannot create a relationship between a question and itself',
-        );
-      }
-
-      this.logger.log(
-        `Creating direct relationship between questions ${questionId1} and ${questionId2}`,
-      );
-
-      // Verify both questions exist
-      const question1 = await this.getOpenQuestion(questionId1);
-      const question2 = await this.getOpenQuestion(questionId2);
-
-      if (!question1 || !question2) {
-        throw new NotFoundException('One or both questions not found');
-      }
-
-      await this.openQuestionSchema.createDirectRelationship(
-        questionId1,
-        questionId2,
-      );
-
-      this.logger.debug(
-        `Direct relationship created successfully between ${questionId1} and ${questionId2}`,
-      );
-      return { success: true };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error creating direct relationship: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to create direct relationship: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Remove a direct relationship between two open questions
-   */
-  async removeDirectRelationship(questionId1: string, questionId2: string) {
-    try {
-      if (!questionId1 || !questionId2) {
-        throw new BadRequestException('Both question IDs are required');
-      }
-
-      this.logger.log(
-        `Removing direct relationship between questions ${questionId1} and ${questionId2}`,
-      );
-
-      await this.openQuestionSchema.removeDirectRelationship(
-        questionId1,
-        questionId2,
-      );
-
-      this.logger.debug(
-        `Direct relationship removed successfully between ${questionId1} and ${questionId2}`,
-      );
-      return { success: true };
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error removing direct relationship: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to remove direct relationship: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get all open questions directly related to the given question
-   */
-  async getDirectlyRelatedQuestions(id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Open question ID is required');
-      }
-
-      this.logger.debug(`Getting directly related questions for: ${id}`);
-      return await this.openQuestionSchema.getDirectlyRelatedQuestions(id);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting directly related questions for ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get directly related questions: ${error.message}`,
-      );
-    }
-  }
-
-  // DISCUSSION & COMMENT INTEGRATION
-
-  /**
-   * Get open question with its discussion
-   */
-  async getOpenQuestionWithDiscussion(id: string) {
-    return this.getOpenQuestion(id, { includeDiscussion: true });
-  }
-
-  /**
-   * Get comments for an open question's discussion
-   */
-  async getOpenQuestionComments(id: string) {
-    try {
-      const question = await this.getOpenQuestion(id);
-
-      if (!question.discussionId) {
-        return { comments: [] };
-      }
-
-      const comments = await this.commentService.getCommentsByDiscussionId(
-        question.discussionId,
-      );
-      return { comments };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting comments for open question ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get open question comments: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Add comment to an open question's discussion
-   */
-  async addOpenQuestionComment(
-    id: string,
-    commentData: { commentText: string; parentCommentId?: string },
-    createdBy: string,
-  ) {
-    try {
-      const question = await this.getOpenQuestion(id);
-
-      if (!question.discussionId) {
-        throw new Error(
-          `Open question ${id} is missing its discussion - this should not happen`,
-        );
-      }
-
-      // Create the comment
-      const comment = await this.commentService.createComment({
-        createdBy,
-        discussionId: question.discussionId,
-        commentText: commentData.commentText,
-        parentCommentId: commentData.parentCommentId,
-      });
-
-      return comment;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error adding comment to open question ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to add open question comment: ${error.message}`,
-      );
-    }
-  }
-
-  // UTILITY METHODS
-
-  /**
-   * Check if an open question has passed the inclusion threshold
-   */
-  async isOpenQuestionApproved(id: string): Promise<boolean> {
-    try {
-      const votes = await this.getOpenQuestionVotes(id);
-      return votes ? votes.inclusionNetVotes > 0 : false;
-    } catch (error) {
-      this.logger.error(
-        `Error checking approval status for open question ${id}: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Get open question statistics
-   */
-  async getOpenQuestionStats(id: string) {
-    try {
-      const [question, votes, categories, answers] = await Promise.all([
-        this.getOpenQuestion(id),
-        this.getOpenQuestionVotes(id),
-        this.getOpenQuestionCategories(id),
-        this.getQuestionAnswers(id),
-      ]);
-
-      const isApproved = votes ? votes.inclusionNetVotes > 0 : false;
-
-      return {
-        id: question.id,
-        questionText: question.questionText,
-        categories: categories || [],
-        answerCount: answers?.length || 0,
-        votes: votes || {
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-        },
-        isApproved,
-        answerCreationAvailable: isApproved, // Answer creation available when question is approved
-      };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting stats for open question ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get open question stats: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Utility method for checking open questions count
-   */
-  async checkOpenQuestions(): Promise<{ count: number }> {
-    try {
-      return await this.openQuestionSchema.checkOpenQuestions();
-    } catch (error) {
-      this.logger.error(
-        `Error checking open questions: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to check open questions: ${error.message}`,
-      );
-    }
-  }
-
-  // PRIVATE HELPER METHODS
+  // ============================================
+  // VALIDATION METHODS
+  // ============================================
 
   /**
    * Validate open question creation data
@@ -1157,9 +537,11 @@ export class OpenQuestionService {
       throw new BadRequestException('Question text is required');
     }
 
-    if (questionData.questionText.length > TEXT_LIMITS.MAX_QUESTION_LENGTH) {
+    if (
+      questionData.questionText.length > TEXT_LIMITS.MAX_OPEN_QUESTION_LENGTH
+    ) {
       throw new BadRequestException(
-        `Question text must not exceed ${TEXT_LIMITS.MAX_QUESTION_LENGTH} characters`,
+        `Question text cannot exceed ${TEXT_LIMITS.MAX_OPEN_QUESTION_LENGTH} characters`,
       );
     }
 
@@ -1199,9 +581,11 @@ export class OpenQuestionService {
         throw new BadRequestException('Question text cannot be empty');
       }
 
-      if (updateData.questionText.length > TEXT_LIMITS.MAX_QUESTION_LENGTH) {
+      if (
+        updateData.questionText.length > TEXT_LIMITS.MAX_OPEN_QUESTION_LENGTH
+      ) {
         throw new BadRequestException(
-          `Question text must not exceed ${TEXT_LIMITS.MAX_QUESTION_LENGTH} characters`,
+          `Question text cannot exceed ${TEXT_LIMITS.MAX_OPEN_QUESTION_LENGTH} characters`,
         );
       }
     }
@@ -1212,110 +596,13 @@ export class OpenQuestionService {
     ) {
       throw new BadRequestException('Public credit must be a boolean value');
     }
-  }
 
-  /**
-   * Update open question with keyword re-extraction
-   */
-  private async updateQuestionWithKeywords(
-    id: string,
-    updateData: UpdateOpenQuestionData,
-  ) {
-    const originalQuestion = await this.getOpenQuestion(id);
-    if (!originalQuestion) {
-      throw new NotFoundException(`Open question with ID ${id} not found`);
+    // Validate category count if provided (0-3)
+    if (updateData.categoryIds && updateData.categoryIds.length > 3) {
+      throw new BadRequestException(
+        'Open question can have maximum 3 categories',
+      );
     }
-
-    // Extract keywords for the new text
-    let keywords: KeywordWithFrequency[] = [];
-    if (updateData.userKeywords && updateData.userKeywords.length > 0) {
-      keywords = updateData.userKeywords.map((keyword) => ({
-        word: keyword,
-        frequency: 1,
-        source: 'user' as const,
-      }));
-    } else if (updateData.questionText) {
-      try {
-        const extractionResult =
-          await this.keywordExtractionService.extractKeywords({
-            text: updateData.questionText,
-            userKeywords: updateData.userKeywords,
-          });
-        keywords = extractionResult.keywords;
-      } catch (error) {
-        this.logger.warn(
-          `Keyword extraction failed during update: ${error.message}`,
-        );
-        keywords = [];
-      }
-    }
-
-    // Process keywords to ensure Word nodes exist
-    if (keywords.length > 0) {
-      await this.processKeywordsForCreation(keywords, {
-        createdBy: originalQuestion.createdBy,
-        questionText: updateData.questionText || originalQuestion.questionText,
-        publicCredit:
-          updateData.publicCredit !== undefined
-            ? updateData.publicCredit
-            : originalQuestion.publicCredit,
-        initialComment: '', // Not used for updates
-      });
-    }
-
-    // Prepare update data with keywords
-    const updateDataWithKeywords = {
-      ...updateData,
-      keywords,
-    };
-
-    const updatedQuestion = await this.openQuestionSchema.updateOpenQuestion(
-      id,
-      updateDataWithKeywords,
-    );
-    if (!updatedQuestion) {
-      throw new NotFoundException(`Open question with ID ${id} not found`);
-    }
-
-    return updatedQuestion;
-  }
-
-  /**
-   * Process keywords to ensure Word nodes exist before question creation/update
-   */
-  private async processKeywordsForCreation(
-    keywords: KeywordWithFrequency[],
-    questionData: {
-      createdBy: string;
-      questionText: string;
-      publicCredit: boolean;
-      initialComment: string;
-    },
-  ): Promise<void> {
-    const newWordPromises = keywords.map(async (keyword) => {
-      try {
-        const wordExists = await this.wordService.checkWordExistence(
-          keyword.word,
-        );
-        if (!wordExists) {
-          // Create new word if it doesn't exist
-          await this.wordService.createWord({
-            word: keyword.word,
-            createdBy: questionData.createdBy,
-            publicCredit: questionData.publicCredit,
-            discussion: `Word created from open question: "${questionData.questionText.substring(0, 100)}..."`,
-          });
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create word '${keyword.word}': ${error.message}`,
-        );
-        // Continue with other keywords even if one fails
-      }
-    });
-
-    // Wait for all word creation processes to complete
-    await Promise.all(newWordPromises);
   }
 
   /**
@@ -1325,11 +612,24 @@ export class OpenQuestionService {
     if (!categoryIds || categoryIds.length === 0) return;
 
     const validationPromises = categoryIds.map(async (categoryId) => {
-      const isApproved =
-        await this.categoryService.isCategoryApproved(categoryId);
-      if (!isApproved) {
+      try {
+        const category = await this.categoryService.getCategory(categoryId);
+        if (!category) {
+          throw new BadRequestException(
+            `Category ${categoryId} does not exist`,
+          );
+        }
+        if (category.inclusionNetVotes <= 0) {
+          throw new BadRequestException(
+            `Category ${categoryId} must have passed inclusion threshold`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
         throw new BadRequestException(
-          `Category ${categoryId} must be approved before use`,
+          `Category ${categoryId} does not exist or is not accessible`,
         );
       }
     });

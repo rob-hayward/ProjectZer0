@@ -1,4 +1,4 @@
-// src/nodes/quantity/quantity.service.ts
+// src/nodes/quantity/quantity.service.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Injectable,
@@ -7,26 +7,59 @@ import {
   NotFoundException,
   InternalServerErrorException,
 } from '@nestjs/common';
-import {
-  QuantitySchema,
-  QuantityNodeStats,
-} from '../../neo4j/schemas/quantity.schema';
-import { CategoryService } from '../category/category.service'; // NEW: Added CategoryService
-import { DiscussionService } from '../discussion/discussion.service';
-import { CommentService } from '../comment/comment.service';
+import { QuantitySchema } from '../../neo4j/schemas/quantity.schema';
+import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
+import { UserSchema } from '../../neo4j/schemas/user.schema';
+import { CategoryService } from '../category/category.service';
 import { KeywordExtractionService } from '../../services/keyword-extraction/keyword-extraction.service';
 import { WordService } from '../word/word.service';
 import { UnitService } from '../../units/unit.service';
 import { v4 as uuidv4 } from 'uuid';
 import { KeywordWithFrequency } from '../../services/keyword-extraction/keyword-extraction.interface';
+import { TEXT_LIMITS } from '../../constants/validation';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
+import type {
+  QuantityData,
+  QuantityNodeResponse,
+  QuantityNodeStats,
+} from '../../neo4j/schemas/quantity.schema';
 
-// Constants
-const TEXT_LIMITS = {
-  MAX_QUESTION_LENGTH: 1000,
-};
+/**
+ * QuantityService - Business logic for quantity node operations
+ *
+ * ARCHITECTURE:
+ * - Delegates all CRUD operations to QuantitySchema
+ * - Injects DiscussionSchema directly (NOT DiscussionService)
+ * - Orchestrates quantity creation + keyword extraction + word creation + discussion
+ * - Handles business validation beyond schema rules
+ *
+ * KEY CHARACTERISTICS:
+ * - Uses 'id' as ID field (standard)
+ * - Discussion creation uses nodeIdField: 'id'
+ * - Inclusion voting ONLY (no content voting - uses numeric responses instead)
+ * - AI keyword extraction (like Statement/OpenQuestion/Answer)
+ * - Auto-creates missing word nodes
+ * - 0-3 categories
+ * - Requires unit category and default unit
+ * - Statistical aggregation of numeric responses
+ *
+ * RESPONSIBILITIES:
+ * ✅ Orchestrate multiple schema calls (quantity + discussion + keywords + categories)
+ * ✅ Business validation (text limits, category count, unit validation)
+ * ✅ Keyword extraction and word creation
+ * ✅ Numeric response management
+ * ✅ Statistical calculations
+ *
+ * NOT RESPONSIBLE FOR:
+ * ❌ Writing Cypher queries (that's QuantitySchema)
+ * ❌ Direct database access (that's Neo4jService)
+ * ❌ HTTP concerns (that's QuantityController)
+ */
 
-// Interface definitions
+// ============================================
+// INTERFACES
+// ============================================
+
 interface CreateQuantityNodeData {
   createdBy: string;
   publicCredit: boolean;
@@ -40,10 +73,9 @@ interface CreateQuantityNodeData {
 
 interface UpdateQuantityNodeData {
   question?: string;
-  unitCategoryId?: string;
-  defaultUnitId?: string;
   publicCredit?: boolean;
   userKeywords?: string[];
+  categoryIds?: string[];
 }
 
 interface SubmitResponseData {
@@ -53,126 +85,149 @@ interface SubmitResponseData {
   unitId: string;
 }
 
-interface GetQuantityNodeOptions {
-  includeDiscussion?: boolean;
-  includeStatistics?: boolean;
-}
-
-interface DiscoveryOptions {
-  nodeTypes?: ('statement' | 'answer' | 'openquestion' | 'quantity')[];
-  limit?: number;
-  offset?: number;
-  sortBy?: 'category_overlap' | 'created' | 'inclusion_votes' | 'content_votes';
-  sortDirection?: 'asc' | 'desc';
-  excludeSelf?: boolean;
-  minCategoryOverlap?: number;
-}
-
 @Injectable()
 export class QuantityService {
   private readonly logger = new Logger(QuantityService.name);
 
   constructor(
     private readonly quantitySchema: QuantitySchema,
-    private readonly categoryService: CategoryService, // NEW: Injected CategoryService
-    private readonly discussionService: DiscussionService,
-    private readonly commentService: CommentService,
+    private readonly discussionSchema: DiscussionSchema, // ← Direct injection
+    private readonly userSchema: UserSchema,
+    private readonly categoryService: CategoryService,
     private readonly keywordExtractionService: KeywordExtractionService,
     private readonly wordService: WordService,
     private readonly unitService: UnitService,
   ) {}
 
+  // ============================================
   // CRUD OPERATIONS
+  // ============================================
 
   /**
-   * Create a new quantity node
+   * Create a new quantity node with optional discussion
+   * Orchestrates: validation + unit validation + keyword extraction + word creation + quantity creation + discussion creation
    */
-  async createQuantityNode(nodeData: CreateQuantityNodeData) {
+  async createQuantityNode(
+    quantityData: CreateQuantityNodeData,
+  ): Promise<QuantityData> {
+    this.validateCreateQuantityNodeData(quantityData);
+
+    const quantityId = uuidv4();
+    this.logger.log(
+      `Creating quantity node: ${quantityData.question.substring(0, 50)}...`,
+    );
+
     try {
-      // Validate input data
-      this.validateCreateQuantityNodeData(nodeData);
-
-      const quantityId = uuidv4();
-
-      this.logger.log(
-        `Creating quantity node: ${nodeData.question.substring(0, 50)}...`,
+      // Validate unit category and default unit
+      const isValidUnit = await this.unitService.validateUnitInCategory(
+        quantityData.defaultUnitId,
+        quantityData.unitCategoryId,
       );
-      this.logger.debug(`Quantity node data: ${JSON.stringify(nodeData)}`);
+
+      if (!isValidUnit) {
+        throw new BadRequestException(
+          `Unit ${quantityData.defaultUnitId} is not valid for category ${quantityData.unitCategoryId}`,
+        );
+      }
 
       // Extract keywords if not provided by user
       let keywords: KeywordWithFrequency[] = [];
-      if (nodeData.userKeywords && nodeData.userKeywords.length > 0) {
-        keywords = nodeData.userKeywords.map((keyword) => ({
+      if (quantityData.userKeywords && quantityData.userKeywords.length > 0) {
+        keywords = quantityData.userKeywords.map((keyword) => ({
           word: keyword,
           frequency: 1,
           source: 'user' as const,
         }));
+        this.logger.debug(`Using ${keywords.length} user-provided keywords`);
       } else {
         try {
           const extractionResult =
             await this.keywordExtractionService.extractKeywords({
-              text: nodeData.question,
-              userKeywords: nodeData.userKeywords,
+              text: quantityData.question,
             });
           keywords = extractionResult.keywords;
+          this.logger.debug(`Extracted ${keywords.length} keywords via AI`);
         } catch (error) {
-          this.logger.warn(
-            `Keyword extraction failed for quantity node: ${error.message}`,
+          this.logger.error(
+            `Keyword extraction failed: ${error.message}`,
+            error.stack,
           );
-          keywords = [];
+          throw new InternalServerErrorException(
+            'Failed to extract keywords from question',
+          );
         }
       }
 
-      // Process keywords to ensure Word nodes exist
-      if (keywords.length > 0) {
-        await this.processKeywordsForCreation(keywords, {
-          createdBy: nodeData.createdBy,
-          question: nodeData.question,
-          publicCredit: nodeData.publicCredit,
-          unitCategoryId: nodeData.unitCategoryId,
-          defaultUnitId: nodeData.defaultUnitId,
-          initialComment: nodeData.initialComment || '',
-        });
+      // Create missing word nodes
+      for (const keyword of keywords) {
+        try {
+          const wordExists = await this.wordService.checkWordExistence(
+            keyword.word,
+          );
+          if (!wordExists) {
+            this.logger.debug(`Creating missing word node: ${keyword.word}`);
+            await this.wordService.createWord({
+              word: keyword.word,
+              createdBy: quantityData.createdBy,
+              publicCredit: quantityData.publicCredit ?? true,
+            });
+          }
+        } catch (error) {
+          this.logger.warn(
+            `Failed to create word '${keyword.word}': ${error.message}`,
+          );
+          // Continue - don't fail quantity creation if word creation fails
+        }
       }
 
       // Validate categories if provided
-      if (nodeData.categoryIds && nodeData.categoryIds.length > 0) {
-        await this.validateCategories(nodeData.categoryIds);
+      if (quantityData.categoryIds && quantityData.categoryIds.length > 0) {
+        await this.validateCategories(quantityData.categoryIds);
       }
 
-      // Create quantity node with extracted keywords
-      const nodeWithId = {
-        ...nodeData,
+      // Create the quantity node via schema
+      const createdQuantity = await this.quantitySchema.createQuantityNode({
         id: quantityId,
+        createdBy: quantityData.createdBy,
+        publicCredit: quantityData.publicCredit,
+        question: quantityData.question,
+        unitCategoryId: quantityData.unitCategoryId,
+        defaultUnitId: quantityData.defaultUnitId,
         keywords,
-      };
+        categoryIds: quantityData.categoryIds,
+      });
 
-      const createdNode =
-        await this.quantitySchema.createQuantityNode(nodeWithId);
-
-      // Create discussion for the quantity node
-      if (nodeData.initialComment && nodeData.initialComment.trim()) {
+      // Create discussion if initialComment provided
+      // ⚠️ CRITICAL: Use direct DiscussionSchema injection, NOT DiscussionService
+      if (quantityData.initialComment) {
         try {
-          await this.discussionService.createDiscussion({
-            createdBy: nodeData.createdBy,
-            associatedNodeId: quantityId,
-            associatedNodeType: 'QuantityNode',
-            initialComment: nodeData.initialComment,
+          await this.discussionSchema.createDiscussionForNode({
+            nodeId: createdQuantity.id,
+            nodeType: 'QuantityNode',
+            nodeIdField: 'id', // ← Standard ID field
+            createdBy: quantityData.createdBy,
+            initialComment: quantityData.initialComment,
           });
+          this.logger.debug(
+            `Created discussion for quantity node: ${createdQuantity.id}`,
+          );
         } catch (error) {
           this.logger.warn(
-            `Discussion creation failed for quantity node ${quantityId}: ${error.message}`,
+            `Failed to create discussion for quantity node ${createdQuantity.id}: ${error.message}`,
           );
-          // Continue - quantity node created successfully even if discussion fails
+          // Continue - quantity creation succeeded
         }
       }
 
       this.logger.log(
-        `Successfully created quantity node with ID: ${createdNode.id}`,
+        `Successfully created quantity node: ${createdQuantity.id}`,
       );
-      return createdNode;
+      return createdQuantity;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
 
@@ -188,91 +243,129 @@ export class QuantityService {
 
   /**
    * Get a quantity node by ID
+   * Direct delegation to schema with error handling
    */
-  async getQuantityNode(id: string, options: GetQuantityNodeOptions = {}) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
+  async getQuantityNode(id: string): Promise<QuantityData> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
 
-      this.logger.debug(`Getting quantity node with ID: ${id}`);
-      const quantityNode = await this.quantitySchema.getQuantityNode(id);
+    this.logger.debug(`Getting quantity node: ${id}`);
+
+    try {
+      const quantityNode = await this.quantitySchema.findById(id);
 
       if (!quantityNode) {
-        this.logger.debug(`Quantity node with ID ${id} not found`);
         throw new NotFoundException(`Quantity node with ID ${id} not found`);
-      }
-
-      // If includeDiscussion is requested, fetch and attach discussion
-      if (options.includeDiscussion && quantityNode.discussionId) {
-        quantityNode.discussion = await this.discussionService.getDiscussion(
-          quantityNode.discussionId,
-        );
-      }
-
-      // If includeStatistics is requested, fetch and attach statistics
-      if (options.includeStatistics) {
-        try {
-          quantityNode.statistics = await this.getStatistics(id);
-        } catch (error) {
-          this.logger.warn(
-            `Failed to fetch statistics for quantity node ${id}: ${error.message}`,
-          );
-          quantityNode.statistics = null;
-        }
       }
 
       return quantityNode;
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
 
       this.logger.error(
-        `Error getting quantity node ${id}: ${error.message}`,
+        `Error getting quantity node: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to retrieve quantity node: ${error.message}`,
+        `Failed to get quantity node: ${error.message}`,
       );
     }
   }
 
   /**
-   * Update a quantity node
+   * Update a quantity node with optional keyword re-extraction
+   * Orchestrates: validation + optional keyword re-extraction + word creation + update
    */
-  async updateQuantityNode(id: string, updateData: UpdateQuantityNodeData) {
+  async updateQuantityNode(
+    id: string,
+    updateData: UpdateQuantityNodeData,
+  ): Promise<QuantityData> {
+    this.validateUpdateQuantityNodeData(updateData);
+
+    this.logger.debug(`Updating quantity node: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
+      // Check if question text is changing
+      const textChanged =
+        updateData.question !== undefined && updateData.question !== '';
+
+      if (textChanged) {
+        // Get original quantity node for user context
+        const originalQuantity = await this.getQuantityNode(id);
+
+        // Extract keywords for the new text
+        let keywords: KeywordWithFrequency[] = [];
+        if (updateData.userKeywords && updateData.userKeywords.length > 0) {
+          keywords = updateData.userKeywords.map((keyword) => ({
+            word: keyword,
+            frequency: 1,
+            source: 'user' as const,
+          }));
+          this.logger.debug(`Using ${keywords.length} user-provided keywords`);
+        } else {
+          try {
+            const extractionResult =
+              await this.keywordExtractionService.extractKeywords({
+                text: updateData.question,
+              });
+            keywords = extractionResult.keywords;
+            this.logger.debug(
+              `Re-extracted ${keywords.length} keywords via AI`,
+            );
+          } catch (error) {
+            this.logger.warn(
+              `Keyword extraction failed during update: ${error.message}`,
+            );
+            keywords = [];
+          }
+        }
+
+        // Create missing word nodes
+        for (const keyword of keywords) {
+          try {
+            const wordExists = await this.wordService.checkWordExistence(
+              keyword.word,
+            );
+            if (!wordExists) {
+              this.logger.debug(`Creating missing word node: ${keyword.word}`);
+              await this.wordService.createWord({
+                word: keyword.word,
+                createdBy: originalQuantity.createdBy,
+                publicCredit:
+                  updateData.publicCredit ?? originalQuantity.publicCredit,
+              });
+            }
+          } catch (error) {
+            this.logger.warn(
+              `Failed to create word '${keyword.word}': ${error.message}`,
+            );
+            // Continue - don't fail update if word creation fails
+          }
+        }
+
+        // Add keywords to update data
+        (updateData as any).keywords = keywords;
       }
 
-      // Validate update data
-      this.validateUpdateQuantityNodeData(updateData);
-
-      this.logger.log(
-        `Updating quantity node ${id}: ${JSON.stringify(updateData)}`,
-      );
-
-      // If question text is being updated, re-extract keywords
-      if (updateData.question) {
-        return this.updateQuantityNodeWithKeywords(id, updateData);
+      // Validate categories if provided
+      if (updateData.categoryIds !== undefined) {
+        if (updateData.categoryIds.length > 0) {
+          await this.validateCategories(updateData.categoryIds);
+        }
       }
 
-      // If only other fields are being updated, no need to re-extract keywords
-      const updatedNode = await this.quantitySchema.updateQuantityNode(
-        id,
-        updateData,
-      );
-      if (!updatedNode) {
+      // Update via schema
+      const updatedQuantity = await this.quantitySchema.update(id, updateData);
+
+      if (!updatedQuantity) {
         throw new NotFoundException(`Quantity node with ID ${id} not found`);
       }
 
-      this.logger.log(`Successfully updated quantity node: ${id}`);
-      return updatedNode;
+      this.logger.debug(`Successfully updated quantity node: ${id}`);
+      return updatedQuantity;
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -282,7 +375,7 @@ export class QuantityService {
       }
 
       this.logger.error(
-        `Error updating quantity node ${id}: ${error.message}`,
+        `Error updating quantity node: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -293,25 +386,23 @@ export class QuantityService {
 
   /**
    * Delete a quantity node
+   * Direct delegation to schema
    */
-  async deleteQuantityNode(id: string) {
+  async deleteQuantityNode(id: string): Promise<{ success: boolean }> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(`Deleting quantity node: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
+      // Verify quantity node exists before deletion
+      await this.getQuantityNode(id);
 
-      this.logger.log(`Deleting quantity node: ${id}`);
+      await this.quantitySchema.delete(id);
+      this.logger.debug(`Deleted quantity node: ${id}`);
 
-      // Verify node exists
-      const node = await this.getQuantityNode(id);
-      if (!node) {
-        throw new NotFoundException(`Quantity node with ID ${id} not found`);
-      }
-
-      await this.quantitySchema.deleteQuantityNode(id);
-
-      this.logger.log(`Successfully deleted quantity node: ${id}`);
-      return { success: true, message: 'Quantity node deleted successfully' };
+      return { success: true };
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -321,7 +412,7 @@ export class QuantityService {
       }
 
       this.logger.error(
-        `Error deleting quantity node ${id}: ${error.message}`,
+        `Error deleting quantity node: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -330,118 +421,42 @@ export class QuantityService {
     }
   }
 
-  // VISIBILITY MANAGEMENT
+  // ============================================
+  // VOTING OPERATIONS - INCLUSION ONLY
+  // ============================================
 
   /**
-   * Set visibility status for a quantity node
+   * Vote on quantity node inclusion
+   * Quantity nodes only support inclusion voting (no content voting - uses numeric responses)
    */
-  async setVisibilityStatus(id: string, isVisible: boolean) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (typeof isVisible !== 'boolean') {
-        throw new BadRequestException('isVisible must be a boolean value');
-      }
-
-      this.logger.log(
-        `Setting visibility for quantity node ${id}: ${isVisible}`,
-      );
-
-      const updatedNode = await this.quantitySchema.setVisibilityStatus(
-        id,
-        isVisible,
-      );
-      if (!updatedNode) {
-        throw new NotFoundException(`Quantity node with ID ${id} not found`);
-      }
-
-      this.logger.debug(
-        `Visibility status updated for quantity node ${id}: ${isVisible}`,
-      );
-      return updatedNode;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error setting visibility for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to set quantity node visibility: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get visibility status for a quantity node
-   */
-  async getVisibilityStatus(id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting visibility status for quantity node ${id}`);
-      const status = await this.quantitySchema.getVisibilityStatus(id);
-
-      return { isVisible: status };
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting visibility status for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get quantity node visibility status: ${error.message}`,
-      );
-    }
-  }
-
-  // VOTING METHODS - DUAL VOTING (INCLUSION + CONTENT)
-
-  /**
-   * Vote for quantity node inclusion
-   */
-  async voteQuantityInclusion(
+  async voteInclusion(
     id: string,
-    sub: string,
+    userId: string,
     isPositive: boolean,
   ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Voting on quantity node inclusion: ${id} by user: ${userId}, isPositive: ${isPositive}`,
+    );
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      this.logger.log(
-        `Processing inclusion vote on quantity node ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
-      );
-
-      return await this.quantitySchema.voteQuantityInclusion(
+      const result = await this.quantitySchema.voteInclusion(
         id,
-        sub,
+        userId,
         isPositive,
       );
+      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
+      return result;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error voting on quantity node ${id}: ${error.message}`,
+        `Error voting on quantity node: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -451,105 +466,64 @@ export class QuantityService {
   }
 
   /**
-   * Vote for quantity node content (approach approval)
+   * Get vote status for a user on a quantity node
    */
-  async voteQuantityContent(
-    id: string,
-    sub: string,
-    isPositive: boolean,
-  ): Promise<VoteResult> {
+  async getVoteStatus(id: string, userId: string): Promise<VoteStatus | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Getting vote status for quantity node: ${id} and user: ${userId}`,
+    );
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      this.logger.log(
-        `Processing content vote on quantity node ${id} by user ${sub}: ${isPositive ? 'positive' : 'negative'}`,
+      const status = await this.quantitySchema.getVoteStatus(id, userId);
+      this.logger.debug(
+        `Vote status for quantity node ${id} and user ${userId}: ${JSON.stringify(status)}`,
       );
-
-      return await this.quantitySchema.voteQuantityContent(id, sub, isPositive);
+      return status;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error voting on quantity node content ${id}: ${error.message}`,
+        `Error getting vote status: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to vote on quantity node content: ${error.message}`,
+        `Failed to get vote status: ${error.message}`,
       );
     }
   }
 
   /**
-   * Get vote status for a quantity node by a specific user
+   * Remove a vote from a quantity node
    */
-  async getQuantityVoteStatus(
-    id: string,
-    sub: string,
-  ): Promise<VoteStatus | null> {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      return await this.quantitySchema.getQuantityVoteStatus(id, sub);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting vote status for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get quantity node vote status: ${error.message}`,
-      );
+  async removeVote(id: string, userId: string): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
     }
-  }
 
-  /**
-   * Remove vote from a quantity node
-   */
-  async removeQuantityVote(
-    id: string,
-    sub: string,
-    kind: 'INCLUSION' | 'CONTENT' = 'INCLUSION',
-  ) {
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Removing vote on quantity node: ${id} by user: ${userId}`,
+    );
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      if (!sub || sub.trim() === '') {
-        throw new BadRequestException('User ID is required');
-      }
-
-      this.logger.log(
-        `Removing ${kind} vote from quantity node ${id} by user ${sub}`,
+      const result = await this.quantitySchema.removeVote(
+        id,
+        userId,
+        'INCLUSION',
       );
-
-      return await this.quantitySchema.removeQuantityVote(id, sub, kind);
+      this.logger.debug(`Remove vote result: ${JSON.stringify(result)}`);
+      return result;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error removing vote from quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
+      this.logger.error(`Error removing vote: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to remove vote: ${error.message}`,
       );
@@ -557,115 +531,69 @@ export class QuantityService {
   }
 
   /**
-   * Get vote counts for a quantity node
+   * Get vote totals for a quantity node
    */
-  async getQuantityVotes(id: string): Promise<VoteResult | null> {
+  async getVotes(id: string): Promise<VoteResult | null> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(`Getting votes for quantity node: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting votes for quantity node ${id}`);
-      return await this.quantitySchema.getQuantityVotes(id);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting votes for quantity node ${id}: ${error.message}`,
-        error.stack,
+      const votes = await this.quantitySchema.getVotes(id);
+      this.logger.debug(
+        `Votes for quantity node ${id}: ${JSON.stringify(votes)}`,
       );
+      return votes;
+    } catch (error) {
+      this.logger.error(`Error getting votes: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to get votes: ${error.message}`,
       );
     }
   }
 
-  // NEW: DISCOVERY METHODS - Delegating to QuantitySchema
+  // ============================================
+  // NUMERIC RESPONSE OPERATIONS
+  // ============================================
 
   /**
-   * Get related content that shares categories with the given quantity node
+   * Submit a numeric response to a quantity node
+   * Responses only allowed after inclusion threshold passed
    */
-  async getRelatedContentBySharedCategories(
-    nodeId: string,
-    options: DiscoveryOptions = {},
-  ) {
+  async submitResponse(
+    responseData: SubmitResponseData,
+  ): Promise<QuantityNodeResponse> {
+    this.validateResponseData(responseData);
+
+    this.logger.log(
+      `Submitting response to quantity node ${responseData.quantityNodeId}`,
+    );
+
     try {
-      if (!nodeId || nodeId.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(
-        `Getting related content for quantity node ${nodeId} with options: ${JSON.stringify(options)}`,
-      );
-
-      return await this.quantitySchema.getRelatedContentBySharedCategories(
-        nodeId,
-        options,
-      );
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting related content for quantity node ${nodeId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get related content: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Get categories associated with a quantity node
-   */
-  async getQuantityNodeCategories(nodeId: string) {
-    try {
-      if (!nodeId || nodeId.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
-
-      this.logger.debug(`Getting categories for quantity node ${nodeId}`);
-
-      return await this.quantitySchema.getNodeCategories(nodeId);
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting categories for quantity node ${nodeId}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get quantity node categories: ${error.message}`,
-      );
-    }
-  }
-
-  // RESPONSE MANAGEMENT
-
-  /**
-   * Submit a response to a quantity node
-   */
-  async submitResponse(responseData: SubmitResponseData) {
-    try {
-      // Validate response data
-      this.validateResponseData(responseData);
-
-      this.logger.log(
-        `Submitting response to quantity node ${responseData.quantityNodeId}`,
-      );
-
       // Verify quantity node exists and has passed inclusion threshold
-      const votes = await this.getQuantityVotes(responseData.quantityNodeId);
+      const votes = await this.getVotes(responseData.quantityNodeId);
 
       if (!votes || votes.inclusionNetVotes <= 0) {
         throw new BadRequestException(
           'Quantity node must pass inclusion threshold before responses can be submitted',
+        );
+      }
+
+      // Validate unit is valid for quantity node's unit category
+      const quantityNode = await this.getQuantityNode(
+        responseData.quantityNodeId,
+      );
+
+      const isValidUnit = await this.unitService.validateUnitInCategory(
+        responseData.unitId,
+        quantityNode.unitCategoryId,
+      );
+
+      if (!isValidUnit) {
+        throw new BadRequestException(
+          `Unit ${responseData.unitId} is not valid for category ${quantityNode.unitCategoryId}`,
         );
       }
 
@@ -694,26 +622,31 @@ export class QuantityService {
   }
 
   /**
-   * Get user's response to a quantity node
+   * Get a user's response to a quantity node
    */
-  async getUserResponse(userId: string, quantityNodeId: string) {
+  async getUserResponse(
+    userId: string,
+    quantityNodeId: string,
+  ): Promise<QuantityNodeResponse | null> {
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (!quantityNodeId || quantityNodeId.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(
+      `Getting user response for user ${userId} on quantity node ${quantityNodeId}`,
+    );
+
     try {
-      if (!userId || !quantityNodeId) {
-        throw new BadRequestException(
-          'Both user ID and quantity node ID are required',
-        );
-      }
-
-      this.logger.debug(
-        `Getting user response for quantity node ${quantityNodeId} by user ${userId}`,
+      const response = await this.quantitySchema.getUserResponse(
+        userId,
+        quantityNodeId,
       );
-
-      return await this.quantitySchema.getUserResponse(userId, quantityNodeId);
+      return response;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
         `Error getting user response: ${error.message}`,
         error.stack,
@@ -725,29 +658,42 @@ export class QuantityService {
   }
 
   /**
-   * Delete user's response to a quantity node
+   * Delete a user's response to a quantity node
    */
-  async deleteUserResponse(userId: string, quantityNodeId: string) {
-    try {
-      if (!userId || !quantityNodeId) {
-        throw new BadRequestException(
-          'Both user ID and quantity node ID are required',
-        );
-      }
+  async deleteUserResponse(
+    userId: string,
+    quantityNodeId: string,
+  ): Promise<{ success: boolean; message: string }> {
+    if (!userId || userId.trim() === '') {
+      throw new BadRequestException('User ID is required');
+    }
 
-      this.logger.log(
-        `Deleting user response for quantity node ${quantityNodeId} by user ${userId}`,
+    if (!quantityNodeId || quantityNodeId.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.log(
+      `Deleting user response for user ${userId} on quantity node ${quantityNodeId}`,
+    );
+
+    try {
+      const deleted = await this.quantitySchema.deleteUserResponse(
+        userId,
+        quantityNodeId,
       );
 
-      await this.quantitySchema.deleteUserResponse(userId, quantityNodeId);
-
-      this.logger.log(`Successfully deleted user response`);
-      return { success: true };
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
+      if (deleted) {
+        return {
+          success: true,
+          message: 'Response successfully deleted',
+        };
+      } else {
+        return {
+          success: false,
+          message: 'No response found to delete',
+        };
       }
-
+    } catch (error) {
       this.logger.error(
         `Error deleting user response: ${error.message}`,
         error.stack,
@@ -762,21 +708,32 @@ export class QuantityService {
    * Get statistics for a quantity node
    */
   async getStatistics(id: string): Promise<QuantityNodeStats> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    this.logger.debug(`Getting statistics for quantity node: ${id}`);
+
     try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Quantity node ID is required');
-      }
+      // Verify node exists
+      await this.getQuantityNode(id);
 
-      this.logger.debug(`Getting statistics for quantity node ${id}`);
+      const statistics = await this.quantitySchema.getStatistics(id);
 
-      return await this.quantitySchema.getStatistics(id);
+      this.logger.debug(
+        `Statistics for quantity node ${id}: ${statistics.responseCount} responses`,
+      );
+      return statistics;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
         throw error;
       }
 
       this.logger.error(
-        `Error getting statistics for quantity node ${id}: ${error.message}`,
+        `Error getting statistics: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -785,240 +742,97 @@ export class QuantityService {
     }
   }
 
-  // DISCUSSION & COMMENT INTEGRATION
-
-  /**
-   * Get quantity node with its discussion
-   */
-  async getQuantityNodeWithDiscussion(id: string) {
-    return this.getQuantityNode(id, { includeDiscussion: true });
-  }
-
-  /**
-   * Get comments for a quantity node's discussion
-   */
-  async getQuantityNodeComments(id: string) {
-    try {
-      const quantityNode = await this.getQuantityNode(id);
-
-      if (!quantityNode.discussionId) {
-        return { comments: [] };
-      }
-
-      const comments = await this.commentService.getCommentsByDiscussionId(
-        quantityNode.discussionId,
-      );
-      return { comments };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting comments for quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to get quantity node comments: ${error.message}`,
-      );
-    }
-  }
-
-  /**
-   * Add comment to a quantity node's discussion
-   */
-  async addQuantityNodeComment(
-    id: string,
-    commentData: { commentText: string; parentCommentId?: string },
-    createdBy: string,
-  ) {
-    try {
-      const quantityNode = await this.getQuantityNode(id);
-
-      if (!quantityNode.discussionId) {
-        throw new Error(
-          `Quantity node ${id} is missing its discussion - this should not happen`,
-        );
-      }
-
-      // Create the comment
-      const comment = await this.commentService.createComment({
-        createdBy,
-        discussionId: quantityNode.discussionId,
-        commentText: commentData.commentText,
-        parentCommentId: commentData.parentCommentId,
-      });
-
-      return comment;
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error adding comment to quantity node ${id}: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to add quantity node comment: ${error.message}`,
-      );
-    }
-  }
-
+  // ============================================
   // UTILITY METHODS
+  // ============================================
 
   /**
-   * Check if a quantity node has passed the inclusion threshold
+   * Check if a quantity node has passed inclusion threshold
    */
   async isQuantityNodeApproved(id: string): Promise<boolean> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
     try {
-      const votes = await this.getQuantityVotes(id);
+      const votes = await this.quantitySchema.getVotes(id);
       return votes ? votes.inclusionNetVotes > 0 : false;
     } catch (error) {
       this.logger.error(
-        `Error checking approval status for quantity node ${id}: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Check if content voting is available for a quantity node
-   */
-  async isContentVotingAvailable(id: string): Promise<boolean> {
-    try {
-      const quantityNode = await this.getQuantityNode(id);
-      if (!quantityNode) return false;
-
-      // For quantity nodes, content voting is always available (unlike statements)
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Error checking content voting availability for quantity node ${id}: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Check if numeric responses are allowed for a quantity node
-   */
-  async isNumericResponseAllowed(id: string): Promise<boolean> {
-    try {
-      const votes = await this.getQuantityVotes(id);
-      return votes ? votes.inclusionNetVotes > 0 : false;
-    } catch (error) {
-      this.logger.error(
-        `Error checking numeric response availability for quantity node ${id}: ${error.message}`,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Get quantity node statistics
-   */
-  async getQuantityNodeStats(id: string) {
-    try {
-      const [quantityNode, votes, categories, statistics] = await Promise.all([
-        this.getQuantityNode(id),
-        this.getQuantityVotes(id),
-        this.getQuantityNodeCategories(id),
-        this.getStatistics(id),
-      ]);
-
-      const isApproved = votes ? votes.inclusionNetVotes > 0 : false;
-      const contentVotingAvailable = await this.isContentVotingAvailable(id);
-      const numericResponseAllowed = await this.isNumericResponseAllowed(id);
-
-      return {
-        id: quantityNode.id,
-        question: quantityNode.question,
-        unitCategoryId: quantityNode.unitCategoryId,
-        defaultUnitId: quantityNode.defaultUnitId,
-        categories: categories || [],
-        votes: votes || {
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0,
-        },
-        statistics: statistics || {
-          responseCount: 0,
-          min: 0,
-          max: 0,
-          mean: 0,
-          median: 0,
-          standardDeviation: 0,
-          percentiles: {},
-          distributionCurve: [],
-        },
-        isApproved,
-        contentVotingAvailable,
-        numericResponseAllowed,
-      };
-    } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
-      this.logger.error(
-        `Error getting stats for quantity node ${id}: ${error.message}`,
+        `Error checking quantity node approval: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to get quantity node stats: ${error.message}`,
+        `Failed to check quantity node approval: ${error.message}`,
       );
     }
   }
 
-  // PRIVATE HELPER METHODS
+  /**
+   * Check if numeric responses are allowed (quantity node has passed inclusion)
+   */
+  async isNumericResponseAllowed(id: string): Promise<boolean> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Quantity node ID is required');
+    }
+
+    try {
+      return await this.isQuantityNodeApproved(id);
+    } catch (error) {
+      this.logger.error(
+        `Error checking numeric response availability: ${error.message}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException(
+        `Failed to check numeric response availability: ${error.message}`,
+      );
+    }
+  }
+
+  // ============================================
+  // VALIDATION METHODS
+  // ============================================
 
   /**
    * Validate quantity node creation data
    */
   private validateCreateQuantityNodeData(
-    nodeData: CreateQuantityNodeData,
+    quantityData: CreateQuantityNodeData,
   ): void {
-    if (!nodeData.question || nodeData.question.trim() === '') {
+    if (!quantityData.question || quantityData.question.trim() === '') {
       throw new BadRequestException('Question text is required');
     }
 
-    if (nodeData.question.length > TEXT_LIMITS.MAX_QUESTION_LENGTH) {
+    if (quantityData.question.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
       throw new BadRequestException(
-        `Question text must not exceed ${TEXT_LIMITS.MAX_QUESTION_LENGTH} characters`,
+        `Question text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
       );
     }
 
-    if (!nodeData.createdBy || nodeData.createdBy.trim() === '') {
+    if (!quantityData.createdBy || quantityData.createdBy.trim() === '') {
       throw new BadRequestException('Creator ID is required');
     }
 
-    if (!nodeData.unitCategoryId || nodeData.unitCategoryId.trim() === '') {
-      throw new BadRequestException('Unit category ID is required');
-    }
-
-    if (!nodeData.defaultUnitId || nodeData.defaultUnitId.trim() === '') {
-      throw new BadRequestException('Default unit ID is required');
-    }
-
-    if (typeof nodeData.publicCredit !== 'boolean') {
+    if (typeof quantityData.publicCredit !== 'boolean') {
       throw new BadRequestException('Public credit flag is required');
     }
 
+    if (
+      !quantityData.unitCategoryId ||
+      quantityData.unitCategoryId.trim() === ''
+    ) {
+      throw new BadRequestException('Unit category ID is required');
+    }
+
+    if (
+      !quantityData.defaultUnitId ||
+      quantityData.defaultUnitId.trim() === ''
+    ) {
+      throw new BadRequestException('Default unit ID is required');
+    }
+
     // Validate category count (0-3)
-    if (nodeData.categoryIds && nodeData.categoryIds.length > 3) {
+    if (quantityData.categoryIds && quantityData.categoryIds.length > 3) {
       throw new BadRequestException(
         'Quantity node can have maximum 3 categories',
       );
@@ -1040,9 +854,9 @@ export class QuantityService {
         throw new BadRequestException('Question text cannot be empty');
       }
 
-      if (updateData.question.length > TEXT_LIMITS.MAX_QUESTION_LENGTH) {
+      if (updateData.question.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
         throw new BadRequestException(
-          `Question text must not exceed ${TEXT_LIMITS.MAX_QUESTION_LENGTH} characters`,
+          `Question text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
         );
       }
     }
@@ -1053,10 +867,17 @@ export class QuantityService {
     ) {
       throw new BadRequestException('Public credit must be a boolean value');
     }
+
+    // Validate category count if provided (0-3)
+    if (updateData.categoryIds && updateData.categoryIds.length > 3) {
+      throw new BadRequestException(
+        'Quantity node can have maximum 3 categories',
+      );
+    }
   }
 
   /**
-   * Validate response submission data
+   * Validate numeric response data
    */
   private validateResponseData(responseData: SubmitResponseData): void {
     if (!responseData.userId || responseData.userId.trim() === '') {
@@ -1070,121 +891,13 @@ export class QuantityService {
       throw new BadRequestException('Quantity node ID is required');
     }
 
-    if (responseData.value === undefined || isNaN(responseData.value)) {
-      throw new BadRequestException('Response value must be a valid number');
+    if (typeof responseData.value !== 'number' || isNaN(responseData.value)) {
+      throw new BadRequestException('Valid numeric value is required');
     }
 
     if (!responseData.unitId || responseData.unitId.trim() === '') {
       throw new BadRequestException('Unit ID is required');
     }
-  }
-
-  /**
-   * Update quantity node with keyword re-extraction
-   */
-  private async updateQuantityNodeWithKeywords(
-    id: string,
-    updateData: UpdateQuantityNodeData,
-  ) {
-    const originalNode = await this.getQuantityNode(id);
-    if (!originalNode) {
-      throw new NotFoundException(`Quantity node with ID ${id} not found`);
-    }
-
-    // Extract keywords for the new text
-    let keywords: KeywordWithFrequency[] = [];
-    if (updateData.userKeywords && updateData.userKeywords.length > 0) {
-      keywords = updateData.userKeywords.map((keyword) => ({
-        word: keyword,
-        frequency: 1,
-        source: 'user' as const,
-      }));
-    } else if (updateData.question) {
-      try {
-        const extractionResult =
-          await this.keywordExtractionService.extractKeywords({
-            text: updateData.question,
-            userKeywords: updateData.userKeywords,
-          });
-        keywords = extractionResult.keywords;
-      } catch (error) {
-        this.logger.warn(
-          `Keyword extraction failed during update: ${error.message}`,
-        );
-        keywords = [];
-      }
-    }
-
-    // Process keywords to ensure Word nodes exist
-    if (keywords.length > 0) {
-      await this.processKeywordsForCreation(keywords, {
-        createdBy: originalNode.createdBy,
-        question: updateData.question || originalNode.question,
-        publicCredit:
-          updateData.publicCredit !== undefined
-            ? updateData.publicCredit
-            : originalNode.publicCredit,
-        unitCategoryId: originalNode.unitCategoryId,
-        defaultUnitId: originalNode.defaultUnitId,
-        initialComment: '', // Not used for updates
-      });
-    }
-
-    // Prepare update data with keywords
-    const updateDataWithKeywords = {
-      ...updateData,
-      keywords,
-    };
-
-    const updatedNode = await this.quantitySchema.updateQuantityNode(
-      id,
-      updateDataWithKeywords,
-    );
-    if (!updatedNode) {
-      throw new NotFoundException(`Quantity node with ID ${id} not found`);
-    }
-
-    return updatedNode;
-  }
-
-  /**
-   * Process keywords to ensure Word nodes exist before quantity node creation/update
-   */
-  private async processKeywordsForCreation(
-    keywords: KeywordWithFrequency[],
-    nodeData: {
-      createdBy: string;
-      question: string;
-      publicCredit: boolean;
-      unitCategoryId: string;
-      defaultUnitId: string;
-      initialComment: string;
-    },
-  ): Promise<void> {
-    const newWordPromises = keywords.map(async (keyword) => {
-      try {
-        const wordExists = await this.wordService.checkWordExistence(
-          keyword.word,
-        );
-        if (!wordExists) {
-          // Create new word if it doesn't exist
-          await this.wordService.createWord({
-            word: keyword.word,
-            createdBy: nodeData.createdBy,
-            publicCredit: nodeData.publicCredit,
-            discussion: `Word created from quantity node: "${nodeData.question.substring(0, 100)}..."`,
-          });
-        }
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create word '${keyword.word}': ${error.message}`,
-        );
-        // Continue with other keywords even if one fails
-      }
-    });
-
-    // Wait for all word creation processes to complete
-    await Promise.all(newWordPromises);
   }
 
   /**
@@ -1194,11 +907,24 @@ export class QuantityService {
     if (!categoryIds || categoryIds.length === 0) return;
 
     const validationPromises = categoryIds.map(async (categoryId) => {
-      const isApproved =
-        await this.categoryService.isCategoryApproved(categoryId);
-      if (!isApproved) {
+      try {
+        const category = await this.categoryService.getCategory(categoryId);
+        if (!category) {
+          throw new BadRequestException(
+            `Category ${categoryId} does not exist`,
+          );
+        }
+        if (category.inclusionNetVotes <= 0) {
+          throw new BadRequestException(
+            `Category ${categoryId} must have passed inclusion threshold`,
+          );
+        }
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
         throw new BadRequestException(
-          `Category ${categoryId} must be approved before use`,
+          `Category ${categoryId} does not exist or is not accessible`,
         );
       }
     });
