@@ -1,4 +1,4 @@
-// src/nodes/evidence/evidence.controller.ts
+// src/nodes/evidence/evidence.controller.ts - REFACTORED TO SCHEMA ARCHITECTURE
 
 import {
   Controller,
@@ -9,27 +9,57 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
   Request,
+  UseGuards,
   Logger,
-  HttpException,
-  HttpStatus,
   BadRequestException,
   NotFoundException,
   HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { EvidenceService } from './evidence.service';
-import { EvidenceType } from '../../neo4j/schemas/evidence.schema';
+import type { VoteResult } from '../../neo4j/schemas/vote.schema';
+
+/**
+ * EvidenceController - HTTP endpoints for evidence operations
+ *
+ * ARCHITECTURE:
+ * - Handles HTTP request/response
+ * - Extracts user from JWT token
+ * - Validates request data
+ * - Delegates business logic to EvidenceService
+ *
+ * ENDPOINTS:
+ * - CRUD: POST /, GET /:id, PUT /:id, DELETE /:id
+ * - Voting (Inclusion Only): POST /:id/vote-inclusion, GET /:id/vote-status, DELETE /:id/vote, GET /:id/votes
+ * - Peer Review: POST /:id/reviews, GET /:id/reviews/stats, GET /:id/reviews/mine, GET /:id/reviews/allowed
+ * - Utility: GET /:id/approved, GET /parent/:parentNodeId
+ */
+
+// ============================================
+// DTOs
+// ============================================
 
 interface CreateEvidenceDto {
   title: string;
   url: string;
-  evidenceType: EvidenceType;
-  parentNodeId: string;
-  parentNodeType: 'StatementNode' | 'AnswerNode' | 'QuantityNode';
   authors?: string[];
   publicationDate?: string;
+  evidenceType:
+    | 'academic_paper'
+    | 'news_article'
+    | 'government_report'
+    | 'dataset'
+    | 'book'
+    | 'website'
+    | 'legal_document'
+    | 'expert_testimony'
+    | 'survey_study'
+    | 'meta_analysis'
+    | 'other';
+  parentNodeId: string;
+  parentNodeType: 'StatementNode' | 'AnswerNode' | 'QuantityNode';
   description?: string;
   publicCredit: boolean;
   categoryIds?: string[];
@@ -45,6 +75,7 @@ interface UpdateEvidenceDto {
   description?: string;
   publicCredit?: boolean;
   categoryIds?: string[];
+  userKeywords?: string[];
 }
 
 interface SubmitPeerReviewDto {
@@ -54,13 +85,8 @@ interface SubmitPeerReviewDto {
   comments?: string;
 }
 
-interface VoteEvidenceDto {
+interface VoteDto {
   isPositive: boolean;
-}
-
-interface AddCommentDto {
-  commentText: string;
-  parentCommentId?: string;
 }
 
 @Controller('nodes/evidence')
@@ -70,496 +96,454 @@ export class EvidenceController {
 
   constructor(private readonly evidenceService: EvidenceService) {}
 
+  // ============================================
+  // CRUD ENDPOINTS
+  // ============================================
+
+  /**
+   * Create a new evidence node
+   * POST /nodes/evidence
+   */
   @Post()
-  @HttpCode(HttpStatus.CREATED)
   async createEvidence(
-    @Body() evidenceData: CreateEvidenceDto,
+    @Body() createDto: CreateEvidenceDto,
     @Request() req: any,
   ) {
-    try {
-      this.logger.log(
-        `Creating evidence for parent: ${evidenceData.parentNodeId}`,
-      );
-
-      if (!evidenceData.title || evidenceData.title.trim() === '') {
-        throw new BadRequestException('Title is required');
-      }
-
-      if (!evidenceData.url || evidenceData.url.trim() === '') {
-        throw new BadRequestException('URL is required');
-      }
-
-      if (
-        !evidenceData.parentNodeId ||
-        evidenceData.parentNodeId.trim() === ''
-      ) {
-        throw new BadRequestException('Parent node ID is required');
-      }
-
-      if (!evidenceData.parentNodeType) {
-        throw new BadRequestException('Parent node type is required');
-      }
-
-      if (!evidenceData.evidenceType) {
-        throw new BadRequestException('Evidence type is required');
-      }
-
-      if (typeof evidenceData.publicCredit !== 'boolean') {
-        throw new BadRequestException('Public credit flag is required');
-      }
-
-      let publicationDate: Date | undefined;
-      if (evidenceData.publicationDate) {
-        publicationDate = new Date(evidenceData.publicationDate);
-        if (isNaN(publicationDate.getTime())) {
-          throw new BadRequestException('Invalid publication date format');
-        }
-      }
-
-      const result = await this.evidenceService.createEvidence({
-        ...evidenceData,
-        publicationDate,
-        createdBy: req.user.sub,
-      });
-
-      this.logger.log(`Successfully created evidence with ID: ${result.id}`);
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error creating evidence for parent: ${evidenceData.parentNodeId}`,
-      );
+    // Validate required fields
+    if (!createDto.title || createDto.title.trim() === '') {
+      throw new BadRequestException('Evidence title is required');
     }
+
+    if (!createDto.url || createDto.url.trim() === '') {
+      throw new BadRequestException('Evidence URL is required');
+    }
+
+    if (!createDto.parentNodeId || createDto.parentNodeId.trim() === '') {
+      throw new BadRequestException('Parent node ID is required');
+    }
+
+    if (!createDto.parentNodeType) {
+      throw new BadRequestException('Parent node type is required');
+    }
+
+    if (!createDto.evidenceType) {
+      throw new BadRequestException('Evidence type is required');
+    }
+
+    if (typeof createDto.publicCredit !== 'boolean') {
+      throw new BadRequestException('publicCredit must be a boolean');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (createDto.categoryIds && createDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    // Parse publication date if provided
+    let publicationDate: Date | undefined;
+    if (createDto.publicationDate) {
+      publicationDate = new Date(createDto.publicationDate);
+      if (isNaN(publicationDate.getTime())) {
+        throw new BadRequestException('Invalid publication date format');
+      }
+    }
+
+    this.logger.log(
+      `Creating evidence: ${createDto.title.substring(0, 50)}...`,
+    );
+
+    const result = await this.evidenceService.createEvidence({
+      ...createDto,
+      publicationDate,
+      createdBy: req.user.sub,
+    });
+
+    this.logger.log(`Successfully created evidence: ${result.id}`);
+    return result;
   }
 
+  /**
+   * Get an evidence node by ID
+   * GET /nodes/evidence/:id
+   */
   @Get(':id')
   async getEvidence(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const evidence = await this.evidenceService.getEvidence(id);
-      return evidence;
-    } catch (error) {
-      this.handleError(error, `Error retrieving evidence: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    this.logger.debug(`Getting evidence: ${id}`);
+
+    const evidence = await this.evidenceService.getEvidence(id);
+
+    if (!evidence) {
+      throw new NotFoundException(`Evidence with ID ${id} not found`);
+    }
+
+    return evidence;
   }
 
+  /**
+   * Update an evidence node
+   * PUT /nodes/evidence/:id
+   */
   @Put(':id')
   async updateEvidence(
     @Param('id') id: string,
-    @Body() updateData: UpdateEvidenceDto,
+    @Body() updateDto: UpdateEvidenceDto,
+    @Request() req: any,
   ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      let publicationDate: Date | undefined;
-      if (updateData.publicationDate) {
-        publicationDate = new Date(updateData.publicationDate);
-        if (isNaN(publicationDate.getTime())) {
-          throw new BadRequestException('Invalid publication date format');
-        }
-      }
-
-      const updatePayload = {
-        ...updateData,
-        publicationDate,
-      };
-
-      const result = await this.evidenceService.updateEvidence(
-        id,
-        updatePayload,
-      );
-
-      return result;
-    } catch (error) {
-      this.handleError(error, `Error updating evidence: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    if (Object.keys(updateDto).length === 0) {
+      throw new BadRequestException('No update data provided');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (updateDto.categoryIds && updateDto.categoryIds.length > 3) {
+      throw new BadRequestException('Maximum 3 categories allowed');
+    }
+
+    // Parse publication date if provided
+    const updateData: any = updateDto.publicationDate
+      ? (() => {
+          const publicationDate = new Date(updateDto.publicationDate);
+          if (isNaN(publicationDate.getTime())) {
+            throw new BadRequestException('Invalid publication date format');
+          }
+          return { ...updateDto, publicationDate };
+        })()
+      : updateDto;
+
+    this.logger.log(`Updating evidence: ${id}`);
+
+    const result = await this.evidenceService.updateEvidence(id, updateData);
+
+    this.logger.log(`Successfully updated evidence: ${id}`);
+    return result;
   }
 
+  /**
+   * Delete an evidence node
+   * DELETE /nodes/evidence/:id
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteEvidence(@Param('id') id: string, @Request() req: any) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      await this.evidenceService.deleteEvidence(id, req.user.sub);
-    } catch (error) {
-      this.handleError(error, `Error deleting evidence: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Deleting evidence: ${id}`);
+
+    await this.evidenceService.deleteEvidence(id, req.user.sub);
+
+    this.logger.log(`Successfully deleted evidence: ${id}`);
   }
 
-  @Post(':id/reviews')
-  @HttpCode(HttpStatus.CREATED)
-  async submitPeerReview(
-    @Param('id') evidenceId: string,
-    @Body() reviewData: SubmitPeerReviewDto,
-    @Request() req: any,
-  ) {
-    try {
-      if (!evidenceId || evidenceId.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
+  // ============================================
+  // VOTING ENDPOINTS - INCLUSION ONLY
+  // ============================================
 
-      const { qualityScore, independenceScore, relevanceScore } = reviewData;
-
-      if (
-        !this.isValidScore(qualityScore) ||
-        !this.isValidScore(independenceScore) ||
-        !this.isValidScore(relevanceScore)
-      ) {
-        throw new BadRequestException(
-          'All scores must be between 1 and 5 (inclusive)',
-        );
-      }
-
-      const result = await this.evidenceService.submitPeerReview({
-        evidenceId,
-        userId: req.user.sub,
-        ...reviewData,
-      });
-
-      return result;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error submitting peer review for evidence: ${evidenceId}`,
-      );
-    }
-  }
-
-  @Get(':id/reviews/stats')
-  async getPeerReviewStats(@Param('id') evidenceId: string) {
-    try {
-      if (!evidenceId || evidenceId.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const stats = await this.evidenceService.getPeerReviewStats(evidenceId);
-      return stats;
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting peer review stats for: ${evidenceId}`,
-      );
-    }
-  }
-
-  @Get(':id/reviews/mine')
-  async getMyPeerReview(@Param('id') evidenceId: string, @Request() req: any) {
-    try {
-      if (!evidenceId || evidenceId.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const review = await this.evidenceService.getUserPeerReview(
-        evidenceId,
-        req.user.sub,
-      );
-
-      return review || { hasReviewed: false };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting user's peer review for: ${evidenceId}`,
-      );
-    }
-  }
-
-  @Get(':id/reviews/allowed')
-  async isPeerReviewAllowed(@Param('id') evidenceId: string) {
-    try {
-      if (!evidenceId || evidenceId.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const allowed =
-        await this.evidenceService.isPeerReviewAllowed(evidenceId);
-
-      return { allowed };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error checking peer review availability for: ${evidenceId}`,
-      );
-    }
-  }
-
-  @Post(':id/vote/inclusion')
-  @HttpCode(HttpStatus.OK)
+  /**
+   * Vote on evidence inclusion
+   * POST /nodes/evidence/:id/vote-inclusion
+   */
+  @Post(':id/vote-inclusion')
   async voteInclusion(
     @Param('id') id: string,
-    @Body() voteData: VoteEvidenceDto,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      if (typeof voteData.isPositive !== 'boolean') {
-        throw new BadRequestException('Vote value (isPositive) is required');
-      }
-
-      const status = voteData.isPositive ? 'agree' : 'disagree';
-
-      return {
-        success: true,
-        message: 'Inclusion vote recorded',
-        status,
-      };
-    } catch (error) {
-      this.handleError(error, `Error voting on evidence inclusion: ${id}`);
+    @Body() voteDto: VoteDto,
+    @Request() req: any,
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (typeof voteDto.isPositive !== 'boolean') {
+      throw new BadRequestException('isPositive must be a boolean');
+    }
+
+    this.logger.log(
+      `Processing inclusion vote on evidence ${id}: ${voteDto.isPositive ? 'positive' : 'negative'}`,
+    );
+
+    const result = await this.evidenceService.voteInclusion(
+      id,
+      req.user.sub,
+      voteDto.isPositive,
+    );
+
+    return result;
   }
 
+  /**
+   * Get vote status for current user
+   * GET /nodes/evidence/:id/vote-status
+   */
+  @Get(':id/vote-status')
+  async getVoteStatus(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Getting vote status for evidence ${id}, user ${req.user.sub}`,
+    );
+
+    const status = await this.evidenceService.getVoteStatus(id, req.user.sub);
+
+    return status;
+  }
+
+  /**
+   * Remove vote from evidence
+   * DELETE /nodes/evidence/:id/vote
+   */
   @Delete(':id/vote')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async removeVote(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      return {
-        success: true,
-        message: 'Vote removed',
-      };
-    } catch (error) {
-      this.handleError(error, `Error removing vote from evidence: ${id}`);
+  async removeVote(
+    @Param('id') id: string,
+    @Request() req: any,
+  ): Promise<VoteResult> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.log(`Removing vote from evidence: ${id}`);
+
+    const result = await this.evidenceService.removeVote(id, req.user.sub);
+
+    return result;
   }
 
+  /**
+   * Get vote totals for evidence
+   * GET /nodes/evidence/:id/votes
+   */
   @Get(':id/votes')
   async getVotes(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const votes = await this.evidenceService.getEvidenceVotes(id);
-      return votes;
-    } catch (error) {
-      this.handleError(error, `Error getting votes for evidence: ${id}`);
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
     }
+
+    this.logger.debug(`Getting votes for evidence: ${id}`);
+
+    const votes = await this.evidenceService.getVotes(id);
+
+    return votes;
   }
 
+  // ============================================
+  // PEER REVIEW ENDPOINTS
+  // ============================================
+
+  /**
+   * Submit a peer review for evidence
+   * POST /nodes/evidence/:id/reviews
+   */
+  @Post(':id/reviews')
+  async submitPeerReview(
+    @Param('id') evidenceId: string,
+    @Body() reviewDto: SubmitPeerReviewDto,
+    @Request() req: any,
+  ) {
+    if (!evidenceId || evidenceId.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    // Validate scores
+    if (
+      typeof reviewDto.qualityScore !== 'number' ||
+      reviewDto.qualityScore < 1 ||
+      reviewDto.qualityScore > 5 ||
+      !Number.isInteger(reviewDto.qualityScore)
+    ) {
+      throw new BadRequestException(
+        'Quality score must be an integer between 1 and 5',
+      );
+    }
+
+    if (
+      typeof reviewDto.independenceScore !== 'number' ||
+      reviewDto.independenceScore < 1 ||
+      reviewDto.independenceScore > 5 ||
+      !Number.isInteger(reviewDto.independenceScore)
+    ) {
+      throw new BadRequestException(
+        'Independence score must be an integer between 1 and 5',
+      );
+    }
+
+    if (
+      typeof reviewDto.relevanceScore !== 'number' ||
+      reviewDto.relevanceScore < 1 ||
+      reviewDto.relevanceScore > 5 ||
+      !Number.isInteger(reviewDto.relevanceScore)
+    ) {
+      throw new BadRequestException(
+        'Relevance score must be an integer between 1 and 5',
+      );
+    }
+
+    this.logger.log(
+      `Submitting peer review for evidence ${evidenceId} by user ${req.user.sub}`,
+    );
+
+    const result = await this.evidenceService.submitPeerReview({
+      evidenceId,
+      userId: req.user.sub,
+      ...reviewDto,
+    });
+
+    return result;
+  }
+
+  /**
+   * Get peer review statistics for evidence
+   * GET /nodes/evidence/:id/reviews/stats
+   */
+  @Get(':id/reviews/stats')
+  async getPeerReviewStats(@Param('id') evidenceId: string) {
+    if (!evidenceId || evidenceId.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    this.logger.debug(`Getting peer review stats for evidence: ${evidenceId}`);
+
+    const stats = await this.evidenceService.getPeerReviewStats(evidenceId);
+
+    return stats;
+  }
+
+  /**
+   * Get current user's peer review for evidence
+   * GET /nodes/evidence/:id/reviews/mine
+   */
+  @Get(':id/reviews/mine')
+  async getMyPeerReview(@Param('id') evidenceId: string, @Request() req: any) {
+    if (!evidenceId || evidenceId.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    if (!req.user?.sub) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    this.logger.debug(
+      `Getting peer review for evidence ${evidenceId}, user ${req.user.sub}`,
+    );
+
+    const review = await this.evidenceService.getUserPeerReview(
+      evidenceId,
+      req.user.sub,
+    );
+
+    return review || { hasReviewed: false };
+  }
+
+  /**
+   * Check if peer review is allowed for evidence
+   * GET /nodes/evidence/:id/reviews/allowed
+   */
+  @Get(':id/reviews/allowed')
+  async isPeerReviewAllowed(@Param('id') evidenceId: string) {
+    if (!evidenceId || evidenceId.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    this.logger.debug(
+      `Checking peer review availability for evidence: ${evidenceId}`,
+    );
+
+    const allowed = await this.evidenceService.isPeerReviewAllowed(evidenceId);
+
+    return { allowed };
+  }
+
+  // ============================================
+  // UTILITY ENDPOINTS
+  // ============================================
+
+  /**
+   * Check if evidence has passed inclusion threshold
+   * GET /nodes/evidence/:id/approved
+   */
+  @Get(':id/approved')
+  async isEvidenceApproved(@Param('id') id: string) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Evidence ID is required');
+    }
+
+    this.logger.debug(`Checking approval status for evidence: ${id}`);
+
+    const isApproved = await this.evidenceService.isEvidenceApproved(id);
+
+    return { approved: isApproved };
+  }
+
+  /**
+   * Get evidence for a specific parent node
+   * GET /nodes/evidence/parent/:parentNodeId
+   */
   @Get('parent/:parentNodeId')
   async getEvidenceForParent(
     @Param('parentNodeId') parentNodeId: string,
     @Query('parentNodeType') parentNodeType?: string,
   ) {
-    try {
-      if (!parentNodeId || parentNodeId.trim() === '') {
-        throw new BadRequestException('Parent node ID is required');
-      }
+    if (!parentNodeId || parentNodeId.trim() === '') {
+      throw new BadRequestException('Parent node ID is required');
+    }
 
-      if (!parentNodeType) {
-        throw new BadRequestException('Parent node type is required');
-      }
+    if (!parentNodeType) {
+      throw new BadRequestException('Parent node type is required');
+    }
 
-      const validParentTypes = ['StatementNode', 'AnswerNode', 'QuantityNode'];
-      if (!validParentTypes.includes(parentNodeType)) {
-        throw new BadRequestException('Invalid parent node type');
-      }
-
-      const evidence = await this.evidenceService.getEvidenceForNode(
-        parentNodeId,
-        parentNodeType as 'StatementNode' | 'AnswerNode' | 'QuantityNode',
-      );
-
-      return { evidence, count: evidence.length };
-    } catch (error) {
-      this.handleError(
-        error,
-        `Error getting evidence for parent: ${parentNodeId}`,
+    const validTypes = ['StatementNode', 'AnswerNode', 'QuantityNode'];
+    if (!validTypes.includes(parentNodeType)) {
+      throw new BadRequestException(
+        'Parent node type must be StatementNode, AnswerNode, or QuantityNode',
       );
     }
-  }
 
-  @Get('top-rated')
-  async getTopRatedEvidence(
-    @Query('limit') limit?: number,
-    @Query('evidenceType') evidenceType?: EvidenceType,
-  ) {
-    try {
-      const evidence = await this.evidenceService.getTopRatedEvidence({
-        limit: limit ? Number(limit) : 20,
-        evidenceType,
-      });
-
-      return { evidence, count: evidence.length };
-    } catch (error) {
-      this.handleError(error, 'Error getting top-rated evidence');
-    }
-  }
-
-  @Get('search')
-  async searchEvidence(
-    @Query('evidenceType') evidenceType?: EvidenceType,
-    @Query('minOverallScore') minOverallScore?: number,
-    @Query('minInclusionVotes') minInclusionVotes?: number,
-    @Query('limit') limit?: number,
-    @Query('offset') offset?: number,
-  ) {
-    try {
-      const evidence = await this.evidenceService.searchEvidence({
-        evidenceType,
-        minOverallScore: minOverallScore ? Number(minOverallScore) : undefined,
-        minInclusionVotes: minInclusionVotes
-          ? Number(minInclusionVotes)
-          : undefined,
-        limit: limit ? Number(limit) : 20,
-        offset: offset ? Number(offset) : 0,
-      });
-
-      return { evidence, count: evidence.length };
-    } catch (error) {
-      this.handleError(error, 'Error searching evidence');
-    }
-  }
-
-  @Get(':id/categories')
-  async getCategories(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const categories = await this.evidenceService.getEvidenceCategories(id);
-      return { categories };
-    } catch (error) {
-      this.handleError(error, `Error getting categories for evidence: ${id}`);
-    }
-  }
-
-  @Get(':id/related')
-  async getRelatedEvidence(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const related = await this.evidenceService.discoverRelatedEvidence(id);
-      return related;
-    } catch (error) {
-      this.handleError(error, `Error getting related evidence for: ${id}`);
-    }
-  }
-
-  @Get(':id/discussion')
-  async getDiscussion(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const evidence = await this.evidenceService.getEvidenceWithDiscussion(id);
-      return { discussionId: evidence.discussionId };
-    } catch (error) {
-      this.handleError(error, `Error getting discussion for evidence: ${id}`);
-    }
-  }
-
-  @Get(':id/comments')
-  async getComments(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      return await this.evidenceService.getEvidenceComments(id);
-    } catch (error) {
-      this.handleError(error, `Error getting comments for evidence: ${id}`);
-    }
-  }
-
-  @Post(':id/comments')
-  @HttpCode(HttpStatus.CREATED)
-  async addComment(
-    @Param('id') id: string,
-    @Body() commentData: AddCommentDto,
-    @Request() req: any,
-  ) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      if (!commentData.commentText || commentData.commentText.trim() === '') {
-        throw new BadRequestException('Comment text is required');
-      }
-
-      const comment = await this.evidenceService.addEvidenceComment(
-        id,
-        commentData,
-        req.user.sub,
-      );
-
-      return comment;
-    } catch (error) {
-      this.handleError(error, `Error adding comment to evidence: ${id}`);
-    }
-  }
-
-  @Get(':id/approved')
-  async isApproved(@Param('id') id: string) {
-    try {
-      if (!id || id.trim() === '') {
-        throw new BadRequestException('Evidence ID is required');
-      }
-
-      const approved = await this.evidenceService.isEvidenceApproved(id);
-      return { approved };
-    } catch (error) {
-      this.handleError(error, `Error checking approval status: ${id}`);
-    }
-  }
-
-  @Get('stats')
-  async getStats() {
-    try {
-      return await this.evidenceService.checkEvidenceStats();
-    } catch (error) {
-      this.handleError(error, 'Error getting evidence statistics');
-    }
-  }
-
-  private isValidScore(score: number): boolean {
-    return (
-      typeof score === 'number' &&
-      Number.isInteger(score) &&
-      score >= 1 &&
-      score <= 5
+    this.logger.debug(
+      `Getting evidence for ${parentNodeType}: ${parentNodeId}`,
     );
-  }
 
-  private handleError(error: any, context: string): never {
-    this.logger.error(`${context}: ${error.message}`, error.stack);
-
-    if (error instanceof BadRequestException) {
-      throw error;
-    }
-
-    if (error instanceof NotFoundException) {
-      throw error;
-    }
-
-    if (error instanceof HttpException) {
-      throw error;
-    }
-
-    throw new HttpException(
-      {
-        statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-        message: error.message || 'Internal server error',
-        context,
-      },
-      HttpStatus.INTERNAL_SERVER_ERROR,
+    const evidence = await this.evidenceService.getEvidenceForNode(
+      parentNodeId,
+      parentNodeType as 'StatementNode' | 'AnswerNode' | 'QuantityNode',
     );
+
+    return {
+      evidence,
+      count: evidence.length,
+    };
   }
 }
