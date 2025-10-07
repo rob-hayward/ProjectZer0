@@ -1,39 +1,155 @@
-<invoke name="artifacts">
-<parameter name="command">update</parameter>
-<parameter name="type">text/markdown</parameter>
-<parameter name="id">phase3-complete-brief</parameter>
-<parameter name="old_str">- [ ] Can discover</parameter>
-<parameter name="new_str">- [ ] Can discover evidence for nodes
-- [ ] Documentation complete
+# Phase 4: Universal Graph Service Refactor - Complete Work Brief
+
+**ProjectZer0 Backend - Universal Graph View System**  
+**Version:** 3.0  
+**Last Updated:** 2025  
+**Status:** Ready for Refactoring
 
 ---
 
-# PHASE 3: UNIVERSAL GRAPH SERVICE
+## 📊 **Current Architecture Status**
 
-## 📊 **Current State Assessment**
+### **✅ Complete & Production Ready (Phases 1-3)**
 
-### **What Exists (Partial Implementation)**
+**Phase 1-2: Schema & Service Layers** ✅ COMPLETE
+- All 8 content node schemas refactored and tested
+- All 8 content node services implemented
+- 1,151 tests passing across all nodes
+- Comprehensive `schema-layer.md` documentation
+- Comprehensive `service-layer.md` documentation
+
+**Phase 3: Controller Layer** ✅ COMPLETE
+- All 10 controllers implemented (8 content + Comment + Discussion)
+- HTTP layer fully documented (`controller-layer.md`)
+- JWT authentication patterns standardized
+- DTO validation patterns established
+
+---
+
+## 🎯 **Phase 4 Overview**
+
+**Objective:** Refactor Universal Graph Service to align with the new architecture and support all 5 primary content node types.
+
+**Scope:**
+- Update Universal Graph Service to use refactored schemas
+- Add Evidence node support
+- Implement advanced filtering (ANY/ALL modes)
+- Implement proper content vote fallback logic
+- Add comprehensive user context enrichment
+- Optimize performance (<500ms target)
+- Create comprehensive tests
+
+**Timeline:** 10-12 days
+
+---
+
+## 📋 **Current State Analysis**
+
+### **What Exists**
 
 **Location:** `src/nodes/universal/`
 
-**UniversalGraphService** - Partially implemented:
-- ✅ Supports 5 node types (statement, openquestion, answer, quantity, category)
-- ✅ Basic keyword filtering (include/exclude)
-- ✅ Basic category filtering (include/exclude)
-- ✅ Simple sorting (netVotes, chronological, participants)
-- ✅ Relationship loading (shared_keyword, related_to, answers)
-- ✅ User context enrichment (vote status, visibility prefs)
-- ❌ Missing keyword/category ANY/ALL modes
-- ❌ Missing proper content vote sorting with fallbacks
-- ❌ Missing total votes sorting
-- ❌ Missing user interaction filtering
-- ❌ Missing Evidence node support
-- ❌ Missing proper default dataset (includes wrong node types)
+#### **universal-graph.service.ts** - Partially Implemented
+**✅ Strengths:**
+- Basic structure with Neo4jService, VoteSchema, VisibilityService
+- Supports 5 node types (openquestion, statement, answer, quantity, category)
+- Basic keyword filtering (include/exclude boolean)
+- Basic category filtering (include/exclude boolean)
+- Simple sorting (netVotes, chronological, participants)
+- Relationship loading (shared_keyword, related_to, answers, shared_category, categorized_as)
+- User context enrichment framework
 
-**UniversalGraphController** - Partially implemented:
-- ✅ Basic query parameter parsing
-- ✅ Query validation
-- ❌ Missing proper parameter handling for new features
+**❌ Gaps:**
+- NOT using refactored schemas (should inject StatementSchema, OpenQuestionSchema, etc.)
+- Missing EvidenceSchema and Evidence node support
+- Missing keyword filter ANY/ALL modes
+- Missing category filter ANY/ALL modes
+- Missing user interaction filtering (created/interacted modes)
+- No content vote fallback logic (OpenQuestion/Quantity/Evidence should fall back to inclusion)
+- No evidence_for relationship type
+- Default dataset includes Category (should only be Statement/OpenQuestion/Answer/Quantity/Evidence)
+- Placeholder methods (addSharedKeywordRelationships, etc.) not fully implemented
+
+#### **universal-graph.controller.ts** - Partially Implemented
+**✅ Strengths:**
+- JWT authentication
+- Basic query parameter parsing
+- Supports all 5 node types in DTO
+
+**❌ Gaps:**
+- Missing proper parameter handling for ANY/ALL modes
+- Missing evidence_for in relationship types
+- No validation for incompatible filter combinations
+
+#### **universal-graph.module.ts** - Basic Implementation
+**✅ Strengths:**
+- Imports Neo4jModule, VoteModule, VisibilityModule, CategoryModule
+- Exports UniversalGraphService
+
+**❌ Gaps:**
+- Should import all content node modules (Statement, OpenQuestion, Answer, Quantity, Evidence)
+- Should inject all content node schemas, not query Neo4j directly
+
+---
+
+## 🏗️ **Required Architecture Changes**
+
+### **1. Dependency Injection (CRITICAL)**
+
+**Current (Incorrect):**
+```typescript
+constructor(
+  private readonly neo4jService: Neo4jService,
+  private readonly voteSchema: VoteSchema,
+  private readonly visibilityService: VisibilityService,
+  private readonly categoryService: CategoryService,
+) {}
+```
+
+**Required (Following Established Patterns):**
+```typescript
+constructor(
+  private readonly neo4jService: Neo4jService,
+  private readonly statementSchema: StatementSchema,      // ← NEW
+  private readonly openQuestionSchema: OpenQuestionSchema, // ← NEW
+  private readonly answerSchema: AnswerSchema,            // ← NEW
+  private readonly quantitySchema: QuantitySchema,        // ← NEW
+  private readonly evidenceSchema: EvidenceSchema,        // ← NEW
+  private readonly voteSchema: VoteSchema,
+  private readonly visibilityService: VisibilityService,
+  private readonly categoryService: CategoryService,
+) {}
+```
+
+**Rationale:** Universal Graph Service should use the same schemas other services use, not query Neo4j directly. This ensures consistency, leverages schema business logic, and maintains architectural patterns.
+
+---
+
+### **2. Module Configuration**
+
+**Update universal-graph.module.ts:**
+```typescript
+@Module({
+  imports: [
+    Neo4jModule,
+    VoteModule,
+    VisibilityModule,
+    CategoryModule,
+    StatementModule,      // ← NEW
+    OpenQuestionModule,   // ← NEW
+    AnswerModule,         // ← NEW
+    QuantityModule,       // ← NEW
+    EvidenceModule,       // ← NEW
+  ],
+  controllers: [UniversalGraphController],
+  providers: [
+    UniversalGraphService,
+    VoteSchema,
+  ],
+  exports: [UniversalGraphService],
+})
+export class UniversalGraphModule {}
+```
 
 ---
 
@@ -41,31 +157,32 @@
 
 ### **1. DEFAULT DATASET**
 
-**Initial Load (No Filters Applied):**
+**On Initial Load (No Filters):**
 ```typescript
 {
-  nodes: [Statement, OpenQuestion, Answer, Quantity, Evidence]
-  
-  // WHY THESE NODES:
-  // - All have inclusionNetVotes (unifying field for default sort)
-  // - All support keywords AND categories (via CategorizedNodeSchema)
-  // - Primary "content" nodes users interact with
-  // - Mixed content voting patterns acknowledged:
-  //   * Statement, Answer: Standard content voting
-  //   * OpenQuestion, Quantity, Evidence: Alternative quality systems
-  
-  // EXCLUDED NODES (load on-demand only):
-  // ❌ Word - Load on-demand only
-  // ❌ Definition - Load on-demand only
-  // ❌ Category - Load on-demand only (unless specifically filtered)
-  // ❌ Comment - Load on-demand only
-  // ❌ Discussion - Load on-demand only
-  
-  sort: inclusionNetVotes DESC
-  limit: 200
-  offset: 0
+  nodeTypes: ['statement', 'openquestion', 'answer', 'quantity', 'evidence'],
+  sort: { by: 'netInclusionVotes', direction: 'desc' },
+  limit: 200,
+  offset: 0,
+  includeRelationships: true,
+  relationshipTypes: ['shared_keyword', 'shared_category', 'related_to', 'answers', 'evidence_for']
 }
 ```
+
+**WHY THESE NODES:**
+- All extend CategorizedNodeSchema (support keywords + categories)
+- All have inclusionNetVotes (unifying field for sorting)
+- Primary "content" nodes users create and interact with
+- Mixed quality systems acknowledged:
+  - Statement, Answer: Dual voting (inclusion + content)
+  - OpenQuestion, Quantity, Evidence: Inclusion + alternative systems
+
+**EXCLUDED FROM DEFAULT:**
+- Word - Load on-demand only
+- Definition - Load on-demand only
+- Category - Load on-demand only (unless filtered)
+- Comment - Load on-demand only
+- Discussion - Load on-demand only
 
 ---
 
@@ -73,1433 +190,555 @@
 
 #### **2.1 Node Type Filter**
 
-**Available Types (checkboxes in UI):**
 ```typescript
-type FilterableNodeType = 
-  | 'statement'
-  | 'openquestion'  // Note: Coupled with 'answer'
-  | 'answer'        // Note: Coupled with 'openquestion'
-  | 'quantity'
-  | 'evidence';
-
 interface NodeTypeFilter {
-  types: FilterableNodeType[];
-  include: boolean;  // true = include only these, false = exclude these
+  types: Array<'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'>;
+  include: boolean;  // true = only these types, false = exclude these types
 }
 ```
 
 **CRITICAL: Answer-Question Coupling**
 
-Answers **cannot** be fetched independently of their parent questions.
+Answers CANNOT be fetched without their parent questions. When `answer` is selected, **automatically include** `openquestion` in the query.
 
-**UI Implementation:**
-- Checkbox label: **"Open Questions & Answers"** (single checkbox)
-- Selecting this checkbox includes BOTH openquestion AND answer types
-- User cannot select answers without questions
-
-**Backend Implementation:**
-
+**Implementation:**
 ```typescript
-// When answer is selected, auto-include openquestion
-if (nodeTypeFilter.includes('answer')) {
-  if (!nodeTypeFilter.includes('openquestion')) {
-    nodeTypeFilter.push('openquestion');
+if (nodeTypeFilter.types.includes('answer')) {
+  if (!nodeTypeFilter.types.includes('openquestion')) {
+    nodeTypeFilter.types.push('openquestion');
   }
 }
-
-// Query pattern:
-// 1. Fetch questions that have qualifying answers
-// 2. Include those questions in results
-// 3. Include their answers in results
-// 4. Create ANSWERS relationships between them
 ```
 
-**Query Pattern:**
-
-```cypher
-// Fetch questions with qualifying answers
-MATCH (q:OpenQuestionNode)<-[:ANSWERS]-(a:AnswerNode)
-WHERE [filters apply to answer]
-AND [filters apply to question]
-WITH q, collect(a) as answers
-RETURN q, answers
-```
-
-**Examples:**
-```typescript
-// Show only statements and evidence
-{ types: ['statement', 'evidence'], include: true }
-
-// Show everything except quantities
-{ types: ['quantity'], include: false }
-
-// Show questions and answers (both required)
-{ types: ['openquestion', 'answer'], include: true }
-```
-
-**Default:**
-```typescript
-{ 
-  types: ['statement', 'openquestion', 'answer', 'quantity', 'evidence'], 
-  include: true 
-}
-```
+**UI:** Single checkbox labeled "Open Questions & Answers"
 
 ---
 
 #### **2.2 Keyword Filter**
 
-**UI Pattern:** Searchable dropdown with multi-select
-
-**Data Structure:**
 ```typescript
 interface KeywordFilter {
-  mode: 'any' | 'all';  // Matching logic
-  include: boolean;     // true = include, false = exclude
-  values: string[];     // Selected keywords
+  words: string[];       // Array of keyword strings
+  mode: 'any' | 'all';   // ANY = has at least one, ALL = has all keywords
+  include: boolean;      // true = include matching, false = exclude matching
 }
-```
-
-**Matching Logic:**
-
-**MODE: "ANY"**
-```cypher
-// Show nodes with ANY of the specified keywords
-WHERE EXISTS {
-  MATCH (node)-[:TAGGED]->(w:WordNode)
-  WHERE w.word IN $keywords
-}
-```
-
-**MODE: "ALL"**
-```cypher
-// Show nodes with ALL of the specified keywords
-WHERE ALL(keyword IN $keywords WHERE EXISTS(
-  (node)-[:TAGGED]->(:WordNode {word: keyword})
-))
-```
-
-**Include vs Exclude:**
-```typescript
-// Include mode (show nodes WITH these keywords)
-include: true
-
-// Exclude mode (hide nodes WITH these keywords)
-include: false
 ```
 
 **Examples:**
-```typescript
-// Show nodes about AI OR ethics
-{ mode: 'any', include: true, values: ['ai', 'ethics'] }
+- `{words: ['ai', 'ethics'], mode: 'any', include: true}` → Nodes with ai OR ethics
+- `{words: ['ai', 'ethics'], mode: 'all', include: true}` → Nodes with ai AND ethics
+- `{words: ['ai'], mode: 'any', include: false}` → Nodes WITHOUT ai
 
-// Show nodes about BOTH AI AND ethics
-{ mode: 'all', include: true, values: ['ai', 'ethics'] }
+**Cypher Implementation:**
+```cypher
+// ANY mode (include)
+EXISTS {
+  MATCH (node)-[:TAGGED]->(w:WordNode)
+  WHERE w.word IN $keywords
+}
 
-// Hide nodes about politics
-{ mode: 'any', include: false, values: ['politics'] }
+// ALL mode (include)
+ALL(keyword IN $keywords WHERE EXISTS(
+  (node)-[:TAGGED]->(:WordNode {word: keyword})
+))
+
+// Exclude: Wrap with NOT
 ```
-
-**Default:** No filter (empty array)
 
 ---
 
 #### **2.3 Category Filter**
 
-**UI Pattern:** Searchable dropdown with multi-select
-
-**Data Structure:**
 ```typescript
 interface CategoryFilter {
-  mode: 'any' | 'all';  // Matching logic
-  include: boolean;     // true = include, false = exclude
-  values: string[];     // Category IDs
+  categoryIds: string[]; // Array of category IDs
+  mode: 'any' | 'all';   // ANY = in at least one, ALL = in all categories
+  include: boolean;      // true = include matching, false = exclude matching
 }
-```
-
-**Matching Logic:**
-
-**MODE: "ANY"**
-```cypher
-// Show nodes in ANY of the specified categories
-WHERE EXISTS {
-  MATCH (node)-[:CATEGORIZED_AS]->(c:CategoryNode)
-  WHERE c.id IN $categoryIds AND c.inclusionNetVotes > 0
-}
-```
-
-**MODE: "ALL"**
-```cypher
-// Show nodes in ALL of the specified categories
-WHERE ALL(catId IN $categoryIds WHERE EXISTS(
-  (node)-[:CATEGORIZED_AS]->(:CategoryNode {id: catId})
-))
-```
-
-**Include vs Exclude:**
-```typescript
-// Include mode (show nodes IN these categories)
-include: true
-
-// Exclude mode (hide nodes IN these categories)
-include: false
 ```
 
 **Examples:**
-```typescript
-// Show nodes in Technology OR Science
-{ mode: 'any', include: true, values: ['cat-tech', 'cat-science'] }
+- `{categoryIds: ['tech', 'ethics'], mode: 'any', include: true}` → Nodes in tech OR ethics
+- `{categoryIds: ['tech', 'ethics'], mode: 'all', include: true}` → Nodes in tech AND ethics
+- `{categoryIds: ['tech'], mode: 'any', include: false}` → Nodes NOT in tech
 
-// Show nodes in BOTH Technology AND Science
-{ mode: 'all', include: true, values: ['cat-tech', 'cat-science'] }
+**Cypher Implementation:**
+```cypher
+// ANY mode (include)
+EXISTS {
+  MATCH (node)-[:CATEGORIZED_AS]->(c:CategoryNode)
+  WHERE c.id IN $categoryIds AND c.inclusionNetVotes > 0
+}
 
-// Hide nodes in Politics category
-{ mode: 'any', include: false, values: ['cat-politics'] }
+// ALL mode (include)
+ALL(catId IN $categoryIds WHERE EXISTS(
+  (node)-[:CATEGORIZED_AS]->(:CategoryNode {id: catId, inclusionNetVotes > 0})
+))
+
+// Exclude: Wrap with NOT
 ```
-
-**Default:** No filter (empty array)
 
 ---
 
 #### **2.4 User Filter**
 
-**UI Pattern:** Radio buttons (exclusive selection)
-
-**Data Structure:**
 ```typescript
-type UserFilterMode = 'all' | 'created' | 'interacted';
-
 interface UserFilter {
-  mode: UserFilterMode;
-  userId: string;  // From auth context
+  userId: string;
+  mode: 'all' | 'created' | 'interacted';
 }
 ```
 
-**Filter Modes:**
+**Modes:**
+- `'all'`: All nodes (no filtering) - default
+- `'created'`: Only nodes created by this user (`node.createdBy = userId`)
+- `'interacted'`: Nodes user has voted on or commented on
 
-**MODE: "all"** (Default)
+**Cypher for 'interacted':**
 ```cypher
-// No user filtering - show all nodes
-```
-
-**MODE: "created"**
-```cypher
-// Show only nodes created by this user
-WHERE node.createdBy = $userId
-```
-
-**MODE: "interacted"**
-```cypher
-// Show nodes user has interacted with (voted OR commented)
 WHERE EXISTS {
   MATCH (u:User {sub: $userId})-[r]->(node)
   WHERE type(r) IN ['VOTED_ON', 'COMMENTED']
 }
 ```
 
-**Note:** 
-- "interacted" includes: VOTED_ON, COMMENTED
-- Future enhancement could add: RESPONSE_TO (quantity), PEER_REVIEWED (evidence)
-- User who created a node has inherently "interacted" with it
-
-**Default:** `{ mode: 'all', userId: currentUser.sub }`
-
 ---
 
 ### **3. SORT REQUIREMENTS**
 
-All sorts support both ascending and descending order.
+#### **3.1 Available Sort Options**
 
-#### **3.1 Net Inclusion Votes**
+| Sort Option | Works On | Fallback | Direction |
+|-------------|----------|----------|-----------|
+| **netInclusionVotes** | All | N/A | ASC/DESC |
+| **totalInclusionVotes** | All | N/A | ASC/DESC |
+| **dateCreated** | All | N/A | ASC/DESC |
+| **netContentVotes** | Statement, Answer | inclusionNetVotes | ASC/DESC |
+| **totalContentVotes** | Statement, Answer | totalInclusionVotes | ASC/DESC |
+| **categoryOverlap** | All (requires category filter) | N/A | DESC only |
+| **participantCount** | All | N/A | ASC/DESC |
 
-**Field:** `inclusionNetVotes = inclusionPositiveVotes - inclusionNegativeVotes`
+#### **3.2 Content Vote Fallback Logic**
 
-**Purpose:** Show consensus - how much the community supports this content's existence
+**WHY:** OpenQuestion, Quantity, and Evidence don't have content voting. They use alternative quality systems.
 
-**Use Cases:**
-- DESC: Show most community-approved content first
-- ASC: Show least approved (or most rejected) content first
-
-**Cypher:**
-```cypher
-ORDER BY node.inclusionNetVotes DESC
-```
-
-**Applies to:** All nodes with inclusion voting (all CategorizedNodeSchema nodes)
-
-**Default:** This is the DEFAULT sort (DESC)
-
----
-
-#### **3.2 Total Inclusion Votes**
-
-**Field:** `totalInclusionVotes = inclusionPositiveVotes + inclusionNegativeVotes`
-
-**Purpose:** Show engagement - how much debate/discussion the content has generated
-
-**Use Cases:**
-- DESC: Show most debated content (high controversy OR high agreement)
-- ASC: Show least noticed content
-
-**Cypher:**
-```cypher
-ORDER BY (node.inclusionPositiveVotes + node.inclusionNegativeVotes) DESC
-```
-
-**Example Scenarios:**
-```
-Node A: +100, -5   = 105 total (very popular)
-Node B: +52, -48   = 100 total (highly controversial)
-Node C: +3, -2     = 5 total (little engagement)
-
-Total sort DESC: A, B, C
-```
-
-**Applies to:** All nodes with inclusion voting
-
----
-
-#### **3.3 Date Created**
-
-**Field:** `createdAt`
-
-**Purpose:** Show chronological order
-
-**Use Cases:**
-- DESC: Show newest content first (recent discussions)
-- ASC: Show oldest content first (foundational/original content)
-
-**Cypher:**
-```cypher
-ORDER BY node.createdAt DESC
-```
-
-**Applies to:** All nodes
-
----
-
-#### **3.4 Net Content Votes**
-
-**Field:** `contentNetVotes = contentPositiveVotes - contentNegativeVotes`
-
-**Purpose:** Show quality consensus - how good the community thinks this content is
-
-**CRITICAL FEATURE - Fallback Logic:**
+**Implementation:**
 ```typescript
-// For nodes WITH content voting (Statement, Answer)
-sortValue = node.contentNetVotes
+// For netContentVotes sort
+const sortValue = 
+  (node.type === 'statement' || node.type === 'answer')
+    ? node.contentNetVotes
+    : node.inclusionNetVotes;  // ← Fallback
 
-// For nodes WITHOUT content voting (OpenQuestion, Quantity, Evidence)
-sortValue = node.inclusionNetVotes  // FALLBACK
+// For totalContentVotes sort
+const sortValue = 
+  (node.type === 'statement' || node.type === 'answer')
+    ? (node.contentPositiveVotes + node.contentNegativeVotes)
+    : (node.inclusionPositiveVotes + node.inclusionNegativeVotes);  // ← Fallback
 ```
 
-**Use Cases:**
-- DESC: Show highest quality content first
-- ASC: Show lowest quality content first
-
-**Cypher:**
+**Cypher (using COALESCE):**
 ```cypher
-ORDER BY COALESCE(node.contentNetVotes, node.inclusionNetVotes) DESC
+ORDER BY COALESCE(n.contentNetVotes, n.inclusionNetVotes) DESC
 ```
-
-**Applies to:**
-- Direct: Statement, Answer
-- Fallback: OpenQuestion, Quantity, Evidence
-
-**Why Fallback is Important:**
-When graph shows mixed node types, we need consistent sorting. OpenQuestions don't have content voting, but we can't just exclude them - instead, use their inclusion votes as a proxy for "quality".
-
----
-
-#### **3.5 Total Content Votes**
-
-**Field:** `totalContentVotes = contentPositiveVotes + contentNegativeVotes`
-
-**Purpose:** Show quality debate - how much the quality of this content is being discussed
-
-**CRITICAL FEATURE - Fallback Logic:**
-```typescript
-// For nodes WITH content voting (Statement, Answer)
-sortValue = contentPositiveVotes + contentNegativeVotes
-
-// For nodes WITHOUT content voting (fallback)
-sortValue = inclusionPositiveVotes + inclusionNegativeVotes
-```
-
-**Use Cases:**
-- DESC: Show most quality-debated content (could be controversial quality or universally praised)
-- ASC: Show content with little quality assessment
-
-**Cypher:**
-```cypher
-ORDER BY COALESCE(
-  (node.contentPositiveVotes + node.contentNegativeVotes),
-  (node.inclusionPositiveVotes + node.inclusionNegativeVotes)
-) DESC
-```
-
-**Example Scenarios:**
-```
-Statement A: content: +50, -2  = 52 total (high quality agreement)
-Statement B: content: +30, -28 = 58 total (controversial quality)
-OpenQuestion C: inclusion: +40, -5 = 45 total (using fallback)
-
-Total content sort DESC: B (58), A (52), C (45 fallback)
-```
-
-**Applies to:**
-- Direct: Statement, Answer
-- Fallback: OpenQuestion, Quantity, Evidence
-
----
-
-#### **3.6 Category Overlap**
-
-**Field:** Calculated - number of shared categories with filter
-
-**Purpose:** Show content most similar to selected categories
-
-**CRITICAL:** Only available when category filter is active
-
-**Logic:**
-```typescript
-// Count how many of the filtered categories each node has
-categoryOverlapScore = COUNT(
-  node.categories ∩ filter.categories
-)
-
-// Sort by this score
-ORDER BY categoryOverlapScore DESC
-```
-
-**Cypher:**
-```cypher
-// After filtering by categories
-WITH node, 
-     size([cat IN node.categories WHERE cat.id IN $filteredCategoryIds]) as overlapScore
-ORDER BY overlapScore DESC
-```
-
-**Use Cases:**
-- User filters by ['Technology', 'Ethics', 'AI']
-- Nodes with all 3 categories appear first
-- Nodes with 2 categories appear next
-- Nodes with 1 category appear last
-
-**Direction:** DESC only (most overlap first)
-
-**Applies to:** All CategorizedNodeSchema nodes, only when categories filter is active
-
-**Validation:** Controller must reject this sort if no categories are filtered
-
----
-
-#### **3.7 Participant Count**
-
-**Field:** Calculated - unique users who interacted with this node
-
-**Purpose:** Show community engagement
-
-**Logic:**
-```cypher
-// Count distinct users who voted OR commented
-WITH node,
-     size([(u:User)-[:VOTED_ON|COMMENTED]->(node) | u]) as participantCount
-ORDER BY participantCount DESC
-```
-
-**Use Cases:**
-- DESC: Show most actively discussed content
-- ASC: Show content with little community engagement
-
-**Difference from Total Votes:**
-- Total votes: One user can cast multiple votes (inclusion + content)
-- Participant count: Counts each user only once
-
-**Example:**
-```
-Node A: 
-  - 10 users voted inclusion
-  - 8 users voted content
-  - 3 users commented
-  → Participant count = 15 unique users (some overlap)
-  → Total votes = 18 (10 + 8)
-
-Node B:
-  - 50 users voted inclusion
-  - 0 users voted content
-  - 0 users commented
-  → Participant count = 50
-  → Total votes = 50
-```
-
-**Applies to:** All nodes
 
 ---
 
 ### **4. RELATIONSHIP REQUIREMENTS**
 
-**Control which relationship types are included in the response.**
+#### **4.1 Available Relationship Types**
 
-```typescript
-interface RelationshipOptions {
-  include: boolean;  // Master toggle
-  types: RelationshipType[];
-}
+| Type | Source → Target | Purpose | Strength Calculation |
+|------|----------------|---------|----------------------|
+| **shared_keyword** | Any → Any | Topic similarity | Product of tag frequencies |
+| **shared_category** | Any → Any | Organizational similarity | Count of shared categories |
+| **related_to** | Statement → Statement | User-created threads | N/A (1.0) |
+| **answers** | Answer → OpenQuestion | Q&A hierarchy | N/A (1.0) |
+| **evidence_for** | Evidence → Stmt/Ans/Qty | Claim verification | N/A (1.0) |
+| **categorized_as** | Any → Category | Category membership | N/A (1.0) |
 
-type RelationshipType =
-  | 'shared_keyword'
-  | 'shared_category'
-  | 'related_to'
-  | 'answers'
-  | 'evidence_for'
-  | 'categorized_as';
+#### **4.2 Relationship Consolidation**
+
+**Problem:** Multiple TAGGED relationships between same two nodes (different keywords)
+
+**Solution:** Consolidate into single relationship with metadata
+
+**Before (Multiple):**
+```
+(A)-[TAGGED:keyword1, strength:0.8]->(B)
+(A)-[TAGGED:keyword2, strength:0.6]->(B)
 ```
 
-**Relationship Descriptions:**
-
-#### **4.1 shared_keyword**
-```cypher
-(Node1)-[:SHARED_TAG {word: 'ai', strength: 0.64}]->(Node2)
+**After (Consolidated):**
 ```
-- Nodes that share the same keyword
-- Strength = product of tag frequencies
-- Used for topic-based discovery
-
-#### **4.2 shared_category**
-```cypher
-(Node1)-[:SHARED_CATEGORY {categoryId: 'cat-1', strength: 2}]->(Node2)
-```
-- Nodes in the same category
-- Strength = number of shared categories
-- Used for organizational discovery
-
-#### **4.3 related_to**
-```cypher
-(Statement1)-[:RELATED_TO {relationshipType: 'child'}]->(Statement2)
-```
-- Direct user-created relationships between statements
-- Used for threading and conversation flow
-
-#### **4.4 answers**
-```cypher
-(Answer)-[:ANSWERS]->(OpenQuestion)
-```
-- Links answers to their parent questions
-- Hierarchical relationship
-
-#### **4.5 evidence_for**
-```cypher
-(Evidence)-[:EVIDENCE_FOR]->(Statement | Answer | Quantity)
-```
-- Links evidence to claims they support
-- Directional (evidence → claim)
-- Used for claim verification and evidence discovery
-
-#### **4.6 categorized_as**
-```cypher
-(Node)-[:CATEGORIZED_AS]->(Category)
-```
-- Links nodes to their categories
-- NOTE: Only included if Category nodes are in the dataset (advanced use case)
-
-**Default:** 
-```typescript
-{ 
-  include: true, 
-  types: ['shared_keyword', 'shared_category', 'related_to', 'answers', 'evidence_for'] 
-}
-```
-
----
-
-### **5. PAGINATION REQUIREMENTS**
-
-```typescript
-interface PaginationOptions {
-  limit: number;    // How many nodes to return
-  offset: number;   // Skip this many nodes
-}
-```
-
-**Constraints:**
-- `limit`: Min 1, Max 1000, Default 200
-- `offset`: Min 0, Default 0
-
-**Response includes:**
-```typescript
 {
-  nodes: [...],
-  relationships: [...],
-  pagination: {
-    total: 1547,      // Total nodes matching filters
-    offset: 0,
-    limit: 200,
-    hasMore: true     // true if offset + limit < total
-  }
-}
-```
-
----
-
-### **6. USER CONTEXT ENRICHMENT**
-
-**Automatic Enhancement:** When `requesting_user_id` is provided, enhance each node with user-specific data.
-
-```typescript
-// For each node in response
-node.metadata.userVoteStatus = {
-  inclusionVote: 'agree' | 'disagree' | null,
-  contentVote: 'agree' | 'disagree' | null
-}
-
-node.metadata.userVisibilityPreference = {
-  isVisible: boolean,
-  source: 'user' | 'community',
-  timestamp: number
-}
-```
-
-**Data Sources:**
-- VoteSchema: `getVoteStatus(nodeLabel, nodeId, userId)`
-- VisibilityService: `getVisibilityStatus(nodeId, userId)`
-
-**Performance Note:** Batch these queries - don't make individual calls per node
-
----
-
-### **7. CROSS-NODE REFERENCES**
-
-**Handling Parent Info When Parent Not in Result Set:**
-
-For some node types, we need to include parent/related node info even if that parent isn't in the result set.
-
-**For Answer Nodes:**
-```typescript
-typeSpecific: {
-  parentQuestion: {
-    id: string;
-    questionText: string;  // Always include, even if parent not in results
-  }
-}
-```
-
-**For Evidence Nodes:**
-```typescript
-typeSpecific: {
-  parentNode: {
-    id: string;
-    type: 'statement' | 'answer' | 'quantity';
-    // Could optionally include title/text
-  }
-}
-```
-
-**Relationship Creation Rule:**
-Only create relationships between nodes that are BOTH in the result set.
-
-```typescript
-// Example: If answer's parent question is not in results
-if (!nodeIds.includes(answer.parentQuestionId)) {
-  // Don't create the ANSWERS relationship
-  // But still keep parentQuestion metadata on the answer node
-}
-```
-
----
-
-## 📐 **Data Structure Specifications**
-
-### **Request Interface**
-
-```typescript
-interface UniversalGraphRequest {
-  // Node Type Filter
-  nodeTypes?: {
-    types: Array<'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'>;
-    include: boolean;
-  };
-  
-  // Keyword Filter
-  keywords?: {
-    mode: 'any' | 'all';
-    include: boolean;
-    values: string[];
-  };
-  
-  // Category Filter
-  categories?: {
-    mode: 'any' | 'all';
-    include: boolean;
-    values: string[];
-  };
-  
-  // User Filter
-  user?: {
-    mode: 'all' | 'created' | 'interacted';
-    userId: string;
-  };
-  
-  // Sort Options
-  sort: {
-    by: 'netInclusionVotes' | 'totalInclusionVotes' | 'dateCreated' | 
-        'netContentVotes' | 'totalContentVotes' | 'categoryOverlap' | 'participantCount';
-    direction: 'asc' | 'desc';
-  };
-  
-  // Pagination
-  pagination: {
-    limit: number;
-    offset: number;
-  };
-  
-  // Relationships
-  relationships: {
-    include: boolean;
-    types: Array<'shared_keyword' | 'shared_category' | 'related_to' | 
-                 'answers' | 'evidence_for' | 'categorized_as'>;
-  };
-  
-  // User Context (from auth)
-  requestingUserId?: string;
-}
-```
-
----
-
-### **Response Interface (D3-Ready)**
-
-```typescript
-interface UniversalGraphResponse {
-  // Nodes array - ready for D3
-  nodes: UniversalNode[];
-  
-  // Relationships array - ready for D3
-  relationships: UniversalRelationship[];
-  
-  // Pagination info
-  pagination: {
-    total: number;
-    offset: number;
-    limit: number;
-    hasMore: boolean;
-  };
-  
-  // Performance metrics
-  performance: {
-    nodeCount: number;
-    relationshipCount: number;
-    relationshipDensity: number;
-    queryTimeMs: number;
-  };
-}
-```
-
-#### **UniversalNode Structure**
-
-```typescript
-interface UniversalNode {
-  // Core identification
-  id: string;
-  type: 'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence';
-  
-  // Display content
-  content: string;  // The main text to display
-  
-  // Timestamps
-  createdAt: string;  // ISO 8601
-  updatedAt?: string; // ISO 8601
-  
-  // Creator
-  createdBy: string;
-  publicCredit: boolean;
-  
-  // Metadata for visualization and interaction
+  id: 'A-shared_keyword-B',
+  source: 'A',
+  target: 'B',
+  type: 'shared_keyword',
+  strength: 1.4,  // Sum of strengths
   metadata: {
-    // Voting data
-    votes: {
-      inclusion: {
-        positive: number;
-        negative: number;
-        net: number;
-      };
-      content?: {  // Only present for nodes with content voting
-        positive: number;
-        negative: number;
-        net: number;
-      };
-    };
-    
-    // Keywords (tags)
-    keywords: Array<{
-      word: string;
-      frequency: number;
-    }>;
-    
-    // Categories
-    categories: Array<{
-      id: string;
-      name: string;
-      description?: string;
-    }>;
-    
-    // Discussion reference
-    discussionId?: string;
-    
-    // User-specific data (if requesting_user_id provided)
-    userVoteStatus?: {
-      inclusionVote: 'agree' | 'disagree' | null;
-      contentVote: 'agree' | 'disagree' | null;
-    };
-    
-    userVisibilityPreference?: {
-      isVisible: boolean;
-      source: 'user' | 'community';
-      timestamp: number;
-    };
-    
-    // Type-specific metadata
-    typeSpecific?: {
-      // For OpenQuestion
-      answerCount?: number;
-      
-      // For Answer
-      parentQuestion?: {
-        id: string;
-        questionText: string;
-      };
-      
-      // For Quantity
-      unitCategory?: {
-        id: string;
-        name: string;
-      };
-      defaultUnit?: {
-        id: string;
-        name: string;
-      };
-      responseCount?: number;
-      statistics?: {
-        min: number;
-        max: number;
-        mean: number;
-        median: number;
-        standardDeviation: number;
-        percentiles: { [key: number]: number };
-      };
-      
-      // For Evidence
-      evidenceType?: 'academic_paper' | 'news_article' | 'government_report' | 
-                     'dataset' | 'book' | 'website' | 'legal_document' | 
-                     'expert_testimony' | 'survey_study' | 'meta_analysis' | 'other';
-      url?: string;
-      authors?: string[];
-      publicationDate?: string;
-      avgQualityScore?: number;
-      avgIndependenceScore?: number;
-      avgRelevanceScore?: number;
-      overallScore?: number;
-      reviewCount?: number;
-      parentNode?: {
-        id: string;
-        type: 'statement' | 'answer' | 'quantity';
-      };
-    };
-  };
-}
-```
-
-#### **UniversalRelationship Structure**
-
-```typescript
-interface UniversalRelationship {
-  // Unique identifier
-  id: string;  // Generated: `${source}-${type}-${target}`
-  
-  // D3 requires these exact field names
-  source: string;  // Node ID
-  target: string;  // Node ID
-  
-  // Relationship type
-  type: 'shared_keyword' | 'shared_category' | 'related_to' | 
-        'answers' | 'evidence_for' | 'categorized_as';
-  
-  // Strength/weight for visualization
-  strength: number;
-  
-  // Type-specific metadata
-  metadata?: {
-    // For shared_keyword
-    keyword?: string;
-    
-    // For shared_category
-    categoryId?: string;
-    categoryName?: string;
-    
-    // For related_to
-    relationshipType?: 'child' | 'parent';
-    
-    // For evidence_for
-    evidenceType?: string;
-    
-    // General
-    createdAt?: string;
-  };
-}
-```
-
----
-
-## 🏗️ **Implementation Architecture**
-
-### **File Structure**
-
-```
-src/nodes/universal/
-├── universal-graph.controller.ts      # HTTP layer
-├── universal-graph.service.ts         # Business logic
-├── universal-graph.module.ts          # DI configuration
-├── dto/
-│   ├── universal-graph-request.dto.ts # Request validation
-│   └── universal-graph-response.dto.ts# Response types
-├── interfaces/
-│   ├── filters.interface.ts           # Filter types
-│   ├── sorts.interface.ts             # Sort types
-│   └── node-data.interface.ts         # Node/Relationship types
-└── utils/
-    ├── query-builder.util.ts          # Build complex queries
-    ├── sort-handler.util.ts           # Sorting logic
-    └── filter-handler.util.ts         # Filter logic
-```
-
----
-
-### **Controller Layer**
-
-**Responsibilities:**
-1. Parse HTTP query parameters
-2. Validate inputs
-3. Transform to service DTOs
-4. Call service
-5. Return HTTP response
-6. Handle errors
-
-**Key Methods:**
-
-```typescript
-@Controller('graph/universal')
-@UseGuards(JwtAuthGuard)
-export class UniversalGraphController {
-  
-  @Get('nodes')
-  async getUniversalNodes(
-    @Query() query: UniversalNodesQueryDto,
-    @Request() req: AuthenticatedRequest
-  ): Promise<UniversalGraphResponse> {
-    // 1. Parse query parameters
-    const filters = this.parseFilters(query);
-    const sort = this.parseSort(query);
-    const pagination = this.parsePagination(query);
-    const relationships = this.parseRelationships(query);
-    
-    // 2. Validate
-    this.validateRequest(filters, sort, pagination, relationships);
-    
-    // 3. Add user context
-    const requestingUserId = req.user.sub;
-    
-    // 4. Call service
-    return await this.universalGraphService.getUniversalNodes({
-      filters,
-      sort,
-      pagination,
-      relationships,
-      requestingUserId
-    });
-  }
-  
-  // Helper endpoints
-  
-  @Get('filters/keywords')
-  async getAvailableKeywords(): Promise<string[]> {
-    // Return list of all keywords for dropdown
-  }
-  
-  @Get('filters/categories')
-  async getAvailableCategories(): Promise<CategoryInfo[]> {
-    // Return list of all categories for dropdown
+    sharedWords: ['keyword1', 'keyword2'],
+    strengthsByKeyword: { keyword1: 0.8, keyword2: 0.6 },
+    averageStrength: 0.7
   }
 }
 ```
 
-**Query Parameter Format:**
+#### **4.3 Cross-Node References**
 
-Use flat style for HTTP query strings (simpler than nested objects):
+**Problem:** Answer node's parent question may not be in result set
 
-```
-// Node types
-?nodeTypes[]=statement&nodeTypes[]=answer&nodeTypesInclude=true
-
-// Keywords
-?keywords[]=ai&keywords[]=ethics&keywordMode=all&keywordsInclude=true
-
-// Categories
-?categories[]=cat-1&categories[]=cat-2&categoryMode=any&categoriesInclude=true
-
-// User filter
-?userFilter=created
-
-// Sort
-?sortBy=netInclusionVotes&sortDirection=desc
-
-// Pagination
-?limit=200&offset=0
-
-// Relationships
-?includeRelationships=true&relationshipTypes[]=shared_keyword&relationshipTypes[]=answers
-```
-
----
-
-### **Service Layer**
-
-**Core Method Signature:**
+**Solution:** Always include parent info in metadata
 
 ```typescript
-@Injectable()
-export class UniversalGraphService {
-  constructor(
-    private readonly neo4jService: Neo4jService,
-    private readonly statementSchema: StatementSchema,
-    private readonly openQuestionSchema: OpenQuestionSchema,
-    private readonly answerSchema: AnswerSchema,
-    private readonly quantitySchema: QuantitySchema,
-    private readonly evidenceSchema: EvidenceSchema,
-    private readonly voteSchema: VoteSchema,
-    private readonly visibilityService: VisibilityService,
-    private readonly categoryService: CategoryService
-  ) {}
-  
-  async getUniversalNodes(options: UniversalGraphOptions): Promise<UniversalGraphResponse> {
-    const startTime = Date.now();
-    
-    // 1. Fetch nodes from each schema based on filters
-    const nodes = await this.fetchFilteredNodes(options.filters, options.sort, options.pagination);
-    
-    // 2. Apply cross-schema sorting if needed
-    const sortedNodes = this.applySorting(nodes, options.sort);
-    
-    // 3. Apply pagination
-    const paginatedNodes = this.applyPagination(sortedNodes, options.pagination);
-    
-    // 4. Enrich with user context if provided
-    const enrichedNodes = options.requestingUserId 
-      ? await this.enrichWithUserContext(paginatedNodes, options.requestingUserId)
-      : paginatedNodes;
-    
-    // 5. Fetch relationships if requested
-    const relationships = options.relationships.include
-      ? await this.fetchRelationships(enrichedNodes, options.relationships.types)
-      : [];
-    
-    // 6. Format response
-    return {
-      nodes: enrichedNodes,
-      relationships,
-      pagination: {
-        total: sortedNodes.length,
-        offset: options.pagination.offset,
-        limit: options.pagination.limit,
-        hasMore: options.pagination.offset + options.pagination.limit < sortedNodes.length
-      },
-      performance: {
-        nodeCount: enrichedNodes.length,
-        relationshipCount: relationships.length,
-        relationshipDensity: this.calculateDensity(enrichedNodes, relationships),
-        queryTimeMs: Date.now() - startTime
-      }
-    };
+// For Answer nodes
+metadata: {
+  parentQuestion: {
+    nodeId: 'question-123',
+    questionText: 'What is AI?'  // ← Always include
+  }
+}
+
+// For Evidence nodes
+metadata: {
+  parentNode: {
+    nodeId: 'stmt-456',
+    nodeType: 'statement',
+    content: 'AI will transform society'  // ← Always include
   }
 }
 ```
 
 ---
 
-### **Key Service Methods**
+## 🔧 **Implementation Plan**
 
-#### **1. fetchFilteredNodes**
+### **Phase 4.1: Schema Integration (Days 1-3)**
+
+#### **Task 1.1: Update Constructor & Module**
+
+**File:** `universal-graph.service.ts`
 
 ```typescript
-private async fetchFilteredNodes(
-  filters: FilterOptions,
-  sort: SortOptions,
-  pagination: PaginationOptions
-): Promise<UniversalNode[]> {
-  const allNodes: UniversalNode[] = [];
-  
-  // Determine which node types to query
-  const nodeTypesToFetch = this.determineNodeTypes(filters.nodeTypes);
-  
-  // IMPORTANT: Handle answer-question coupling
-  if (nodeTypesToFetch.includes('answer') && !nodeTypesToFetch.includes('openquestion')) {
-    nodeTypesToFetch.push('openquestion');
-  }
-  
-  // Query each node type in parallel
-  const nodePromises = nodeTypesToFetch.map(type =>
-
-  <invoke name="artifacts">
-<parameter name="command">update</parameter>
-<parameter name="type">text/markdown</parameter>
-<parameter name="id">phase3-complete-brief</parameter>
-<parameter name="old_str">  // Query each node type in parallel
-  const nodePromises = nodeTypesToFetch.map(type =></parameter>
-<parameter name="new_str">  // Query each node type in parallel
-  const nodePromises = nodeTypesToFetch.map(type => {
-    switch (type) {
-      case 'statement':
-        return this.fetchStatements(filters);
-      case 'openquestion':
-        return this.fetchOpenQuestions(filters);
-      case 'answer':
-        return this.fetchAnswers(filters);
-      case 'quantity':
-        return this.fetchQuantities(filters);
-      case 'evidence':
-        return this.fetchEvidence(filters);
-    }
-  });
-  
-  const nodeArrays = await Promise.all(nodePromises);
-  
-  // Flatten and combine
-  nodeArrays.forEach(nodes => allNodes.push(...nodes));
-  
-  return allNodes;
-}
+// Add to constructor
+constructor(
+  private readonly neo4jService: Neo4jService,
+  private readonly statementSchema: StatementSchema,
+  private readonly openQuestionSchema: OpenQuestionSchema,
+  private readonly answerSchema: AnswerSchema,
+  private readonly quantitySchema: QuantitySchema,
+  private readonly evidenceSchema: EvidenceSchema,
+  private readonly voteSchema: VoteSchema,
+  private readonly visibilityService: VisibilityService,
+  private readonly categoryService: CategoryService,
+) {}
 ```
 
-#### **2. fetchStatements (example pattern)**
+**File:** `universal-graph.module.ts`
+
+```typescript
+imports: [
+  Neo4jModule,
+  VoteModule,
+  VisibilityModule,
+  CategoryModule,
+  StatementModule,
+  OpenQuestionModule,
+  AnswerModule,
+  QuantityModule,
+  EvidenceModule,
+]
+```
+
+#### **Task 1.2: Implement Schema-Based Node Fetching**
+
+**Replace direct Neo4j queries with schema method calls:**
 
 ```typescript
 private async fetchStatements(filters: FilterOptions): Promise<UniversalNode[]> {
-  // Build Cypher query based on filters
-  let query = `
-    MATCH (s:StatementNode)
-    WHERE s.visibilityStatus <> false OR s.visibilityStatus IS NULL
-  `;
+  // Use StatementSchema methods instead of direct Neo4j queries
+  const statements = await this.statementSchema.findAll({
+    // ... build query options from filters
+  });
   
-  const params: any = {};
-  
-  // Apply keyword filter
-  if (filters.keywords?.values.length > 0) {
-    const keywordCondition = this.buildKeywordCondition(
-      filters.keywords.mode,
-      filters.keywords.include,
-      's'
-    );
-    query += ` AND ${keywordCondition}`;
-    params.keywords = filters.keywords.values;
-  }
-  
-  // Apply category filter
-  if (filters.categories?.values.length > 0) {
-    const categoryCondition = this.buildCategoryCondition(
-      filters.categories.mode,
-      filters.categories.include,
-      's'
-    );
-    query += ` AND ${categoryCondition}`;
-    params.categories = filters.categories.values;
-  }
-  
-  // Apply user filter
-  if (filters.user?.mode === 'created') {
-    query += ` AND s.createdBy = $userId`;
-    params.userId = filters.user.userId;
-  } else if (filters.user?.mode === 'interacted') {
-    query += ` AND EXISTS {
-      MATCH (u:User {sub: $userId})-[r]->(s)
-      WHERE type(r) IN ['VOTED_ON', 'COMMENTED']
-    }`;
-    params.userId = filters.user.userId;
-  }
-  
-  // Fetch node data with metadata
-  query += `
-    // Get keywords
-    OPTIONAL MATCH (s)-[t:TAGGED]->(w:WordNode)
-    WITH s, collect({word: w.word, frequency: t.frequency}) as keywords
-    
-    // Get categories
-    OPTIONAL MATCH (s)-[:CATEGORIZED_AS]->(c:CategoryNode)
-    WITH s, keywords, collect({id: c.id, name: c.name, description: c.description}) as categories
-    
-    // Get vote counts
-    OPTIONAL MATCH (s)<-[iv:VOTED_ON {kind: 'INCLUSION'}]-()
-    WITH s, keywords, categories,
-         sum(CASE WHEN iv.status = 'agree' THEN 1 ELSE 0 END) as inclusionPos,
-         sum(CASE WHEN iv.status = 'disagree' THEN 1 ELSE 0 END) as inclusionNeg
-    
-    OPTIONAL MATCH (s)<-[cv:VOTED_ON {kind: 'CONTENT'}]-()
-    WITH s, keywords, categories, inclusionPos, inclusionNeg,
-         sum(CASE WHEN cv.status = 'agree' THEN 1 ELSE 0 END) as contentPos,
-         sum(CASE WHEN cv.status = 'disagree' THEN 1 ELSE 0 END) as contentNeg
-    
-    // Get discussion ID
-    OPTIONAL MATCH (s)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-    
-    RETURN {
-      id: s.id,
-      type: 'statement',
-      content: s.statement,
-      createdAt: toString(s.createdAt),
-      updatedAt: toString(s.updatedAt),
-      createdBy: s.createdBy,
-      publicCredit: s.publicCredit,
-      keywords: keywords,
-      categories: categories,
-      inclusionPositive: inclusionPos,
-      inclusionNegative: inclusionNeg,
-      contentPositive: contentPos,
-      contentNegative: contentNeg,
-      discussionId: d.id
-    } as nodeData
-  `;
-  
-  const result = await this.neo4jService.read(query, params);
-  return result.records.map(record => this.transformToUniversalNode(record.get('nodeData')));
+  return statements.map(stmt => this.transformStatementToUniversalNode(stmt));
 }
+
+private async fetchOpenQuestions(filters: FilterOptions): Promise<UniversalNode[]> {
+  const questions = await this.openQuestionSchema.findAll({
+    // ... build query options from filters
+  });
+  
+  return questions.map(q => this.transformOpenQuestionToUniversalNode(q));
+}
+
+// Repeat for Answer, Quantity, Evidence
 ```
 
-**Note:** Follow this same pattern for fetchOpenQuestions, fetchAnswers, fetchQuantities, and fetchEvidence. Each method queries its specific schema and returns UniversalNode objects.
-
-#### **3. buildKeywordCondition**
+#### **Task 1.3: Create Transformation Methods**
 
 ```typescript
-private buildKeywordCondition(
-  mode: 'any' | 'all',
-  include: boolean,
+private transformStatementToUniversalNode(stmt: StatementData): UniversalNode {
+  return {
+    id: stmt.id,
+    type: 'statement',
+    content: stmt.statement,
+    createdAt: stmt.createdAt,
+    updatedAt: stmt.updatedAt,
+    createdBy: stmt.createdBy,
+    publicCredit: stmt.publicCredit,
+    metadata: {
+      votes: {
+        inclusion: {
+          positive: stmt.inclusionPositiveVotes,
+          negative: stmt.inclusionNegativeVotes,
+          net: stmt.inclusionNetVotes
+        },
+        content: {
+          positive: stmt.contentPositiveVotes,
+          negative: stmt.contentNegativeVotes,
+          net: stmt.contentNetVotes
+        }
+      },
+      keywords: stmt.keywords || [],
+      categories: stmt.categories || [],
+      discussionId: stmt.discussionId
+    }
+  };
+}
+
+// Similar transformers for OpenQuestion, Answer, Quantity, Evidence
+```
+
+---
+
+### **Phase 4.2: Advanced Filtering (Days 4-5)**
+
+#### **Task 2.1: Implement ANY/ALL Keyword Filter**
+
+```typescript
+private buildKeywordFilter(
+  keywordFilter: KeywordFilter,
   nodeAlias: string
-): string {
+): { condition: string; params: any } {
+  if (!keywordFilter?.words || keywordFilter.words.length === 0) {
+    return { condition: 'true', params: {} };
+  }
+  
   let condition: string;
   
-  if (mode === 'any') {
+  if (keywordFilter.mode === 'any') {
     condition = `EXISTS {
       MATCH (${nodeAlias})-[:TAGGED]->(w:WordNode)
       WHERE w.word IN $keywords
     }`;
-  } else { // mode === 'all'
+  } else {  // mode === 'all'
     condition = `ALL(keyword IN $keywords WHERE EXISTS(
       (${nodeAlias})-[:TAGGED]->(:WordNode {word: keyword})
     ))`;
   }
   
-  return include ? condition : `NOT ${condition}`;
+  if (!keywordFilter.include) {
+    condition = `NOT (${condition})`;
+  }
+  
+  return {
+    condition,
+    params: { keywords: keywordFilter.words }
+  };
 }
 ```
 
-#### **4. buildCategoryCondition**
+#### **Task 2.2: Implement ANY/ALL Category Filter**
 
 ```typescript
-private buildCategoryCondition(
-  mode: 'any' | 'all',
-  include: boolean,
+private buildCategoryFilter(
+  categoryFilter: CategoryFilter,
   nodeAlias: string
-): string {
+): { condition: string; params: any } {
+  if (!categoryFilter?.categoryIds || categoryFilter.categoryIds.length === 0) {
+    return { condition: 'true', params: {} };
+  }
+  
   let condition: string;
   
-  if (mode === 'any') {
+  if (categoryFilter.mode === 'any') {
     condition = `EXISTS {
       MATCH (${nodeAlias})-[:CATEGORIZED_AS]->(c:CategoryNode)
-      WHERE c.id IN $categories AND c.inclusionNetVotes > 0
+      WHERE c.id IN $categoryIds AND c.inclusionNetVotes > 0
     }`;
-  } else { // mode === 'all'
-    condition = `ALL(catId IN $categories WHERE EXISTS(
+  } else {  // mode === 'all'
+    condition = `ALL(catId IN $categoryIds WHERE EXISTS(
       (${nodeAlias})-[:CATEGORIZED_AS]->(:CategoryNode {id: catId})
     ))`;
   }
   
-  return include ? condition : `NOT ${condition}`;
+  if (!categoryFilter.include) {
+    condition = `NOT (${condition})`;
+  }
+  
+  return {
+    condition,
+    params: { categoryIds: categoryFilter.categoryIds }
+  };
 }
 ```
 
-#### **5. applySorting**
+#### **Task 2.3: Implement User Interaction Filter**
+
+```typescript
+private buildUserFilter(
+  userFilter: UserFilter,
+  nodeAlias: string
+): { condition: string; params: any } {
+  if (!userFilter || userFilter.mode === 'all') {
+    return { condition: 'true', params: {} };
+  }
+  
+  if (userFilter.mode === 'created') {
+    return {
+      condition: `${nodeAlias}.createdBy = $userId`,
+      params: { userId: userFilter.userId }
+    };
+  }
+  
+  // mode === 'interacted'
+  return {
+    condition: `EXISTS {
+      MATCH (u:User {sub: $userId})-[r]->(${nodeAlias})
+      WHERE type(r) IN ['VOTED_ON', 'COMMENTED']
+    }`,
+    params: { userId: userFilter.userId }
+  };
+}
+```
+
+---
+
+### **Phase 4.3: Content Vote Fallback & Sorting (Day 6)**
+
+#### **Task 3.1: Implement Sort with Fallback**
 
 ```typescript
 private applySorting(nodes: UniversalNode[], sort: SortOptions): UniversalNode[] {
-  const direction = sort.direction === 'asc' ? 1 : -1;
-  
-  switch (sort.by) {
-    case 'netInclusionVotes':
-      return nodes.sort((a, b) => 
-        (b.metadata.votes.inclusion.net - a.metadata.votes.inclusion.net) * direction
-      );
-      
-    case 'totalInclusionVotes':
-      return nodes.sort((a, b) => {
-        const aTotal = a.metadata.votes.inclusion.positive + a.metadata.votes.inclusion.negative;
-        const bTotal = b.metadata.votes.inclusion.positive + b.metadata.votes.inclusion.negative;
-        return (bTotal - aTotal) * direction;
-      });
-      
-    case 'dateCreated':
-      return nodes.sort((a, b) => {
-        const aDate = new Date(a.createdAt).getTime();
-        const bDate = new Date(b.createdAt).getTime();
-        return (bDate - aDate) * direction;
-      });
-      
-    case 'netContentVotes':
-      return nodes.sort((a, b) => {
-        // Use content votes if available, fallback to inclusion votes
-        const aVotes = a.metadata.votes.content?.net ?? a.metadata.votes.inclusion.net;
-        const bVotes = b.metadata.votes.content?.net ?? b.metadata.votes.inclusion.net;
-        return (bVotes - aVotes) * direction;
-      });
-      
-    case 'totalContentVotes':
-      return nodes.sort((a, b) => {
-        const aTotal = a.metadata.votes.content 
+  nodes.sort((a, b) => {
+    let aValue: number;
+    let bValue: number;
+    
+    switch (sort.by) {
+      case 'netInclusionVotes':
+        aValue = a.metadata.votes.inclusion.net;
+        bValue = b.metadata.votes.inclusion.net;
+        break;
+        
+      case 'totalInclusionVotes':
+        aValue = a.metadata.votes.inclusion.positive + a.metadata.votes.inclusion.negative;
+        bValue = b.metadata.votes.inclusion.positive + b.metadata.votes.inclusion.negative;
+        break;
+        
+      case 'dateCreated':
+        aValue = new Date(a.createdAt).getTime();
+        bValue = new Date(b.createdAt).getTime();
+        break;
+        
+      case 'netContentVotes':
+        // Fallback logic
+        aValue = (a.type === 'statement' || a.type === 'answer')
+          ? a.metadata.votes.content.net
+          : a.metadata.votes.inclusion.net;
+        bValue = (b.type === 'statement' || b.type === 'answer')
+          ? b.metadata.votes.content.net
+          : b.metadata.votes.inclusion.net;
+        break;
+        
+      case 'totalContentVotes':
+        // Fallback logic
+        aValue = (a.type === 'statement' || a.type === 'answer')
           ? (a.metadata.votes.content.positive + a.metadata.votes.content.negative)
           : (a.metadata.votes.inclusion.positive + a.metadata.votes.inclusion.negative);
-        const bTotal = b.metadata.votes.content
+        bValue = (b.type === 'statement' || b.type === 'answer')
           ? (b.metadata.votes.content.positive + b.metadata.votes.content.negative)
           : (b.metadata.votes.inclusion.positive + b.metadata.votes.inclusion.negative);
-        return (bTotal - aTotal) * direction;
-      });
-      
-    case 'categoryOverlap':
-      // This requires special handling - calculated during filtering
-      throw new BadRequestException('Category overlap sort requires category filter');
-      
-    case 'participantCount':
-      // This requires counting unique users - should be done in query
-      return nodes.sort((a, b) => {
-        const aCount = this.calculateParticipantCount(a);
-        const bCount = this.calculateParticipantCount(b);
-        return (bCount - aCount) * direction;
-      });
-      
-    default:
-      return nodes;
-  }
-}
-```
-
-#### **6. enrichWithUserContext**
-
-```typescript
-private async enrichWithUserContext(
-  nodes: UniversalNode[],
-  userId: string
-): Promise<UniversalNode[]> {
-  // Batch fetch vote statuses
-  const votePromises = nodes.map(node => 
-    this.voteSchema.getVoteStatus(
-      this.getNodeLabel(node.type),
-      { id: node.id },
-      userId
-    )
-  );
-  
-  // Batch fetch visibility preferences
-  const visibilityPromises = nodes.map(node =>
-    this.visibilityService.getVisibilityStatus(node.id, userId)
-  );
-  
-  const [voteStatuses, visibilityPrefs] = await Promise.all([
-    Promise.all(votePromises),
-    Promise.all(visibilityPromises)
-  ]);
-  
-  // Enrich nodes
-  return nodes.map((node, index) => ({
-    ...node,
-    metadata: {
-      ...node.metadata,
-      userVoteStatus: {
-        inclusionVote: voteStatuses[index]?.inclusionVote || null,
-        contentVote: voteStatuses[index]?.contentVote || null
-      },
-      userVisibilityPreference: visibilityPrefs[index] || {
-        isVisible: true,
-        source: 'community',
-        timestamp: Date.now()
-      }
+        break;
+        
+      case 'participantCount':
+        aValue = a.participantCount || 0;
+        bValue = b.participantCount || 0;
+        break;
+        
+      default:
+        aValue = a.metadata.votes.inclusion.net;
+        bValue = b.metadata.votes.inclusion.net;
     }
-  }));
-}
-```
-
-#### **7. fetchRelationships**
-
-```typescript
-private async fetchRelationships(
-  nodes: UniversalNode[],
-  relationshipTypes: RelationshipType[]
-): Promise<UniversalRelationship[]> {
-  const relationships: UniversalRelationship[] = [];
-  const nodeIds = nodes.map(n => n.id);
-  
-  if (nodeIds.length === 0) return relationships;
-  
-  // Fetch each relationship type in parallel
-  const relationshipPromises = relationshipTypes.map(type => {
-    switch (type) {
-      case 'shared_keyword':
-        return this.fetchSharedKeywordRelationships(nodeIds);
-      case 'shared_category':
-        return this.fetchSharedCategoryRelationships(nodeIds);
-      case 'related_to':
-        return this.fetchRelatedToRelationships(nodeIds);
-      case 'answers':
-        return this.fetchAnswersRelationships(nodeIds);
-      case 'evidence_for':
-        return this.fetchEvidenceForRelationships(nodeIds);
-      case 'categorized_as':
-        return this.fetchCategorizedAsRelationships(nodeIds);
-    }
+    
+    const comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+    return sort.direction === 'asc' ? comparison : -comparison;
   });
   
-  const relationshipArrays = await Promise.all(relationshipPromises);
-  
-  // Flatten and combine
-  relationshipArrays.forEach(rels => relationships.push(...rels));
-  
-  return relationships;
+  return nodes;
 }
 ```
 
-#### **8. fetchSharedKeywordRelationships**
+---
+
+### **Phase 4.4: Evidence Support (Days 7-8)**
+
+#### **Task 4.1: Implement fetchEvidence Method**
 
 ```typescript
-private async fetchSharedKeywordRelationships(
-  nodeIds: string[]
-): Promise<UniversalRelationship[]> {
-  const query = `
-    MATCH (n1)-[st:SHARED_TAG]->(n2)
-    WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds
-    AND n1.id < n2.id  // Avoid duplicates
-    RETURN n1.id as source, n2.id as target, st.word as keyword, st.strength as strength
-  `;
+private async fetchEvidence(filters: FilterOptions): Promise<UniversalNode[]> {
+  const evidence = await this.evidenceSchema.findAll({
+    // ... apply filters
+  });
   
-  const result = await this.neo4jService.read(query, { nodeIds });
-  
-  return result.records.map(record => ({
-    id: `${record.get('source')}-shared_keyword-${record.get('target')}`,
-    source: record.get('source'),
-    target: record.get('target'),
-    type: 'shared_keyword',
-    strength: this.toNumber(record.get('strength')),
+  return evidence.map(evid => this.transformEvidenceToUniversalNode(evid));
+}
+
+private transformEvidenceToUniversalNode(evid: EvidenceData): UniversalNode {
+  return {
+    id: evid.id,
+    type: 'evidence',
+    content: evid.title,  // Use title as primary content
+    createdAt: evid.createdAt,
+    updatedAt: evid.updatedAt,
+    createdBy: evid.createdBy,
+    publicCredit: evid.publicCredit,
     metadata: {
-      keyword: record.get('keyword')
+      votes: {
+        inclusion: {
+          positive: evid.inclusionPositiveVotes,
+          negative: evid.inclusionNegativeVotes,
+          net: evid.inclusionNetVotes
+        },
+        // No content voting for evidence
+      },
+      keywords: evid.keywords || [],
+      categories: evid.categories || [],
+      discussionId: evid.discussionId,
+      // Evidence-specific metadata
+      url: evid.url,
+      evidenceType: evid.evidenceType,
+      authors: evid.authors,
+      publicationDate: evid.publicationDate,
+      peerReview: {
+        qualityAvg: evid.qualityScoreAvg,
+        independenceAvg: evid.independenceScoreAvg,
+        relevanceAvg: evid.relevanceScoreAvg,
+        overallScore: evid.overallScore,
+        reviewCount: evid.reviewCount
+      },
+      parentNode: {
+        nodeId: evid.parentNodeId,
+        nodeType: evid.parentNodeType,
+        // Include parent content (fetch if needed)
+      }
     }
-  }));
+  };
 }
 ```
 
-#### **9. fetchEvidenceForRelationships**
+#### **Task 4.2: Implement evidence_for Relationships**
 
 ```typescript
 private async fetchEvidenceForRelationships(
@@ -1508,7 +747,8 @@ private async fetchEvidenceForRelationships(
   const query = `
     MATCH (e:EvidenceNode)-[:EVIDENCE_FOR]->(parent)
     WHERE e.id IN $nodeIds AND parent.id IN $nodeIds
-    RETURN e.id as source, parent.id as target, e.evidenceType as evidenceType
+    RETURN e.id as source, parent.id as target, 
+           e.evidenceType as evidenceType, e.overallScore as score
   `;
   
   const result = await this.neo4jService.read(query, { nodeIds });
@@ -1518,7 +758,7 @@ private async fetchEvidenceForRelationships(
     source: record.get('source'),
     target: record.get('target'),
     type: 'evidence_for',
-    strength: 1,
+    strength: this.toNumber(record.get('score')) / 5,  // Normalize 0-1
     metadata: {
       evidenceType: record.get('evidenceType')
     }
@@ -1528,541 +768,849 @@ private async fetchEvidenceForRelationships(
 
 ---
 
-## 🎯 **Performance Optimization Requirements**
+### **Phase 4.5: User Context Enrichment (Day 9)**
 
-### **1. Query Performance**
+#### **Task 5.1: Batch Vote Status Enrichment**
 
-**Target:** < 500ms for typical queries (200 nodes, with relationships)
-
-**Strategies:**
-
-**A. Parallel Schema Queries**
 ```typescript
-// Query all node types in parallel
-const [statements, questions, answers, quantities, evidence] = await Promise.all([
-  this.fetchStatements(filters),
-  this.fetchOpenQuestions(filters),
-  this.fetchAnswers(filters),
-  this.fetchQuantities(filters),
-  this.fetchEvidence(filters)
-]);
-```
-
-**B. Efficient Cypher Queries**
-- Use `WITH` clauses to pipeline operations
-- Aggregate data in Neo4j rather than in application code
-- Use `OPTIONAL MATCH` for optional relationships
-- Filter early in the query (push WHERE clauses up)
-
-**C. Batch User Context Enrichment**
-```typescript
-// BAD: Individual calls per node
-for (const node of nodes) {
-  node.userVoteStatus = await this.voteSchema.getVoteStatus(...);
-}
-
-// GOOD: Batch all calls
-const votePromises = nodes.map(node => this.voteSchema.getVoteStatus(...));
-const voteStatuses = await Promise.all(votePromises);
-```
-
-**D. Relationship Consolidation**
-- Consolidate duplicate SHARED_TAG relationships
-- Use `n1.id < n2.id` to avoid duplicate relationships
-- Only fetch relationships for nodes in the result set
-
----
-
-### **2. Caching Strategy**
-
-**What to Cache:**
-
-**A. Available Keywords/Categories (High Priority)**
-```typescript
-// Cache for dropdown lists - rarely changes
-@Cacheable('available-keywords', { ttl: 3600 }) // 1 hour
-async getAvailableKeywords(): Promise<string[]> {
-  // Fetch all unique keywords from database
-}
-
-@Cacheable('available-categories', { ttl: 3600 }) // 1 hour
-async getAvailableCategories(): Promise<CategoryInfo[]> {
-  // Fetch all categories from database
+private async enrichWithUserVotes(
+  nodes: UniversalNode[],
+  userId: string
+): Promise<UniversalNode[]> {
+  // Batch fetch all vote statuses
+  const votePromises = nodes.map(node =>
+    this.voteSchema.getVoteStatus(node.id, userId)
+  );
+  
+  const voteStatuses = await Promise.all(votePromises);
+  
+  // Enrich nodes
+  nodes.forEach((node, index) => {
+    node.metadata.userVoteStatus = voteStatuses[index] || null;
+  });
+  
+  return nodes;
 }
 ```
 
-**B. Common Filter Combinations (Medium Priority)**
-```typescript
-// Cache frequently used filter combinations
-// Key: hash of filter options
-// TTL: 300 seconds (5 minutes)
-const cacheKey = this.generateFilterHash(filters);
-const cached = await this.cacheManager.get(cacheKey);
-if (cached) return cached;
-```
+#### **Task 5.2: Batch Visibility Preference Enrichment**
 
-**C. User Context Data (Low Priority)**
 ```typescript
-// Cache user-specific data briefly
-// Key: userId + nodeId
-// TTL: 60 seconds
-// Invalidate on vote/visibility change
+private async enrichWithVisibilityPreferences(
+  nodes: UniversalNode[],
+  userId: string
+): Promise<UniversalNode[]> {
+  // Batch fetch all visibility preferences
+  const visibilityPromises = nodes.map(node =>
+    this.visibilityService.getUserVisibilityPreference(userId, node.id)
+  );
+  
+  const visibilityPrefs = await Promise.all(visibilityPromises);
+  
+  // Enrich nodes
+  nodes.forEach((node, index) => {
+    node.metadata.userVisibilityPreference = visibilityPrefs[index] || null;
+  });
+  
+  return nodes;
+}
 ```
 
 ---
 
-### **3. Database Optimization**
+### **Phase 4.6: Testing (Days 10-11) - Continued**
 
-**Neo4j Indexes Required:**
-```cypher
-// Node lookups
-CREATE INDEX node_id FOR (n:StatementNode) ON (n.id);
-CREATE INDEX node_id FOR (n:OpenQuestionNode) ON (n.id);
-CREATE INDEX node_id FOR (n:AnswerNode) ON (n.id);
-CREATE INDEX node_id FOR (n:QuantityNode) ON (n.id);
-CREATE INDEX node_id FOR (n:EvidenceNode) ON (n.id);
+#### **Unit Tests (Continued)**
 
-// User lookups
-CREATE INDEX node_creator FOR (n:StatementNode) ON (n.createdBy);
-CREATE INDEX node_creator FOR (n:OpenQuestionNode) ON (n.createdBy);
-CREATE INDEX node_creator FOR (n:AnswerNode) ON (n.createdBy);
-CREATE INDEX node_creator FOR (n:QuantityNode) ON (n.createdBy);
-CREATE INDEX node_creator FOR (n:EvidenceNode) ON (n.createdBy);
-
-// Vote lookups
-CREATE INDEX vote_kind FOR ()-[r:VOTED_ON]-() ON (r.kind);
-CREATE INDEX vote_status FOR ()-[r:VOTED_ON]-() ON (r.status);
-
-// Keyword lookups
-CREATE INDEX word_value FOR (w:WordNode) ON (w.word);
-
-// Category lookups
-CREATE INDEX category_id FOR (c:CategoryNode) ON (c.id);
-
-// Visibility lookups
-CREATE INDEX node_visibility FOR (n:StatementNode) ON (n.visibilityStatus);
-CREATE INDEX node_visibility FOR (n:OpenQuestionNode) ON (n.visibilityStatus);
-CREATE INDEX node_visibility FOR (n:AnswerNode) ON (n.visibilityStatus);
-CREATE INDEX node_visibility FOR (n:QuantityNode) ON (n.visibilityStatus);
-CREATE INDEX node_visibility FOR (n:EvidenceNode) ON (n.visibilityStatus);
-
-// Evidence-specific indexes
-CREATE INDEX evidence_type FOR (n:EvidenceNode) ON (n.evidenceType);
-CREATE INDEX evidence_parent FOR (n:EvidenceNode) ON (n.parentNodeId);
-```
-
----
-
-## 🧪 **Testing Requirements**
-
-### **1. Unit Tests**
-
-**Service Layer:**
 ```typescript
-describe('UniversalGraphService', () => {
-  describe('fetchFilteredNodes', () => {
-    it('should fetch only specified node types');
-    it('should apply keyword filter with ANY mode');
-    it('should apply keyword filter with ALL mode');
-    it('should apply keyword filter with exclude mode');
-    it('should apply category filter with ANY mode');
-    it('should apply category filter with ALL mode');
-    it('should apply user filter - created mode');
-    it('should apply user filter - interacted mode');
-    it('should combine multiple filters correctly');
-    it('should enforce answer-question coupling');
+  describe('Relationships', () => {
+    it('should include evidence_for relationships', async () => {
+      const result = await service.getUniversalNodes({
+        relationshipTypes: ['evidence_for']
+      });
+      const evidenceRels = result.relationships.filter(r => r.type === 'evidence_for');
+      expect(evidenceRels.length).toBeGreaterThan(0);
+      evidenceRels.forEach(rel => {
+        expect(rel.metadata.evidenceType).toBeDefined();
+      });
+    });
+    
+    it('should consolidate shared keyword relationships', async () => {
+      const result = await service.getUniversalNodes({
+        relationshipTypes: ['shared_keyword']
+      });
+      // Verify no duplicate relationships between same node pairs
+      const pairKeys = new Set();
+      result.relationships.forEach(rel => {
+        const key = `${rel.source}-${rel.target}`;
+        expect(pairKeys.has(key)).toBe(false);
+        pairKeys.add(key);
+      });
+    });
+    
+    it('should only create relationships between nodes in result set', async () => {
+      const result = await service.getUniversalNodes({
+        nodeTypeFilter: { types: ['statement'], include: true }
+      });
+      const nodeIds = new Set(result.nodes.map(n => n.id));
+      result.relationships.forEach(rel => {
+        expect(nodeIds.has(rel.source)).toBe(true);
+        expect(nodeIds.has(rel.target)).toBe(true);
+      });
+    });
   });
   
-  describe('applySorting', () => {
-    it('should sort by net inclusion votes DESC');
-    it('should sort by net inclusion votes ASC');
-    it('should sort by total inclusion votes');
-    it('should sort by date created');
-    it('should sort by net content votes with fallback');
-    it('should sort by total content votes with fallback');
-    it('should sort by participant count');
-    it('should reject category overlap without category filter');
+  describe('User Context Enrichment', () => {
+    it('should add user vote status to all nodes', async () => {
+      const result = await service.getUniversalNodes({
+        requestingUserId: 'user-123'
+      });
+      result.nodes.forEach(node => {
+        expect(node.metadata.userVoteStatus).toBeDefined();
+      });
+    });
+    
+    it('should add visibility preferences to all nodes', async () => {
+      const result = await service.getUniversalNodes({
+        requestingUserId: 'user-123'
+      });
+      result.nodes.forEach(node => {
+        expect(node.metadata.userVisibilityPreference).toBeDefined();
+      });
+    });
   });
   
-  describe('enrichWithUserContext', () => {
-    it('should add user vote status to nodes');
-    it('should add user visibility preferences to nodes');
-    it('should handle missing user context gracefully');
-  });
-  
-  describe('fetchRelationships', () => {
-    it('should fetch shared keyword relationships');
-    it('should fetch shared category relationships');
-    it('should fetch related_to relationships');
-    it('should fetch answers relationships');
-    it('should fetch evidence_for relationships');
-    it('should consolidate duplicate relationships');
-    it('should only create relationships between nodes in result set');
+  describe('Cross-Node References', () => {
+    it('should include parent question info in Answer metadata', async () => {
+      const result = await service.getUniversalNodes({
+        nodeTypeFilter: { types: ['answer'], include: true }
+      });
+      const answerNodes = result.nodes.filter(n => n.type === 'answer');
+      answerNodes.forEach(ans => {
+        expect(ans.metadata.parentQuestion).toBeDefined();
+        expect(ans.metadata.parentQuestion.nodeId).toBeDefined();
+        expect(ans.metadata.parentQuestion.questionText).toBeDefined();
+      });
+    });
+    
+    it('should include parent node info in Evidence metadata', async () => {
+      const result = await service.getUniversalNodes({
+        nodeTypeFilter: { types: ['evidence'], include: true }
+      });
+      const evidNodes = result.nodes.filter(n => n.type === 'evidence');
+      evidNodes.forEach(evid => {
+        expect(evid.metadata.parentNode).toBeDefined();
+        expect(evid.metadata.parentNode.nodeId).toBeDefined();
+        expect(evid.metadata.parentNode.nodeType).toBeDefined();
+      });
+    });
   });
 });
 ```
 
-**Controller Layer:**
-```typescript
-describe('UniversalGraphController', () => {
-  describe('GET /graph/universal/nodes', () => {
-    it('should return default dataset when no filters');
-    it('should parse node type filter correctly');
-    it('should parse keyword filter correctly');
-    it('should parse category filter correctly');
-    it('should parse sort options correctly');
-    it('should validate invalid sort option');
-    it('should validate invalid filter values');
-    it('should add requesting user ID from auth context');
-    it('should return 400 for invalid pagination');
-    it('should auto-include openquestion when answer selected');
-  });
-});
-```
+#### **Integration Tests**
 
----
-
-### **2. Integration Tests**
-
-**Database Integration:**
 ```typescript
 describe('UniversalGraphService Integration', () => {
   beforeAll(async () => {
-    // Set up test database with known data
-    await seedTestData();
-  });
-  
-  it('should return correct nodes for keyword filter', async () => {
-    const result = await service.getUniversalNodes({
-      filters: {
-        keywords: { mode: 'any', include: true, values: ['test-keyword'] }
-      },
-      // ... other options
-    });
-    
-    expect(result.nodes.length).toBeGreaterThan(0);
-    result.nodes.forEach(node => {
-      expect(node.metadata.keywords.some(k => k.word === 'test-keyword')).toBe(true);
+    // Seed test database with known data
+    await seedTestData({
+      statements: 20,
+      openQuestions: 15,
+      answers: 25,
+      quantities: 10,
+      evidence: 12
     });
   });
   
-  it('should apply sorting correctly', async () => {
-    const result = await service.getUniversalNodes({
-      sort: { by: 'netInclusionVotes', direction: 'desc' },
-      // ... other options
-    });
-    
-    // Verify descending order
-    for (let i = 0; i < result.nodes.length - 1; i++) {
-      expect(result.nodes[i].metadata.votes.inclusion.net)
-        .toBeGreaterThanOrEqual(result.nodes[i + 1].metadata.votes.inclusion.net);
-    }
+  afterAll(async () => {
+    await cleanupTestData();
   });
   
-  it('should include evidence_for relationships', async () => {
-    const result = await service.getUniversalNodes({
-      relationships: { include: true, types: ['evidence_for'] }
+  describe('Full Query Workflows', () => {
+    it('should return default dataset correctly', async () => {
+      const result = await service.getUniversalNodes({});
+      
+      expect(result.nodes.length).toBeLessThanOrEqual(200);
+      expect(result.pagination.total).toBeGreaterThan(0);
+      
+      // Verify node types
+      const nodeTypes = new Set(result.nodes.map(n => n.type));
+      expect(nodeTypes.size).toBeGreaterThanOrEqual(1);
+      
+      // Verify sorted by inclusion votes DESC
+      for (let i = 0; i < result.nodes.length - 1; i++) {
+        expect(result.nodes[i].metadata.votes.inclusion.net)
+          .toBeGreaterThanOrEqual(result.nodes[i + 1].metadata.votes.inclusion.net);
+      }
     });
     
-    const evidenceRels = result.relationships.filter(r => r.type === 'evidence_for');
-    expect(evidenceRels.length).toBeGreaterThan(0);
+    it('should apply multiple filters correctly', async () => {
+      const result = await service.getUniversalNodes({
+        keywordFilter: { words: ['ai', 'ethics'], mode: 'all', include: true },
+        categoryFilter: { categoryIds: ['tech'], mode: 'any', include: true },
+        sort: { by: 'dateCreated', direction: 'desc' }
+      });
+      
+      result.nodes.forEach(node => {
+        // Verify keywords
+        const keywords = node.metadata.keywords.map(k => k.word);
+        expect(keywords).toContain('ai');
+        expect(keywords).toContain('ethics');
+        
+        // Verify category
+        const categories = node.metadata.categories.map(c => c.id);
+        expect(categories).toContain('tech');
+      });
+      
+      // Verify date sorting
+      for (let i = 0; i < result.nodes.length - 1; i++) {
+        expect(new Date(result.nodes[i].createdAt).getTime())
+          .toBeGreaterThanOrEqual(new Date(result.nodes[i + 1].createdAt).getTime());
+      }
+    });
+    
+    it('should handle user interaction filter', async () => {
+      const userId = 'test-user-123';
+      
+      const result = await service.getUniversalNodes({
+        userFilter: { userId, mode: 'interacted' }
+      });
+      
+      // Verify all nodes have user interaction
+      // (This requires database state where user has voted/commented)
+      expect(result.nodes.length).toBeGreaterThan(0);
+    });
+  });
+  
+  describe('Performance', () => {
+    it('should complete typical query in <500ms', async () => {
+      const start = Date.now();
+      
+      await service.getUniversalNodes({
+        keywordFilter: { words: ['ai'], mode: 'any', include: true },
+        sort: { by: 'netInclusionVotes', direction: 'desc' },
+        pagination: { limit: 200, offset: 0 },
+        includeRelationships: true
+      });
+      
+      const duration = Date.now() - start;
+      expect(duration).toBeLessThan(500);
+    });
+    
+    it('should handle large result sets efficiently', async () => {
+      const start = Date.now();
+      
+      const result = await service.getUniversalNodes({
+        pagination: { limit: 1000, offset: 0 }
+      });
+      
+      const duration = Date.now() - start;
+      expect(duration).toBeLessThan(2000);
+      expect(result.nodes.length).toBeLessThanOrEqual(1000);
+    });
+  });
+  
+  describe('Evidence Integration', () => {
+    it('should fetch evidence nodes with peer review data', async () => {
+      const result = await service.getUniversalNodes({
+        nodeTypeFilter: { types: ['evidence'], include: true }
+      });
+      
+      const evidNodes = result.nodes.filter(n => n.type === 'evidence');
+      expect(evidNodes.length).toBeGreaterThan(0);
+      
+      evidNodes.forEach(evid => {
+        expect(evid.metadata.url).toBeDefined();
+        expect(evid.metadata.evidenceType).toBeDefined();
+        expect(evid.metadata.peerReview).toBeDefined();
+        expect(evid.metadata.peerReview.overallScore).toBeGreaterThanOrEqual(0);
+        expect(evid.metadata.peerReview.overallScore).toBeLessThanOrEqual(5);
+      });
+    });
+    
+    it('should create evidence_for relationships', async () => {
+      const result = await service.getUniversalNodes({
+        nodeTypeFilter: { types: ['evidence', 'statement'], include: true },
+        relationshipTypes: ['evidence_for']
+      });
+      
+      const evidenceRels = result.relationships.filter(r => r.type === 'evidence_for');
+      expect(evidenceRels.length).toBeGreaterThan(0);
+      
+      evidenceRels.forEach(rel => {
+        // Source should be evidence
+        const sourceNode = result.nodes.find(n => n.id === rel.source);
+        expect(sourceNode.type).toBe('evidence');
+        
+        // Target should be statement, answer, or quantity
+        const targetNode = result.nodes.find(n => n.id === rel.target);
+        expect(['statement', 'answer', 'quantity']).toContain(targetNode.type);
+      });
+    });
   });
 });
 ```
 
----
+#### **E2E Tests**
 
-### **3. E2E Tests**
-
-**Full Request/Response Cycle:**
 ```typescript
 describe('Universal Graph API E2E', () => {
-  it('should return default dataset', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/graph/universal/nodes')
-      .set('Authorization', `Bearer ${validToken}`)
-      .expect(200);
-    
-    expect(response.body.nodes).toBeDefined();
-    expect(response.body.relationships).toBeDefined();
-    expect(response.body.pagination).toBeDefined();
-    expect(response.body.nodes.length).toBeLessThanOrEqual(200);
-    
-    // Verify node structure
-    const node = response.body.nodes[0];
-    expect(node).toHaveProperty('id');
-    expect(node).toHaveProperty('type');
-    expect(node).toHaveProperty('content');
-    expect(node).toHaveProperty('metadata');
-    expect(node.metadata).toHaveProperty('votes');
-    expect(node.metadata).toHaveProperty('keywords');
-    expect(node.metadata).toHaveProperty('categories');
+  let app: INestApplication;
+  let authToken: string;
+  
+  beforeAll(async () => {
+    // Setup test app and get auth token
+    app = await createTestApp();
+    authToken = await getTestAuthToken();
   });
   
-  it('should filter by keywords', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/graph/universal/nodes')
-      .query({
-        'keywords[]': ['ai', 'ethics'],
-        keywordMode: 'all',
-        keywordsInclude: 'true'
-      })
-      .set('Authorization', `Bearer ${validToken}`)
-      .expect(200);
+  afterAll(async () => {
+    await app.close();
+  });
+  
+  describe('GET /graph/universal/nodes', () => {
+    it('should return default dataset', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      expect(response.body.nodes).toBeDefined();
+      expect(response.body.relationships).toBeDefined();
+      expect(response.body.pagination).toBeDefined();
+      expect(response.body.performance).toBeDefined();
+      
+      // Verify node types
+      const nodeTypes = new Set(response.body.nodes.map(n => n.type));
+      expect(nodeTypes.size).toBeGreaterThanOrEqual(1);
+      ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].forEach(type => {
+        // At least one of these types should be present
+      });
+    });
     
-    // Verify all nodes have both keywords
-    response.body.nodes.forEach(node => {
-      const nodeKeywords = node.metadata.keywords.map(k => k.word);
-      expect(nodeKeywords).toContain('ai');
-      expect(nodeKeywords).toContain('ethics');
+    it('should filter by node types', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          'nodeTypes[]': ['statement', 'evidence'],
+          nodeTypesInclude: 'true'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      response.body.nodes.forEach(node => {
+        expect(['statement', 'evidence']).toContain(node.type);
+      });
+    });
+    
+    it('should filter by keywords with ANY mode', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          'keywords[]': ['ai', 'ethics'],
+          keywordMode: 'any',
+          keywordsInclude: 'true'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      response.body.nodes.forEach(node => {
+        const keywords = node.metadata.keywords.map(k => k.word);
+        expect(keywords.some(k => ['ai', 'ethics'].includes(k))).toBe(true);
+      });
+    });
+    
+    it('should filter by keywords with ALL mode', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          'keywords[]': ['ai', 'ethics'],
+          keywordMode: 'all',
+          keywordsInclude: 'true'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      response.body.nodes.forEach(node => {
+        const keywords = node.metadata.keywords.map(k => k.word);
+        expect(keywords).toContain('ai');
+        expect(keywords).toContain('ethics');
+      });
+    });
+    
+    it('should sort by content votes with fallback', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          sortBy: 'netContentVotes',
+          sortDirection: 'desc'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      // Verify descending order (with fallback logic)
+      for (let i = 0; i < response.body.nodes.length - 1; i++) {
+        const curr = response.body.nodes[i];
+        const next = response.body.nodes[i + 1];
+        
+        const currValue = (curr.type === 'statement' || curr.type === 'answer')
+          ? curr.metadata.votes.content.net
+          : curr.metadata.votes.inclusion.net;
+        
+        const nextValue = (next.type === 'statement' || next.type === 'answer')
+          ? next.metadata.votes.content.net
+          : next.metadata.votes.inclusion.net;
+        
+        expect(currValue).toBeGreaterThanOrEqual(nextValue);
+      }
+    });
+    
+    it('should include evidence_for relationships', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          'nodeTypes[]': ['evidence', 'statement'],
+          includeRelationships: 'true',
+          'relationshipTypes[]': 'evidence_for'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      const evidenceRels = response.body.relationships.filter(r => r.type === 'evidence_for');
+      expect(evidenceRels.length).toBeGreaterThan(0);
+    });
+    
+    it('should enforce answer-question coupling', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          'nodeTypes[]': 'answer',
+          nodeTypesInclude: 'true'
+        })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      // Should also include openquestion nodes
+      const nodeTypes = new Set(response.body.nodes.map(n => n.type));
+      expect(nodeTypes).toContain('openquestion');
+    });
+    
+    it('should include user context when authenticated', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      // Should have userVoteStatus for nodes user has voted on
+      const nodesWithVoteStatus = response.body.nodes.filter(n => 
+        n.metadata.userVoteStatus !== null
+      );
+      // At least some nodes should have vote status if user has voted
+    });
+    
+    it('should return 401 without auth token', async () => {
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .expect(401);
+    });
+    
+    it('should return 400 for invalid sort option', async () => {
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ sortBy: 'invalid' })
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(400);
     });
   });
   
-  it('should include evidence nodes and evidence_for relationships', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/graph/universal/nodes')
-      .query({
-        'nodeTypes[]': ['evidence', 'statement'],
-        'relationshipTypes[]': 'evidence_for'
-      })
-      .set('Authorization', `Bearer ${validToken}`)
-      .expect(200);
+  describe('Helper Endpoints', () => {
+    it('GET /graph/universal/filters/keywords should return keyword list', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/filters/keywords')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      expect(Array.isArray(response.body.keywords)).toBe(true);
+      expect(response.body.keywords.length).toBeGreaterThan(0);
+      
+      response.body.keywords.forEach(kw => {
+        expect(kw.word).toBeDefined();
+        expect(kw.usageCount).toBeGreaterThan(0);
+      });
+    });
     
-    const evidenceNodes = response.body.nodes.filter(n => n.type === 'evidence');
-    expect(evidenceNodes.length).toBeGreaterThan(0);
-    
-    const evidenceRels = response.body.relationships.filter(r => r.type === 'evidence_for');
-    expect(evidenceRels.length).toBeGreaterThan(0);
+    it('GET /graph/universal/filters/categories should return category list', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/filters/categories')
+        .set('Authorization', `Bearer ${authToken}`)
+        .expect(200);
+      
+      expect(Array.isArray(response.body.categories)).toBe(true);
+      expect(response.body.categories.length).toBeGreaterThan(0);
+      
+      response.body.categories.forEach(cat => {
+        expect(cat.id).toBeDefined();
+        expect(cat.name).toBeDefined();
+        expect(cat.usageCount).toBeGreaterThan(0);
+      });
+    });
   });
 });
 ```
 
 ---
 
-### **4. Performance Tests**
+### **Phase 4.7: Optimization & Documentation (Day 12)**
+
+#### **Task 7.1: Performance Optimization**
+
+**A. Neo4j Indexes**
+
+Ensure these indexes exist:
+
+```cypher
+// Node indexes
+CREATE INDEX statement_inclusion_votes IF NOT EXISTS FOR (s:StatementNode) ON (s.inclusionNetVotes);
+CREATE INDEX openquestion_inclusion_votes IF NOT EXISTS FOR (q:OpenQuestionNode) ON (q.inclusionNetVotes);
+CREATE INDEX answer_inclusion_votes IF NOT EXISTS FOR (a:AnswerNode) ON (a.inclusionNetVotes);
+CREATE INDEX quantity_inclusion_votes IF NOT EXISTS FOR (q:QuantityNode) ON (q.inclusionNetVotes);
+CREATE INDEX evidence_inclusion_votes IF NOT EXISTS FOR (e:EvidenceNode) ON (e.inclusionNetVotes);
+
+// Content vote indexes
+CREATE INDEX statement_content_votes IF NOT EXISTS FOR (s:StatementNode) ON (s.contentNetVotes);
+CREATE INDEX answer_content_votes IF NOT EXISTS FOR (a:AnswerNode) ON (a.contentNetVotes);
+
+// Date indexes
+CREATE INDEX statement_created IF NOT EXISTS FOR (s:StatementNode) ON (s.createdAt);
+CREATE INDEX openquestion_created IF NOT EXISTS FOR (q:OpenQuestionNode) ON (q.createdAt);
+CREATE INDEX answer_created IF NOT EXISTS FOR (a:AnswerNode) ON (a.createdAt);
+CREATE INDEX quantity_created IF NOT EXISTS FOR (q:QuantityNode) ON (q.createdAt);
+CREATE INDEX evidence_created IF NOT EXISTS FOR (e:EvidenceNode) ON (e.createdAt);
+
+// Creator indexes
+CREATE INDEX statement_creator IF NOT EXISTS FOR (s:StatementNode) ON (s.createdBy);
+CREATE INDEX openquestion_creator IF NOT EXISTS FOR (q:OpenQuestionNode) ON (q.createdBy);
+CREATE INDEX answer_creator IF NOT EXISTS FOR (a:AnswerNode) ON (a.createdBy);
+CREATE INDEX quantity_creator IF NOT EXISTS FOR (q:QuantityNode) ON (q.createdBy);
+CREATE INDEX evidence_creator IF NOT EXISTS FOR (e:EvidenceNode) ON (e.createdBy);
+
+// Relationship indexes
+CREATE INDEX tagged_word IF NOT EXISTS FOR ()-[r:TAGGED]-() ON (r.word);
+CREATE INDEX categorized_as IF NOT EXISTS FOR ()-[r:CATEGORIZED_AS]-() ON (r.categoryId);
+CREATE INDEX evidence_for IF NOT EXISTS FOR ()-[r:EVIDENCE_FOR]-() ON (r.parentNodeId);
+```
+
+**B. Query Profiling**
 
 ```typescript
-describe('Performance Tests', () => {
-  it('should return results within 500ms for typical query', async () => {
-    const start = Date.now();
-    
-    const result = await service.getUniversalNodes({
-      filters: { /* typical filters */ },
-      sort: { by: 'netInclusionVotes', direction: 'desc' },
-      pagination: { limit: 200, offset: 0 },
-      relationships: { include: true, types: ['shared_keyword', 'shared_category'] }
-    });
-    
-    const duration = Date.now() - start;
-    expect(duration).toBeLessThan(500);
-  });
+// Use Neo4j PROFILE to analyze queries
+const profilingEnabled = process.env.NODE_ENV === 'development';
+
+if (profilingEnabled) {
+  const profiledQuery = `PROFILE ${query}`;
+  const result = await this.neo4jService.read(profiledQuery, params);
+  this.logger.debug(`Query profile: ${JSON.stringify(result.summary.profile)}`);
+}
+```
+
+**C. Caching Strategy**
+
+```typescript
+// Cache keyword list (refreshes every 5 minutes)
+private keywordListCache: { data: any; timestamp: number } | null = null;
+private readonly CACHE_TTL = 5 * 60 * 1000;  // 5 minutes
+
+async getAvailableKeywords(): Promise<KeywordInfo[]> {
+  const now = Date.now();
   
-  it('should handle large result sets efficiently', async () => {
-    const result = await service.getUniversalNodes({
-      pagination: { limit: 1000, offset: 0 },
-      // ... other options
-    });
+  if (this.keywordListCache && now - this.keywordListCache.timestamp < this.CACHE_TTL) {
+    return this.keywordListCache.data;
+  }
+  
+  const keywords = await this.fetchKeywordsFromDatabase();
+  this.keywordListCache = { data: keywords, timestamp: now };
+  
+  return keywords;
+}
+
+// Similar caching for categories
+```
+
+#### **Task 7.2: Update Controller**
+
+**File:** `universal-graph.controller.ts`
+
+```typescript
+@Controller('graph/universal')
+@UseGuards(JwtAuthGuard)
+export class UniversalGraphController {
+  private readonly logger = new Logger(UniversalGraphController.name);
+
+  constructor(private readonly universalGraphService: UniversalGraphService) {}
+
+  @Get('nodes')
+  async getUniversalNodes(
+    @Query() query: any,
+    @Request() req: any,
+  ): Promise<UniversalGraphResponse> {
+    this.logger.log('Received request for universal nodes');
     
-    expect(result.nodes.length).toBeLessThanOrEqual(1000);
-    expect(result.performance.queryTimeMs).toBeLessThan(2000);
-  });
-});
-```
-
----
-
-## 📋 **API Endpoint Specification**
-
-### **Main Endpoint**
-
-```
-GET /graph/universal/nodes
-```
-
-**Query Parameters:**
-
-```
-// Node Type Filter
-?nodeTypes[]=statement&nodeTypes[]=answer&nodeTypesInclude=true
-
-// Keyword Filter
-?keywords[]=ai&keywords[]=ethics&keywordMode=all&keywordsInclude=true
-
-// Category Filter
-?categories[]=cat-1&categories[]=cat-2&categoryMode=any&categoriesInclude=true
-
-// User Filter
-?userFilter=created
-
-// Sort
-?sortBy=netInclusionVotes&sortDirection=desc
-
-// Pagination
-?limit=200&offset=0
-
-// Relationships
-?includeRelationships=true&relationshipTypes[]=shared_keyword&relationshipTypes[]=evidence_for
-```
-
-**Response:**
-
-```json
-{
-  "nodes": [
-    {
-      "id": "stmt-123",
-      "type": "statement",
-      "content": "AI will transform society...",
-      "createdAt": "2025-01-15T10:30:00Z",
-      "updatedAt": "2025-01-16T14:20:00Z",
-      "createdBy": "user-456",
-      "publicCredit": true,
-      "metadata": {
-        "votes": {
-          "inclusion": { "positive": 45, "negative": 3, "net": 42 },
-          "content": { "positive": 38, "negative": 5, "net": 33 }
-        },
-        "keywords": [
-          { "word": "ai", "frequency": 0.9 },
-          { "word": "society", "frequency": 0.7 }
-        ],
-        "categories": [
-          { "id": "cat-1", "name": "Technology", "description": "..." }
-        ],
-        "discussionId": "disc-789",
-        "userVoteStatus": {
-          "inclusionVote": "agree",
-          "contentVote": null
-        },
-        "userVisibilityPreference": {
-          "isVisible": true,
-          "source": "user",
-          "timestamp": 1705324800000
-        }
-      }
+    // Parse query parameters
+    const options: UniversalGraphOptions = {
+      // Node type filter
+      nodeTypeFilter: query.nodeTypes ? {
+        types: Array.isArray(query.nodeTypes) ? query.nodeTypes : [query.nodeTypes],
+        include: query.nodeTypesInclude === 'true'
+      } : undefined,
+      
+      // Keyword filter
+      keywordFilter: query.keywords ? {
+        words: Array.isArray(query.keywords) ? query.keywords : [query.keywords],
+        mode: query.keywordMode || 'any',
+        include: query.keywordsInclude !== 'false'
+      } : undefined,
+      
+      // Category filter
+      categoryFilter: query.categories ? {
+        categoryIds: Array.isArray(query.categories) ? query.categories : [query.categories],
+        mode: query.categoryMode || 'any',
+        include: query.categoriesInclude !== 'false'
+      } : undefined,
+      
+      // User filter
+      userFilter: query.userFilter ? {
+        userId: req.user.sub,
+        mode: query.userFilter
+      } : undefined,
+      
+      // Sort
+      sort: {
+        by: query.sortBy || 'netInclusionVotes',
+        direction: query.sortDirection || 'desc'
+      },
+      
+      // Pagination
+      pagination: {
+        limit: parseInt(query.limit) || 200,
+        offset: parseInt(query.offset) || 0
+      },
+      
+      // Relationships
+      includeRelationships: query.includeRelationships === 'true',
+      relationshipTypes: query.relationshipTypes 
+        ? (Array.isArray(query.relationshipTypes) ? query.relationshipTypes : [query.relationshipTypes])
+        : undefined,
+      
+      // User context
+      requestingUserId: req.user?.sub
+    };
+    
+    // Validate
+    this.validateOptions(options);
+    
+    // Call service
+    return await this.universalGraphService.getUniversalNodes(options);
+  }
+  
+  @Get('filters/keywords')
+  async getAvailableKeywords(): Promise<{ keywords: KeywordInfo[] }> {
+    const keywords = await this.universalGraphService.getAvailableKeywords();
+    return { keywords };
+  }
+  
+  @Get('filters/categories')
+  async getAvailableCategories(): Promise<{ categories: CategoryInfo[] }> {
+    const categories = await this.universalGraphService.getAvailableCategories();
+    return { categories };
+  }
+  
+  private validateOptions(options: UniversalGraphOptions): void {
+    // Validate sort
+    const validSorts = [
+      'netInclusionVotes', 'totalInclusionVotes', 'dateCreated',
+      'netContentVotes', 'totalContentVotes', 'categoryOverlap', 'participantCount'
+    ];
+    if (!validSorts.includes(options.sort.by)) {
+      throw new BadRequestException(`Invalid sort option: ${options.sort.by}`);
     }
-  ],
-  "relationships": [
-    {
-      "id": "stmt-123-shared_keyword-stmt-456",
-      "source": "stmt-123",
-      "target": "stmt-456",
-      "type": "shared_keyword",
-      "strength": 0.64,
-      "metadata": { "keyword": "ai" }
-    },
-    {
-      "id": "evid-789-evidence_for-stmt-123",
-      "source": "evid-789",
-      "target": "stmt-123",
-      "type": "evidence_for",
-      "strength": 1,
-      "metadata": { "evidenceType": "academic_paper" }
+    
+    // Validate pagination
+    if (options.pagination.limit < 1 || options.pagination.limit > 1000) {
+      throw new BadRequestException('Limit must be between 1 and 1000');
     }
-  ],
-  "pagination": {
-    "total": 547,
-    "offset": 0,
-    "limit": 200,
-    "hasMore": true
-  },
-  "performance": {
-    "nodeCount": 200,
-    "relationshipCount": 342,
-    "relationshipDensity": 0.017,
-    "queryTimeMs": 287
+    
+    if (options.pagination.offset < 0) {
+      throw new BadRequestException('Offset must be non-negative');
+    }
+    
+    // Validate keyword mode
+    if (options.keywordFilter && !['any', 'all'].includes(options.keywordFilter.mode)) {
+      throw new BadRequestException('Keyword mode must be "any" or "all"');
+    }
+    
+    // Validate category mode
+    if (options.categoryFilter && !['any', 'all'].includes(options.categoryFilter.mode)) {
+      throw new BadRequestException('Category mode must be "any" or "all"');
+    }
   }
 }
 ```
 
+#### **Task 7.3: Documentation Updates**
+
+**Update README or create UNIVERSAL_GRAPH.md:**
+
+```markdown
+# Universal Graph Service
+
+## Overview
+
+The Universal Graph Service provides a unified API for querying and visualizing all content nodes in the ProjectZer0 knowledge graph.
+
+## Supported Node Types
+
+- **Statement**: Claims and assertions with dual voting
+- **OpenQuestion**: Questions seeking answers with inclusion voting
+- **Answer**: Responses to questions with dual voting
+- **Quantity**: Numeric measurement questions with response aggregation
+- **Evidence**: Supporting materials with peer review system
+
+## Filtering
+
+### Node Type Filter
+Include or exclude specific node types. Answer nodes automatically include their parent questions.
+
+### Keyword Filter
+- **ANY mode**: Nodes must have at least one of the specified keywords
+- **ALL mode**: Nodes must have all specified keywords
+- **Exclude mode**: Invert the filter (nodes without keywords)
+
+### Category Filter
+- **ANY mode**: Nodes must be in at least one of the specified categories
+- **ALL mode**: Nodes must be in all specified categories
+- **Exclude mode**: Invert the filter (nodes not in categories)
+
+### User Filter
+- **all**: No filtering (default)
+- **created**: Only nodes created by the specified user
+- **interacted**: Only nodes the user has voted on or commented on
+
+## Sorting
+
+- **netInclusionVotes**: Sort by inclusion vote balance (all nodes)
+- **totalInclusionVotes**: Sort by total inclusion votes (all nodes)
+- **dateCreated**: Sort by creation date (all nodes)
+- **netContentVotes**: Sort by content vote balance (Statement/Answer use content, others fall back to inclusion)
+- **totalContentVotes**: Sort by total content votes (Statement/Answer use content, others fall back to inclusion)
+- **participantCount**: Sort by number of unique participants (all nodes)
+- **categoryOverlap**: Sort by category overlap (requires category filter)
+
+## Relationships
+
+- **shared_keyword**: Nodes sharing keywords (topic similarity)
+- **shared_category**: Nodes in same categories (organizational similarity)
+- **related_to**: User-created statement relationships
+- **answers**: Answer to question hierarchy
+- **evidence_for**: Evidence supporting claims
+- **categorized_as**: Node to category membership
+
+## Performance
+
+Target: <500ms for typical queries (200 nodes with relationships)
+
+Optimizations:
+- Parallel schema queries
+- Batch user context enrichment
+- Relationship consolidation
+- Neo4j indexes on all sortable fields
+- Caching for dropdown data (keywords, categories)
+
+## Example Usage
+
+```typescript
+// Get default dataset
+GET /graph/universal/nodes
+
+// Filter by keywords (ANY mode)
+GET /graph/universal/nodes?keywords[]=ai&keywords[]=ethics&keywordMode=any
+
+// Filter by categories (ALL mode)
+GET /graph/universal/nodes?categories[]=tech&categories[]=ethics&categoryMode=all
+
+// Sort by content votes
+GET /graph/universal/nodes?sortBy=netContentVotes&sortDirection=desc
+
+// Include only specific node types
+GET /graph/universal/nodes?nodeTypes[]=statement&nodeTypes[]=evidence
+
+// Get all evidence with relationships
+GET /graph/universal/nodes?nodeTypes[]=evidence&includeRelationships=true&relationshipTypes[]=evidence_for
+```
+
 ---
 
-### **Helper Endpoints**
+## 📋 **Definition of Done**
 
-#### **Get Available Keywords**
+### **Functional Requirements**
 
-```
-GET /graph/universal/filters/keywords
-```
+✅ **Node Fetching:**
+- [ ] All 5 node types supported (Statement, OpenQuestion, Answer, Quantity, Evidence)
+- [ ] Uses refactored schemas (not direct Neo4j queries)
+- [ ] Default dataset returns correct node types
+- [ ] Evidence nodes include peer review data
+- [ ] Quantity nodes include statistics
 
-**Response:**
-```json
-{
-  "keywords": [
-    { "word": "ai", "usageCount": 247 },
-    { "word": "ethics", "usageCount": 156 },
-    { "word": "technology", "usageCount": 423 }
-  ]
-}
-```
+✅ **Filtering:**
+- [ ] Node type filtering works (include/exclude)
+- [ ] Answer-question coupling enforced
+- [ ] Keyword filtering works (any/all, include/exclude)
+- [ ] Category filtering works (any/all, include/exclude)
+- [ ] User filtering works (all/created/interacted)
 
-#### **Get Available Categories**
+✅ **Sorting:**
+- [ ] All 7 sort options implemented
+- [ ] Content vote sorts use fallback for OpenQuestion/Quantity/Evidence
+- [ ] Sorting works correctly with all node type combinations
 
-```
-GET /graph/universal/filters/categories
-```
+✅ **Relationships:**
+- [ ] All 6 relationship types supported (including evidence_for)
+- [ ] Relationship consolidation works
+- [ ] Only relationships between nodes in result set
+- [ ] Cross-node references included (parent question/node info)
 
-**Response:**
-```json
-{
-  "categories": [
-    {
-      "id": "cat-1",
-      "name": "Technology",
-      "description": "...",
-      "usageCount": 324,
-      "parentId": null,
-      "childCount": 5
-    }
-  ]
-}
-```
+✅ **User Context:**
+- [ ] User vote status enrichment works
+- [ ] Visibility preference enrichment works
+- [ ] Batch enrichment is performant
 
----
+### **Non-Functional Requirements**
 
-## 📅 **Phase 3 Timeline**
+✅ **Performance:**
+- [ ] <500ms for typical queries (200 nodes)
+- [ ] <2000ms for large queries (1000 nodes)
+- [ ] Parallel schema queries implemented
+- [ ] Batch user context enrichment
+- [ ] Neo4j indexes verified
 
-### **Days 1-4: Service Layer**
-- ✅ Implement node fetching for all 5 types (Statement, OpenQuestion, Answer, Quantity, Evidence)
-- ✅ Implement filter builders (keyword ANY/ALL, category ANY/ALL, user)
-- ✅ Implement sorting with fallback logic for content votes
-- ✅ Implement user context enrichment (batch VoteSchema and VisibilityService calls)
-- ✅ Enforce answer-question coupling
+✅ **Code Quality:**
+- [ ] All TypeScript types defined
+- [ ] Error handling comprehensive
+- [ ] Logging appropriate
+- [ ] Code follows established patterns
+- [ ] No direct Neo4j queries (use schemas)
 
-### **Day 5: Relationship Layer**
-- ✅ Implement all 6 relationship types (shared_keyword, shared_category, related_to, answers, evidence_for, categorized_as)
-- ✅ Implement relationship consolidation (avoid duplicates)
-- ✅ Handle cross-node references (parent info even when parent not in result set)
+✅ **Testing:**
+- [ ] Unit tests passing (>80% coverage)
+- [ ] Integration tests passing
+- [ ] E2E tests passing
+- [ ] Performance tests meet targets
 
-### **Day 6: Controller Layer**
-- ✅ Create controller with query parameter parsing
-- ✅ Create validation logic for all filters and sorts
-- ✅ Create helper endpoints (keywords, categories dropdowns)
-- ✅ Proper error handling and logging
-
-### **Days 7-9: Testing**
-- ✅ Unit tests for service methods (
-
-    <invoke name="artifacts">
-<parameter name="command">update</parameter>
-<parameter name="type">text/markdown</parameter>
-<parameter name="id">phase3-complete-brief</parameter>
-<parameter name="old_str">### **Days 7-9: Testing**
-- ✅ Unit tests for service methods (</parameter>
-<parameter name="new_str">### **Days 7-9: Testing**
-- ✅ Unit tests for service methods (filter builders, sorting, enrichment, relationship fetching)
-- ✅ Integration tests (full queries with database)
-- ✅ E2E tests (HTTP request/response cycle)
-- ✅ Performance tests (<500ms target)
-- ✅ Test answer-question coupling
-- ✅ Test evidence relationships
-
-### **Days 10-11: Optimization & Documentation**
-- ✅ Implement caching strategy (keywords, categories, common queries)
-- ✅ Performance profiling with Neo4j EXPLAIN/PROFILE
-- ✅ Ensure all indexes are created
-- ✅ Documentation updates (API docs, README)
-- ✅ Code review and cleanup
+✅ **Documentation:**
+- [ ] API endpoints documented
+- [ ] Filter/sort options explained
+- [ ] Example usage provided
+- [ ] Performance characteristics documented
 
 ---
 
@@ -2070,300 +1618,403 @@ GET /graph/universal/filters/categories
 
 ### **Pre-Deployment**
 
-- [ ] All unit tests passing (>80% coverage)
-- [ ] All integration tests passing
-- [ ] All E2E tests passing
-- [ ] Performance tests meet targets (<500ms)
+- [ ] All tests passing
 - [ ] Code review completed
 - [ ] Documentation updated
-- [ ] API endpoints documented
-- [ ] TypeScript types exported
-- [ ] Error handling comprehensive
-- [ ] Logging implemented
+- [ ] Neo4j indexes created/verified
+- [ ] Performance profiling done
+- [ ] Caching implemented
+- [ ] Error handling tested
 
-### **Database**
+### **Deployment**
 
-- [ ] All Neo4j indexes created (including Evidence indexes)
-- [ ] Query performance profiled
-- [ ] Test data seeded for staging
-- [ ] Backup strategy in place
+- [ ] Schema migrations (if any)
+- [ ] Index creation scripts run
+- [ ] Environment variables configured
+- [ ] Monitoring alerts configured
 
-### **Caching**
+### **Post-Deployment**
 
-- [ ] Redis configured
-- [ ] Cache keys defined
-- [ ] TTL values configured
-- [ ] Cache invalidation tested
-
-### **Monitoring**
-
-- [ ] Query performance metrics tracked
-- [ ] Error rates monitored
-- [ ] Cache hit rates tracked
-- [ ] API response times logged
+- [ ] Smoke tests passed
+- [ ] Performance monitoring active
+- [ ] Error rates normal
+- [ ] User feedback collected
 
 ---
 
-## ✅ **Success Criteria**
+## 📚 **Reference Materials**
 
-### **Phase 2.5 Complete When:**
+### **Related Documentation**
+- `schema-layer.md` - Schema architecture
+- `service-layer.md` - Service patterns
+- `controller-layer.md` - HTTP layer patterns
 
-- [x] EvidenceModule properly configured with all dependencies
-- [x] EvidenceService implements all required methods (20+ methods)
-- [x] EvidenceController exposes all REST endpoints
-- [x] All DTOs have proper validation decorators
-- [x] UserSchema integration working (uncommented in EvidenceSchema)
-- [x] EvidenceModule imported in nodes.module.ts
-- [x] Unit tests passing (>80% coverage)
-- [x] Integration tests passing
-- [x] Can create, read, update, delete evidence
-- [x] Can submit and retrieve peer reviews
-- [x] Can vote on evidence inclusion
-- [x] Can discover evidence for nodes
-- [x] Documentation complete
+### **Key Files**
+- `src/nodes/universal/universal-graph.service.ts` - Main service implementation
+- `src/nodes/universal/universal-graph.controller.ts` - HTTP endpoints
+- `src/nodes/universal/universal-graph.module.ts` - Dependency injection
+- `src/nodes/statement/statement.schema.ts` - Statement schema (example)
+- `src/nodes/evidence/evidence.schema.ts` - Evidence schema
+- `docs/schema-layer.md` - Schema architecture reference
+- `docs/service-layer.md` - Service patterns reference
+- `docs/controller-layer.md` - Controller patterns reference
 
-### **Phase 3 Complete When:**
+### **Schema References**
 
-**Functional Requirements:**
+All content node schemas extend `CategorizedNodeSchema`:
+- StatementSchema
+- OpenQuestionSchema
+- AnswerSchema
+- QuantitySchema
+- EvidenceSchema
 
-✅ **Filters:**
-- [ ] Node type filtering works (include/exclude)
-- [ ] Answer-question coupling enforced
-- [ ] Keyword filtering works (any/all, include/exclude)
-- [ ] Category filtering works (any/all, include/exclude)
-- [ ] User filtering works (all/created/interacted)
-
-✅ **Sorts:**
-- [ ] All 7 sort options implemented
-- [ ] Content vote sorts use fallback correctly for OpenQuestion/Quantity/Evidence
-- [ ] Category overlap requires category filter (validation)
-
-✅ **Data Quality:**
-- [ ] Default dataset returns correct node types (Statement, OpenQuestion, Answer, Quantity, Evidence)
-- [ ] Nodes have all required fields
-- [ ] Evidence nodes include peer review scores
-- [ ] Quantity nodes include statistics
-- [ ] Relationships have all required fields
-- [ ] User context enrichment works
-- [ ] Pagination works correctly
-
-✅ **Relationships:**
-- [ ] All 6 relationship types supported (including evidence_for)
-- [ ] No duplicate relationships
-- [ ] Relationship metadata complete
-- [ ] Only relationships between nodes in result set
-
-**Non-Functional Requirements:**
-
-✅ **Performance:**
-- [ ] <500ms for typical queries (200 nodes)
-- [ ] <2000ms for large queries (1000 nodes)
-- [ ] Efficient memory usage
-- [ ] No N+1 query problems
-- [ ] Parallel queries for node types
-- [ ] Batch user context enrichment
-
-✅ **Reliability:**
-- [ ] Handles empty results gracefully
-- [ ] Handles invalid inputs gracefully
-- [ ] Error messages are clear
-- [ ] No crashes or exceptions
-
-✅ **Maintainability:**
-- [ ] Code is well-organized
-- [ ] Methods are focused and testable
-- [ ] TypeScript types are complete
-- [ ] Documentation is comprehensive
+Common methods available:
+```typescript
+async findAll(options): Promise<NodeData[]>
+async findById(id: string): Promise<NodeData | null>
+async voteInclusion(nodeId: string, userId: string, isPositive: boolean): Promise<VoteResult>
+async getVoteStatus(nodeId: string, userId: string): Promise<VoteStatus | null>
+```
 
 ---
 
-## 📚 **Reference Information**
+## 🎯 **Success Metrics**
 
-### **Node Type Summary**
+### **Performance Targets**
 
-| Node Type | Extends | Inclusion Vote | Content Vote | Alternative System | Max Categories |
-|-----------|---------|----------------|--------------|-------------------|----------------|
-| Statement | CategorizedNodeSchema | ✓ | ✓ | - | 3 |
-| OpenQuestion | CategorizedNodeSchema | ✓ | ✗ | - | 3 |
-| Answer | CategorizedNodeSchema | ✓ | ✓ | - | 3 |
-| Quantity | CategorizedNodeSchema | ✓ | ✗ | Numeric responses | 3 |
-| Evidence | CategorizedNodeSchema | ✓ | ✗ | Peer review (3D) | 3 |
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Typical query (<200 nodes) | <500ms | 95th percentile |
+| Large query (<1000 nodes) | <2000ms | 95th percentile |
+| Relationship consolidation | <100ms | Average |
+| User context enrichment | <200ms | Average |
+| Cache hit rate (keywords) | >80% | Average over 1 hour |
+| Cache hit rate (categories) | >80% | Average over 1 hour |
 
-### **Relationship Type Summary**
+### **Quality Targets**
 
-| Type | Source | Target | Strength Calculation | Purpose |
-|------|--------|--------|---------------------|---------|
-| shared_keyword | Any | Any | Product of tag frequencies | Topic discovery |
-| shared_category | Any | Any | Count of shared categories | Organizational discovery |
-| related_to | Statement | Statement | N/A | User-created threading |
-| answers | Answer | OpenQuestion | N/A | Q&A hierarchy |
-| evidence_for | Evidence | Statement/Answer/Quantity | N/A | Claim verification |
-| categorized_as | Any | Category | N/A | Category hierarchy |
+| Metric | Target |
+|--------|--------|
+| Unit test coverage | >80% |
+| Integration test coverage | >70% |
+| E2E test coverage | >60% |
+| Code complexity (cyclomatic) | <15 per method |
+| Type safety | 100% (no `any` types) |
 
-### **Sort Options Summary**
+### **Functional Targets**
 
-| Sort Option | Works On | Fallback | Direction |
-|-------------|----------|----------|-----------|
-| netInclusionVotes | All | N/A | ASC/DESC |
-| totalInclusionVotes | All | N/A | ASC/DESC |
-| dateCreated | All | N/A | ASC/DESC |
-| netContentVotes | Statement, Answer | inclusionNetVotes | ASC/DESC |
-| totalContentVotes | Statement, Answer | totalInclusionVotes | ASC/DESC |
-| categoryOverlap | All (with category filter) | N/A | DESC only |
-| participantCount | All | N/A | ASC/DESC |
-
----
-
-## 🔄 **Work Order Summary**
-
-### **Step 1: Phase 2.5 - Evidence Service (Days 1-3)**
-
-1. Create `evidence.module.ts` with proper imports
-2. Create `evidence.service.ts` with all methods
-3. Create `evidence.controller.ts` with all endpoints
-4. Create DTOs with validation
-5. Uncomment UserSchema integration in EvidenceSchema
-6. Update `nodes.module.ts` to import EvidenceModule
-7. Write unit tests
-8. Write integration tests
-9. Test end-to-end
-
-### **Step 2: Phase 3 - Universal Graph Service (Days 4-14)**
-
-1. Update `universal-graph.service.ts`:
-   - Add EvidenceSchema to constructor
-   - Implement `fetchEvidence()` method
-   - Update filter builders (ANY/ALL modes)
-   - Update sorting (fallback logic)
-   - Update relationships (add evidence_for)
-   - Implement answer-question coupling
-   - Batch user context enrichment
-
-2. Update `universal-graph.controller.ts`:
-   - Update query parameter parsing
-   - Add validation for new features
-   - Update helper endpoints
-
-3. Create comprehensive tests:
-   - Unit tests for all service methods
-   - Integration tests with real database
-   - E2E tests for HTTP layer
-   - Performance tests
-
-4. Optimize and document:
-   - Implement caching
-   - Create/verify Neo4j indexes
-   - Profile queries
-   - Update documentation
+| Feature | Target |
+|---------|--------|
+| Node types supported | 5/5 (100%) |
+| Filter types supported | 4/4 (100%) |
+| Sort options supported | 7/7 (100%) |
+| Relationship types supported | 6/6 (100%) |
+| Answer-question coupling | 100% enforced |
+| Content vote fallback | 100% correct |
 
 ---
 
-## 📝 **Important Implementation Notes**
+## 📝 **Implementation Checklist**
 
-### **Answer-Question Coupling**
+### **Phase 4.1: Schema Integration** (Days 1-3)
 
-Always remember:
-- Answers cannot be fetched without questions
-- When user selects answer type, auto-include openquestion type
-- Query pattern: fetch questions that have qualifying answers
-- UI: Single checkbox labeled "Open Questions & Answers"
+- [ ] Update `universal-graph.module.ts` imports
+- [ ] Add all 5 schemas to constructor
+- [ ] Create `fetchStatements()` using StatementSchema
+- [ ] Create `fetchOpenQuestions()` using OpenQuestionSchema
+- [ ] Create `fetchAnswers()` using AnswerSchema
+- [ ] Create `fetchQuantities()` using QuantitySchema
+- [ ] Create `fetchEvidence()` using EvidenceSchema
+- [ ] Create transformation methods for all 5 node types
+- [ ] Test schema integration with unit tests
 
-### **Content Vote Fallback**
+### **Phase 4.2: Advanced Filtering** (Days 4-5)
 
-For sorts using content votes:
-- Statement, Answer: Use actual content votes
-- OpenQuestion, Quantity, Evidence: Fallback to inclusion votes
-- Use COALESCE in queries and || in code
+- [ ] Implement `buildKeywordFilter()` with ANY/ALL modes
+- [ ] Implement `buildCategoryFilter()` with ANY/ALL modes
+- [ ] Implement `buildUserFilter()` with all 3 modes
+- [ ] Test keyword filtering (ANY, ALL, exclude)
+- [ ] Test category filtering (ANY, ALL, exclude)
+- [ ] Test user filtering (created, interacted)
+- [ ] Test filter combinations
 
-### **Cross-Node References**
+### **Phase 4.3: Sorting with Fallback** (Day 6)
 
-Some nodes reference parents not in result set:
-- Answer → OpenQuestion: Always include parent question text in metadata
-- Evidence → Parent claim: Always include parent node info in metadata
-- Relationships: Only create if BOTH nodes in result set
+- [ ] Implement `applySorting()` method
+- [ ] Add content vote fallback logic
+- [ ] Test all 7 sort options
+- [ ] Test fallback for OpenQuestion
+- [ ] Test fallback for Quantity
+- [ ] Test fallback for Evidence
+- [ ] Test sort with all node type combinations
 
-### **Performance Priorities**
+### **Phase 4.4: Evidence Support** (Days 7-8)
 
-1. Parallel queries for different node types
-2. Batch enrichment (votes, visibility)
-3. Single query for relationships
-4. Cache dropdown data (keywords, categories)
-5. Use Neo4j indexes effectively
+- [ ] Implement `fetchEvidence()` method
+- [ ] Add peer review data to Evidence nodes
+- [ ] Add parent node info to Evidence metadata
+- [ ] Implement `fetchEvidenceForRelationships()`
+- [ ] Test Evidence node fetching
+- [ ] Test evidence_for relationships
+- [ ] Test Evidence filtering and sorting
+
+### **Phase 4.5: User Context** (Day 9)
+
+- [ ] Implement `enrichWithUserVotes()` batch method
+- [ ] Implement `enrichWithVisibilityPreferences()` batch method
+- [ ] Test user vote status enrichment
+- [ ] Test visibility preference enrichment
+- [ ] Measure enrichment performance
+- [ ] Optimize if needed
+
+### **Phase 4.6: Testing** (Days 10-11)
+
+- [ ] Write unit tests for all service methods
+- [ ] Write integration tests for full workflows
+- [ ] Write E2E tests for all endpoints
+- [ ] Write performance tests
+- [ ] Verify >80% coverage
+- [ ] All tests passing
+
+### **Phase 4.7: Optimization** (Day 12)
+
+- [ ] Create/verify all Neo4j indexes
+- [ ] Profile slow queries
+- [ ] Implement keyword/category caching
+- [ ] Measure query performance
+- [ ] Optimize if needed
+- [ ] Update documentation
 
 ---
 
-## 🎉 **Definition of Done**
+## 🚨 **Critical Implementation Notes**
 
-**Phase 2.5 is complete when:**
-- Evidence can be created via API
-- Evidence can have peer reviews submitted
-- Evidence can be discovered by parent node
-- All tests passing
-- Documentation updated
+### **1. Schema-First Approach**
 
-**Phase 3 is complete when:**
-- Frontend can fetch graph with all 5 node types
-- All filters work correctly (node type, keyword, category, user)
-- All sorts work correctly (7 options with fallbacks)
-- All relationships work correctly (6 types)
-- User context enrichment works
-- Performance targets met (<500ms)
-- Tests passing (>80% coverage)
-- Documentation complete
-- Code reviewed and approved
+**DO:**
+```typescript
+// ✅ Use schemas
+const statements = await this.statementSchema.findAll(options);
+const questions = await this.openQuestionSchema.findAll(options);
+```
 
----
+**DON'T:**
+```typescript
+// ❌ Direct Neo4j queries
+const result = await this.neo4jService.read('MATCH (s:StatementNode)...');
+```
 
-## 📞 **Next Steps**
-
-1. **Start with Phase 2.5** - Evidence Service implementation
-2. Use this document as the single source of truth
-3. Reference schema documentation for implementation details
-4. Follow patterns from existing services (Statement, Quantity)
-5. Test thoroughly at each step
-6. Move to Phase 3 only after Phase 2.5 is complete
-
-**This document contains everything needed to implement both phases successfully.**
+**Rationale:** Using schemas ensures consistency, leverages business logic, and maintains architectural patterns established in Phases 1-3.
 
 ---
 
-**Document Version:** 2.0  
-**Last Updated:** January 2025  
-**Status:** Ready for Implementation</parameter>
-</invoke>
-</artifacts>
+### **2. Answer-Question Coupling**
 
-I've completed the comprehensive work brief that combines Phase 2.5 (Evidence Service) and Phase 3 (Universal Graph Service) into a single document. 
+**ALWAYS enforce:**
+```typescript
+if (nodeTypeFilter.types.includes('answer')) {
+  if (!nodeTypeFilter.types.includes('openquestion')) {
+    nodeTypeFilter.types.push('openquestion');
+    this.logger.debug('Auto-included openquestion due to answer selection');
+  }
+}
+```
 
-This document includes:
+**Rationale:** Answers are meaningless without their parent questions. The UI should present this as a single checkbox.
 
-**Phase 2.5 (Evidence Service) - Complete specification for:**
-- Module, service, and controller structure
-- All required methods with interfaces
-- DTOs with validation
-- UserSchema integration fix
-- Testing requirements
-- 3-day timeline
+---
 
-**Phase 3 (Universal Graph Service) - Complete specification for:**
-- All 5 node types (including Evidence)
-- All 4 filters (with ANY/ALL modes)
-- All 7 sort options (with fallback logic)
-- All 6 relationship types (including evidence_for)
-- Answer-question coupling
-- Cross-node references
-- User context enrichment
-- Performance optimization
-- Testing requirements
-- 8-11 day timeline
+### **3. Content Vote Fallback**
 
-**Key Updates Made:**
-1. Added evidence_for relationship type
-2. Clarified answer-question coupling (single UI checkbox)
-3. Added Evidence metadata fields (peer review scores)
-4. Added Quantity statistics fields
-5. Documented content vote fallback logic
-6. Added Neo4j indexes for Evidence
-7. Complete work order and definition of done
+**ALWAYS use fallback:**
+```typescript
+const sortValue = (node.type === 'statement' || node.type === 'answer')
+  ? node.contentNetVotes
+  : node.inclusionNetVotes;  // ← Fallback for OpenQuestion/Quantity/Evidence
+```
 
-The document is ready to take into your next conversation to begin implementation. All information is consolidated in one place with clear, actionable specifications.
+**Rationale:** OpenQuestion uses inclusion only. Quantity uses numeric responses. Evidence uses peer review. They don't have content voting, so fallback to inclusion votes for sorting.
+
+---
+
+### **4. Cross-Node References**
+
+**ALWAYS include parent info:**
+```typescript
+// For Answer nodes
+metadata: {
+  parentQuestion: {
+    nodeId: question.id,
+    questionText: question.questionText  // ← ALWAYS include
+  }
+}
+
+// For Evidence nodes
+metadata: {
+  parentNode: {
+    nodeId: parent.id,
+    nodeType: parent.type,
+    content: parent.content  // ← ALWAYS include
+  }
+}
+```
+
+**Rationale:** Parent nodes may not be in the result set. Including parent info enables UI to display context without additional queries.
+
+---
+
+### **5. Batch Operations**
+
+**DO:**
+```typescript
+// ✅ Batch all enrichment calls
+const votePromises = nodes.map(n => this.voteSchema.getVoteStatus(n.id, userId));
+const voteStatuses = await Promise.all(votePromises);
+```
+
+**DON'T:**
+```typescript
+// ❌ Sequential enrichment
+for (const node of nodes) {
+  node.userVoteStatus = await this.voteSchema.getVoteStatus(node.id, userId);
+}
+```
+
+**Rationale:** Batching reduces total query time from O(n) sequential to O(1) parallel.
+
+---
+
+### **6. Relationship Consolidation**
+
+**ALWAYS consolidate shared_keyword:**
+```typescript
+// Multiple TAGGED relationships → Single consolidated relationship
+{
+  id: 'A-shared_keyword-B',
+  strength: 1.4,  // Sum of all keyword strengths
+  metadata: {
+    sharedWords: ['ai', 'ethics'],
+    strengthsByKeyword: { ai: 0.8, ethics: 0.6 }
+  }
+}
+```
+
+**Rationale:** Reduces relationship count, improves UI clarity, maintains strength information.
+
+---
+
+## 📅 **Timeline Summary**
+
+**Total Duration:** 12 days
+
+| Phase | Days | Description |
+|-------|------|-------------|
+| **4.1** | 1-3 | Schema Integration |
+| **4.2** | 4-5 | Advanced Filtering |
+| **4.3** | 6 | Sorting with Fallback |
+| **4.4** | 7-8 | Evidence Support |
+| **4.5** | 9 | User Context Enrichment |
+| **4.6** | 10-11 | Testing |
+| **4.7** | 12 | Optimization & Documentation |
+
+---
+
+## 🎓 **Learning from Previous Phases**
+
+### **Architectural Patterns (Phases 1-3)**
+
+✅ **Established and Working:**
+- Schema layer for database operations
+- Service layer for business logic
+- Controller layer for HTTP boundary
+- DTO patterns for input validation
+- JWT authentication at class level
+- Proper error handling with exception preservation
+- Comprehensive testing at all layers
+
+✅ **Apply to Phase 4:**
+- Universal Graph Service should follow same patterns
+- Use schemas (not direct Neo4j queries)
+- Batch operations for performance
+- Proper TypeScript typing
+- Comprehensive test coverage
+- Clear separation of concerns
+
+---
+
+## 🔄 **Iteration Strategy**
+
+### **Week 1: Core Implementation**
+- Days 1-3: Get schema integration working
+- Days 4-5: Get filtering working
+- Day 6: Get sorting working
+
+**Goal:** Can fetch and filter all 5 node types
+
+### **Week 2: Advanced Features**
+- Days 7-8: Add Evidence support
+- Day 9: Add user context
+- Days 10-11: Comprehensive testing
+- Day 12: Optimization and polish
+
+**Goal:** Production-ready with all features
+
+---
+
+## 📞 **Getting Started**
+
+### **Step 1: Review Architecture**
+Read the completed documentation:
+- `docs/schema-layer.md`
+- `docs/service-layer.md`
+- `docs/controller-layer.md`
+
+### **Step 2: Analyze Current Code**
+Review existing Universal Graph implementation:
+- `src/nodes/universal/universal-graph.service.ts`
+- `src/nodes/universal/universal-graph.controller.ts`
+- `src/nodes/universal/universal-graph.module.ts`
+
+### **Step 3: Plan Refactor**
+Identify what needs to change:
+- Constructor dependencies
+- Module imports
+- Direct Neo4j queries → Schema method calls
+- Missing features
+
+### **Step 4: Implement Incrementally**
+- Start with schema integration
+- Add one feature at a time
+- Test after each feature
+- Maintain working state
+
+### **Step 5: Test Thoroughly**
+- Unit tests as you go
+- Integration tests for workflows
+- E2E tests for API
+- Performance tests before completion
+
+---
+
+## ✅ **Final Checklist Before Starting**
+
+- [ ] All Phases 1-3 documentation read
+- [ ] Current Universal Graph code analyzed
+- [ ] Test database available
+- [ ] Development environment configured
+- [ ] Neo4j indexes documented
+- [ ] Timeline understood
+- [ ] Success criteria clear
+- [ ] Ready to begin Phase 4.1
+
+---
+
+**Document Version:** 3.0  
+**Last Updated:** 2025  
+**Status:** Ready for Implementation  
+**Estimated Duration:** 12 days  
+**Dependencies:** Phases 1-3 complete ✅
+
+---
+
+**This document contains everything needed to successfully refactor the Universal Graph Service to align with the established architecture and support all 5 primary content node types.**
