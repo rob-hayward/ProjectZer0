@@ -2,8 +2,8 @@
 
 **ProjectZer0 Backend - Neo4j Schema Architecture**
 
-Version: 1.0  
-Last Updated: 2025
+**Version:** 1.0  
+**Last Updated:** 07/10/2025
 
 ---
 
