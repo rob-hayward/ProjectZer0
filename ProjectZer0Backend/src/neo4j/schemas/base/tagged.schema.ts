@@ -282,4 +282,115 @@ export abstract class TaggedNodeSchema<
       params,
     };
   }
+
+  // In src/neo4j/schemas/base/tagged.schema.ts
+
+  /**
+   * Find all nodes of this type with keyword-based filtering
+   * This is the base implementation for tag-based queries
+   * CategorizedNodeSchema will override this to add category filtering
+   */
+  async findAll(options?: {
+    // Inclusion filter
+    minInclusionVotes?: number;
+
+    // Keyword filtering (tags only)
+    keywords?: string[];
+    keywordMode?: 'any' | 'all';
+
+    // User filtering
+    createdBy?: string;
+
+    // Sorting
+    sortBy?: 'inclusionNetVotes' | 'contentNetVotes' | 'createdAt';
+    sortDirection?: 'ASC' | 'DESC';
+
+    // Pagination
+    limit?: number;
+    offset?: number;
+
+    // Data fetching
+    includeKeywords?: boolean;
+    includeDiscussion?: boolean;
+  }): Promise<T[]> {
+    const {
+      minInclusionVotes = -5,
+      keywords = [],
+      keywordMode = 'any',
+      createdBy,
+      sortBy = 'inclusionNetVotes',
+      sortDirection = 'DESC',
+      limit = 1000,
+      offset = 0,
+      includeKeywords = true,
+      includeDiscussion = true,
+    } = options || {};
+
+    // Build WHERE clauses
+    const whereConditions: string[] = [];
+    const params: any = {};
+
+    // Inclusion votes filter
+    whereConditions.push('n.inclusionNetVotes >= $minInclusionVotes');
+    params.minInclusionVotes = minInclusionVotes;
+
+    // Keyword filter (only tags, no categories)
+    if (keywords.length > 0) {
+      const keywordCondition =
+        keywordMode === 'all'
+          ? 'ALL(keyword IN $keywords WHERE EXISTS((n)-[:TAGGED]->(:WordNode {word: keyword})))'
+          : 'ANY(keyword IN $keywords WHERE EXISTS((n)-[:TAGGED]->(:WordNode {word: keyword})))';
+      whereConditions.push(keywordCondition);
+      params.keywords = keywords;
+    }
+
+    // User filter
+    if (createdBy) {
+      whereConditions.push('n.createdBy = $createdBy');
+      params.createdBy = createdBy;
+    }
+
+    const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+    // Build query - NO category logic here
+    const query = `
+    MATCH (n:${this.nodeLabel})
+    ${whereClause}
+    ${includeDiscussion ? 'OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)' : ''}
+    ${includeKeywords ? 'OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)' : ''}
+    RETURN n,
+           ${includeDiscussion ? 'disc.id as discussionId' : 'null as discussionId'},
+           ${includeKeywords ? 'collect(DISTINCT {word: w.word, frequency: t.frequency, source: t.source}) as keywords' : '[] as keywords'}
+    ORDER BY n.${sortBy} ${sortDirection}
+    SKIP $offset
+    LIMIT $limit
+  `;
+
+    params.offset = offset;
+    params.limit = limit;
+
+    try {
+      const result = await this.neo4jService.read(query, params);
+
+      return result.records.map((record) => {
+        const nodeData = this.mapNodeFromRecord(record);
+
+        if (includeDiscussion) {
+          nodeData.discussionId = record.get('discussionId');
+        }
+
+        if (includeKeywords) {
+          const keywordsData = record.get('keywords');
+          nodeData.keywords = keywordsData.filter((k: any) => k.word);
+        }
+
+        return nodeData;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error in findAll for ${this.nodeLabel}: ${error.message}`,
+      );
+      throw this.standardError('findAll', error);
+    }
+  }
 }

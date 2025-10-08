@@ -1,196 +1,150 @@
-// src/nodes/universal/universal-graph.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { Neo4jService } from '../../neo4j/neo4j.service';
 import { VoteSchema } from '../../neo4j/schemas/vote.schema';
 import { VisibilityService } from '../../users/visibility/visibility.service';
 import { CategoryService } from '../category/category.service';
-import { int } from 'neo4j-driver';
 
+// ✅ Phase 4.1: Import all 5 content node schemas
+import {
+  StatementSchema,
+  StatementData,
+} from '../../neo4j/schemas/statement.schema';
+import {
+  OpenQuestionSchema,
+  OpenQuestionData,
+} from '../../neo4j/schemas/openquestion.schema';
+import { AnswerSchema, AnswerData } from '../../neo4j/schemas/answer.schema';
+import {
+  QuantitySchema,
+  QuantityData,
+} from '../../neo4j/schemas/quantity.schema';
+import {
+  EvidenceSchema,
+  EvidenceData,
+} from '../../neo4j/schemas/evidence.schema';
+
+// Types
 export interface UniversalNodeData {
   id: string;
-  type: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'category';
+  type: 'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence';
   content: string;
-  participant_count: number;
-  created_at: string;
-  updated_at?: string;
-  created_by: string;
-  public_credit: boolean;
+  createdBy: string;
+  publicCredit: boolean;
+  createdAt: string;
+  updatedAt: string;
 
-  // Type-specific metadata
+  // Voting data
+  inclusionPositiveVotes: number;
+  inclusionNegativeVotes: number;
+  inclusionNetVotes: number;
+  contentPositiveVotes: number;
+  contentNegativeVotes: number;
+  contentNetVotes: number;
+
+  // Additional data
+  discussionId: string | null;
+  keywords: Array<{ word: string; frequency: number; source?: string }>;
+  categories: Array<{ id: string; name: string; description?: string }>;
+
+  // Metadata for relationships and UI
   metadata: {
-    keywords: Array<{ word: string; frequency: number }>;
-
-    // For voting nodes (all except WordNode, DefinitionNode, etc.)
-    votes: {
-      positive: number;
-      negative: number;
-      net: number;
-    };
-
-    // User-specific data
-    userVoteStatus?: {
-      status: 'agree' | 'disagree' | null;
-    };
-
-    userVisibilityPreference?: {
-      isVisible: boolean;
-      source: string;
-      timestamp: number;
-    };
-
-    // Categories associated with this node
-    categories?: Array<{
-      id: string;
-      name: string;
-      description?: string;
-    }>;
-
-    // For open questions
-    answer_count?: number;
-    answers?: Array<{
-      id: string;
-      answerText: string;
-      createdBy: string;
-      createdAt: string;
-      publicCredit: boolean;
-      positiveVotes: number;
-      negativeVotes: number;
-      netVotes: number;
-    }>;
-
-    // Enhanced relationship data
-    relatedQuestions?: Array<{
-      nodeId: string;
-      questionText: string;
-      sharedWord?: string;
-      strength?: number;
-      relationshipType: 'shared_keyword' | 'direct' | 'shared_category';
-    }>;
-
-    // For statements - related statements and parent question
-    relatedStatements?: Array<{
-      nodeId: string;
-      statement: string;
-      sharedWord?: string;
-      strength?: number;
-      relationshipType: 'shared_keyword' | 'direct' | 'shared_category';
-    }>;
-
+    // For Answers: parent question info
     parentQuestion?: {
       nodeId: string;
+      nodeType: 'openquestion';
       questionText: string;
-      relationshipType: 'answers';
     };
-
-    // For answers
-    parentQuestionData?: {
+    // For Evidence: parent node info
+    parentNode?: {
       nodeId: string;
-      questionText: string;
+      nodeType: string;
+      content: string;
     };
-
-    // For quantities
-    unitCategory?: {
-      id: string;
-      name: string;
+    // For Quantity: measurement info
+    measurementUnit?: string;
+    value?: number;
+    // Evidence-specific
+    sourceUrl?: string;
+    isPeerReviewed?: boolean;
+    // User context
+    userVoteStatus?: {
+      inclusionVote: 'positive' | 'negative' | null;
+      contentVote: 'positive' | 'negative' | null;
     };
-    defaultUnit?: {
-      id: string;
-      name: string;
-    };
-    responseCount?: number;
-
-    // For categories
-    composedWords?: Array<{
-      id: string;
-      word: string;
-    }>;
-    parentCategory?: {
-      id: string;
-      name: string;
-    };
-    childCategories?: Array<{
-      id: string;
-      name: string;
-    }>;
-    usageCount?: number;
-
-    // Discussion data
-    discussionId?: string;
-    initialComment?: string;
+    userVisibilityPreference?: 'hidden' | 'visible';
   };
-}
-
-export interface ConsolidatedKeywordMetadata {
-  sharedWords: string[];
-  totalStrength: number;
-  relationCount: number;
-  primaryKeyword: string;
-  strengthsByKeyword: { [keyword: string]: number };
-  averageStrength: number;
 }
 
 export interface UniversalRelationshipData {
   id: string;
-  source: string; // source node id
-  target: string; // target node id
+  source: string;
+  target: string;
   type:
     | 'shared_keyword'
     | 'related_to'
     | 'answers'
+    | 'evidence_for'
     | 'shared_category'
     | 'categorized_as';
+  strength: number;
   metadata?: {
-    keyword?: string; // for backward compatibility - will be primaryKeyword
-    strength?: number; // for backward compatibility - will be totalStrength
-    created_at?: string; // when the relationship was created
-
-    // NEW: Consolidated keyword metadata
-    consolidatedKeywords?: ConsolidatedKeywordMetadata;
-
-    // NEW: Category-based relationship metadata
-    categoryData?: {
-      categoryId: string;
-      categoryName: string;
-      sharedCategories?: string[]; // For shared category relationships
-    };
+    sharedWords?: string[];
+    strengthsByKeyword?: Record<string, number>;
+    sharedCategories?: Array<{ id: string; name: string }>;
+    relationshipType?: string;
   };
 }
 
 export interface UniversalGraphOptions {
-  // Node Type Filtering - ENHANCED with new node types
+  // Node type filtering
   node_types?: Array<
-    'openquestion' | 'statement' | 'answer' | 'quantity' | 'category'
+    'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
   >;
-  includeNodeTypes?: boolean; // true = include specified types, false = exclude them
+  includeNodeTypes?: boolean; // true = include, false = exclude
 
-  // Category Filtering - NEW
-  categories?: string[]; // Category IDs to filter by
-  includeCategoriesFilter?: boolean; // true = include nodes with these categories, false = exclude
+  // Category filtering
+  categories?: string[];
+  includeCategoriesFilter?: boolean; // true = include, false = exclude
 
-  // Existing filtering options
+  // Pagination
   limit?: number;
   offset?: number;
-  sort_by?: 'netVotes' | 'chronological' | 'participants' | 'category_overlap';
+
+  // Sorting
+  sort_by?:
+    | 'netVotes'
+    | 'chronological'
+    | 'participants'
+    | 'latest_activity'
+    | 'inclusion_votes'
+    | 'content_votes'
+    | 'keyword_relevance';
   sort_direction?: 'asc' | 'desc';
+
+  // Keyword filtering
   keywords?: string[];
-  includeKeywordsFilter?: boolean; // true = include nodes with these keywords, false = exclude
+  includeKeywordsFilter?: boolean;
+
+  // User filtering
   user_id?: string;
+
+  // Relationships
   include_relationships?: boolean;
   relationship_types?: Array<
     | 'shared_keyword'
     | 'related_to'
     | 'answers'
+    | 'evidence_for'
     | 'shared_category'
     | 'categorized_as'
   >;
 
-  // User context for fetching user-specific data
+  // User context
   requesting_user_id?: string;
 
-  // Discovery options - NEW
-  minCategoryOverlap?: number; // Minimum number of shared categories for relationships
-  includeCategorizationData?: boolean; // Include category metadata for nodes
+  // Discovery options
+  minCategoryOverlap?: number;
+  includeCategorizationData?: boolean;
 }
 
 export interface UniversalGraphResponse {
@@ -202,9 +156,21 @@ export interface UniversalGraphResponse {
     node_count: number;
     relationship_count: number;
     relationship_density: number;
-    consolidation_ratio: number; // How much we reduced relationships
-    category_filtered_count?: number; // How many nodes were filtered by categories
+    consolidation_ratio: number;
+    category_filtered_count?: number;
   };
+}
+
+export interface KeywordInfo {
+  word: string;
+  usageCount: number;
+}
+
+export interface CategoryInfo {
+  id: string;
+  name: string;
+  description?: string;
+  usageCount: number;
 }
 
 @Injectable()
@@ -213,18 +179,29 @@ export class UniversalGraphService {
 
   constructor(
     private readonly neo4jService: Neo4jService,
+    // ✅ Phase 4.1: Inject all 5 content node schemas
+    private readonly statementSchema: StatementSchema,
+    private readonly openQuestionSchema: OpenQuestionSchema,
+    private readonly answerSchema: AnswerSchema,
+    private readonly quantitySchema: QuantitySchema,
+    private readonly evidenceSchema: EvidenceSchema,
+    // Existing dependencies
     private readonly voteSchema: VoteSchema,
     private readonly visibilityService: VisibilityService,
-    private readonly categoryService: CategoryService, // NEW: CategoryService injection
+    private readonly categoryService: CategoryService,
   ) {}
 
+  /**
+   * Main entry point for fetching universal graph data
+   * Phase 4.1: Now uses schemas instead of direct Neo4j queries
+   */
   async getUniversalNodes(
     options: UniversalGraphOptions,
   ): Promise<UniversalGraphResponse> {
     try {
-      // Set defaults - now supporting all content node types
+      // Set defaults - only content nodes (no Category in default set)
       const {
-        node_types = ['openquestion', 'statement'], // Keep backward compatibility as default
+        node_types = ['statement', 'openquestion'], // Backward compatible default
         includeNodeTypes = true,
         categories = [],
         includeCategoriesFilter = true,
@@ -244,1186 +221,762 @@ export class UniversalGraphService {
         ],
         requesting_user_id,
         minCategoryOverlap = 1,
-        includeCategorizationData = false,
       } = options;
 
       this.logger.debug(
-        `Getting universal nodes with enhanced options: ${JSON.stringify(options)}`,
+        `Getting universal nodes with options: ${JSON.stringify(options)}`,
       );
 
-      // Build and execute queries for each node type
+      // Determine effective node types based on include/exclude logic
+      const allPossibleTypes: Array<
+        'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
+      > = ['statement', 'openquestion', 'answer', 'quantity', 'evidence'];
+
+      const effectiveTypes = includeNodeTypes
+        ? node_types
+        : allPossibleTypes.filter((t) => !node_types.includes(t));
+
+      this.logger.debug(`Effective node types: ${effectiveTypes.join(', ')}`);
+
+      // ✅ Phase 4.1: Fetch nodes using schemas (not direct Neo4j queries)
       const allNodes: UniversalNodeData[] = [];
 
-      // Determine which node types to process based on include/exclude logic
-      const allPossibleTypes = [
-        'openquestion',
-        'statement',
-        'answer',
-        'quantity',
-        'category',
-      ];
-      const effectiveNodeTypes = this.determineEffectiveNodeTypes(
-        node_types,
-        includeNodeTypes,
-        allPossibleTypes,
+      // Fetch each node type using its schema
+      if (effectiveTypes.includes('statement')) {
+        const statements = await this.fetchStatements();
+        allNodes.push(...statements);
+      }
+
+      if (effectiveTypes.includes('openquestion')) {
+        const questions = await this.fetchOpenQuestions();
+        allNodes.push(...questions);
+      }
+
+      if (effectiveTypes.includes('answer')) {
+        const answers = await this.fetchAnswers();
+        allNodes.push(...answers);
+      }
+
+      if (effectiveTypes.includes('quantity')) {
+        const quantities = await this.fetchQuantities();
+        allNodes.push(...quantities);
+      }
+
+      if (effectiveTypes.includes('evidence')) {
+        const evidence = await this.fetchEvidence();
+        allNodes.push(...evidence);
+      }
+
+      this.logger.debug(
+        `Fetched ${allNodes.length} total nodes before filtering`,
       );
 
-      // Get OpenQuestion nodes if requested
-      if (effectiveNodeTypes.includes('openquestion')) {
-        const openQuestionNodes = await this.getOpenQuestionNodes({
-          keywords,
-          includeKeywordsFilter,
-          categories,
-          includeCategoriesFilter,
-          user_id,
-          sort_by,
-          sort_direction,
-          limit,
-          offset,
-        });
-        allNodes.push(...openQuestionNodes);
+      // Apply filters
+      let filteredNodes = this.applyKeywordFilter(
+        allNodes,
+        keywords,
+        includeKeywordsFilter,
+      );
+      filteredNodes = this.applyCategoryFilter(
+        filteredNodes,
+        categories,
+        includeCategoriesFilter,
+      );
+
+      // Apply user filter if specified
+      if (user_id) {
+        filteredNodes = this.applyUserFilter(filteredNodes, user_id);
       }
 
-      // Get Statement nodes if requested
-      if (effectiveNodeTypes.includes('statement')) {
-        const statementNodes = await this.getStatementNodes({
-          keywords,
-          includeKeywordsFilter,
-          categories,
-          includeCategoriesFilter,
-          user_id,
-          sort_by,
-          sort_direction,
-          limit,
-          offset,
-        });
-        allNodes.push(...statementNodes);
-      }
+      this.logger.debug(`${filteredNodes.length} nodes after filtering`);
 
-      // Get Answer nodes if requested - NEW
-      if (effectiveNodeTypes.includes('answer')) {
-        const answerNodes = await this.getAnswerNodes({
-          keywords,
-          includeKeywordsFilter,
-          categories,
-          includeCategoriesFilter,
-          user_id,
-          sort_by,
-          sort_direction,
-          limit,
-          offset,
-        });
-        allNodes.push(...answerNodes);
-      }
+      // Sort nodes
+      const sortedNodes = this.applySorting(
+        filteredNodes,
+        sort_by,
+        sort_direction,
+      );
 
-      // Get Quantity nodes if requested - NEW
-      if (effectiveNodeTypes.includes('quantity')) {
-        const quantityNodes = await this.getQuantityNodes({
-          keywords,
-          includeKeywordsFilter,
-          categories,
-          includeCategoriesFilter,
-          user_id,
-          sort_by,
-          sort_direction,
-          limit,
-          offset,
-        });
-        allNodes.push(...quantityNodes);
-      }
+      // Pagination
+      const total_count = sortedNodes.length;
+      const has_more = offset + limit < total_count;
+      const paginatedNodes = sortedNodes.slice(offset, offset + limit);
 
-      // Get Category nodes if requested - NEW
-      if (effectiveNodeTypes.includes('category')) {
-        const categoryNodes = await this.getCategoryNodes({
-          keywords,
-          includeKeywordsFilter,
-          user_id,
-          sort_by,
-          sort_direction,
-          limit,
-          offset,
-        });
-        allNodes.push(...categoryNodes);
-      }
-
-      // Apply category overlap sorting if requested
-      if (sort_by === 'category_overlap') {
-        await this.applyCategoryOverlapSorting(
-          allNodes,
-          categories,
-          sort_direction,
-        );
-      }
-
-      // Sort combined results if we have multiple node types
-      if (effectiveNodeTypes.length > 1 && sort_by !== 'category_overlap') {
-        this.sortCombinedNodes(allNodes, sort_by, sort_direction);
-      }
-
-      // Apply pagination to combined results
-      const totalCount = allNodes.length;
-      const paginatedNodes = allNodes.slice(offset, offset + limit);
-
-      // Enhancement: Fetch user-specific data and category data if requested
-      let enhancedNodes = paginatedNodes;
-      if (requesting_user_id && paginatedNodes.length > 0) {
-        enhancedNodes = await this.enhanceNodesWithUserData(
+      // Enrich with user context if requested
+      let enrichedNodes = paginatedNodes;
+      if (requesting_user_id) {
+        enrichedNodes = await this.enrichWithUserContext(
           paginatedNodes,
           requesting_user_id,
         );
       }
 
-      if (includeCategorizationData && enhancedNodes.length > 0) {
-        enhancedNodes = await this.enhanceNodesWithCategoryData(enhancedNodes);
+      // Get relationships
+      let relationships: UniversalRelationshipData[] = [];
+      if (include_relationships) {
+        const nodeIds = enrichedNodes.map((n) => n.id);
+        relationships = await this.getRelationships(
+          nodeIds,
+          relationship_types,
+          minCategoryOverlap,
+        );
       }
 
-      // Get node IDs for relationship query
-      const nodeIds = enhancedNodes.map((n) => n.id);
-
-      // Fetch relationships if requested (now supports category relationships)
-      const relationships = include_relationships
-        ? await this.getRelationships(
-            nodeIds,
-            effectiveNodeTypes,
-            relationship_types,
-            minCategoryOverlap,
-          )
-        : [];
-
-      // Calculate performance metrics
-      const performance_metrics = {
-        node_count: enhancedNodes.length,
-        relationship_count: relationships.length,
-        relationship_density:
-          enhancedNodes.length > 0
-            ? relationships.length /
-              ((enhancedNodes.length * (enhancedNodes.length - 1)) / 2)
-            : 0,
-        consolidation_ratio: this.calculateConsolidationRatio(relationships),
-        category_filtered_count: categories.length > 0 ? totalCount : undefined,
-      };
-
+      // Build response
       return {
-        nodes: enhancedNodes,
+        nodes: enrichedNodes,
         relationships,
-        total_count: totalCount,
-        has_more: offset + limit < totalCount,
-        performance_metrics,
+        total_count,
+        has_more,
+        performance_metrics: {
+          node_count: enrichedNodes.length,
+          relationship_count: relationships.length,
+          relationship_density:
+            enrichedNodes.length > 0
+              ? relationships.length / enrichedNodes.length
+              : 0,
+          consolidation_ratio: 1, // Will implement in Phase 4.2
+          category_filtered_count: allNodes.length - filteredNodes.length,
+        },
       };
     } catch (error) {
       this.logger.error(
-        `Error in getUniversalNodes: ${error.message}`,
+        `Error getting universal nodes: ${error.message}`,
         error.stack,
       );
       throw error;
     }
   }
 
-  // NEW: Helper to determine effective node types based on include/exclude logic
-  private determineEffectiveNodeTypes(
-    specifiedTypes: string[],
-    includeNodeTypes: boolean,
-    allPossibleTypes: string[],
-  ): string[] {
-    if (includeNodeTypes) {
-      // Include only the specified types
-      return specifiedTypes;
-    } else {
-      // Exclude the specified types, include all others
-      return allPossibleTypes.filter((type) => !specifiedTypes.includes(type));
-    }
-  }
-
-  // ENHANCED: Support category filtering
-  private async getOpenQuestionNodes(
-    params: any,
-  ): Promise<UniversalNodeData[]> {
-    const query = this.buildOpenQuestionQuery(params);
-    const result = await this.neo4jService.read(query.query, query.params);
-    return this.transformOpenQuestionResults(result.records);
-  }
-
-  // ENHANCED: Support category filtering
-  private async getStatementNodes(params: any): Promise<UniversalNodeData[]> {
-    const query = this.buildStatementQuery(params);
-    const result = await this.neo4jService.read(query.query, query.params);
-    return this.transformStatementResults(result.records);
-  }
-
-  // NEW: Answer node support
-  private async getAnswerNodes(params: any): Promise<UniversalNodeData[]> {
-    const query = this.buildAnswerQuery(params);
-    const result = await this.neo4jService.read(query.query, query.params);
-    return this.transformAnswerResults(result.records);
-  }
-
-  // NEW: Quantity node support
-  private async getQuantityNodes(params: any): Promise<UniversalNodeData[]> {
-    const query = this.buildQuantityQuery(params);
-    const result = await this.neo4jService.read(query.query, query.params);
-    return this.transformQuantityResults(result.records);
-  }
-
-  // NEW: Category node support
-  private async getCategoryNodes(params: any): Promise<UniversalNodeData[]> {
-    const query = this.buildCategoryQuery(params);
-    const result = await this.neo4jService.read(query.query, query.params);
-    return this.transformCategoryResults(result.records);
-  }
-
-  // ENHANCED: Category filtering support for OpenQuestion nodes
-  private buildOpenQuestionQuery(params: any): { query: string; params: any } {
-    const {
-      keywords,
-      includeKeywordsFilter,
-      categories,
-      includeCategoriesFilter,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    let query = `
-      MATCH (oq:OpenQuestionNode)
-      WHERE (oq.visibilityStatus <> false OR oq.visibilityStatus IS NULL)
-    `;
-
-    // Add keyword filter if specified
-    if (keywords && keywords.length > 0) {
-      const keywordCondition = `
-        EXISTS {
-          MATCH (oq)-[:TAGGED]->(w:WordNode)
-          WHERE w.word IN $keywords
-        }
-      `;
-      query += includeKeywordsFilter
-        ? ` AND ${keywordCondition}`
-        : ` AND NOT ${keywordCondition}`;
-    }
-
-    // NEW: Add category filter if specified
-    if (categories && categories.length > 0) {
-      const categoryCondition = `
-        EXISTS {
-          MATCH (oq)-[:CATEGORIZED_AS]->(c:CategoryNode)
-          WHERE c.id IN $categories AND c.inclusionNetVotes > 0
-        }
-      `;
-      query += includeCategoriesFilter
-        ? ` AND ${categoryCondition}`
-        : ` AND NOT ${categoryCondition}`;
-    }
-
-    // Add user filter if specified
-    if (user_id) {
-      query += ` AND oq.createdBy = $user_id`;
-    }
-
-    // Continue with existing query structure for data aggregation
-    query += `
-      // Get basic question data first
-      WITH oq
-      
-      // Get keywords
-      OPTIONAL MATCH (oq)-[t:TAGGED]->(w:WordNode)
-      WITH oq, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
-      
-      // Get vote counts (inclusion only for OpenQuestions)
-      OPTIONAL MATCH (oq)<-[pv:VOTED_ON {status: 'agree', kind: 'INCLUSION'}]-()
-      WITH oq, keywords, count(DISTINCT pv) as positiveVotes
-      
-      OPTIONAL MATCH (oq)<-[nv:VOTED_ON {status: 'disagree', kind: 'INCLUSION'}]-()
-      WITH oq, keywords, positiveVotes, count(DISTINCT nv) as negativeVotes
-      
-      // Get discussion ID
-      OPTIONAL MATCH (oq)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-      WITH oq, keywords, positiveVotes, negativeVotes, d.id as discussionId
-      
-      // Get answer count
-      OPTIONAL MATCH (a:AnswerNode)-[:ANSWERS]->(oq)
-      WITH oq, keywords, positiveVotes, negativeVotes, discussionId, count(a) as answerCount
-    `;
-
-    // Add sorting
-    this.addSortingToQuery(query, sort_by, sort_direction, 'oq');
-
-    // Add pagination
-    query += ` SKIP $offset LIMIT $limit`;
-
-    query += `
-      RETURN {
-        id: oq.id,
-        type: 'openquestion',
-        content: oq.questionText,
-        participant_count: positiveVotes + negativeVotes,
-        created_at: toString(oq.createdAt),
-        updated_at: toString(oq.updatedAt),
-        created_by: oq.createdBy,
-        public_credit: oq.publicCredit,
-        keywords: keywords,
-        positive_votes: positiveVotes,
-        negative_votes: negativeVotes,
-        initial_comment: oq.initialComment,
-        answer_count: answerCount,
-        discussion_id: discussionId
-      } as nodeData
-    `;
-
-    return {
-      query,
-      params: {
-        keywords,
-        categories,
-        user_id,
-        offset: int(offset).toNumber(),
-        limit: int(limit).toNumber(),
-      },
-    };
-  }
-
-  // ENHANCED: Category filtering support for Statement nodes
-  private buildStatementQuery(params: any): { query: string; params: any } {
-    const {
-      keywords,
-      includeKeywordsFilter,
-      categories,
-      includeCategoriesFilter,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    let query = `
-      MATCH (s:StatementNode)
-      WHERE (s.visibilityStatus <> false OR s.visibilityStatus IS NULL)
-    `;
-
-    // Add keyword filter if specified
-    if (keywords && keywords.length > 0) {
-      const keywordCondition = `
-        EXISTS {
-          MATCH (s)-[:TAGGED]->(w:WordNode)
-          WHERE w.word IN $keywords
-        }
-      `;
-      query += includeKeywordsFilter
-        ? ` AND ${keywordCondition}`
-        : ` AND NOT ${keywordCondition}`;
-    }
-
-    // NEW: Add category filter if specified
-    if (categories && categories.length > 0) {
-      const categoryCondition = `
-        EXISTS {
-          MATCH (s)-[:CATEGORIZED_AS]->(c:CategoryNode)
-          WHERE c.id IN $categories AND c.inclusionNetVotes > 0
-        }
-      `;
-      query += includeCategoriesFilter
-        ? ` AND ${categoryCondition}`
-        : ` AND NOT ${categoryCondition}`;
-    }
-
-    // Add user filter if specified
-    if (user_id) {
-      query += ` AND s.createdBy = $user_id`;
-    }
-
-    // Continue with existing query structure for data aggregation
-    query += `
-      // Get basic statement data first
-      WITH s
-      
-      // Get keywords
-      OPTIONAL MATCH (s)-[t:TAGGED]->(w:WordNode)
-      WITH s, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
-      
-      // Get inclusion vote counts
-      OPTIONAL MATCH (s)<-[pv:VOTED_ON {status: 'agree', kind: 'INCLUSION'}]-()
-      WITH s, keywords, count(DISTINCT pv) as positiveVotes
-      
-      OPTIONAL MATCH (s)<-[nv:VOTED_ON {status: 'disagree', kind: 'INCLUSION'}]-()
-      WITH s, keywords, positiveVotes, count(DISTINCT nv) as negativeVotes
-      
-      // Get content vote counts (for statements that have passed inclusion)
-      OPTIONAL MATCH (s)<-[cpv:VOTED_ON {status: 'agree', kind: 'CONTENT'}]-()
-      WITH s, keywords, positiveVotes, negativeVotes, count(DISTINCT cpv) as contentPositiveVotes
-      
-      OPTIONAL MATCH (s)<-[cnv:VOTED_ON {status: 'disagree', kind: 'CONTENT'}]-()
-      WITH s, keywords, positiveVotes, negativeVotes, contentPositiveVotes, count(DISTINCT cnv) as contentNegativeVotes
-      
-      // Get parent question (if statement answers a question)
-      OPTIONAL MATCH (s)-[:ANSWERS]->(oq:OpenQuestionNode)
-      WITH s, keywords, positiveVotes, negativeVotes, contentPositiveVotes, contentNegativeVotes,
-           CASE WHEN oq IS NOT NULL THEN {
-             nodeId: oq.id,
-             questionText: oq.questionText,
-             relationshipType: 'answers'
-           } ELSE null END as parentQuestion
-      
-      // Get discussion ID
-      OPTIONAL MATCH (s)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-      WITH s, keywords, positiveVotes, negativeVotes, contentPositiveVotes, contentNegativeVotes,
-           parentQuestion, d.id as discussionId
-    `;
-
-    // Add sorting
-    this.addSortingToQuery(query, sort_by, sort_direction, 's');
-
-    // Add pagination
-    query += ` SKIP $offset LIMIT $limit`;
-
-    query += `
-      RETURN {
-        id: s.id,
-        type: 'statement',
-        content: s.statement,
-        participant_count: positiveVotes + negativeVotes + contentPositiveVotes + contentNegativeVotes,
-        created_at: toString(s.createdAt),
-        updated_at: toString(s.updatedAt),
-        created_by: s.createdBy,
-        public_credit: s.publicCredit,
-        keywords: keywords,
-        positive_votes: CASE 
-          WHEN s.inclusionNetVotes > 0 THEN contentPositiveVotes
-          ELSE positiveVotes
-        END,
-        negative_votes: CASE 
-          WHEN s.inclusionNetVotes > 0 THEN contentNegativeVotes
-          ELSE negativeVotes
-        END,
-        initial_comment: s.initialComment,
-        parent_question: parentQuestion,
-        discussion_id: discussionId
-      } as nodeData
-    `;
-
-    return {
-      query,
-      params: {
-        keywords,
-        categories,
-        user_id,
-        offset: int(offset).toNumber(),
-        limit: int(limit).toNumber(),
-      },
-    };
-  }
-
-  // NEW: Build query for Answer nodes
-  private buildAnswerQuery(params: any): { query: string; params: any } {
-    const {
-      keywords,
-      includeKeywordsFilter,
-      categories,
-      includeCategoriesFilter,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    let query = `
-      MATCH (a:AnswerNode)
-      WHERE (a.visibilityStatus <> false OR a.visibilityStatus IS NULL)
-    `;
-
-    // Add keyword filter if specified
-    if (keywords && keywords.length > 0) {
-      const keywordCondition = `
-        EXISTS {
-          MATCH (a)-[:TAGGED]->(w:WordNode)
-          WHERE w.word IN $keywords
-        }
-      `;
-      query += includeKeywordsFilter
-        ? ` AND ${keywordCondition}`
-        : ` AND NOT ${keywordCondition}`;
-    }
-
-    // Add category filter if specified
-    if (categories && categories.length > 0) {
-      const categoryCondition = `
-        EXISTS {
-          MATCH (a)-[:CATEGORIZED_AS]->(c:CategoryNode)
-          WHERE c.id IN $categories AND c.inclusionNetVotes > 0
-        }
-      `;
-      query += includeCategoriesFilter
-        ? ` AND ${categoryCondition}`
-        : ` AND NOT ${categoryCondition}`;
-    }
-
-    // Add user filter if specified
-    if (user_id) {
-      query += ` AND a.createdBy = $user_id`;
-    }
-
-    query += `
-      // Get basic answer data
-      WITH a
-      
-      // Get keywords
-      OPTIONAL MATCH (a)-[t:TAGGED]->(w:WordNode)
-      WITH a, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
-      
-      // Get vote counts (both inclusion and content for answers)
-      OPTIONAL MATCH (a)<-[ipv:VOTED_ON {status: 'agree', kind: 'INCLUSION'}]-()
-      WITH a, keywords, count(DISTINCT ipv) as inclusionPositiveVotes
-      
-      OPTIONAL MATCH (a)<-[inv:VOTED_ON {status: 'disagree', kind: 'INCLUSION'}]-()
-      WITH a, keywords, inclusionPositiveVotes, count(DISTINCT inv) as inclusionNegativeVotes
-      
-      OPTIONAL MATCH (a)<-[cpv:VOTED_ON {status: 'agree', kind: 'CONTENT'}]-()
-      WITH a, keywords, inclusionPositiveVotes, inclusionNegativeVotes, count(DISTINCT cpv) as contentPositiveVotes
-      
-      OPTIONAL MATCH (a)<-[cnv:VOTED_ON {status: 'disagree', kind: 'CONTENT'}]-()
-      WITH a, keywords, inclusionPositiveVotes, inclusionNegativeVotes, contentPositiveVotes, count(DISTINCT cnv) as contentNegativeVotes
-      
-      // Get parent question
-      OPTIONAL MATCH (a)-[:ANSWERS]->(oq:OpenQuestionNode)
-      WITH a, keywords, inclusionPositiveVotes, inclusionNegativeVotes, contentPositiveVotes, contentNegativeVotes,
-           CASE WHEN oq IS NOT NULL THEN {
-             nodeId: oq.id,
-             questionText: oq.questionText
-           } ELSE null END as parentQuestion
-      
-      // Get discussion ID
-      OPTIONAL MATCH (a)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-      WITH a, keywords, inclusionPositiveVotes, inclusionNegativeVotes, contentPositiveVotes, contentNegativeVotes,
-           parentQuestion, d.id as discussionId
-    `;
-
-    // Add sorting
-    this.addSortingToQuery(query, sort_by, sort_direction, 'a');
-
-    // Add pagination
-    query += ` SKIP $offset LIMIT $limit`;
-
-    query += `
-      RETURN {
-        id: a.id,
-        type: 'answer',
-        content: a.answerText,
-        participant_count: inclusionPositiveVotes + inclusionNegativeVotes + contentPositiveVotes + contentNegativeVotes,
-        created_at: toString(a.createdAt),
-        updated_at: toString(a.updatedAt),
-        created_by: a.createdBy,
-        public_credit: a.publicCredit,
-        keywords: keywords,
-        positive_votes: CASE 
-          WHEN a.inclusionNetVotes > 0 THEN contentPositiveVotes
-          ELSE inclusionPositiveVotes
-        END,
-        negative_votes: CASE 
-          WHEN a.inclusionNetVotes > 0 THEN contentNegativeVotes
-          ELSE inclusionNegativeVotes
-        END,
-        parent_question: parentQuestion,
-        discussion_id: discussionId
-      } as nodeData
-    `;
-
-    return {
-      query,
-      params: {
-        keywords,
-        categories,
-        user_id,
-        offset: int(offset).toNumber(),
-        limit: int(limit).toNumber(),
-      },
-    };
-  }
-
-  // NEW: Build query for Quantity nodes
-  private buildQuantityQuery(params: any): { query: string; params: any } {
-    const {
-      keywords,
-      includeKeywordsFilter,
-      categories,
-      includeCategoriesFilter,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    let query = `
-      MATCH (q:QuantityNode)
-      WHERE (q.visibilityStatus <> false OR q.visibilityStatus IS NULL)
-    `;
-
-    // Add keyword filter if specified
-    if (keywords && keywords.length > 0) {
-      const keywordCondition = `
-        EXISTS {
-          MATCH (q)-[:TAGGED]->(w:WordNode)
-          WHERE w.word IN $keywords
-        }
-      `;
-      query += includeKeywordsFilter
-        ? ` AND ${keywordCondition}`
-        : ` AND NOT ${keywordCondition}`;
-    }
-
-    // Add category filter if specified
-    if (categories && categories.length > 0) {
-      const categoryCondition = `
-        EXISTS {
-          MATCH (q)-[:CATEGORIZED_AS]->(c:CategoryNode)
-          WHERE c.id IN $categories AND c.inclusionNetVotes > 0
-        }
-      `;
-      query += includeCategoriesFilter
-        ? ` AND ${categoryCondition}`
-        : ` AND NOT ${categoryCondition}`;
-    }
-
-    // Add user filter if specified
-    if (user_id) {
-      query += ` AND q.createdBy = $user_id`;
-    }
-
-    query += `
-      // Get basic quantity data
-      WITH q
-      
-      // Get keywords
-      OPTIONAL MATCH (q)-[t:TAGGED]->(w:WordNode)
-      WITH q, collect(DISTINCT {word: w.word, frequency: t.frequency}) as keywords
-      
-      // Get vote counts (both inclusion and content for quantities)
-      OPTIONAL MATCH (q)<-[ipv:VOTED_ON {status: 'agree', kind: 'INCLUSION'}]-()
-      WITH q, keywords, count(DISTINCT ipv) as inclusionPositiveVotes
-      
-      OPTIONAL MATCH (q)<-[inv:VOTED_ON {status: 'disagree', kind: 'INCLUSION'}]-()
-      WITH q, keywords, inclusionPositiveVotes, count(DISTINCT inv) as inclusionNegativeVotes
-      
-      OPTIONAL MATCH (q)<-[cpv:VOTED_ON {status: 'agree', kind: 'CONTENT'}]-()
-      WITH q, keywords, inclusionPositiveVotes, inclusionNegativeVotes, count(DISTINCT cpv) as contentPositiveVotes
-      
-      OPTIONAL MATCH (q)<-[cnv:VOTED_ON {status: 'disagree', kind: 'CONTENT'}]-()
-      WITH q, keywords, inclusionPositiveVotes, inclusionNegativeVotes, contentPositiveVotes, count(DISTINCT cnv) as contentNegativeVotes
-      
-      // Get discussion ID
-      OPTIONAL MATCH (q)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-      WITH q, keywords, inclusionPositiveVotes, inclusionNegativeVotes, contentPositiveVotes, contentNegativeVotes,
-           d.id as discussionId
-    `;
-
-    // Add sorting
-    this.addSortingToQuery(query, sort_by, sort_direction, 'q');
-
-    // Add pagination
-    query += ` SKIP $offset LIMIT $limit`;
-
-    query += `
-      RETURN {
-        id: q.id,
-        type: 'quantity',
-        content: q.question,
-        participant_count: inclusionPositiveVotes + inclusionNegativeVotes + contentPositiveVotes + contentNegativeVotes,
-        created_at: toString(q.createdAt),
-        updated_at: toString(q.updatedAt),
-        created_by: q.createdBy,
-        public_credit: q.publicCredit,
-        keywords: keywords,
-        positive_votes: CASE 
-          WHEN q.inclusionNetVotes > 0 THEN contentPositiveVotes
-          ELSE inclusionPositiveVotes
-        END,
-        negative_votes: CASE 
-          WHEN q.inclusionNetVotes > 0 THEN contentNegativeVotes
-          ELSE inclusionNegativeVotes
-        END,
-        unit_category_id: q.unitCategoryId,
-        default_unit_id: q.defaultUnitId,
-        response_count: q.responseCount,
-        discussion_id: discussionId
-      } as nodeData
-    `;
-
-    return {
-      query,
-      params: {
-        keywords,
-        categories,
-        user_id,
-        offset: int(offset).toNumber(),
-        limit: int(limit).toNumber(),
-      },
-    };
-  }
-
-  // NEW: Build query for Category nodes
-  private buildCategoryQuery(params: any): { query: string; params: any } {
-    const {
-      keywords,
-      includeKeywordsFilter,
-      user_id,
-      sort_by,
-      sort_direction,
-      limit,
-      offset,
-    } = params;
-
-    let query = `
-      MATCH (c:CategoryNode)
-      WHERE (c.visibilityStatus <> false OR c.visibilityStatus IS NULL)
-      AND c.inclusionNetVotes > 0
-    `;
-
-    // Add keyword filter if specified (search in category name and composed words)
-    if (keywords && keywords.length > 0) {
-      const keywordCondition = `
-        (c.name IN $keywords OR EXISTS {
-          MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
-          WHERE w.word IN $keywords
-        })
-      `;
-      query += includeKeywordsFilter
-        ? ` AND ${keywordCondition}`
-        : ` AND NOT ${keywordCondition}`;
-    }
-
-    // Add user filter if specified
-    if (user_id) {
-      query += ` AND c.createdBy = $user_id`;
-    }
-
-    query += `
-      // Get basic category data
-      WITH c
-      
-      // Get composed words
-      OPTIONAL MATCH (c)-[:COMPOSED_OF]->(w:WordNode)
-      WITH c, collect(DISTINCT {id: w.id, word: w.word}) as composedWords
-      
-      // Get vote counts (inclusion only for categories)
-      OPTIONAL MATCH (c)<-[pv:VOTED_ON {status: 'agree', kind: 'INCLUSION'}]-()
-      WITH c, composedWords, count(DISTINCT pv) as positiveVotes
-      
-      OPTIONAL MATCH (c)<-[nv:VOTED_ON {status: 'disagree', kind: 'INCLUSION'}]-()
-      WITH c, composedWords, positiveVotes, count(DISTINCT nv) as negativeVotes
-      
-      // Get parent category
-      OPTIONAL MATCH (parent:CategoryNode)-[:PARENT_OF]->(c)
-      WITH c, composedWords, positiveVotes, negativeVotes,
-           CASE WHEN parent IS NOT NULL THEN {
-             id: parent.id,
-             name: parent.name
-           } ELSE null END as parentCategory
-      
-      // Get child categories
-      OPTIONAL MATCH (c)-[:PARENT_OF]->(child:CategoryNode)
-      WITH c, composedWords, positiveVotes, negativeVotes, parentCategory,
-           collect(DISTINCT {id: child.id, name: child.name}) as childCategories
-      
-      // Get usage count (nodes categorized under this category)
-      OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(c)
-      WHERE n:WordNode OR n:DefinitionNode OR n:OpenQuestionNode OR 
-            n:AnswerNode OR n:StatementNode OR n:QuantityNode
-      WITH c, composedWords, positiveVotes, negativeVotes, parentCategory, childCategories,
-           count(DISTINCT n) as usageCount
-      
-      // Get discussion ID
-      OPTIONAL MATCH (c)-[:HAS_DISCUSSION]->(d:DiscussionNode)
-      WITH c, composedWords, positiveVotes, negativeVotes, parentCategory, childCategories,
-           usageCount, d.id as discussionId
-    `;
-
-    // Add sorting
-    this.addSortingToQuery(query, sort_by, sort_direction, 'c');
-
-    // Add pagination
-    query += ` SKIP $offset LIMIT $limit`;
-
-    query += `
-      RETURN {
-        id: c.id,
-        type: 'category',
-        content: c.name,
-        participant_count: positiveVotes + negativeVotes,
-        created_at: toString(c.createdAt),
-        updated_at: toString(c.updatedAt),
-        created_by: c.createdBy,
-        public_credit: c.publicCredit,
-        keywords: [],
-        positive_votes: positiveVotes,
-        negative_votes: negativeVotes,
-        description: c.description,
-        composed_words: composedWords,
-        parent_category: parentCategory,
-        child_categories: childCategories,
-        usage_count: usageCount,
-        discussion_id: discussionId
-      } as nodeData
-    `;
-
-    return {
-      query,
-      params: {
-        keywords,
-        user_id,
-        offset: int(offset).toNumber(),
-        limit: int(limit).toNumber(),
-      },
-    };
-  }
-
-  // NEW: Helper method to add sorting to queries
-  private addSortingToQuery(
-    query: string,
-    sort_by: string,
-    sort_direction: string,
-    nodeAlias: string,
-  ): void {
-    if (sort_by === 'netVotes') {
-      query += ` ORDER BY (${nodeAlias}.inclusionNetVotes + ${nodeAlias}.contentNetVotes) ${sort_direction.toUpperCase()}`;
-    } else if (sort_by === 'chronological') {
-      query += ` ORDER BY ${nodeAlias}.createdAt ${sort_direction.toUpperCase()}`;
-    } else if (sort_by === 'participants') {
-      query += ` ORDER BY (positiveVotes + negativeVotes) ${sort_direction.toUpperCase()}`;
-    }
-  }
-
-  // NEW: Transform Answer results
-  private transformAnswerResults(records: any[]): UniversalNodeData[] {
-    return records.map((record) => {
-      const data = record.get('nodeData');
-
-      const metadata: any = {
-        keywords: data.keywords || [],
-        votes: {
-          positive: this.toNumber(data.positive_votes || 0),
-          negative: this.toNumber(data.negative_votes || 0),
-          net:
-            this.toNumber(data.positive_votes || 0) -
-            this.toNumber(data.negative_votes || 0),
-        },
-        discussionId: data.discussion_id,
-      };
-
-      // Add parent question if exists
-      if (data.parent_question) {
-        metadata.parentQuestionData = data.parent_question;
-      }
-
-      return {
-        id: data.id,
-        type: 'answer',
-        content: data.content,
-        participant_count: this.toNumber(data.participant_count || 0),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        created_by: data.created_by,
-        public_credit: data.public_credit,
-        metadata,
-      };
-    });
-  }
-
-  // NEW: Transform Quantity results
-  private transformQuantityResults(records: any[]): UniversalNodeData[] {
-    return records.map((record) => {
-      const data = record.get('nodeData');
-
-      const metadata: any = {
-        keywords: data.keywords || [],
-        votes: {
-          positive: this.toNumber(data.positive_votes || 0),
-          negative: this.toNumber(data.negative_votes || 0),
-          net:
-            this.toNumber(data.positive_votes || 0) -
-            this.toNumber(data.negative_votes || 0),
-        },
-        discussionId: data.discussion_id,
-        responseCount: this.toNumber(data.response_count || 0),
-      };
-
-      // Add unit information if available
-      if (data.unit_category_id) {
-        metadata.unitCategory = { id: data.unit_category_id, name: 'Unknown' }; // Would need unit service to get name
-      }
-      if (data.default_unit_id) {
-        metadata.defaultUnit = { id: data.default_unit_id, name: 'Unknown' }; // Would need unit service to get name
-      }
-
-      return {
-        id: data.id,
-        type: 'quantity',
-        content: data.content,
-        participant_count: this.toNumber(data.participant_count || 0),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        created_by: data.created_by,
-        public_credit: data.public_credit,
-        metadata,
-      };
-    });
-  }
-
-  // NEW: Transform Category results
-  private transformCategoryResults(records: any[]): UniversalNodeData[] {
-    return records.map((record) => {
-      const data = record.get('nodeData');
-
-      const metadata: any = {
-        keywords: data.keywords || [],
-        votes: {
-          positive: this.toNumber(data.positive_votes || 0),
-          negative: this.toNumber(data.negative_votes || 0),
-          net:
-            this.toNumber(data.positive_votes || 0) -
-            this.toNumber(data.negative_votes || 0),
-        },
-        discussionId: data.discussion_id,
-        composedWords: data.composed_words || [],
-        usageCount: this.toNumber(data.usage_count || 0),
-      };
-
-      // Add parent category if exists
-      if (data.parent_category) {
-        metadata.parentCategory = data.parent_category;
-      }
-
-      // Add child categories if exist
-      if (data.child_categories && data.child_categories.length > 0) {
-        metadata.childCategories = data.child_categories;
-      }
-
-      return {
-        id: data.id,
-        type: 'category',
-        content: data.content,
-        participant_count: this.toNumber(data.participant_count || 0),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        created_by: data.created_by,
-        public_credit: data.public_credit,
-        metadata,
-      };
-    });
-  }
-
-  // ENHANCED: Transform OpenQuestion results (keeping existing logic but adding category support)
-  private transformOpenQuestionResults(records: any[]): UniversalNodeData[] {
-    return records.map((record) => {
-      const data = record.get('nodeData');
-
-      const metadata: any = {
-        keywords: data.keywords || [],
-        votes: {
-          positive: this.toNumber(data.positive_votes || 0),
-          negative: this.toNumber(data.negative_votes || 0),
-          net:
-            this.toNumber(data.positive_votes || 0) -
-            this.toNumber(data.negative_votes || 0),
-        },
-        discussionId: data.discussion_id,
-        initialComment: data.initial_comment,
-        answer_count: this.toNumber(data.answer_count || 0),
-      };
-
-      return {
-        id: data.id,
-        type: 'openquestion',
-        content: data.content,
-        participant_count: this.toNumber(data.participant_count || 0),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        created_by: data.created_by,
-        public_credit: data.public_credit,
-        metadata,
-      };
-    });
-  }
-
-  // ENHANCED: Transform Statement results (keeping existing logic but adding category support)
-  private transformStatementResults(records: any[]): UniversalNodeData[] {
-    return records.map((record) => {
-      const data = record.get('nodeData');
-
-      const metadata: any = {
-        keywords: data.keywords || [],
-        votes: {
-          positive: this.toNumber(data.positive_votes || 0),
-          negative: this.toNumber(data.negative_votes || 0),
-          net:
-            this.toNumber(data.positive_votes || 0) -
-            this.toNumber(data.negative_votes || 0),
-        },
-        discussionId: data.discussion_id,
-        initialComment: data.initial_comment,
-      };
-
-      // Add parent question if exists
-      if (data.parent_question) {
-        metadata.parentQuestion = data.parent_question;
-      }
-
-      return {
-        id: data.id,
-        type: 'statement',
-        content: data.content,
-        participant_count: this.toNumber(data.participant_count || 0),
-        created_at: data.created_at,
-        updated_at: data.updated_at,
-        created_by: data.created_by,
-        public_credit: data.public_credit,
-        metadata,
-      };
-    });
-  }
-
-  // NEW: Apply category overlap sorting
-  private async applyCategoryOverlapSorting(
-    nodes: UniversalNodeData[],
-    categories: string[],
-    sortDirection: string,
-  ): Promise<void> {
-    if (categories.length === 0) {
-      // If no categories specified, just sort by creation time
-      nodes.sort((a, b) => {
-        const aTime = new Date(a.created_at).getTime();
-        const bTime = new Date(b.created_at).getTime();
-        return sortDirection === 'asc' ? aTime - bTime : bTime - aTime;
-      });
-      return;
-    }
-
-    // Get category overlap scores for each node
-    for (const node of nodes) {
-      if (node.type === 'category') {
-        // Categories don't have category overlap with themselves
-        (node as any).categoryOverlapScore = 0;
-        continue;
-      }
-
-      const overlapScore = await this.getCategoryOverlapScore(
-        node.id,
-        categories,
-      );
-      (node as any).categoryOverlapScore = overlapScore;
-    }
-
-    // Sort by category overlap score
-    nodes.sort((a, b) => {
-      const aScore = (a as any).categoryOverlapScore || 0;
-      const bScore = (b as any).categoryOverlapScore || 0;
-
-      if (aScore !== bScore) {
-        return sortDirection === 'asc' ? aScore - bScore : bScore - aScore;
-      }
-
-      // Secondary sort by creation time
-      const aTime = new Date(a.created_at).getTime();
-      const bTime = new Date(b.created_at).getTime();
-      return bTime - aTime; // Always newest first for secondary sort
-    });
-
-    // Clean up temporary property
-    for (const node of nodes) {
-      delete (node as any).categoryOverlapScore;
-    }
-  }
-
-  // NEW: Get category overlap score for a node
-  private async getCategoryOverlapScore(
-    nodeId: string,
-    categories: string[],
-  ): Promise<number> {
-    if (categories.length === 0) return 0;
-
+  /**
+   * Get available keywords for filter UI
+   */
+  async getAvailableKeywords(): Promise<KeywordInfo[]> {
     try {
-      const result = await this.neo4jService.read(
-        `
-        MATCH (n {id: $nodeId})-[:CATEGORIZED_AS]->(c:CategoryNode)
-        WHERE c.id IN $categories
-        RETURN count(DISTINCT c) as overlapCount
-        `,
-        { nodeId, categories },
-      );
+      const query = `
+        MATCH (w:WordNode)
+        WHERE w.inclusionNetVotes > 0
+        OPTIONAL MATCH (content)-[:TAGGED]->(w)
+        WITH w, count(content) as usageCount
+        WHERE usageCount > 0
+        RETURN w.word as word, usageCount
+        ORDER BY usageCount DESC
+        LIMIT 1000
+      `;
 
-      return result.records.length > 0
-        ? this.toNumber(result.records[0].get('overlapCount'))
-        : 0;
+      const result = await this.neo4jService.read(query, {});
+
+      return result.records.map((record) => ({
+        word: record.get('word'),
+        usageCount: record.get('usageCount').toNumber(),
+      }));
     } catch (error) {
-      this.logger.warn(
-        `Error calculating category overlap for node ${nodeId}: ${error.message}`,
-      );
-      return 0;
+      this.logger.error(`Error fetching available keywords: ${error.message}`);
+      return [];
     }
   }
 
-  // NEW: Enhance nodes with category data
-  private async enhanceNodesWithCategoryData(
-    nodes: UniversalNodeData[],
-  ): Promise<UniversalNodeData[]> {
-    if (nodes.length === 0) return nodes;
-
+  /**
+   * Get available categories for filter UI
+   */
+  async getAvailableCategories(): Promise<CategoryInfo[]> {
     try {
-      // Get all node IDs (excluding categories which don't have categories)
-      const nodeIds = nodes
-        .filter((node) => node.type !== 'category')
-        .map((node) => node.id);
+      const query = `
+        MATCH (c:CategoryNode)
+        WHERE c.inclusionNetVotes > 0
+        OPTIONAL MATCH (content)-[:CATEGORIZED_AS]->(c)
+        WHERE content.id <> c.id
+        WITH c, count(content) as usageCount
+        RETURN c.id as id, c.name as name, c.description as description, usageCount
+        ORDER BY usageCount DESC
+        LIMIT 1000
+      `;
 
-      if (nodeIds.length === 0) return nodes;
+      const result = await this.neo4jService.read(query, {});
 
-      // Batch fetch category data for all nodes
-      const result = await this.neo4jService.read(
-        `
-        MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)
-        WHERE n.id IN $nodeIds AND c.inclusionNetVotes > 0
-        RETURN n.id as nodeId, collect({
-          id: c.id,
-          name: c.name,
-          description: c.description
-        }) as categories
-        `,
-        { nodeIds },
-      );
-
-      // Create a map of node ID to categories
-      const categoryMap = new Map<string, any[]>();
-      result.records.forEach((record) => {
-        const nodeId = record.get('nodeId');
-        const categories = record.get('categories');
-        categoryMap.set(nodeId, categories);
-      });
-
-      // Enhance each node with its category data
-      return nodes.map((node) => {
-        if (node.type === 'category') return node; // Categories don't have categories
-
-        const categories = categoryMap.get(node.id) || [];
-        return {
-          ...node,
-          metadata: {
-            ...node.metadata,
-            categories,
-          },
-        };
-      });
+      return result.records.map((record) => ({
+        id: record.get('id'),
+        name: record.get('name'),
+        description: record.get('description'),
+        usageCount: record.get('usageCount').toNumber(),
+      }));
     } catch (error) {
       this.logger.error(
-        `Error enhancing nodes with category data: ${error.message}`,
+        `Error fetching available categories: ${error.message}`,
       );
-      return nodes; // Return original nodes if enhancement fails
+      return [];
     }
   }
 
-  // ENHANCED: Get relationships with category support
+  /**
+   * ✅ Phase 4.1: Fetch Statements using StatementSchema.findAll()
+   */
+  private async fetchStatements(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching statements using StatementSchema.findAll()');
+
+      const statements = await this.statementSchema.findAll({
+        minInclusionVotes: -5,
+        includeKeywords: true,
+        includeCategories: true,
+        includeDiscussion: true,
+        limit: 10000, // Get all, we'll filter/paginate later in service
+      });
+
+      this.logger.debug(`Found ${statements.length} statements from schema`);
+
+      return statements.map((stmt) =>
+        this.transformStatementToUniversalNode(stmt),
+      );
+    } catch (error) {
+      this.logger.error(`Error fetching statements: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ Phase 4.1: Fetch OpenQuestions using OpenQuestionSchema.findAll()
+   */
+  private async fetchOpenQuestions(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug(
+        'Fetching open questions using OpenQuestionSchema.findAll()',
+      );
+
+      const questions = await this.openQuestionSchema.findAll({
+        minInclusionVotes: -5,
+        includeKeywords: true,
+        includeCategories: true,
+        includeDiscussion: true,
+        limit: 10000,
+      });
+
+      this.logger.debug(`Found ${questions.length} questions from schema`);
+
+      return questions.map((q) => this.transformOpenQuestionToUniversalNode(q));
+    } catch (error) {
+      this.logger.error(`Error fetching open questions: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ Phase 4.1: Fetch Answers using AnswerSchema.findAll()
+   * Note: Parent question data needs to be fetched separately
+   */
+  private async fetchAnswers(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching answers using AnswerSchema.findAll()');
+
+      const answers = await this.answerSchema.findAll({
+        minInclusionVotes: -5,
+        includeKeywords: true,
+        includeCategories: true,
+        includeDiscussion: true,
+        limit: 10000,
+      });
+
+      this.logger.debug(`Found ${answers.length} answers from schema`);
+
+      // Fetch parent question data for each answer
+      const answersWithParents = await Promise.all(
+        answers.map(async (ans) => {
+          try {
+            // Get full answer data with parent question
+            const fullAnswer = await this.answerSchema.findById(ans.id);
+            return fullAnswer || ans;
+          } catch (error) {
+            this.logger.warn(
+              `Could not fetch parent for answer ${ans.id}: ${error.message}`,
+            );
+            return ans;
+          }
+        }),
+      );
+
+      return answersWithParents.map((ans) =>
+        this.transformAnswerToUniversalNode(ans),
+      );
+    } catch (error) {
+      this.logger.error(`Error fetching answers: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ Phase 4.1: Fetch Quantities using QuantitySchema.findAll()
+   */
+  private async fetchQuantities(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching quantities using QuantitySchema.findAll()');
+
+      const quantities = await this.quantitySchema.findAll({
+        minInclusionVotes: -5,
+        includeKeywords: true,
+        includeCategories: true,
+        includeDiscussion: true,
+        limit: 10000,
+      });
+
+      this.logger.debug(`Found ${quantities.length} quantities from schema`);
+
+      return quantities.map((qty) =>
+        this.transformQuantityToUniversalNode(qty),
+      );
+    } catch (error) {
+      this.logger.error(`Error fetching quantities: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * ✅ Phase 4.1: Fetch Evidence using EvidenceSchema.findAll()
+   * Note: Parent node data needs to be fetched separately
+   */
+  private async fetchEvidence(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching evidence using EvidenceSchema.findAll()');
+
+      const evidenceNodes = await this.evidenceSchema.findAll({
+        minInclusionVotes: -5,
+        includeKeywords: true,
+        includeCategories: true,
+        includeDiscussion: true,
+        limit: 10000,
+      });
+
+      this.logger.debug(
+        `Found ${evidenceNodes.length} evidence nodes from schema`,
+      );
+
+      // Fetch parent node data for each evidence
+      const evidenceWithParents = await Promise.all(
+        evidenceNodes.map(async (ev) => {
+          try {
+            // Get full evidence data with parent node
+            const fullEvidence = await this.evidenceSchema.findById(ev.id);
+            return fullEvidence || ev;
+          } catch (error) {
+            this.logger.warn(
+              `Could not fetch parent for evidence ${ev.id}: ${error.message}`,
+            );
+            return ev;
+          }
+        }),
+      );
+
+      return evidenceWithParents.map((ev) =>
+        this.transformEvidenceToUniversalNode(ev),
+      );
+    } catch (error) {
+      this.logger.error(`Error fetching evidence: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Transform Statement to UniversalNode format
+   */
+  private transformStatementToUniversalNode(
+    stmt: StatementData,
+  ): UniversalNodeData {
+    return {
+      id: stmt.id,
+      type: 'statement',
+      content: stmt.statement,
+      createdBy: stmt.createdBy,
+      publicCredit: stmt.publicCredit,
+      createdAt: stmt.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: stmt.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: stmt.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: stmt.inclusionNegativeVotes || 0,
+      inclusionNetVotes: stmt.inclusionNetVotes || 0,
+      contentPositiveVotes: stmt.contentPositiveVotes || 0,
+      contentNegativeVotes: stmt.contentNegativeVotes || 0,
+      contentNetVotes: stmt.contentNetVotes || 0,
+      discussionId: stmt.discussionId || null,
+      keywords: stmt.keywords || [],
+      categories: stmt.categories || [],
+      metadata: {},
+    };
+  }
+
+  /**
+   * Transform OpenQuestion to UniversalNode format
+   * Uses content vote fallback to inclusion votes
+   */
+  private transformOpenQuestionToUniversalNode(
+    q: OpenQuestionData,
+  ): UniversalNodeData {
+    return {
+      id: q.id,
+      type: 'openquestion',
+      content: q.questionText,
+      createdBy: q.createdBy,
+      publicCredit: q.publicCredit,
+      createdAt: q.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: q.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: q.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: q.inclusionNegativeVotes || 0,
+      inclusionNetVotes: q.inclusionNetVotes || 0,
+      // OpenQuestion has no content votes - will fall back to inclusion
+      contentPositiveVotes: 0,
+      contentNegativeVotes: 0,
+      contentNetVotes: q.inclusionNetVotes || 0, // ✅ Fallback to inclusion
+      discussionId: q.discussionId || null,
+      keywords: q.keywords || [],
+      categories: q.categories || [],
+      metadata: {},
+    };
+  }
+
+  /**
+   * Transform Answer to UniversalNode format
+   * ALWAYS includes parent question info in metadata
+   */
+  private transformAnswerToUniversalNode(ans: AnswerData): UniversalNodeData {
+    // Extract parent question data from parentQuestionId if available
+    // Note: AnswerData has parentQuestionId (string), not parentQuestion (object)
+    // Full parent data is fetched via findById() in fetchAnswers()
+    let parentQuestion: UniversalNodeData['metadata']['parentQuestion'];
+
+    // If we have full answer data with parent question text (from findById)
+    if ((ans as any).parentQuestionText) {
+      parentQuestion = {
+        nodeId: ans.parentQuestionId,
+        nodeType: 'openquestion',
+        questionText: (ans as any).parentQuestionText,
+      };
+    } else if (ans.parentQuestionId) {
+      // Fallback: we only have the ID
+      parentQuestion = {
+        nodeId: ans.parentQuestionId,
+        nodeType: 'openquestion',
+        questionText: '', // Will be populated by findById in fetchAnswers()
+      };
+    }
+
+    return {
+      id: ans.id,
+      type: 'answer',
+      content: ans.answerText,
+      createdBy: ans.createdBy,
+      publicCredit: ans.publicCredit,
+      createdAt: ans.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: ans.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: ans.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: ans.inclusionNegativeVotes || 0,
+      inclusionNetVotes: ans.inclusionNetVotes || 0,
+      contentPositiveVotes: ans.contentPositiveVotes || 0,
+      contentNegativeVotes: ans.contentNegativeVotes || 0,
+      contentNetVotes: ans.contentNetVotes || 0,
+      discussionId: ans.discussionId || null,
+      keywords: ans.keywords || [],
+      categories: ans.categories || [],
+      metadata: {
+        parentQuestion, // ✅ ALWAYS include parent question info
+      },
+    };
+  }
+
+  /**
+   * Transform Quantity to UniversalNode format
+   * Uses content vote fallback to inclusion votes
+   */
+  private transformQuantityToUniversalNode(
+    qty: QuantityData,
+  ): UniversalNodeData {
+    return {
+      id: qty.id,
+      type: 'quantity',
+      content: qty.definition,
+      createdBy: qty.createdBy,
+      publicCredit: qty.publicCredit,
+      createdAt: qty.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: qty.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: qty.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: qty.inclusionNegativeVotes || 0,
+      inclusionNetVotes: qty.inclusionNetVotes || 0,
+      // Quantity has no content votes - will fall back to inclusion
+      contentPositiveVotes: 0,
+      contentNegativeVotes: 0,
+      contentNetVotes: qty.inclusionNetVotes || 0, // ✅ Fallback to inclusion
+      discussionId: qty.discussionId || null,
+      keywords: qty.keywords || [],
+      categories: qty.categories || [],
+      metadata: {
+        measurementUnit: qty.measurementUnit,
+        value: qty.value,
+      },
+    };
+  }
+
+  /**
+   * Transform Evidence to UniversalNode format
+   * ALWAYS includes parent node info in metadata
+   * Uses content vote fallback to inclusion votes
+   */
+  private transformEvidenceToUniversalNode(
+    ev: EvidenceData,
+  ): UniversalNodeData {
+    // Extract parent node data if available
+    let parentNode: UniversalNodeData['metadata']['parentNode'];
+
+    if (ev.parentInfo) {
+      parentNode = {
+        nodeId: ev.parentInfo.id,
+        nodeType: ev.parentInfo.type,
+        content: ev.parentInfo.title,
+      };
+    }
+
+    return {
+      id: ev.id,
+      type: 'evidence',
+      content: ev.title,
+      createdBy: ev.createdBy,
+      publicCredit: ev.publicCredit,
+      createdAt: ev.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: ev.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: ev.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: ev.inclusionNegativeVotes || 0,
+      inclusionNetVotes: ev.inclusionNetVotes || 0,
+      // Evidence has no content votes - will fall back to inclusion
+      contentPositiveVotes: 0,
+      contentNegativeVotes: 0,
+      contentNetVotes: ev.inclusionNetVotes || 0, // ✅ Fallback to inclusion
+      discussionId: ev.discussionId || null,
+      keywords: ev.keywords || [],
+      categories: ev.categories || [],
+      metadata: {
+        parentNode, // ✅ ALWAYS include parent node info
+        sourceUrl: ev.url,
+        isPeerReviewed: ev.isPeerReviewed,
+      },
+    };
+  }
+
+  /**
+   * Apply keyword filtering
+   * Phase 4.2 will add ANY/ALL modes
+   */
+  private applyKeywordFilter(
+    nodes: UniversalNodeData[],
+    keywords: string[],
+    include: boolean,
+  ): UniversalNodeData[] {
+    if (keywords.length === 0) return nodes;
+
+    return nodes.filter((node) => {
+      const nodeKeywords = node.keywords.map((k) => k.word.toLowerCase());
+      const hasKeyword = keywords.some((kw) =>
+        nodeKeywords.includes(kw.toLowerCase()),
+      );
+      return include ? hasKeyword : !hasKeyword;
+    });
+  }
+
+  /**
+   * Apply category filtering
+   * Phase 4.2 will add ANY/ALL modes
+   */
+  private applyCategoryFilter(
+    nodes: UniversalNodeData[],
+    categories: string[],
+    include: boolean,
+  ): UniversalNodeData[] {
+    if (categories.length === 0) return nodes;
+
+    return nodes.filter((node) => {
+      const nodeCategoryIds = node.categories.map((c) => c.id);
+      const hasCategory = categories.some((catId) =>
+        nodeCategoryIds.includes(catId),
+      );
+      return include ? hasCategory : !hasCategory;
+    });
+  }
+
+  /**
+   * Apply user filter (created by user)
+   */
+  private applyUserFilter(
+    nodes: UniversalNodeData[],
+    userId: string,
+  ): UniversalNodeData[] {
+    return nodes.filter((node) => node.createdBy === userId);
+  }
+
+  /**
+   * Apply sorting with content vote fallback
+   * OpenQuestion, Quantity, and Evidence fall back to inclusion votes
+   */
+  private applySorting(
+    nodes: UniversalNodeData[],
+    sortBy: string,
+    direction: 'asc' | 'desc',
+  ): UniversalNodeData[] {
+    const sorted = [...nodes].sort((a, b) => {
+      let aVal: number;
+      let bVal: number;
+
+      switch (sortBy) {
+        case 'netVotes':
+          // Use content votes, but fall back to inclusion for certain types
+          aVal = this.getEffectiveContentVotes(a);
+          bVal = this.getEffectiveContentVotes(b);
+          break;
+        case 'inclusion_votes':
+          aVal = a.inclusionNetVotes;
+          bVal = b.inclusionNetVotes;
+          break;
+        case 'content_votes':
+          aVal = this.getEffectiveContentVotes(a);
+          bVal = this.getEffectiveContentVotes(b);
+          break;
+        case 'chronological':
+          aVal = new Date(a.createdAt).getTime();
+          bVal = new Date(b.createdAt).getTime();
+          break;
+        default:
+          aVal = this.getEffectiveContentVotes(a);
+          bVal = this.getEffectiveContentVotes(b);
+      }
+
+      return direction === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+
+    return sorted;
+  }
+
+  /**
+   * Get effective content votes with fallback logic
+   * OpenQuestion, Quantity, Evidence → use inclusion votes
+   * Statement, Answer → use content votes
+   */
+  private getEffectiveContentVotes(node: UniversalNodeData): number {
+    const noContentVoteTypes = ['openquestion', 'quantity', 'evidence'];
+    if (noContentVoteTypes.includes(node.type)) {
+      return node.inclusionNetVotes; // Fallback
+    }
+    return node.contentNetVotes;
+  }
+
+  /**
+   * Enrich nodes with user-specific context
+   * Phase 4.5 will implement batch operations
+   */
+  private async enrichWithUserContext(
+    nodes: UniversalNodeData[],
+    userId: string,
+  ): Promise<UniversalNodeData[]> {
+    try {
+      // Batch fetch user vote statuses
+      const enriched = await Promise.all(
+        nodes.map(async (node) => {
+          try {
+            // Map node type to Neo4j label
+            const nodeTypeMap: Record<string, string> = {
+              statement: 'StatementNode',
+              openquestion: 'OpenQuestionNode',
+              answer: 'AnswerNode',
+              quantity: 'QuantityNode',
+              evidence: 'EvidenceNode',
+            };
+
+            const nodeLabel = nodeTypeMap[node.type];
+
+            // Get vote status - pass nodeIdentifier as object with id field
+            const voteStatus = await this.voteSchema.getVoteStatus(
+              nodeLabel,
+              { id: node.id }, // ✅ Pass as object, not string
+              userId,
+            );
+
+            // Get visibility preference
+            const visibilityQuery = `
+              MATCH (u:UserNode {id: $userId})
+              OPTIONAL MATCH (u)-[pref:PREFERS_VISIBILITY]->(n {id: $nodeId})
+              RETURN pref.preference as preference
+            `;
+
+            const visResult = await this.neo4jService.read(visibilityQuery, {
+              userId,
+              nodeId: node.id,
+            });
+
+            const visibilityPref =
+              visResult.records.length > 0
+                ? visResult.records[0].get('preference')
+                : 'visible';
+
+            // Convert vote counts to vote status
+            // VoteStatus has inclusionNetVotes and contentNetVotes properties
+            let inclusionVote: 'positive' | 'negative' | null = null;
+            let contentVote: 'positive' | 'negative' | null = null;
+
+            if (voteStatus) {
+              // Check if user has voted - need to query the relationship
+              const userVoteQuery = `
+                MATCH (u:UserNode {id: $userId})-[v:VOTED_ON]->(n:${nodeLabel} {id: $nodeId})
+                RETURN v.kind as kind, v.status as status
+              `;
+
+              const userVoteResult = await this.neo4jService.read(
+                userVoteQuery,
+                {
+                  userId,
+                  nodeId: node.id,
+                },
+              );
+
+              if (userVoteResult.records.length > 0) {
+                userVoteResult.records.forEach((record) => {
+                  const kind = record.get('kind');
+                  const status = record.get('status');
+
+                  if (kind === 'INCLUSION') {
+                    inclusionVote =
+                      status === 'agree' ? 'positive' : 'negative';
+                  } else if (kind === 'CONTENT') {
+                    contentVote = status === 'agree' ? 'positive' : 'negative';
+                  }
+                });
+              }
+            }
+
+            return {
+              ...node,
+              metadata: {
+                ...node.metadata,
+                userVoteStatus: {
+                  inclusionVote,
+                  contentVote,
+                },
+                userVisibilityPreference: visibilityPref || 'visible',
+              },
+            };
+          } catch (error) {
+            this.logger.warn(
+              `Failed to enrich node ${node.id}: ${error.message}`,
+            );
+            return node;
+          }
+        }),
+      );
+
+      return enriched;
+    } catch (error) {
+      this.logger.error(`Error enriching with user context: ${error.message}`);
+      return nodes; // Return original nodes if enrichment fails
+    }
+  }
+
+  /**
+   * Get relationships between nodes
+   * Phase 4.2+ will implement relationship fetching
+   */
   private async getRelationships(
     nodeIds: string[],
-    nodeTypes: string[],
     relationshipTypes: string[],
     minCategoryOverlap: number,
   ): Promise<UniversalRelationshipData[]> {
@@ -1431,257 +984,13 @@ export class UniversalGraphService {
 
     if (nodeIds.length === 0) return relationships;
 
-    // Add shared keyword relationships (existing functionality)
-    if (relationshipTypes.includes('shared_keyword')) {
-      await this.addSharedKeywordRelationships(
-        relationships,
-        nodeIds,
-        nodeTypes,
-      );
-    }
+    // Phase 4.2+ will implement relationship fetching
+    // For now, return empty array
+    this.logger.debug(
+      `Relationship fetching will be implemented in Phase 4.2+ ` +
+        `(requested types: ${relationshipTypes.join(', ')}, minOverlap: ${minCategoryOverlap})`,
+    );
 
-    // Add direct relationships (existing functionality)
-    if (relationshipTypes.includes('related_to')) {
-      await this.addDirectRelationships(relationships, nodeIds, nodeTypes);
-    }
-
-    // Add answer relationships (existing functionality)
-    if (relationshipTypes.includes('answers')) {
-      await this.addAnswerRelationships(relationships, nodeIds, nodeTypes);
-    }
-
-    // NEW: Add shared category relationships
-    if (relationshipTypes.includes('shared_category')) {
-      await this.addSharedCategoryRelationships(
-        relationships,
-        nodeIds,
-        nodeTypes,
-        minCategoryOverlap,
-      );
-    }
-
-    // NEW: Add categorization relationships
-    if (relationshipTypes.includes('categorized_as')) {
-      await this.addCategorizationRelationships(
-        relationships,
-        nodeIds,
-        nodeTypes,
-      );
-    }
-
-    this.logger.debug(`Built ${relationships.length} relationships`);
     return relationships;
-  }
-
-  // NEW: Add shared category relationships
-  private async addSharedCategoryRelationships(
-    relationships: UniversalRelationshipData[],
-    nodeIds: string[],
-    nodeTypes: string[],
-    minCategoryOverlap: number,
-  ): Promise<void> {
-    try {
-      const sharedCategoryQuery = `
-        MATCH (n1)-[:CATEGORIZED_AS]->(c:CategoryNode)<-[:CATEGORIZED_AS]-(n2)
-        WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds
-        AND c.inclusionNetVotes > 0
-        AND id(n1) < id(n2)
-        WITH n1, n2, collect(DISTINCT {id: c.id, name: c.name}) as sharedCategories
-        WHERE size(sharedCategories) >= $minCategoryOverlap
-        RETURN {
-          source: n1.id,
-          target: n2.id,
-          sharedCategories: sharedCategories,
-          overlapCount: size(sharedCategories)
-        } as rel
-      `;
-
-      const result = await this.neo4jService.read(sharedCategoryQuery, {
-        nodeIds,
-        minCategoryOverlap,
-      });
-
-      result.records.forEach((record) => {
-        const relData = record.get('rel');
-        relationships.push({
-          id: `shared_category_${relData.source}_${relData.target}`,
-          source: relData.source,
-          target: relData.target,
-          type: 'shared_category',
-          metadata: {
-            categoryData: {
-              categoryId: relData.sharedCategories[0]?.id || '',
-              categoryName: relData.sharedCategories[0]?.name || '',
-              sharedCategories: relData.sharedCategories.map((c: any) => c.id),
-            },
-            strength: relData.overlapCount,
-          },
-        });
-      });
-
-      this.logger.debug(
-        `Added ${result.records.length} shared category relationships`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error adding shared category relationships: ${error.message}`,
-      );
-    }
-  }
-
-  // NEW: Add categorization relationships (node -> category)
-  private async addCategorizationRelationships(
-    relationships: UniversalRelationshipData[],
-    nodeIds: string[],
-    nodeTypes: string[],
-  ): Promise<void> {
-    try {
-      // Only add if category nodes are included in the graph
-      if (!nodeTypes.includes('category')) {
-        return;
-      }
-
-      const categorizationQuery = `
-        MATCH (n)-[:CATEGORIZED_AS]->(c:CategoryNode)
-        WHERE n.id IN $nodeIds AND c.id IN $nodeIds
-        AND c.inclusionNetVotes > 0
-        RETURN {
-          source: n.id,
-          target: c.id,
-          categoryName: c.name
-        } as rel
-      `;
-
-      const result = await this.neo4jService.read(categorizationQuery, {
-        nodeIds,
-      });
-
-      result.records.forEach((record) => {
-        const relData = record.get('rel');
-        relationships.push({
-          id: `categorized_as_${relData.source}_${relData.target}`,
-          source: relData.source,
-          target: relData.target,
-          type: 'categorized_as',
-          metadata: {
-            categoryData: {
-              categoryId: relData.target,
-              categoryName: relData.categoryName,
-            },
-          },
-        });
-      });
-
-      this.logger.debug(
-        `Added ${result.records.length} categorization relationships`,
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error adding categorization relationships: ${error.message}`,
-      );
-    }
-  }
-
-  // Keeping existing methods but enhancing them...
-
-  // ENHANCED: Existing method with category support consideration
-  private async addSharedKeywordRelationships(
-    relationships: UniversalRelationshipData[],
-    nodeIds: string[],
-    nodeTypes: string[],
-  ): Promise<void> {
-    // Implementation would go here - keeping as placeholder for now
-    // since this requires integrating with existing shared keyword logic
-    this.logger.debug(
-      `Adding shared keyword relationships for ${nodeIds.length} nodes of types: ${nodeTypes.join(', ')}`,
-    );
-    // TODO: Implement full shared keyword relationship logic
-  }
-
-  // ENHANCED: Existing method
-  private async addDirectRelationships(
-    relationships: UniversalRelationshipData[],
-    nodeIds: string[],
-    nodeTypes: string[],
-  ): Promise<void> {
-    // Implementation would go here - keeping as placeholder for now
-    this.logger.debug(
-      `Adding direct relationships for ${nodeIds.length} nodes of types: ${nodeTypes.join(', ')}`,
-    );
-    // TODO: Implement full direct relationship logic
-  }
-
-  // ENHANCED: Existing method
-  private async addAnswerRelationships(
-    relationships: UniversalRelationshipData[],
-    nodeIds: string[],
-    nodeTypes: string[],
-  ): Promise<void> {
-    // Implementation would go here - keeping as placeholder for now
-    this.logger.debug(
-      `Adding answer relationships for ${nodeIds.length} nodes of types: ${nodeTypes.join(', ')}`,
-    );
-    // TODO: Implement full answer relationship logic
-  }
-
-  // Existing utility methods...
-  private calculateConsolidationRatio(
-    relationships: UniversalRelationshipData[],
-  ): number {
-    // Keep existing consolidation ratio calculation
-    // For now, return 1.0 as placeholder but use the parameter to avoid ESLint warning
-    this.logger.debug(
-      `Calculating consolidation ratio for ${relationships.length} relationships`,
-    );
-    return 1.0;
-  }
-
-  private sortCombinedNodes(
-    nodes: UniversalNodeData[],
-    sort_by: string,
-    sort_direction: string,
-  ): void {
-    nodes.sort((a, b) => {
-      let aValue: any, bValue: any;
-
-      switch (sort_by) {
-        case 'netVotes':
-          aValue = a.metadata.votes.net;
-          bValue = b.metadata.votes.net;
-          break;
-        case 'chronological':
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
-          break;
-        case 'participants':
-          aValue = a.participant_count;
-          bValue = b.participant_count;
-          break;
-        default:
-          aValue = new Date(a.created_at).getTime();
-          bValue = new Date(b.created_at).getTime();
-      }
-
-      const comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
-      return sort_direction === 'asc' ? comparison : -comparison;
-    });
-  }
-
-  private async enhanceNodesWithUserData(
-    nodes: UniversalNodeData[],
-    requesting_user_id: string,
-  ): Promise<UniversalNodeData[]> {
-    // Implementation would go here - keeping as placeholder for now
-    this.logger.debug(
-      `Enhancing ${nodes.length} nodes with user data for user: ${requesting_user_id}`,
-    );
-    // TODO: Implement full user data enhancement logic
-    return nodes;
-  }
-
-  private toNumber(value: any): number {
-    if (typeof value === 'number') return value;
-    if (value && typeof value.toNumber === 'function') return value.toNumber();
-    return parseInt(value) || 0;
   }
 }

@@ -493,4 +493,130 @@ export abstract class CategorizedNodeSchema<
       edges: [...tagEdges, ...categoryEdges],
     };
   }
+
+  // In src/neo4j/schemas/base/categorized.schema.ts
+
+  /**
+   * Find all nodes with BOTH keyword AND category filtering
+   * Overrides TaggedNodeSchema.findAll() to add category support
+   */
+  async findAll(options?: {
+    // All options from TaggedNodeSchema.findAll()
+    minInclusionVotes?: number;
+    keywords?: string[];
+    keywordMode?: 'any' | 'all';
+    createdBy?: string;
+    sortBy?: 'inclusionNetVotes' | 'contentNetVotes' | 'createdAt';
+    sortDirection?: 'ASC' | 'DESC';
+    limit?: number;
+    offset?: number;
+    includeKeywords?: boolean;
+    includeDiscussion?: boolean;
+
+    // NEW: Category-specific options
+    categories?: string[];
+    categoryMode?: 'any' | 'all';
+    includeCategories?: boolean;
+  }): Promise<T[]> {
+    const {
+      minInclusionVotes = -5,
+      keywords = [],
+      keywordMode = 'any',
+      categories = [],
+      categoryMode = 'any',
+      createdBy,
+      sortBy = 'inclusionNetVotes',
+      sortDirection = 'DESC',
+      limit = 1000,
+      offset = 0,
+      includeKeywords = true,
+      includeCategories = true,
+      includeDiscussion = true,
+    } = options || {};
+
+    // Build WHERE clauses (includes parent class logic + category logic)
+    const whereConditions: string[] = [];
+    const params: any = {};
+
+    // Inclusion votes filter
+    whereConditions.push('n.inclusionNetVotes >= $minInclusionVotes');
+    params.minInclusionVotes = minInclusionVotes;
+
+    // Keyword filter (from parent)
+    if (keywords.length > 0) {
+      const keywordCondition =
+        keywordMode === 'all'
+          ? 'ALL(keyword IN $keywords WHERE EXISTS((n)-[:TAGGED]->(:WordNode {word: keyword})))'
+          : 'ANY(keyword IN $keywords WHERE EXISTS((n)-[:TAGGED]->(:WordNode {word: keyword})))';
+      whereConditions.push(keywordCondition);
+      params.keywords = keywords;
+    }
+
+    // ✅ NEW: Category filter (this is the extension)
+    if (categories.length > 0) {
+      const categoryCondition =
+        categoryMode === 'all'
+          ? 'ALL(catId IN $categories WHERE EXISTS((n)-[:CATEGORIZED_AS]->(:CategoryNode {id: catId})))'
+          : 'ANY(catId IN $categories WHERE EXISTS((n)-[:CATEGORIZED_AS]->(:CategoryNode {id: catId})))';
+      whereConditions.push(categoryCondition);
+      params.categories = categories;
+    }
+
+    // User filter
+    if (createdBy) {
+      whereConditions.push('n.createdBy = $createdBy');
+      params.createdBy = createdBy;
+    }
+
+    const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
+
+    // Build query - NOW includes category logic
+    const query = `
+    MATCH (n:${this.nodeLabel})
+    ${whereClause}
+    ${includeDiscussion ? 'OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)' : ''}
+    ${includeKeywords ? 'OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)' : ''}
+    ${includeCategories ? 'OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode) WHERE cat.inclusionNetVotes > 0' : ''}
+    RETURN n,
+           ${includeDiscussion ? 'disc.id as discussionId' : 'null as discussionId'},
+           ${includeKeywords ? 'collect(DISTINCT {word: w.word, frequency: t.frequency, source: t.source}) as keywords' : '[] as keywords'},
+           ${includeCategories ? 'collect(DISTINCT {id: cat.id, name: cat.name, description: cat.description, inclusionNetVotes: cat.inclusionNetVotes}) as categories' : '[] as categories'}
+    ORDER BY n.${sortBy} ${sortDirection}
+    SKIP $offset
+    LIMIT $limit
+  `;
+
+    params.offset = offset;
+    params.limit = limit;
+
+    try {
+      const result = await this.neo4jService.read(query, params);
+
+      return result.records.map((record) => {
+        const nodeData = this.mapNodeFromRecord(record);
+
+        if (includeDiscussion) {
+          nodeData.discussionId = record.get('discussionId');
+        }
+
+        if (includeKeywords) {
+          const keywordsData = record.get('keywords');
+          nodeData.keywords = keywordsData.filter((k: any) => k.word);
+        }
+
+        // ✅ NEW: Add categories
+        if (includeCategories) {
+          const categoriesData = record.get('categories');
+          nodeData.categories = categoriesData.filter((c: any) => c.id);
+        }
+
+        return nodeData;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Error in findAll for ${this.nodeLabel}: ${error.message}`,
+      );
+      throw this.standardError('findAll', error);
+    }
+  }
 }
