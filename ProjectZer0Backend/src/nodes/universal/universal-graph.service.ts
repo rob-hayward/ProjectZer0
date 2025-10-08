@@ -60,12 +60,8 @@ export interface UniversalNodeData {
       nodeType: string;
       content: string;
     };
-    // For Quantity: measurement info
-    measurementUnit?: string;
-    value?: number;
     // Evidence-specific
     sourceUrl?: string;
-    isPeerReviewed?: boolean;
     // User context
     userVoteStatus?: {
       inclusionVote: 'positive' | 'negative' | null;
@@ -335,76 +331,16 @@ export class UniversalGraphService {
             enrichedNodes.length > 0
               ? relationships.length / enrichedNodes.length
               : 0,
-          consolidation_ratio: 1, // Will implement in Phase 4.2
-          category_filtered_count: allNodes.length - filteredNodes.length,
+          consolidation_ratio: 1.0, // Phase 4.2+ will implement
+          category_filtered_count: categories.length,
         },
       };
     } catch (error) {
       this.logger.error(
-        `Error getting universal nodes: ${error.message}`,
+        `Error in getUniversalNodes: ${error.message}`,
         error.stack,
       );
       throw error;
-    }
-  }
-
-  /**
-   * Get available keywords for filter UI
-   */
-  async getAvailableKeywords(): Promise<KeywordInfo[]> {
-    try {
-      const query = `
-        MATCH (w:WordNode)
-        WHERE w.inclusionNetVotes > 0
-        OPTIONAL MATCH (content)-[:TAGGED]->(w)
-        WITH w, count(content) as usageCount
-        WHERE usageCount > 0
-        RETURN w.word as word, usageCount
-        ORDER BY usageCount DESC
-        LIMIT 1000
-      `;
-
-      const result = await this.neo4jService.read(query, {});
-
-      return result.records.map((record) => ({
-        word: record.get('word'),
-        usageCount: record.get('usageCount').toNumber(),
-      }));
-    } catch (error) {
-      this.logger.error(`Error fetching available keywords: ${error.message}`);
-      return [];
-    }
-  }
-
-  /**
-   * Get available categories for filter UI
-   */
-  async getAvailableCategories(): Promise<CategoryInfo[]> {
-    try {
-      const query = `
-        MATCH (c:CategoryNode)
-        WHERE c.inclusionNetVotes > 0
-        OPTIONAL MATCH (content)-[:CATEGORIZED_AS]->(c)
-        WHERE content.id <> c.id
-        WITH c, count(content) as usageCount
-        RETURN c.id as id, c.name as name, c.description as description, usageCount
-        ORDER BY usageCount DESC
-        LIMIT 1000
-      `;
-
-      const result = await this.neo4jService.read(query, {});
-
-      return result.records.map((record) => ({
-        id: record.get('id'),
-        name: record.get('name'),
-        description: record.get('description'),
-        usageCount: record.get('usageCount').toNumber(),
-      }));
-    } catch (error) {
-      this.logger.error(
-        `Error fetching available categories: ${error.message}`,
-      );
-      return [];
     }
   }
 
@@ -537,7 +473,7 @@ export class UniversalGraphService {
     try {
       this.logger.debug('Fetching evidence using EvidenceSchema.findAll()');
 
-      const evidenceNodes = await this.evidenceSchema.findAll({
+      const evidence = await this.evidenceSchema.findAll({
         minInclusionVotes: -5,
         includeKeywords: true,
         includeCategories: true,
@@ -545,13 +481,11 @@ export class UniversalGraphService {
         limit: 10000,
       });
 
-      this.logger.debug(
-        `Found ${evidenceNodes.length} evidence nodes from schema`,
-      );
+      this.logger.debug(`Found ${evidence.length} evidence from schema`);
 
       // Fetch parent node data for each evidence
       const evidenceWithParents = await Promise.all(
-        evidenceNodes.map(async (ev) => {
+        evidence.map(async (ev) => {
           try {
             // Get full evidence data with parent node
             const fullEvidence = await this.evidenceSchema.findById(ev.id);
@@ -635,8 +569,7 @@ export class UniversalGraphService {
    * ALWAYS includes parent question info in metadata
    */
   private transformAnswerToUniversalNode(ans: AnswerData): UniversalNodeData {
-    // Extract parent question data from parentQuestionId if available
-    // Note: AnswerData has parentQuestionId (string), not parentQuestion (object)
+    // Note: AnswerData.findById() returns parentQuestionId (string), not parentQuestion (object)
     // Full parent data is fetched via findById() in fetchAnswers()
     let parentQuestion: UniversalNodeData['metadata']['parentQuestion'];
 
@@ -682,6 +615,8 @@ export class UniversalGraphService {
   /**
    * Transform Quantity to UniversalNode format
    * Uses content vote fallback to inclusion votes
+   * ✅ FIXED: Uses qty.question (not qty.definition)
+   * ✅ FIXED: Removed measurementUnit and value (not on QuantityData)
    */
   private transformQuantityToUniversalNode(
     qty: QuantityData,
@@ -689,7 +624,7 @@ export class UniversalGraphService {
     return {
       id: qty.id,
       type: 'quantity',
-      content: qty.definition,
+      content: qty.question, // ✅ FIXED: Changed from qty.definition
       createdBy: qty.createdBy,
       publicCredit: qty.publicCredit,
       createdAt: qty.createdAt?.toISOString() || new Date().toISOString(),
@@ -704,10 +639,7 @@ export class UniversalGraphService {
       discussionId: qty.discussionId || null,
       keywords: qty.keywords || [],
       categories: qty.categories || [],
-      metadata: {
-        measurementUnit: qty.measurementUnit,
-        value: qty.value,
-      },
+      metadata: {}, // ✅ FIXED: Removed measurementUnit and value
     };
   }
 
@@ -715,6 +647,7 @@ export class UniversalGraphService {
    * Transform Evidence to UniversalNode format
    * ALWAYS includes parent node info in metadata
    * Uses content vote fallback to inclusion votes
+   * ✅ FIXED: Removed isPeerReviewed (not on EvidenceData)
    */
   private transformEvidenceToUniversalNode(
     ev: EvidenceData,
@@ -751,7 +684,7 @@ export class UniversalGraphService {
       metadata: {
         parentNode, // ✅ ALWAYS include parent node info
         sourceUrl: ev.url,
-        isPeerReviewed: ev.isPeerReviewed,
+        // ✅ FIXED: Removed isPeerReviewed (not a direct property of EvidenceData)
       },
     };
   }
@@ -797,7 +730,8 @@ export class UniversalGraphService {
   }
 
   /**
-   * Apply user filter (created by user)
+   * Apply user filtering
+   * Phase 4.2 will add created/interacted/voted modes
    */
   private applyUserFilter(
     nodes: UniversalNodeData[],
@@ -808,98 +742,138 @@ export class UniversalGraphService {
 
   /**
    * Apply sorting with content vote fallback
-   * OpenQuestion, Quantity, and Evidence fall back to inclusion votes
+   * Phase 4.3 will implement full sorting logic
    */
   private applySorting(
     nodes: UniversalNodeData[],
     sortBy: string,
-    direction: 'asc' | 'desc',
+    direction: string,
   ): UniversalNodeData[] {
-    const sorted = [...nodes].sort((a, b) => {
-      let aVal: number;
-      let bVal: number;
+    const sorted = [...nodes];
+    const asc = direction === 'asc';
+
+    sorted.sort((a, b) => {
+      let aValue: number;
+      let bValue: number;
 
       switch (sortBy) {
         case 'netVotes':
-          // Use content votes, but fall back to inclusion for certain types
-          aVal = this.getEffectiveContentVotes(a);
-          bVal = this.getEffectiveContentVotes(b);
-          break;
         case 'inclusion_votes':
-          aVal = a.inclusionNetVotes;
-          bVal = b.inclusionNetVotes;
+          aValue = a.inclusionNetVotes;
+          bValue = b.inclusionNetVotes;
           break;
+
         case 'content_votes':
-          aVal = this.getEffectiveContentVotes(a);
-          bVal = this.getEffectiveContentVotes(b);
+          aValue = a.contentNetVotes;
+          bValue = b.contentNetVotes;
           break;
+
         case 'chronological':
-          aVal = new Date(a.createdAt).getTime();
-          bVal = new Date(b.createdAt).getTime();
+          aValue = new Date(a.createdAt).getTime();
+          bValue = new Date(b.createdAt).getTime();
           break;
+
+        case 'latest_activity':
+          aValue = new Date(a.updatedAt).getTime();
+          bValue = new Date(b.updatedAt).getTime();
+          break;
+
+        case 'participants':
+          aValue =
+            a.inclusionPositiveVotes +
+            a.inclusionNegativeVotes +
+            a.contentPositiveVotes +
+            a.contentNegativeVotes;
+          bValue =
+            b.inclusionPositiveVotes +
+            b.inclusionNegativeVotes +
+            b.contentPositiveVotes +
+            b.contentNegativeVotes;
+          break;
+
         default:
-          aVal = this.getEffectiveContentVotes(a);
-          bVal = this.getEffectiveContentVotes(b);
+          aValue = a.inclusionNetVotes;
+          bValue = b.inclusionNetVotes;
       }
 
-      return direction === 'asc' ? aVal - bVal : bVal - aVal;
+      const comparison = aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      return asc ? comparison : -comparison;
     });
 
     return sorted;
   }
 
   /**
-   * Get effective content votes with fallback logic
-   * OpenQuestion, Quantity, Evidence → use inclusion votes
-   * Statement, Answer → use content votes
-   */
-  private getEffectiveContentVotes(node: UniversalNodeData): number {
-    const noContentVoteTypes = ['openquestion', 'quantity', 'evidence'];
-    if (noContentVoteTypes.includes(node.type)) {
-      return node.inclusionNetVotes; // Fallback
-    }
-    return node.contentNetVotes;
-  }
-
-  /**
-   * Enrich nodes with user-specific context
-   * Phase 4.5 will implement batch operations
+   * Enrich nodes with user context (votes and visibility preferences)
+   * Phase 4.5 will implement batch enrichment
    */
   private async enrichWithUserContext(
     nodes: UniversalNodeData[],
     userId: string,
   ): Promise<UniversalNodeData[]> {
     try {
-      // Batch fetch user vote statuses
+      this.logger.debug(
+        `Enriching ${nodes.length} nodes with user context for ${userId}`,
+      );
+
       const enriched = await Promise.all(
         nodes.map(async (node) => {
           try {
-            // Map node type to Neo4j label
-            const nodeTypeMap: Record<string, string> = {
-              statement: 'StatementNode',
-              openquestion: 'OpenQuestionNode',
-              answer: 'AnswerNode',
-              quantity: 'QuantityNode',
-              evidence: 'EvidenceNode',
-            };
+            // Get node label for Neo4j query
+            const nodeLabel =
+              node.type === 'statement'
+                ? 'StatementNode'
+                : node.type === 'openquestion'
+                  ? 'OpenQuestionNode'
+                  : node.type === 'answer'
+                    ? 'AnswerNode'
+                    : node.type === 'quantity'
+                      ? 'QuantityNode'
+                      : 'EvidenceNode';
 
-            const nodeLabel = nodeTypeMap[node.type];
+            // Get vote status from the appropriate schema
+            let voteStatus: any = null;
 
-            // Get vote status - pass nodeIdentifier as object with id field
-            const voteStatus = await this.voteSchema.getVoteStatus(
-              nodeLabel,
-              { id: node.id }, // ✅ Pass as object, not string
-              userId,
-            );
+            switch (node.type) {
+              case 'statement':
+                voteStatus = await this.statementSchema.getVoteStatus(
+                  node.id,
+                  userId,
+                );
+                break;
+              case 'openquestion':
+                voteStatus = await this.openQuestionSchema.getVoteStatus(
+                  node.id,
+                  userId,
+                );
+                break;
+              case 'answer':
+                voteStatus = await this.answerSchema.getVoteStatus(
+                  node.id,
+                  userId,
+                );
+                break;
+              case 'quantity':
+                voteStatus = await this.quantitySchema.getVoteStatus(
+                  node.id,
+                  userId,
+                );
+                break;
+              case 'evidence':
+                voteStatus = await this.evidenceSchema.getVoteStatus(
+                  node.id,
+                  userId,
+                );
+                break;
+            }
 
             // Get visibility preference
-            const visibilityQuery = `
-              MATCH (u:UserNode {id: $userId})
-              OPTIONAL MATCH (u)-[pref:PREFERS_VISIBILITY]->(n {id: $nodeId})
-              RETURN pref.preference as preference
+            const visQuery = `
+              MATCH (u:UserNode {id: $userId})-[h:HIDES]->(n:${nodeLabel} {id: $nodeId})
+              RETURN h.preference as preference
             `;
 
-            const visResult = await this.neo4jService.read(visibilityQuery, {
+            const visResult = await this.neo4jService.read(visQuery, {
               userId,
               nodeId: node.id,
             });
@@ -910,7 +884,6 @@ export class UniversalGraphService {
                 : 'visible';
 
             // Convert vote counts to vote status
-            // VoteStatus has inclusionNetVotes and contentNetVotes properties
             let inclusionVote: 'positive' | 'negative' | null = null;
             let contentVote: 'positive' | 'negative' | null = null;
 
@@ -992,5 +965,65 @@ export class UniversalGraphService {
     );
 
     return relationships;
+  }
+
+  /**
+   * Get available keywords for filtering
+   * Phase 4.2+ will implement with caching
+   */
+  async getAvailableKeywords(): Promise<KeywordInfo[]> {
+    try {
+      this.logger.debug('Fetching available keywords');
+
+      const query = `
+        MATCH (w:WordNode)-[t:TAGGED]->(n)
+        WHERE w.inclusionNetVotes > 0
+        AND (n:StatementNode OR n:OpenQuestionNode OR n:AnswerNode OR n:QuantityNode OR n:EvidenceNode)
+        WITH w.word as word, count(DISTINCT n) as usageCount
+        RETURN word, usageCount
+        ORDER BY usageCount DESC
+      `;
+
+      const result = await this.neo4jService.read(query, {});
+
+      return result.records.map((record) => ({
+        word: record.get('word'),
+        usageCount: record.get('usageCount').toInt(),
+      }));
+    } catch (error) {
+      this.logger.error(`Error fetching keywords: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get available categories for filtering
+   * Phase 4.2+ will implement with caching
+   */
+  async getAvailableCategories(): Promise<CategoryInfo[]> {
+    try {
+      this.logger.debug('Fetching available categories');
+
+      const query = `
+        MATCH (c:CategoryNode)-[cat:CATEGORIZED_AS]->(n)
+        WHERE c.inclusionNetVotes > 0
+        AND (n:StatementNode OR n:OpenQuestionNode OR n:AnswerNode OR n:QuantityNode OR n:EvidenceNode)
+        WITH c.id as id, c.name as name, c.description as description, count(DISTINCT n) as usageCount
+        RETURN id, name, description, usageCount
+        ORDER BY usageCount DESC
+      `;
+
+      const result = await this.neo4jService.read(query, {});
+
+      return result.records.map((record) => ({
+        id: record.get('id'),
+        name: record.get('name'),
+        description: record.get('description'),
+        usageCount: record.get('usageCount').toInt(),
+      }));
+    } catch (error) {
+      this.logger.error(`Error fetching categories: ${error.message}`);
+      return [];
+    }
   }
 }
