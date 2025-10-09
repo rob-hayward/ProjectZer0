@@ -98,9 +98,10 @@ export interface UniversalGraphOptions {
   >;
   includeNodeTypes?: boolean; // true = include, false = exclude
 
-  // Category filtering
+  // ✅ Phase 4.2: Category filtering with ANY/ALL modes
   categories?: string[];
   includeCategoriesFilter?: boolean; // true = include, false = exclude
+  categoryMode?: 'any' | 'all'; // any = at least one, all = must have all
 
   // Pagination
   limit?: number;
@@ -117,12 +118,14 @@ export interface UniversalGraphOptions {
     | 'keyword_relevance';
   sort_direction?: 'asc' | 'desc';
 
-  // Keyword filtering
+  // ✅ Phase 4.2: Keyword filtering with ANY/ALL modes
   keywords?: string[];
-  includeKeywordsFilter?: boolean;
+  includeKeywordsFilter?: boolean; // true = include, false = exclude
+  keywordMode?: 'any' | 'all'; // any = at least one, all = must have all
 
-  // User filtering
+  // ✅ Phase 4.2: User filtering with interaction modes
   user_id?: string;
+  userFilterMode?: 'all' | 'created' | 'interacted' | 'voted'; // Filter mode for user
 
   // Relationships
   include_relationships?: boolean;
@@ -190,6 +193,7 @@ export class UniversalGraphService {
   /**
    * Main entry point for fetching universal graph data
    * Phase 4.1: Now uses schemas instead of direct Neo4j queries
+   * Phase 4.2: Added ANY/ALL mode support for keyword and category filters
    */
   async getUniversalNodes(
     options: UniversalGraphOptions,
@@ -201,13 +205,16 @@ export class UniversalGraphService {
         includeNodeTypes = true,
         categories = [],
         includeCategoriesFilter = true,
+        categoryMode = 'any', // ✅ Phase 4.2: Default to ANY mode
         limit = 200,
         offset = 0,
         sort_by = 'netVotes',
         sort_direction = 'desc',
         keywords = [],
         includeKeywordsFilter = true,
+        keywordMode = 'any', // ✅ Phase 4.2: Default to ANY mode
         user_id,
+        userFilterMode = 'all', // ✅ Phase 4.2: Default to all (no filtering)
         include_relationships = true,
         relationship_types = [
           'shared_keyword',
@@ -267,21 +274,27 @@ export class UniversalGraphService {
         `Fetched ${allNodes.length} total nodes before filtering`,
       );
 
-      // Apply filters
+      // ✅ Phase 4.2: Apply filters with ANY/ALL mode support
       let filteredNodes = this.applyKeywordFilter(
         allNodes,
         keywords,
         includeKeywordsFilter,
+        keywordMode,
       );
       filteredNodes = this.applyCategoryFilter(
         filteredNodes,
         categories,
         includeCategoriesFilter,
+        categoryMode,
       );
 
-      // Apply user filter if specified
+      // ✅ Phase 4.2: Apply user filter with mode support
       if (user_id) {
-        filteredNodes = this.applyUserFilter(filteredNodes, user_id);
+        filteredNodes = await this.applyUserFilter(
+          filteredNodes,
+          user_id,
+          userFilterMode,
+        );
       }
 
       this.logger.debug(`${filteredNodes.length} nodes after filtering`);
@@ -473,7 +486,7 @@ export class UniversalGraphService {
     try {
       this.logger.debug('Fetching evidence using EvidenceSchema.findAll()');
 
-      const evidence = await this.evidenceSchema.findAll({
+      const evidenceNodes = await this.evidenceSchema.findAll({
         minInclusionVotes: -5,
         includeKeywords: true,
         includeCategories: true,
@@ -481,26 +494,26 @@ export class UniversalGraphService {
         limit: 10000,
       });
 
-      this.logger.debug(`Found ${evidence.length} evidence from schema`);
+      this.logger.debug(`Found ${evidenceNodes.length} evidence from schema`);
 
       // Fetch parent node data for each evidence
       const evidenceWithParents = await Promise.all(
-        evidence.map(async (ev) => {
+        evidenceNodes.map(async (evid) => {
           try {
             // Get full evidence data with parent node
-            const fullEvidence = await this.evidenceSchema.findById(ev.id);
-            return fullEvidence || ev;
+            const fullEvidence = await this.evidenceSchema.findById(evid.id);
+            return fullEvidence || evid;
           } catch (error) {
             this.logger.warn(
-              `Could not fetch parent for evidence ${ev.id}: ${error.message}`,
+              `Could not fetch parent for evidence ${evid.id}: ${error.message}`,
             );
-            return ev;
+            return evid;
           }
         }),
       );
 
-      return evidenceWithParents.map((ev) =>
-        this.transformEvidenceToUniversalNode(ev),
+      return evidenceWithParents.map((evid) =>
+        this.transformEvidenceToUniversalNode(evid),
       );
     } catch (error) {
       this.logger.error(`Error fetching evidence: ${error.message}`);
@@ -607,7 +620,7 @@ export class UniversalGraphService {
       keywords: ans.keywords || [],
       categories: ans.categories || [],
       metadata: {
-        parentQuestion, // ✅ ALWAYS include parent question info
+        parentQuestion, // ✅ Always include parent question
       },
     };
   }
@@ -615,8 +628,7 @@ export class UniversalGraphService {
   /**
    * Transform Quantity to UniversalNode format
    * Uses content vote fallback to inclusion votes
-   * ✅ FIXED: Uses qty.question (not qty.definition)
-   * ✅ FIXED: Removed measurementUnit and value (not on QuantityData)
+   * ✅ FIXED: Uses qty.question (not qty.questionText)
    */
   private transformQuantityToUniversalNode(
     qty: QuantityData,
@@ -624,7 +636,7 @@ export class UniversalGraphService {
     return {
       id: qty.id,
       type: 'quantity',
-      content: qty.question, // ✅ FIXED: Changed from qty.definition
+      content: qty.question, // ✅ FIXED: Changed from qty.questionText to qty.question
       createdBy: qty.createdBy,
       publicCredit: qty.publicCredit,
       createdAt: qty.createdAt?.toISOString() || new Date().toISOString(),
@@ -639,7 +651,7 @@ export class UniversalGraphService {
       discussionId: qty.discussionId || null,
       keywords: qty.keywords || [],
       categories: qty.categories || [],
-      metadata: {}, // ✅ FIXED: Removed measurementUnit and value
+      metadata: {},
     };
   }
 
@@ -647,97 +659,249 @@ export class UniversalGraphService {
    * Transform Evidence to UniversalNode format
    * ALWAYS includes parent node info in metadata
    * Uses content vote fallback to inclusion votes
-   * ✅ FIXED: Removed isPeerReviewed (not on EvidenceData)
+   * ✅ FIXED: Uses evid.url (not evid.sourceUrl)
    */
   private transformEvidenceToUniversalNode(
-    ev: EvidenceData,
+    evid: EvidenceData,
   ): UniversalNodeData {
-    // Extract parent node data if available
+    // Build parent node metadata from the evidence schema result
     let parentNode: UniversalNodeData['metadata']['parentNode'];
 
-    if (ev.parentInfo) {
+    if ((evid as any).parentNodeType && (evid as any).parentNodeId) {
       parentNode = {
-        nodeId: ev.parentInfo.id,
-        nodeType: ev.parentInfo.type,
-        content: ev.parentInfo.title,
+        nodeId: (evid as any).parentNodeId,
+        nodeType: (evid as any).parentNodeType,
+        content: (evid as any).parentNodeContent || '',
       };
     }
 
     return {
-      id: ev.id,
+      id: evid.id,
       type: 'evidence',
-      content: ev.title,
-      createdBy: ev.createdBy,
-      publicCredit: ev.publicCredit,
-      createdAt: ev.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: ev.updatedAt?.toISOString() || new Date().toISOString(),
-      inclusionPositiveVotes: ev.inclusionPositiveVotes || 0,
-      inclusionNegativeVotes: ev.inclusionNegativeVotes || 0,
-      inclusionNetVotes: ev.inclusionNetVotes || 0,
+      content: evid.title || evid.url || 'Evidence', // ✅ FIXED: Use evid.url (not evid.sourceUrl)
+      createdBy: evid.createdBy,
+      publicCredit: evid.publicCredit,
+      createdAt: evid.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: evid.updatedAt?.toISOString() || new Date().toISOString(),
+      inclusionPositiveVotes: evid.inclusionPositiveVotes || 0,
+      inclusionNegativeVotes: evid.inclusionNegativeVotes || 0,
+      inclusionNetVotes: evid.inclusionNetVotes || 0,
       // Evidence has no content votes - will fall back to inclusion
       contentPositiveVotes: 0,
       contentNegativeVotes: 0,
-      contentNetVotes: ev.inclusionNetVotes || 0, // ✅ Fallback to inclusion
-      discussionId: ev.discussionId || null,
-      keywords: ev.keywords || [],
-      categories: ev.categories || [],
+      contentNetVotes: evid.inclusionNetVotes || 0, // ✅ Fallback to inclusion
+      discussionId: evid.discussionId || null,
+      keywords: evid.keywords || [],
+      categories: evid.categories || [],
       metadata: {
-        parentNode, // ✅ ALWAYS include parent node info
-        sourceUrl: ev.url,
-        // ✅ FIXED: Removed isPeerReviewed (not a direct property of EvidenceData)
+        sourceUrl: evid.url, // ✅ FIXED: Use evid.url (not evid.sourceUrl)
+        parentNode, // ✅ Always include parent node
       },
     };
   }
 
   /**
-   * Apply keyword filtering
-   * Phase 4.2 will add ANY/ALL modes
+   * ✅ Phase 4.2: Apply keyword filtering with ANY/ALL mode support
+   *
+   * @param nodes - Nodes to filter
+   * @param keywords - Keywords to filter by
+   * @param include - true = include matching nodes, false = exclude matching nodes
+   * @param mode - 'any' = node has at least one keyword, 'all' = node has all keywords
    */
   private applyKeywordFilter(
     nodes: UniversalNodeData[],
     keywords: string[],
     include: boolean,
+    mode: 'any' | 'all',
   ): UniversalNodeData[] {
     if (keywords.length === 0) return nodes;
 
+    this.logger.debug(
+      `Applying keyword filter: mode=${mode}, include=${include}, keywords=${keywords.join(',')}`,
+    );
+
     return nodes.filter((node) => {
       const nodeKeywords = node.keywords.map((k) => k.word.toLowerCase());
-      const hasKeyword = keywords.some((kw) =>
-        nodeKeywords.includes(kw.toLowerCase()),
-      );
-      return include ? hasKeyword : !hasKeyword;
+      const searchKeywords = keywords.map((k) => k.toLowerCase());
+
+      let matches: boolean;
+
+      if (mode === 'any') {
+        // ANY mode: node must have at least one of the keywords
+        matches = searchKeywords.some((keyword) =>
+          nodeKeywords.includes(keyword),
+        );
+      } else {
+        // ALL mode: node must have all of the keywords
+        matches = searchKeywords.every((keyword) =>
+          nodeKeywords.includes(keyword),
+        );
+      }
+
+      // Apply include/exclude logic
+      return include ? matches : !matches;
     });
   }
 
   /**
-   * Apply category filtering
-   * Phase 4.2 will add ANY/ALL modes
+   * ✅ Phase 4.2: Apply category filtering with ANY/ALL mode support
+   *
+   * @param nodes - Nodes to filter
+   * @param categories - Category IDs to filter by
+   * @param include - true = include matching nodes, false = exclude matching nodes
+   * @param mode - 'any' = node in at least one category, 'all' = node in all categories
    */
   private applyCategoryFilter(
     nodes: UniversalNodeData[],
     categories: string[],
     include: boolean,
+    mode: 'any' | 'all',
   ): UniversalNodeData[] {
     if (categories.length === 0) return nodes;
 
+    this.logger.debug(
+      `Applying category filter: mode=${mode}, include=${include}, categories=${categories.join(',')}`,
+    );
+
     return nodes.filter((node) => {
       const nodeCategoryIds = node.categories.map((c) => c.id);
-      const hasCategory = categories.some((catId) =>
-        nodeCategoryIds.includes(catId),
-      );
-      return include ? hasCategory : !hasCategory;
+
+      let matches: boolean;
+
+      if (mode === 'any') {
+        // ANY mode: node must be in at least one of the categories
+        matches = categories.some((catId) => nodeCategoryIds.includes(catId));
+      } else {
+        // ALL mode: node must be in all of the categories
+        matches = categories.every((catId) => nodeCategoryIds.includes(catId));
+      }
+
+      // Apply include/exclude logic
+      return include ? matches : !matches;
     });
   }
 
   /**
-   * Apply user filtering
-   * Phase 4.2 will add created/interacted/voted modes
+   * ✅ Phase 4.2: Apply user filtering with interaction mode support
+   *
+   * @param nodes - Nodes to filter
+   * @param userId - User ID to filter by
+   * @param mode - Filter mode:
+   *   - 'all': No filtering (return all nodes)
+   *   - 'created': Only nodes created by this user
+   *   - 'interacted': Nodes user has voted on or commented on
+   *   - 'voted': Nodes user has voted on (inclusion or content)
    */
-  private applyUserFilter(
+  private async applyUserFilter(
     nodes: UniversalNodeData[],
     userId: string,
-  ): UniversalNodeData[] {
-    return nodes.filter((node) => node.createdBy === userId);
+    mode: 'all' | 'created' | 'interacted' | 'voted',
+  ): Promise<UniversalNodeData[]> {
+    if (!userId || mode === 'all') return nodes;
+
+    this.logger.debug(`Applying user filter: mode=${mode}, userId=${userId}`);
+
+    switch (mode) {
+      case 'created':
+        // Only nodes created by this user
+        return nodes.filter((node) => node.createdBy === userId);
+
+      case 'voted':
+        // Nodes the user has voted on (inclusion or content)
+        try {
+          const votedNodeIds = await this.getNodesVotedByUser(userId);
+          return nodes.filter((node) => votedNodeIds.has(node.id));
+        } catch (error) {
+          this.logger.error(
+            `Error fetching voted nodes for user ${userId}: ${error.message}`,
+          );
+          return nodes; // Return unfiltered on error
+        }
+
+      case 'interacted':
+        // Nodes the user has voted on or commented on
+        try {
+          const interactedNodeIds = await this.getNodesInteractedByUser(userId);
+          return nodes.filter((node) => interactedNodeIds.has(node.id));
+        } catch (error) {
+          this.logger.error(
+            `Error fetching interacted nodes for user ${userId}: ${error.message}`,
+          );
+          return nodes; // Return unfiltered on error
+        }
+
+      default:
+        return nodes;
+    }
+  }
+
+  /**
+   * ✅ Phase 4.2: Get IDs of nodes the user has voted on
+   */
+  private async getNodesVotedByUser(userId: string): Promise<Set<string>> {
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(node)
+        WHERE node:StatementNode OR node:OpenQuestionNode OR node:AnswerNode 
+          OR node:QuantityNode OR node:EvidenceNode
+        RETURN DISTINCT node.id as nodeId
+      `;
+
+      const result = await this.neo4jService.read(query, { userId });
+      const nodeIds = new Set<string>();
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        if (nodeId) {
+          nodeIds.add(nodeId);
+        }
+      });
+
+      this.logger.debug(`User ${userId} has voted on ${nodeIds.size} nodes`);
+
+      return nodeIds;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching voted nodes for user ${userId}: ${error.message}`,
+      );
+      return new Set<string>();
+    }
+  }
+
+  /**
+   * ✅ Phase 4.2: Get IDs of nodes the user has interacted with (voted or commented)
+   */
+  private async getNodesInteractedByUser(userId: string): Promise<Set<string>> {
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[r]->(node)
+        WHERE (type(r) = 'VOTED_ON' OR type(r) = 'COMMENTED')
+          AND (node:StatementNode OR node:OpenQuestionNode OR node:AnswerNode 
+            OR node:QuantityNode OR node:EvidenceNode)
+        RETURN DISTINCT node.id as nodeId
+      `;
+
+      const result = await this.neo4jService.read(query, { userId });
+      const nodeIds = new Set<string>();
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        if (nodeId) {
+          nodeIds.add(nodeId);
+        }
+      });
+
+      this.logger.debug(
+        `User ${userId} has interacted with ${nodeIds.size} nodes`,
+      );
+
+      return nodeIds;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching interacted nodes for user ${userId}: ${error.message}`,
+      );
+      return new Set<string>();
+    }
   }
 
   /**
@@ -805,7 +969,6 @@ export class UniversalGraphService {
 
   /**
    * Enrich nodes with user context (votes and visibility preferences)
-   * Phase 4.5 will implement batch enrichment
    */
   private async enrichWithUserContext(
     nodes: UniversalNodeData[],
@@ -816,213 +979,465 @@ export class UniversalGraphService {
         `Enriching ${nodes.length} nodes with user context for ${userId}`,
       );
 
-      const enriched = await Promise.all(
-        nodes.map(async (node) => {
-          try {
-            // Get node label for Neo4j query
-            const nodeLabel =
-              node.type === 'statement'
-                ? 'StatementNode'
-                : node.type === 'openquestion'
-                  ? 'OpenQuestionNode'
-                  : node.type === 'answer'
-                    ? 'AnswerNode'
-                    : node.type === 'quantity'
-                      ? 'QuantityNode'
-                      : 'EvidenceNode';
+      // Get user votes for all nodes
+      const nodeIds = nodes.map((n) => n.id);
+      const userVotes = await this.getUserVotesForNodes(userId, nodeIds);
 
-            // Get vote status from the appropriate schema
-            let voteStatus: any = null;
+      // Get user visibility preferences
+      const visibilityPrefs =
+        await this.visibilityService.getUserVisibilityPreferences(userId);
 
-            switch (node.type) {
-              case 'statement':
-                voteStatus = await this.statementSchema.getVoteStatus(
-                  node.id,
-                  userId,
-                );
-                break;
-              case 'openquestion':
-                voteStatus = await this.openQuestionSchema.getVoteStatus(
-                  node.id,
-                  userId,
-                );
-                break;
-              case 'answer':
-                voteStatus = await this.answerSchema.getVoteStatus(
-                  node.id,
-                  userId,
-                );
-                break;
-              case 'quantity':
-                voteStatus = await this.quantitySchema.getVoteStatus(
-                  node.id,
-                  userId,
-                );
-                break;
-              case 'evidence':
-                voteStatus = await this.evidenceSchema.getVoteStatus(
-                  node.id,
-                  userId,
-                );
-                break;
-            }
+      // Enrich each node
+      return nodes.map((node) => {
+        const voteStatus = userVotes.get(node.id);
+        const visibilityPref = visibilityPrefs[node.id];
 
-            // Get visibility preference
-            const visQuery = `
-              MATCH (u:UserNode {id: $userId})-[h:HIDES]->(n:${nodeLabel} {id: $nodeId})
-              RETURN h.preference as preference
-            `;
-
-            const visResult = await this.neo4jService.read(visQuery, {
-              userId,
-              nodeId: node.id,
-            });
-
-            const visibilityPref =
-              visResult.records.length > 0
-                ? visResult.records[0].get('preference')
-                : 'visible';
-
-            // Convert vote counts to vote status
-            let inclusionVote: 'positive' | 'negative' | null = null;
-            let contentVote: 'positive' | 'negative' | null = null;
-
-            if (voteStatus) {
-              // Check if user has voted - need to query the relationship
-              const userVoteQuery = `
-                MATCH (u:UserNode {id: $userId})-[v:VOTED_ON]->(n:${nodeLabel} {id: $nodeId})
-                RETURN v.kind as kind, v.status as status
-              `;
-
-              const userVoteResult = await this.neo4jService.read(
-                userVoteQuery,
-                {
-                  userId,
-                  nodeId: node.id,
-                },
-              );
-
-              if (userVoteResult.records.length > 0) {
-                userVoteResult.records.forEach((record) => {
-                  const kind = record.get('kind');
-                  const status = record.get('status');
-
-                  if (kind === 'INCLUSION') {
-                    inclusionVote =
-                      status === 'agree' ? 'positive' : 'negative';
-                  } else if (kind === 'CONTENT') {
-                    contentVote = status === 'agree' ? 'positive' : 'negative';
-                  }
-                });
-              }
-            }
-
-            return {
-              ...node,
-              metadata: {
-                ...node.metadata,
-                userVoteStatus: {
-                  inclusionVote,
-                  contentVote,
-                },
-                userVisibilityPreference: visibilityPref || 'visible',
-              },
-            };
-          } catch (error) {
-            this.logger.warn(
-              `Failed to enrich node ${node.id}: ${error.message}`,
-            );
-            return node;
+        // ✅ FIXED: Convert visibility preference to 'hidden' | 'visible'
+        let userVisibilityPreference: 'hidden' | 'visible' | undefined;
+        if (visibilityPref !== undefined) {
+          // Handle boolean or string values
+          if (typeof visibilityPref === 'boolean') {
+            userVisibilityPreference = visibilityPref ? 'visible' : 'hidden';
+          } else if (typeof visibilityPref === 'string') {
+            userVisibilityPreference = visibilityPref as 'hidden' | 'visible';
           }
-        }),
-      );
+        }
 
-      return enriched;
+        return {
+          ...node,
+          metadata: {
+            ...node.metadata,
+            userVoteStatus: voteStatus,
+            userVisibilityPreference,
+          },
+        };
+      });
     } catch (error) {
       this.logger.error(`Error enriching with user context: ${error.message}`);
-      return nodes; // Return original nodes if enrichment fails
+      return nodes;
+    }
+  }
+
+  /**
+   * Get user vote status for multiple nodes
+   */
+  private async getUserVotesForNodes(
+    userId: string,
+    nodeIds: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        inclusionVote: 'positive' | 'negative' | null;
+        contentVote: 'positive' | 'negative' | null;
+      }
+    >
+  > {
+    try {
+      const query = `
+        MATCH (u:User {sub: $userId})-[v:VOTED_ON]->(node)
+        WHERE node.id IN $nodeIds
+        RETURN node.id as nodeId, v.voteType as voteType, v.isPositive as isPositive
+      `;
+
+      const result = await this.neo4jService.read(query, { userId, nodeIds });
+      const votes = new Map<
+        string,
+        {
+          inclusionVote: 'positive' | 'negative' | null;
+          contentVote: 'positive' | 'negative' | null;
+        }
+      >();
+
+      result.records.forEach((record) => {
+        const nodeId = record.get('nodeId');
+        const voteType = record.get('voteType');
+        const isPositive = record.get('isPositive');
+
+        if (!votes.has(nodeId)) {
+          votes.set(nodeId, { inclusionVote: null, contentVote: null });
+        }
+
+        const nodeVotes = votes.get(nodeId)!;
+        const voteValue = isPositive ? 'positive' : 'negative';
+
+        if (voteType === 'inclusion') {
+          nodeVotes.inclusionVote = voteValue;
+        } else if (voteType === 'content') {
+          nodeVotes.contentVote = voteValue;
+        }
+      });
+
+      return votes;
+    } catch (error) {
+      this.logger.error(`Error fetching user votes: ${error.message}`);
+      return new Map();
     }
   }
 
   /**
    * Get relationships between nodes
-   * Phase 4.2+ will implement relationship fetching
+   * Phase 4.2+ will implement relationship consolidation
    */
   private async getRelationships(
     nodeIds: string[],
     relationshipTypes: string[],
     minCategoryOverlap: number,
   ): Promise<UniversalRelationshipData[]> {
+    if (nodeIds.length === 0) return [];
+
     const relationships: UniversalRelationshipData[] = [];
 
-    if (nodeIds.length === 0) return relationships;
-
-    // Phase 4.2+ will implement relationship fetching
-    // For now, return empty array
-    this.logger.debug(
-      `Relationship fetching will be implemented in Phase 4.2+ ` +
-        `(requested types: ${relationshipTypes.join(', ')}, minOverlap: ${minCategoryOverlap})`,
-    );
-
-    return relationships;
-  }
-
-  /**
-   * Get available keywords for filtering
-   * Phase 4.2+ will implement with caching
-   */
-  async getAvailableKeywords(): Promise<KeywordInfo[]> {
     try {
-      this.logger.debug('Fetching available keywords');
+      // Fetch each relationship type
+      if (relationshipTypes.includes('shared_keyword')) {
+        const sharedKeywordRels =
+          await this.getSharedKeywordRelationships(nodeIds);
+        relationships.push(...sharedKeywordRels);
+      }
 
-      const query = `
-        MATCH (w:WordNode)-[t:TAGGED]->(n)
-        WHERE w.inclusionNetVotes > 0
-        AND (n:StatementNode OR n:OpenQuestionNode OR n:AnswerNode OR n:QuantityNode OR n:EvidenceNode)
-        WITH w.word as word, count(DISTINCT n) as usageCount
-        RETURN word, usageCount
-        ORDER BY usageCount DESC
-      `;
+      if (relationshipTypes.includes('related_to')) {
+        const relatedToRels = await this.getRelatedToRelationships(nodeIds);
+        relationships.push(...relatedToRels);
+      }
 
-      const result = await this.neo4jService.read(query, {});
+      if (relationshipTypes.includes('answers')) {
+        const answersRels = await this.getAnswersRelationships(nodeIds);
+        relationships.push(...answersRels);
+      }
 
-      return result.records.map((record) => ({
-        word: record.get('word'),
-        usageCount: record.get('usageCount').toInt(),
-      }));
+      if (relationshipTypes.includes('evidence_for')) {
+        const evidenceForRels = await this.getEvidenceForRelationships(nodeIds);
+        relationships.push(...evidenceForRels);
+      }
+
+      if (relationshipTypes.includes('shared_category')) {
+        const sharedCategoryRels = await this.getSharedCategoryRelationships(
+          nodeIds,
+          minCategoryOverlap,
+        );
+        relationships.push(...sharedCategoryRels);
+      }
+
+      if (relationshipTypes.includes('categorized_as')) {
+        const categorizedAsRels =
+          await this.getCategorizedAsRelationships(nodeIds);
+        relationships.push(...categorizedAsRels);
+      }
+
+      this.logger.debug(`Found ${relationships.length} total relationships`);
+
+      return relationships;
     } catch (error) {
-      this.logger.error(`Error fetching keywords: ${error.message}`);
+      this.logger.error(`Error fetching relationships: ${error.message}`);
       return [];
     }
   }
 
   /**
-   * Get available categories for filtering
-   * Phase 4.2+ will implement with caching
+   * Get shared keyword relationships
+   * Phase 4.2+ will consolidate multiple keyword relationships
+   */
+  private async getSharedKeywordRelationships(
+    nodeIds: string[],
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (n1)-[:TAGGED]->(w:WordNode)<-[:TAGGED]-(n2)
+        WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds AND n1.id < n2.id
+        WITH n1, n2, collect(w.word) as sharedWords, count(w) as sharedCount
+        WHERE sharedCount > 0
+        RETURN n1.id as source, n2.id as target, sharedWords, sharedCount
+      `;
+
+      const result = await this.neo4jService.read(query, { nodeIds });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+        const sharedWords = record.get('sharedWords');
+        const sharedCount = record.get('sharedCount');
+
+        relationships.push({
+          id: `${source}-shared_keyword-${target}`,
+          source,
+          target,
+          type: 'shared_keyword',
+          strength: sharedCount,
+          metadata: {
+            sharedWords,
+          },
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching shared keyword relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get related_to relationships
+   */
+  private async getRelatedToRelationships(
+    nodeIds: string[],
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (n1)-[r:RELATED_TO]->(n2)
+        WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds
+        RETURN n1.id as source, n2.id as target, r.strength as strength
+      `;
+
+      const result = await this.neo4jService.read(query, { nodeIds });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+        const strength = record.get('strength') || 1.0;
+
+        relationships.push({
+          id: `${source}-related_to-${target}`,
+          source,
+          target,
+          type: 'related_to',
+          strength,
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching related_to relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get answers relationships (OpenQuestion -> Answer)
+   */
+  private async getAnswersRelationships(
+    nodeIds: string[],
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (q:OpenQuestionNode)-[:HAS_ANSWER]->(a:AnswerNode)
+        WHERE q.id IN $nodeIds AND a.id IN $nodeIds
+        RETURN q.id as source, a.id as target
+      `;
+
+      const result = await this.neo4jService.read(query, { nodeIds });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+
+        relationships.push({
+          id: `${source}-answers-${target}`,
+          source,
+          target,
+          type: 'answers',
+          strength: 1.0,
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching answers relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get evidence_for relationships (Evidence -> Parent Node)
+   */
+  private async getEvidenceForRelationships(
+    nodeIds: string[],
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (e:EvidenceNode)-[:SUPPORTS]->(parent)
+        WHERE e.id IN $nodeIds AND parent.id IN $nodeIds
+        RETURN e.id as source, parent.id as target
+      `;
+
+      const result = await this.neo4jService.read(query, { nodeIds });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+
+        relationships.push({
+          id: `${source}-evidence_for-${target}`,
+          source,
+          target,
+          type: 'evidence_for',
+          strength: 1.0,
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching evidence_for relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get shared category relationships
+   */
+  private async getSharedCategoryRelationships(
+    nodeIds: string[],
+    minOverlap: number,
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (n1)-[:CATEGORIZED_AS]->(c:CategoryNode)<-[:CATEGORIZED_AS]-(n2)
+        WHERE n1.id IN $nodeIds AND n2.id IN $nodeIds 
+          AND n1.id < n2.id AND c.inclusionNetVotes > 0
+        WITH n1, n2, 
+             collect({id: c.id, name: c.name}) as sharedCategories, 
+             count(c) as overlapCount
+        WHERE overlapCount >= $minOverlap
+        RETURN n1.id as source, n2.id as target, sharedCategories, overlapCount
+      `;
+
+      const result = await this.neo4jService.read(query, {
+        nodeIds,
+        minOverlap,
+      });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+        const sharedCategories = record.get('sharedCategories');
+        const overlapCount = record.get('overlapCount');
+
+        relationships.push({
+          id: `${source}-shared_category-${target}`,
+          source,
+          target,
+          type: 'shared_category',
+          strength: overlapCount,
+          metadata: {
+            sharedCategories,
+          },
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching shared category relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get categorized_as relationships (Node -> Category)
+   */
+  private async getCategorizedAsRelationships(
+    nodeIds: string[],
+  ): Promise<UniversalRelationshipData[]> {
+    try {
+      const query = `
+        MATCH (node)-[:CATEGORIZED_AS]->(c:CategoryNode)
+        WHERE node.id IN $nodeIds AND c.inclusionNetVotes > 0
+        RETURN node.id as source, c.id as target, c.name as categoryName
+      `;
+
+      const result = await this.neo4jService.read(query, { nodeIds });
+      const relationships: UniversalRelationshipData[] = [];
+
+      result.records.forEach((record) => {
+        const source = record.get('source');
+        const target = record.get('target');
+        const categoryName = record.get('categoryName');
+
+        relationships.push({
+          id: `${source}-categorized_as-${target}`,
+          source,
+          target,
+          type: 'categorized_as',
+          strength: 1.0,
+          metadata: {
+            relationshipType: 'categorized_as',
+            sharedCategories: [{ id: target, name: categoryName }],
+          },
+        });
+      });
+
+      return relationships;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching categorized_as relationships: ${error.message}`,
+      );
+      return [];
+    }
+  }
+
+  /**
+   * Get available keywords for filtering UI
+   */
+  async getAvailableKeywords(): Promise<KeywordInfo[]> {
+    try {
+      const query = `
+        MATCH (w:WordNode)<-[:TAGGED]-(node)
+        WHERE node:StatementNode OR node:OpenQuestionNode 
+          OR node:AnswerNode OR node:QuantityNode OR node:EvidenceNode
+        RETURN w.word as word, count(node) as usageCount
+        ORDER BY usageCount DESC
+        LIMIT 1000
+      `;
+
+      const result = await this.neo4jService.read(query);
+      const keywords: KeywordInfo[] = [];
+
+      result.records.forEach((record) => {
+        keywords.push({
+          word: record.get('word'),
+          usageCount: record.get('usageCount')?.toNumber() || 0,
+        });
+      });
+
+      return keywords;
+    } catch (error) {
+      this.logger.error(`Error fetching available keywords: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Get available categories for filtering UI
    */
   async getAvailableCategories(): Promise<CategoryInfo[]> {
     try {
-      this.logger.debug('Fetching available categories');
+      const categories = await this.categoryService.getAllCategories();
 
-      const query = `
-        MATCH (c:CategoryNode)-[cat:CATEGORIZED_AS]->(n)
-        WHERE c.inclusionNetVotes > 0
-        AND (n:StatementNode OR n:OpenQuestionNode OR n:AnswerNode OR n:QuantityNode OR n:EvidenceNode)
-        WITH c.id as id, c.name as name, c.description as description, count(DISTINCT n) as usageCount
-        RETURN id, name, description, usageCount
-        ORDER BY usageCount DESC
-      `;
-
-      const result = await this.neo4jService.read(query, {});
-
-      return result.records.map((record) => ({
-        id: record.get('id'),
-        name: record.get('name'),
-        description: record.get('description'),
-        usageCount: record.get('usageCount').toInt(),
+      return categories.map((cat) => ({
+        id: cat.id,
+        name: cat.name,
+        description: cat.description,
+        usageCount: 0, // TODO: Calculate usage count
       }));
     } catch (error) {
-      this.logger.error(`Error fetching categories: ${error.message}`);
+      this.logger.error(
+        `Error fetching available categories: ${error.message}`,
+      );
       return [];
     }
   }

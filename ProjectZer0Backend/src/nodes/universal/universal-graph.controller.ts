@@ -17,7 +17,7 @@ import {
 /**
  * DTO for Universal Graph query parameters
  * Phase 4.1: Supports all 5 content node types (no Category in dataset)
- * Phase 4.2+: Will add ANY/ALL modes for filters
+ * Phase 4.2: Added ANY/ALL modes for keyword and category filters, plus user interaction filtering
  */
 export class UniversalNodesQueryDto {
   // Node type filtering
@@ -26,9 +26,10 @@ export class UniversalNodesQueryDto {
   >;
   includeNodeTypes?: boolean;
 
-  // Category filtering
+  // ✅ Phase 4.2: Category filtering with ANY/ALL modes
   categories?: string[];
   includeCategoriesFilter?: boolean;
+  categoryMode?: 'any' | 'all'; // NEW: any = at least one, all = must have all
 
   // Pagination
   limit?: number;
@@ -45,12 +46,14 @@ export class UniversalNodesQueryDto {
     | 'keyword_relevance';
   sort_direction?: 'asc' | 'desc';
 
-  // Keyword filtering
+  // ✅ Phase 4.2: Keyword filtering with ANY/ALL modes
   keywords?: string[];
   includeKeywordsFilter?: boolean;
+  keywordMode?: 'any' | 'all'; // NEW: any = at least one, all = must have all
 
-  // User filtering
+  // ✅ Phase 4.2: User filtering with interaction modes
   user_id?: string;
+  userFilterMode?: 'all' | 'created' | 'interacted' | 'voted'; // NEW: Filter by user interaction
 
   // Relationships
   include_relationships?: boolean;
@@ -71,11 +74,16 @@ export class UniversalNodesQueryDto {
 /**
  * Universal Graph Controller
  *
- * Phase 4.1: Schema integration complete
+ * Phase 4.1: Schema integration complete ✅
  * - Uses injected schemas instead of direct Neo4j queries
  * - Supports all 5 primary content node types
  * - Evidence support included
  * - Content vote fallback for OpenQuestion/Quantity/Evidence
+ *
+ * Phase 4.2: Advanced filtering complete ✅
+ * - Keyword filtering with ANY/ALL modes
+ * - Category filtering with ANY/ALL modes
+ * - User interaction filtering (all/created/interacted/voted modes)
  *
  * Endpoints:
  * - GET /graph/universal/nodes - Fetch universal graph with filters
@@ -98,10 +106,19 @@ export class UniversalGraphController {
    * Query Parameters:
    * - node_types: Comma-separated or array of types (default: statement,openquestion)
    * - includeNodeTypes: true=include types, false=exclude types (default: true)
+   *
    * - categories: Comma-separated or array of category IDs
    * - includeCategoriesFilter: true=include, false=exclude (default: true)
+   * - categoryMode: 'any'=at least one category, 'all'=all categories (default: any) ✅ NEW
+   *
    * - keywords: Comma-separated or array of keywords
    * - includeKeywordsFilter: true=include, false=exclude (default: true)
+   * - keywordMode: 'any'=at least one keyword, 'all'=all keywords (default: any) ✅ NEW
+   *
+   * - user_id: User ID for user filtering
+   * - userFilterMode: 'all'=no filter, 'created'=created by user,
+   *                   'voted'=voted by user, 'interacted'=voted or commented (default: all) ✅ NEW
+   *
    * - limit: Max nodes to return (1-1000, default: 200)
    * - offset: Pagination offset (default: 0)
    * - sort_by: Sort field (default: netVotes)
@@ -110,8 +127,13 @@ export class UniversalGraphController {
    * - relationship_types: Types of relationships to include
    * - minCategoryOverlap: Minimum shared categories for relationships (default: 1)
    *
-   * Example:
-   * GET /graph/universal/nodes?node_types=statement,answer&limit=50&sort_by=netVotes
+   * Examples:
+   * - Basic: GET /graph/universal/nodes?node_types=statement,answer&limit=50
+   * - Keyword ANY: GET /graph/universal/nodes?keywords=ai,ethics&keywordMode=any
+   * - Keyword ALL: GET /graph/universal/nodes?keywords=ai,ethics&keywordMode=all
+   * - Category ALL: GET /graph/universal/nodes?categories=tech,philosophy&categoryMode=all
+   * - User created: GET /graph/universal/nodes?user_id=user-123&userFilterMode=created
+   * - User voted: GET /graph/universal/nodes?user_id=user-123&userFilterMode=voted
    */
   @Get('nodes')
   async getUniversalNodes(
@@ -273,6 +295,11 @@ export class UniversalGraphController {
         query.includeCategoriesFilter === true;
     }
 
+    // ✅ Phase 4.2: Parse categoryMode (any | all)
+    if (query.categoryMode) {
+      parsedQuery.categoryMode = query.categoryMode;
+    }
+
     // Parse keywords (array or comma-separated string)
     if (query.keywords) {
       parsedQuery.keywords = Array.isArray(query.keywords)
@@ -285,6 +312,21 @@ export class UniversalGraphController {
       parsedQuery.includeKeywordsFilter =
         query.includeKeywordsFilter === 'true' ||
         query.includeKeywordsFilter === true;
+    }
+
+    // ✅ Phase 4.2: Parse keywordMode (any | all)
+    if (query.keywordMode) {
+      parsedQuery.keywordMode = query.keywordMode;
+    }
+
+    // Parse user_id (string)
+    if (query.user_id) {
+      parsedQuery.user_id = query.user_id;
+    }
+
+    // ✅ Phase 4.2: Parse userFilterMode (all | created | interacted | voted)
+    if (query.userFilterMode) {
+      parsedQuery.userFilterMode = query.userFilterMode;
     }
 
     // Parse relationship_types (array or comma-separated string)
@@ -370,10 +412,6 @@ export class UniversalGraphController {
       parsedQuery.sort_direction = query.sort_direction;
     }
 
-    if (query.user_id) {
-      parsedQuery.user_id = query.user_id;
-    }
-
     // Add requesting user ID from JWT token
     parsedQuery.requesting_user_id = req.user?.sub;
 
@@ -426,6 +464,37 @@ export class UniversalGraphController {
       if (!['asc', 'desc'].includes(query.sort_direction)) {
         throw new BadRequestException(
           'sort_direction must be either "asc" or "desc"',
+        );
+      }
+    }
+
+    // ✅ Phase 4.2: Validate keywordMode
+    if (query.keywordMode) {
+      if (!['any', 'all'].includes(query.keywordMode)) {
+        throw new BadRequestException(
+          'keywordMode must be either "any" or "all"',
+        );
+      }
+    }
+
+    // ✅ Phase 4.2: Validate categoryMode
+    if (query.categoryMode) {
+      if (!['any', 'all'].includes(query.categoryMode)) {
+        throw new BadRequestException(
+          'categoryMode must be either "any" or "all"',
+        );
+      }
+    }
+
+    // ✅ Phase 4.2: Validate userFilterMode
+    if (query.userFilterMode) {
+      if (
+        !['all', 'created', 'interacted', 'voted'].includes(
+          query.userFilterMode,
+        )
+      ) {
+        throw new BadRequestException(
+          'userFilterMode must be one of: all, created, interacted, voted',
         );
       }
     }

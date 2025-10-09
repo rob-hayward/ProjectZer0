@@ -1,5 +1,6 @@
 // src/nodes/universal/universal-graph.controller.spec.ts
 // ✅ Phase 4.1: Fixed E2E tests - Mock service instead of importing full module
+// ✅ Phase 4.2: Added E2E tests for ANY/ALL filtering modes and user interaction filtering
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
@@ -8,7 +9,7 @@ import { UniversalGraphController } from './universal-graph.controller';
 import { UniversalGraphService } from './universal-graph.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
-describe('UniversalGraphController (E2E) - Phase 4.1', () => {
+describe('UniversalGraphController (E2E) - Phase 4.1 & 4.2', () => {
   let app: INestApplication;
   let universalGraphService: jest.Mocked<UniversalGraphService>;
 
@@ -60,7 +61,7 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
   });
 
   // ============================================
-  // BASIC FETCH TESTS
+  // BASIC FETCH TESTS (Phase 4.1)
   // ============================================
   describe('GET /graph/universal/nodes - Basic Fetching', () => {
     it('should return nodes with default parameters', async () => {
@@ -177,9 +178,329 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
   });
 
   // ============================================
-  // FILTERING TESTS
+  // PHASE 4.2: KEYWORD FILTERING WITH ANY/ALL MODES
   // ============================================
-  describe('GET /graph/universal/nodes - Filtering', () => {
+  describe('GET /graph/universal/nodes - Phase 4.2 Keyword Filtering', () => {
+    const mockResponse = {
+      nodes: [],
+      relationships: [],
+      total_count: 0,
+      has_more: false,
+    };
+
+    it('should filter by keywords with ANY mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ keywords: 'ai,ethics', keywordMode: 'any' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keywords: ['ai', 'ethics'],
+          keywordMode: 'any',
+        }),
+      );
+    });
+
+    it('should filter by keywords with ALL mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ keywords: 'ai,ethics', keywordMode: 'all' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keywords: ['ai', 'ethics'],
+          keywordMode: 'all',
+        }),
+      );
+    });
+
+    it('should default to ANY mode when keywordMode not specified', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ keywords: 'ai,ethics' })
+        .expect(200);
+
+      // Controller passes undefined, service defaults to 'any'
+      const callArgs = universalGraphService.getUniversalNodes.mock.calls[0][0];
+      expect(callArgs.keywords).toEqual(['ai', 'ethics']);
+      expect(callArgs.keywordMode).toBeUndefined(); // Let service handle default
+    });
+
+    it('should validate invalid keywordMode', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ keywords: 'ai', keywordMode: 'invalid' })
+        .expect(400);
+
+      expect(response.body.message).toContain(
+        'keywordMode must be either "any" or "all"',
+      );
+    });
+
+    it('should support keyword exclude mode with ANY', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          keywords: 'spam',
+          includeKeywordsFilter: 'false',
+          keywordMode: 'any',
+        })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keywords: ['spam'],
+          includeKeywordsFilter: false,
+          keywordMode: 'any',
+        }),
+      );
+    });
+  });
+
+  // ============================================
+  // PHASE 4.2: CATEGORY FILTERING WITH ANY/ALL MODES
+  // ============================================
+  describe('GET /graph/universal/nodes - Phase 4.2 Category Filtering', () => {
+    const mockResponse = {
+      nodes: [],
+      relationships: [],
+      total_count: 0,
+      has_more: false,
+    };
+
+    it('should filter by categories with ANY mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ categories: 'cat-tech,cat-sci', categoryMode: 'any' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categories: ['cat-tech', 'cat-sci'],
+          categoryMode: 'any',
+        }),
+      );
+    });
+
+    it('should filter by categories with ALL mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ categories: 'cat-tech,cat-sci', categoryMode: 'all' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categories: ['cat-tech', 'cat-sci'],
+          categoryMode: 'all',
+        }),
+      );
+    });
+
+    it('should default to ANY mode when categoryMode not specified', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ categories: 'cat-tech,cat-sci' })
+        .expect(200);
+
+      // Controller passes undefined, service defaults to 'any'
+      const callArgs = universalGraphService.getUniversalNodes.mock.calls[0][0];
+      expect(callArgs.categories).toEqual(['cat-tech', 'cat-sci']);
+      expect(callArgs.categoryMode).toBeUndefined(); // Let service handle default
+    });
+
+    it('should validate invalid categoryMode', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ categories: 'cat-tech', categoryMode: 'invalid' })
+        .expect(400);
+
+      expect(response.body.message).toContain(
+        'categoryMode must be either "any" or "all"',
+      );
+    });
+
+    it('should support category exclude mode with ALL', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          categories: 'cat-spam',
+          includeCategoriesFilter: 'false',
+          categoryMode: 'all',
+        })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categories: ['cat-spam'],
+          includeCategoriesFilter: false,
+          categoryMode: 'all',
+        }),
+      );
+    });
+  });
+
+  // ============================================
+  // PHASE 4.2: USER INTERACTION FILTERING
+  // ============================================
+  describe('GET /graph/universal/nodes - Phase 4.2 User Filtering', () => {
+    const mockResponse = {
+      nodes: [],
+      relationships: [],
+      total_count: 0,
+      has_more: false,
+    };
+
+    it('should filter by user with "created" mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123', userFilterMode: 'created' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-123',
+          userFilterMode: 'created',
+        }),
+      );
+    });
+
+    it('should filter by user with "voted" mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123', userFilterMode: 'voted' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-123',
+          userFilterMode: 'voted',
+        }),
+      );
+    });
+
+    it('should filter by user with "interacted" mode', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123', userFilterMode: 'interacted' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-123',
+          userFilterMode: 'interacted',
+        }),
+      );
+    });
+
+    it('should filter by user with "all" mode (no filtering)', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123', userFilterMode: 'all' })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-123',
+          userFilterMode: 'all',
+        }),
+      );
+    });
+
+    it('should default to "all" mode when userFilterMode not specified', async () => {
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123' })
+        .expect(200);
+
+      // Controller passes undefined, service defaults to 'all'
+      const callArgs = universalGraphService.getUniversalNodes.mock.calls[0][0];
+      expect(callArgs.user_id).toBe('user-123');
+      expect(callArgs.userFilterMode).toBeUndefined(); // Let service handle default
+    });
+
+    it('should validate invalid userFilterMode', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({ user_id: 'user-123', userFilterMode: 'invalid' })
+        .expect(400);
+
+      expect(response.body.message).toContain(
+        'userFilterMode must be one of: all, created, interacted, voted',
+      );
+    });
+  });
+
+  // ============================================
+  // PHASE 4.2: COMBINED FILTERS
+  // ============================================
+  describe('GET /graph/universal/nodes - Phase 4.2 Combined Filters', () => {
+    it('should apply keyword ALL + category ANY + user created filters together', async () => {
+      const mockResponse = {
+        nodes: [],
+        relationships: [],
+        total_count: 0,
+        has_more: false,
+      };
+
+      universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
+
+      await request(app.getHttpServer())
+        .get('/graph/universal/nodes')
+        .query({
+          keywords: 'ai,ethics',
+          keywordMode: 'all',
+          categories: 'cat-tech,cat-phil',
+          categoryMode: 'any',
+          user_id: 'user-123',
+          userFilterMode: 'created',
+        })
+        .expect(200);
+
+      expect(universalGraphService.getUniversalNodes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          keywords: ['ai', 'ethics'],
+          keywordMode: 'all',
+          categories: ['cat-tech', 'cat-phil'],
+          categoryMode: 'any',
+          user_id: 'user-123',
+          userFilterMode: 'created',
+        }),
+      );
+    });
+  });
+
+  // ============================================
+  // FILTERING TESTS (Phase 4.1)
+  // ============================================
+  describe('GET /graph/universal/nodes - Basic Filtering', () => {
     it('should filter by keywords', async () => {
       const mockResponse = {
         nodes: [],
@@ -405,8 +726,6 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
     });
 
     it('should handle empty string node_types as no filter', async () => {
-      // When node_types='', it becomes [''] after split
-      // The controller doesn't validate empty strings as "invalid", it just passes them through
       const mockResponse = {
         nodes: [],
         relationships: [],
@@ -421,7 +740,6 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
         .query({ node_types: '' })
         .expect(200);
 
-      // Empty string is treated as "no node_types filter"
       expect(response.body).toBeDefined();
     });
 
@@ -435,8 +753,6 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
 
       universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
 
-      // Empty string for keywords just gets ignored - becomes [''] after split
-      // But keywords don't have validation for "invalid keywords", so they just pass through
       await request(app.getHttpServer())
         .get('/graph/universal/nodes')
         .query({ keywords: '' })
@@ -453,7 +769,6 @@ describe('UniversalGraphController (E2E) - Phase 4.1', () => {
 
       universalGraphService.getUniversalNodes.mockResolvedValue(mockResponse);
 
-      // Empty string for categories just gets ignored - becomes [''] after split
       await request(app.getHttpServer())
         .get('/graph/universal/nodes')
         .query({ categories: '' })
