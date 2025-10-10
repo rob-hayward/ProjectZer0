@@ -303,10 +303,16 @@ export class WordSchema extends TaggedNodeSchema<WordNodeData> {
         }
       }
 
-      // ✅ IMPROVED: Always return both w and d for cleaner handling
-      query += `
-        RETURN w, d
-      `;
+      // ✅ FIX: Conditionally return d only if it exists
+      if (wordData.initialDefinition) {
+        query += `
+          RETURN w, d
+        `;
+      } else {
+        query += `
+          RETURN w, null as d
+        `;
+      }
 
       const result = await this.neo4jService.write(query, params);
 
