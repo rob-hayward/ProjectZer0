@@ -27,6 +27,8 @@ import { v4 as uuidv4 } from 'uuid';
  * - Category extends BaseNodeSchema (not CategorizedNodeSchema)
  * - Self-categorization pattern (category belongs to itself)
  * - Composed of 1-5 approved words
+ * - Name auto-generated from constituent words
+ * - No description field
  * - Hierarchical with parent/child relationships
  * - Inclusion voting only (no content voting)
  * - Standard 'id' field
@@ -58,57 +60,39 @@ export class CategoryService {
   /**
    * Create a new category with optional discussion
    * Orchestrates: validation + category creation + discussion creation
+   * Note: name is auto-generated from wordIds, not user-provided
    */
   async createCategory(categoryData: {
-    name: string;
-    description?: string;
     createdBy: string;
     publicCredit?: boolean;
-    wordIds: string[]; // 1-5 words
+    wordIds: string[]; // 1-5 words - name will be auto-generated from these
     parentCategoryId?: string;
     initialComment?: string;
   }): Promise<CategoryData> {
     // Validate input
     this.validateCategoryInput(categoryData);
 
-    this.logger.log(`Creating category: ${categoryData.name}`);
+    this.logger.log(
+      `Creating category from ${categoryData.wordIds.length} words`,
+    );
 
     try {
       // Generate ID
       const categoryId = uuidv4();
 
-      // Create category via schema (schema validates words and creates self-categorization)
+      // Create category via schema (schema validates words, generates name, creates self-categorization)
       const category = await this.categorySchema.createCategory({
         id: categoryId,
-        name: categoryData.name.trim(),
-        description: categoryData.description?.trim(),
         createdBy: categoryData.createdBy,
         publicCredit: categoryData.publicCredit ?? true,
         wordIds: categoryData.wordIds,
         parentCategoryId: categoryData.parentCategoryId,
+        initialComment: categoryData.initialComment,
       });
 
-      // Create discussion if initialComment provided
-      // ⚠️ CRITICAL: Use direct DiscussionSchema injection
-      if (categoryData.initialComment) {
-        try {
-          await this.discussionSchema.createDiscussionForNode({
-            nodeId: category.id, // ← Standard 'id' field
-            nodeType: 'CategoryNode',
-            nodeIdField: 'id', // ← Standard 'id'
-            createdBy: categoryData.createdBy,
-            initialComment: categoryData.initialComment,
-          });
-          this.logger.debug(`Created discussion for category: ${category.id}`);
-        } catch (error) {
-          this.logger.warn(
-            `Failed to create discussion for category ${category.id}: ${error.message}`,
-          );
-          // Continue - category creation succeeded
-        }
-      }
-
-      this.logger.log(`Successfully created category: ${category.id}`);
+      this.logger.log(
+        `Successfully created category: ${category.name} (${category.id})`,
+      );
       return category;
     } catch (error) {
       if (
@@ -140,7 +124,7 @@ export class CategoryService {
     this.logger.debug(`Getting category: ${id}`);
 
     try {
-      const category = await this.categorySchema.findById(id);
+      const category = await this.categorySchema.getCategory(id);
 
       if (!category) {
         this.logger.debug(`Category not found: ${id}`);
@@ -162,47 +146,33 @@ export class CategoryService {
   /**
    * Update a category
    * Direct delegation to schema
+   * Note: name cannot be updated (auto-generated), description field removed
    */
   async updateCategory(
     id: string,
     updateData: {
-      name?: string;
-      description?: string;
       publicCredit?: boolean;
     },
-  ): Promise<CategoryData | null> {
+  ): Promise<CategoryData> {
     if (!id || id.trim() === '') {
       throw new BadRequestException('Category ID is required');
     }
 
-    // Validate at least one field to update
-    if (
-      !updateData.name &&
-      !updateData.description &&
-      updateData.publicCredit === undefined
-    ) {
-      throw new BadRequestException(
-        'At least one field must be provided for update',
-      );
+    if (updateData.publicCredit === undefined) {
+      throw new BadRequestException('No fields provided for update');
     }
 
-    // Validate name if provided
-    if (updateData.name !== undefined && updateData.name.trim() === '') {
-      throw new BadRequestException('Category name cannot be empty');
-    }
-
-    this.logger.log(`Updating category: ${id}`);
+    this.logger.debug(`Updating category: ${id}`);
 
     try {
-      const category = await this.categorySchema.update(id, updateData);
+      const updatedCategory = await this.categorySchema.update(id, updateData);
 
-      if (!category) {
-        this.logger.debug(`Category not found for update: ${id}`);
-        return null;
+      if (!updatedCategory) {
+        throw new NotFoundException(`Category with ID ${id} not found`);
       }
 
-      this.logger.debug(`Updated category: ${id}`);
-      return category;
+      this.logger.debug(`Successfully updated category: ${id}`);
+      return updatedCategory;
     } catch (error) {
       if (
         error instanceof BadRequestException ||
@@ -230,11 +200,11 @@ export class CategoryService {
       throw new BadRequestException('Category ID is required');
     }
 
-    this.logger.log(`Deleting category: ${id}`);
+    this.logger.debug(`Deleting category: ${id}`);
 
     try {
       await this.categorySchema.delete(id);
-      this.logger.debug(`Deleted category: ${id}`);
+      this.logger.debug(`Successfully deleted category: ${id}`);
     } catch (error) {
       if (error instanceof NotFoundException) {
         throw error;
@@ -251,12 +221,12 @@ export class CategoryService {
   }
 
   // ============================================
-  // VOTING OPERATIONS - Direct delegation
+  // VOTING OPERATIONS
   // ============================================
 
   /**
    * Vote on category inclusion
-   * Categories only support inclusion voting, not content voting
+   * Categories only have inclusion voting (no content voting)
    */
   async voteInclusion(
     id: string,
@@ -272,27 +242,14 @@ export class CategoryService {
     }
 
     this.logger.debug(
-      `Voting on category inclusion: ${id} by user: ${userId}, isPositive: ${isPositive}`,
+      `User ${userId} voting ${isPositive ? 'positive' : 'negative'} on category inclusion: ${id}`,
     );
 
     try {
-      const result = await this.categorySchema.voteInclusion(
-        id,
-        userId,
-        isPositive,
-      );
-      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
-      return result;
+      return await this.categorySchema.voteInclusion(id, userId, isPositive);
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error voting on category: ${error.message}`,
+        `Error voting on category inclusion: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
@@ -302,7 +259,7 @@ export class CategoryService {
   }
 
   /**
-   * Get vote status for a user on a category
+   * Get user's vote status for a category
    */
   async getVoteStatus(id: string, userId: string): Promise<VoteStatus | null> {
     if (!id || id.trim() === '') {
@@ -313,9 +270,7 @@ export class CategoryService {
       throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(
-      `Getting vote status for category: ${id}, user: ${userId}`,
-    );
+    this.logger.debug(`Getting vote status for category ${id}, user ${userId}`);
 
     try {
       return await this.categorySchema.getVoteStatus(id, userId);
@@ -331,7 +286,7 @@ export class CategoryService {
   }
 
   /**
-   * Remove a vote
+   * Remove user's vote from a category
    */
   async removeVote(id: string, userId: string): Promise<VoteResult> {
     if (!id || id.trim() === '') {
@@ -342,18 +297,11 @@ export class CategoryService {
       throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(`Removing vote for category: ${id}, user: ${userId}`);
+    this.logger.debug(`Removing vote from category ${id} for user ${userId}`);
 
     try {
       return await this.categorySchema.removeVote(id, userId, 'INCLUSION');
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
-        throw error;
-      }
-
       this.logger.error(`Error removing vote: ${error.message}`, error.stack);
       throw new InternalServerErrorException(
         `Failed to remove vote: ${error.message}`,
@@ -382,11 +330,11 @@ export class CategoryService {
   }
 
   // ============================================
-  // HIERARCHICAL OPERATIONS
+  // HIERARCHY OPERATIONS
   // ============================================
 
   /**
-   * Get category hierarchy (tree structure)
+   * Get category hierarchy
    * Direct delegation to schema
    */
   async getCategoryHierarchy(rootId?: string) {
@@ -480,35 +428,37 @@ export class CategoryService {
   }
 
   // ============================================
-  // PRIVATE VALIDATION HELPERS
+  // VALIDATION
   // ============================================
 
   /**
-   * Validates category input data
-   * Business rules:
-   * - Name required and not empty
-   * - Description optional
-   * - 1-5 words required
-   * - Parent category prevents circular relationships (checked in schema)
+   * Validate category creation input
+   * Note: name is not validated as it's auto-generated
    */
-  private validateCategoryInput(categoryData: {
-    name: string;
+  private validateCategoryInput(data: {
     wordIds: string[];
+    createdBy: string;
   }): void {
-    if (!categoryData.name || categoryData.name.trim() === '') {
-      throw new BadRequestException('Category name is required');
-    }
-
-    if (!categoryData.wordIds || categoryData.wordIds.length === 0) {
-      throw new BadRequestException('At least one word is required');
-    }
-
-    if (categoryData.wordIds.length > 5) {
+    // Validate word IDs
+    if (!data.wordIds || data.wordIds.length === 0) {
       throw new BadRequestException(
-        'Maximum 5 words allowed for category composition',
+        'At least one word is required to create a category',
       );
     }
 
-    // Note: Word approval and circular parent checks done in CategorySchema
+    if (data.wordIds.length > 5) {
+      throw new BadRequestException('Maximum 5 words allowed per category');
+    }
+
+    // Validate each word ID is not empty
+    const invalidWordIds = data.wordIds.filter((id) => !id || id.trim() === '');
+    if (invalidWordIds.length > 0) {
+      throw new BadRequestException('Word IDs cannot be empty');
+    }
+
+    // Validate creator
+    if (!data.createdBy || data.createdBy.trim() === '') {
+      throw new BadRequestException('Creator ID is required');
+    }
   }
 }

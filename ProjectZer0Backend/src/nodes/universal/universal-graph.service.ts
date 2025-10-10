@@ -168,7 +168,6 @@ export interface KeywordInfo {
 export interface CategoryInfo {
   id: string;
   name: string;
-  description?: string;
   usageCount: number;
 }
 
@@ -1421,9 +1420,6 @@ export class UniversalGraphService {
     }
   }
 
-  /**
-   * Get available categories for filtering UI
-   */
   async getAvailableCategories(): Promise<CategoryInfo[]> {
     try {
       const categories = await this.categoryService.getAllCategories();
@@ -1431,7 +1427,6 @@ export class UniversalGraphService {
       return categories.map((cat) => ({
         id: cat.id,
         name: cat.name,
-        description: cat.description,
         usageCount: 0, // TODO: Calculate usage count
       }));
     } catch (error) {

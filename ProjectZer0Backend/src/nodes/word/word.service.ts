@@ -120,18 +120,16 @@ export class WordService {
         isAICreated: wordData.isAICreated,
       });
 
-      // Extract the word value from the result
-      const wordValue =
-        typeof createdWordResult === 'object' && 'word' in createdWordResult
-          ? createdWordResult.word
-          : wordData.word;
+      // ✅ FIX: Extract the word string correctly from { word: WordNodeData, definition: ... }
+      // The createdWordResult.word is a WordNodeData object with a 'word' string property
+      const wordValue = createdWordResult.word.word;
 
       // Create discussion if initialComment provided
       // ⚠️ CRITICAL: Use direct DiscussionSchema injection, NOT DiscussionService
       if (wordData.initialComment) {
         try {
           await this.discussionSchema.createDiscussionForNode({
-            nodeId: wordValue, // ← Uses 'word' field, not 'id'
+            nodeId: wordValue, // ← Now correctly a string!
             nodeType: 'WordNode',
             nodeIdField: 'word', // ← IMPORTANT: 'word' for WordNode
             createdBy: wordData.createdBy,
@@ -148,15 +146,9 @@ export class WordService {
 
       this.logger.log(`Successfully created word: ${wordValue}`);
 
-      // Return the full word data by fetching it
-      const word = await this.wordSchema.findById(wordValue);
-      if (!word) {
-        throw new InternalServerErrorException(
-          'Failed to retrieve created word',
-        );
-      }
-
-      return word;
+      // ✅ FIX: Return the WordNodeData directly from the result
+      // No need to fetch again - we already have it!
+      return createdWordResult.word;
     } catch (error) {
       if (
         error instanceof BadRequestException ||

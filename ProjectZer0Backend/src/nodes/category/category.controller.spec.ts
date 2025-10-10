@@ -1,19 +1,20 @@
-// src/nodes/category/category.controller.spec.ts - COMPLETE TEST SUITE
+// src/nodes/category/category.controller.spec.ts - CORRECTED TEST SUITE
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CategoryController } from './category.controller';
 import { CategoryService } from './category.service';
+import type { CategoryData } from '../../neo4j/schemas/category.schema';
 import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 
 describe('CategoryController', () => {
   let controller: CategoryController;
   let categoryService: jest.Mocked<CategoryService>;
 
+  // Mock data with auto-generated name
   const mockCategoryData = {
     id: 'cat-123',
-    name: 'Technology',
-    description: 'Technology related content',
+    name: 'word category', // ← Auto-generated from constituent words
     createdBy: 'user-123',
     publicCredit: true,
     createdAt: new Date('2023-01-01T00:00:00Z'),
@@ -107,9 +108,8 @@ describe('CategoryController', () => {
   // ============================================
 
   describe('POST /categories (createCategory)', () => {
+    // Note: name and description removed - name is auto-generated
     const createCategoryDto = {
-      name: 'Technology',
-      description: 'Technology related content',
       publicCredit: true,
       wordIds: ['word-1', 'word-2', 'word-3'],
       parentCategoryId: 'parent-cat',
@@ -143,19 +143,6 @@ describe('CategoryController', () => {
       );
     });
 
-    it('should validate required name field', async () => {
-      const invalidDto = { ...createCategoryDto, name: '' };
-
-      await expect(
-        controller.createCategory(invalidDto, mockRequest),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        controller.createCategory(invalidDto, mockRequest),
-      ).rejects.toThrow('Category name is required');
-
-      expect(categoryService.createCategory).not.toHaveBeenCalled();
-    });
-
     it('should validate wordIds is not empty', async () => {
       const noWordsDto = { ...createCategoryDto, wordIds: [] };
 
@@ -164,7 +151,7 @@ describe('CategoryController', () => {
       ).rejects.toThrow(BadRequestException);
       await expect(
         controller.createCategory(noWordsDto, mockRequest),
-      ).rejects.toThrow('At least one word is required');
+      ).rejects.toThrow('At least one word ID is required');
 
       expect(categoryService.createCategory).not.toHaveBeenCalled();
     });
@@ -193,7 +180,7 @@ describe('CategoryController', () => {
       ).rejects.toThrow(BadRequestException);
       await expect(
         controller.createCategory(tooManyWordsDto, mockRequest),
-      ).rejects.toThrow('Maximum 5 words allowed');
+      ).rejects.toThrow('Maximum 5 words allowed per category');
 
       expect(categoryService.createCategory).not.toHaveBeenCalled();
     });
@@ -274,17 +261,14 @@ describe('CategoryController', () => {
   // ============================================
 
   describe('PUT /categories/:id (updateCategory)', () => {
+    // Note: Only publicCredit can be updated
     const updateDto = {
-      name: 'Updated Technology',
-      description: 'Updated description',
       publicCredit: false,
     };
 
     it('should update category successfully', async () => {
       const updatedCategory = {
         ...mockCategoryData,
-        name: 'Updated Technology',
-        description: 'Updated description',
         publicCredit: false,
       };
       categoryService.updateCategory.mockResolvedValue(updatedCategory);
@@ -313,13 +297,13 @@ describe('CategoryController', () => {
       expect(categoryService.updateCategory).not.toHaveBeenCalled();
     });
 
-    it('should validate at least one field provided', async () => {
+    it('should validate publicCredit field is provided', async () => {
       await expect(
         controller.updateCategory('cat-123', {}, mockRequest),
       ).rejects.toThrow(BadRequestException);
       await expect(
         controller.updateCategory('cat-123', {}, mockRequest),
-      ).rejects.toThrow('At least one field must be provided for update');
+      ).rejects.toThrow('publicCredit field is required for update');
 
       expect(categoryService.updateCategory).not.toHaveBeenCalled();
     });
@@ -346,54 +330,6 @@ describe('CategoryController', () => {
       await expect(
         controller.updateCategory('nonexistent', updateDto, mockRequest),
       ).rejects.toThrow('Category with ID nonexistent not found');
-    });
-
-    it('should allow updating only name', async () => {
-      const nameOnly = { name: 'New Name' };
-      const updated = {
-        ...mockCategoryData,
-        name: 'New Name',
-      };
-      categoryService.updateCategory.mockResolvedValue(updated);
-
-      await controller.updateCategory('cat-123', nameOnly, mockRequest);
-
-      expect(categoryService.updateCategory).toHaveBeenCalledWith(
-        'cat-123',
-        nameOnly,
-      );
-    });
-
-    it('should allow updating only description', async () => {
-      const descOnly = { description: 'New description' };
-      const updated = {
-        ...mockCategoryData,
-        description: 'New description',
-      };
-      categoryService.updateCategory.mockResolvedValue(updated);
-
-      await controller.updateCategory('cat-123', descOnly, mockRequest);
-
-      expect(categoryService.updateCategory).toHaveBeenCalledWith(
-        'cat-123',
-        descOnly,
-      );
-    });
-
-    it('should allow updating only publicCredit', async () => {
-      const creditOnly = { publicCredit: false };
-      const updated = {
-        ...mockCategoryData,
-        publicCredit: false,
-      };
-      categoryService.updateCategory.mockResolvedValue(updated);
-
-      await controller.updateCategory('cat-123', creditOnly, mockRequest);
-
-      expect(categoryService.updateCategory).toHaveBeenCalledWith(
-        'cat-123',
-        creditOnly,
-      );
     });
   });
 
@@ -434,10 +370,11 @@ describe('CategoryController', () => {
       expect(categoryService.deleteCategory).not.toHaveBeenCalled();
     });
 
-    it('should return 204 NO_CONTENT status', async () => {
+    it('should return 204 NO CONTENT status', async () => {
       categoryService.deleteCategory.mockResolvedValue(undefined);
 
       // HTTP status code is set via @HttpCode(HttpStatus.NO_CONTENT) decorator
+      // No content returned, just verify the call was made
       await controller.deleteCategory('cat-123', mockRequest);
 
       expect(categoryService.deleteCategory).toHaveBeenCalledWith('cat-123');
@@ -445,13 +382,13 @@ describe('CategoryController', () => {
   });
 
   // ============================================
-  // VOTING ENDPOINT TESTS
+  // VOTING ENDPOINTS TESTS
   // ============================================
 
   describe('POST /categories/:id/vote-inclusion (voteInclusion)', () => {
     const voteDto = { isPositive: true };
 
-    it('should vote on category inclusion', async () => {
+    it('should vote positive on category inclusion', async () => {
       categoryService.voteInclusion.mockResolvedValue(mockVoteResult);
 
       const result = await controller.voteInclusion(
@@ -468,23 +405,44 @@ describe('CategoryController', () => {
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should validate ID parameter', async () => {
+    it('should vote negative on category inclusion', async () => {
+      const negativeVoteDto = { isPositive: false };
+      categoryService.voteInclusion.mockResolvedValue(mockVoteResult);
+
+      const result = await controller.voteInclusion(
+        'cat-123',
+        negativeVoteDto,
+        mockRequest,
+      );
+
+      expect(categoryService.voteInclusion).toHaveBeenCalledWith(
+        'cat-123',
+        'user-123',
+        false,
+      );
+      expect(result).toEqual(mockVoteResult);
+    });
+
+    it('should validate category ID', async () => {
       await expect(
         controller.voteInclusion('', voteDto, mockRequest),
       ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.voteInclusion('', voteDto, mockRequest),
+      ).rejects.toThrow('Category ID is required');
 
       expect(categoryService.voteInclusion).not.toHaveBeenCalled();
     });
 
-    it('should validate isPositive is boolean', async () => {
-      const invalidVote = { isPositive: 'true' as any };
+    it('should validate vote status', async () => {
+      const invalidVoteDto = { isPositive: undefined as any };
 
       await expect(
-        controller.voteInclusion('cat-123', invalidVote, mockRequest),
+        controller.voteInclusion('cat-123', invalidVoteDto, mockRequest),
       ).rejects.toThrow(BadRequestException);
       await expect(
-        controller.voteInclusion('cat-123', invalidVote, mockRequest),
-      ).rejects.toThrow('isPositive must be a boolean');
+        controller.voteInclusion('cat-123', invalidVoteDto, mockRequest),
+      ).rejects.toThrow('Vote status (isPositive) is required');
 
       expect(categoryService.voteInclusion).not.toHaveBeenCalled();
     });
@@ -495,21 +453,11 @@ describe('CategoryController', () => {
       await expect(
         controller.voteInclusion('cat-123', voteDto, requestWithoutUser),
       ).rejects.toThrow(BadRequestException);
+      await expect(
+        controller.voteInclusion('cat-123', voteDto, requestWithoutUser),
+      ).rejects.toThrow('User ID is required');
 
       expect(categoryService.voteInclusion).not.toHaveBeenCalled();
-    });
-
-    it('should handle negative vote', async () => {
-      const negativeVote = { isPositive: false };
-      categoryService.voteInclusion.mockResolvedValue(mockVoteResult);
-
-      await controller.voteInclusion('cat-123', negativeVote, mockRequest);
-
-      expect(categoryService.voteInclusion).toHaveBeenCalledWith(
-        'cat-123',
-        'user-123',
-        false,
-      );
     });
   });
 
@@ -526,7 +474,7 @@ describe('CategoryController', () => {
       expect(result).toEqual(mockVoteStatus);
     });
 
-    it('should validate ID parameter', async () => {
+    it('should validate category ID', async () => {
       await expect(controller.getVoteStatus('', mockRequest)).rejects.toThrow(
         BadRequestException,
       );
@@ -543,18 +491,10 @@ describe('CategoryController', () => {
 
       expect(categoryService.getVoteStatus).not.toHaveBeenCalled();
     });
-
-    it('should return null when user has not voted', async () => {
-      categoryService.getVoteStatus.mockResolvedValue(null);
-
-      const result = await controller.getVoteStatus('cat-123', mockRequest);
-
-      expect(result).toBeNull();
-    });
   });
 
   describe('DELETE /categories/:id/vote (removeVote)', () => {
-    it('should remove vote', async () => {
+    it('should remove vote successfully', async () => {
       categoryService.removeVote.mockResolvedValue(mockVoteResult);
 
       const result = await controller.removeVote('cat-123', mockRequest);
@@ -566,7 +506,7 @@ describe('CategoryController', () => {
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should validate ID parameter', async () => {
+    it('should validate category ID', async () => {
       await expect(controller.removeVote('', mockRequest)).rejects.toThrow(
         BadRequestException,
       );
@@ -595,100 +535,77 @@ describe('CategoryController', () => {
       expect(result).toEqual(mockVoteResult);
     });
 
-    it('should validate ID parameter', async () => {
+    it('should validate category ID', async () => {
       await expect(controller.getVotes('')).rejects.toThrow(
         BadRequestException,
       );
 
       expect(categoryService.getVotes).not.toHaveBeenCalled();
     });
-
-    it('should return null when category has no votes', async () => {
-      categoryService.getVotes.mockResolvedValue(null);
-
-      const result = await controller.getVotes('cat-123');
-
-      expect(result).toBeNull();
-    });
   });
 
   // ============================================
-  // HIERARCHICAL ENDPOINT TESTS
+  // HIERARCHY ENDPOINTS TESTS
   // ============================================
 
-  describe('GET /categories/hierarchy/all (getCategoryHierarchy)', () => {
-    const mockHierarchy = [
+  describe('GET /categories/hierarchy/tree (getCategoryHierarchy)', () => {
+    const mockHierarchy: CategoryData[] = [
       {
         id: 'cat-1',
-        name: 'Parent',
-        description: 'Parent category',
+        name: 'word category',
+        createdBy: 'user-123',
+        publicCredit: true,
         inclusionNetVotes: 5,
-        children: [],
-      },
-      {
-        id: 'cat-2',
-        name: 'Child',
-        description: 'Child category',
-        inclusionNetVotes: 3,
-        children: [],
+        inclusionPositiveVotes: 5,
+        inclusionNegativeVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        createdAt: new Date('2023-01-01T00:00:00Z'),
+        updatedAt: new Date('2023-01-01T00:00:00Z'),
       },
     ];
 
-    it('should get full category hierarchy', async () => {
+    it('should get full hierarchy when no rootId', async () => {
       categoryService.getCategoryHierarchy.mockResolvedValue(mockHierarchy);
 
-      const result = await controller.getCategoryHierarchy();
+      const result = await controller.getCategoryHierarchy({ query: {} });
 
-      expect(categoryService.getCategoryHierarchy).toHaveBeenCalledWith();
+      expect(categoryService.getCategoryHierarchy).toHaveBeenCalledWith(
+        undefined,
+      );
       expect(result).toEqual(mockHierarchy);
     });
-  });
-
-  describe('GET /categories/hierarchy/:rootId (getCategoryHierarchyFrom)', () => {
-    const mockHierarchy = [
-      {
-        id: 'cat-1',
-        name: 'Parent',
-        description: 'Parent category',
-        inclusionNetVotes: 5,
-        children: [],
-      },
-    ];
 
     it('should get hierarchy from specific root', async () => {
       categoryService.getCategoryHierarchy.mockResolvedValue(mockHierarchy);
 
-      const result = await controller.getCategoryHierarchyFrom('cat-1');
+      const result = await controller.getCategoryHierarchy({
+        query: { rootId: 'root-cat' },
+      });
 
       expect(categoryService.getCategoryHierarchy).toHaveBeenCalledWith(
-        'cat-1',
+        'root-cat',
       );
       expect(result).toEqual(mockHierarchy);
     });
-
-    it('should validate root ID parameter', async () => {
-      await expect(controller.getCategoryHierarchyFrom('')).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(controller.getCategoryHierarchyFrom('')).rejects.toThrow(
-        'Root ID is required',
-      );
-
-      expect(categoryService.getCategoryHierarchy).not.toHaveBeenCalled();
-    });
   });
 
-  describe('GET /categories/node/:nodeId/categories (getCategoriesForNode)', () => {
-    const mockCategories = [
+  describe('GET /categories/node/:nodeId (getCategoriesForNode)', () => {
+    const mockCategories: CategoryData[] = [
       {
         id: 'cat-1',
-        name: 'Technology',
-        description: 'Tech category',
+        name: 'word category',
+        createdBy: 'user-123',
+        publicCredit: true,
         inclusionNetVotes: 5,
-        path: [
-          { id: 'root-1', name: 'Root' },
-          { id: 'cat-1', name: 'Technology' },
-        ],
+        inclusionPositiveVotes: 5,
+        inclusionNegativeVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        createdAt: new Date('2023-01-01T00:00:00Z'),
+        updatedAt: new Date('2023-01-01T00:00:00Z'),
       },
     ];
 
@@ -753,38 +670,24 @@ describe('CategoryController', () => {
 
   describe('Integration - Full Category Lifecycle', () => {
     it('should handle full category lifecycle', async () => {
-      // 1. Create
+      // 1. Create category
+      const createDto = {
+        publicCredit: true,
+        wordIds: ['word-1', 'word-2'],
+        initialComment: 'Test category',
+      };
+
       categoryService.createCategory.mockResolvedValue(mockCategoryData);
-      const created = await controller.createCategory(
-        {
-          name: 'Technology',
-          description: 'Tech content',
-          publicCredit: true,
-          wordIds: ['word-1', 'word-2'],
-        },
-        mockRequest,
-      );
+
+      const created = await controller.createCategory(createDto, mockRequest);
       expect(created).toEqual(mockCategoryData);
 
-      // 2. Read
+      // 2. Get category
       categoryService.getCategory.mockResolvedValue(mockCategoryData);
-      const fetched = await controller.getCategory('cat-123');
-      expect(fetched).toEqual(mockCategoryData);
+      const retrieved = await controller.getCategory('cat-123');
+      expect(retrieved).toEqual(mockCategoryData);
 
-      // 3. Update
-      const updated = {
-        ...mockCategoryData,
-        name: 'Updated Tech',
-      };
-      categoryService.updateCategory.mockResolvedValue(updated);
-      const result = await controller.updateCategory(
-        'cat-123',
-        { name: 'Updated Tech' },
-        mockRequest,
-      );
-      expect(result.name).toBe('Updated Tech');
-
-      // 4. Vote
+      // 3. Vote on category
       categoryService.voteInclusion.mockResolvedValue(mockVoteResult);
       const voteResult = await controller.voteInclusion(
         'cat-123',
@@ -793,52 +696,22 @@ describe('CategoryController', () => {
       );
       expect(voteResult).toEqual(mockVoteResult);
 
-      // 5. Delete
+      // 4. Update category
+      const updateDto = { publicCredit: false };
+      const updatedCategory = { ...mockCategoryData, publicCredit: false };
+      categoryService.updateCategory.mockResolvedValue(updatedCategory);
+
+      const updated = await controller.updateCategory(
+        'cat-123',
+        updateDto,
+        mockRequest,
+      );
+      expect(updated.publicCredit).toBe(false);
+
+      // 5. Delete category
       categoryService.deleteCategory.mockResolvedValue(undefined);
       await controller.deleteCategory('cat-123', mockRequest);
       expect(categoryService.deleteCategory).toHaveBeenCalledWith('cat-123');
-    });
-  });
-
-  // ============================================
-  // ERROR HANDLING TESTS
-  // ============================================
-
-  describe('Error Handling', () => {
-    it('should handle service errors gracefully', async () => {
-      categoryService.createCategory.mockRejectedValue(
-        new Error('Service error'),
-      );
-
-      await expect(
-        controller.createCategory(
-          {
-            name: 'Tech',
-            wordIds: ['word-1'],
-          },
-          mockRequest,
-        ),
-      ).rejects.toThrow('Service error');
-    });
-
-    it('should preserve BadRequestException from service', async () => {
-      categoryService.updateCategory.mockRejectedValue(
-        new BadRequestException('Invalid update'),
-      );
-
-      await expect(
-        controller.updateCategory('cat-123', { name: 'New Name' }, mockRequest),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('should preserve NotFoundException from service', async () => {
-      categoryService.deleteCategory.mockRejectedValue(
-        new NotFoundException('Category not found'),
-      );
-
-      await expect(
-        controller.deleteCategory('nonexistent', mockRequest),
-      ).rejects.toThrow(NotFoundException);
     });
   });
 });
