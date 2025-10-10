@@ -5,6 +5,7 @@ export type VoteKind = 'INCLUSION' | 'CONTENT';
 export const NODE_VOTING_RULES = {
   WordNode: { hasInclusion: true, hasContent: false },
   DefinitionNode: { hasInclusion: true, hasContent: true },
+  CategoryNode: { hasInclusion: true, hasContent: false },
   StatementNode: { hasInclusion: true, hasContent: true },
   AnswerNode: { hasInclusion: true, hasContent: true },
   QuantityNode: { hasInclusion: true, hasContent: false },
