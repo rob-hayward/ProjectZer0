@@ -1,4 +1,4 @@
-// src/neo4j/schemas/statement.schema.ts - REFACTORED
+// src/neo4j/schemas/statement.schema.ts - FIXED: Removed inclusion checks when creating relationships
 
 import {
   Injectable,
@@ -157,6 +157,7 @@ export class StatementSchema extends CategorizedNodeSchema<StatementData> {
 
   /**
    * Creates a new statement with keywords and categories
+   * FIXED: Removed WHERE clauses on lines 236 and 250 to allow linking to any category/word
    */
   async createStatement(statementData: {
     id?: string;
@@ -228,12 +229,12 @@ export class StatementSchema extends CategorizedNodeSchema<StatementData> {
       }
 
       // Add categories if provided
+      // FIXED: Removed WHERE cat.inclusionNetVotes > 0
       if (statementData.categoryIds && statementData.categoryIds.length > 0) {
         query += `
         WITH s
         UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
         CREATE (s)-[:CATEGORIZED_AS {
           createdAt: datetime()
         }]->(cat)
@@ -255,12 +256,12 @@ export class StatementSchema extends CategorizedNodeSchema<StatementData> {
       }
 
       // Add keywords if provided
+      // FIXED: Removed WHERE w.inclusionNetVotes > 0
       if (statementData.keywords && statementData.keywords.length > 0) {
         query += `
         WITH s
         UNWIND $keywords as keyword
         MATCH (w:WordNode {word: keyword.word})
-        WHERE w.inclusionNetVotes > 0
         CREATE (s)-[:TAGGED {
           frequency: keyword.frequency,
           source: keyword.source,
@@ -377,7 +378,6 @@ export class StatementSchema extends CategorizedNodeSchema<StatementData> {
         
         // Get categories
         OPTIONAL MATCH (s)-[:CATEGORIZED_AS]->(cat:CategoryNode)
-        WHERE cat.inclusionNetVotes > 0
         
         // Get related statements through tags
         OPTIONAL MATCH (s)-[shared:SHARED_TAG]->(related:StatementNode)
