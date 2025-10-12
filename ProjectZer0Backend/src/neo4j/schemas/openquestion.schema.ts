@@ -59,7 +59,7 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
     neo4jService: Neo4jService,
     voteSchema: VoteSchema,
     private readonly discussionSchema: DiscussionSchema,
-    private readonly userSchema: UserSchema, // ✅ FIXED: Added UserSchema injection
+    private readonly userSchema: UserSchema,
   ) {
     super(neo4jService, voteSchema, OpenQuestionSchema.name);
   }
@@ -138,6 +138,11 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
 
   /**
    * Creates a new open question with keywords and categories
+   *
+   * 🐛 BUG #1 FIX APPLIED:
+   * - Removed WHERE cat.inclusionNetVotes > 0 from category linking
+   * - Removed WHERE w.inclusionNetVotes > 0 from keyword linking
+   * - Philosophy: Allow all relationships during creation, filter during display
    */
   async createOpenQuestion(questionData: {
     id?: string;
@@ -190,12 +195,12 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
       };
 
       // Add categories if provided
+      // ✅ FIXED: Removed WHERE clause - allow linking to any existing category
       if (questionData.categoryIds && questionData.categoryIds.length > 0) {
         query += `
         WITH oq
         UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
         CREATE (oq)-[:CATEGORIZED_AS {
           createdAt: datetime()
         }]->(cat)
@@ -217,12 +222,12 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
       }
 
       // Add keywords if provided
+      // ✅ FIXED: Removed WHERE clause - allow linking to any existing word
       if (questionData.keywords && questionData.keywords.length > 0) {
         query += `
         WITH oq
         UNWIND $keywords as keyword
         MATCH (w:WordNode {word: keyword.word})
-        WHERE w.inclusionNetVotes > 0
         CREATE (oq)-[:TAGGED {
           frequency: keyword.frequency,
           source: keyword.source,
@@ -276,7 +281,6 @@ export class OpenQuestionSchema extends CategorizedNodeSchema<OpenQuestionData> 
 
       createdQuestion.discussionId = discussionResult.discussionId;
 
-      // ✅ FIXED: Added user tracking with proper non-blocking pattern
       // Track user participation
       try {
         await this.userSchema.addCreatedNode(
