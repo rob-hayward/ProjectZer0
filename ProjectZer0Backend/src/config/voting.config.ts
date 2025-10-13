@@ -11,6 +11,7 @@ export const NODE_VOTING_RULES = {
   QuantityNode: { hasInclusion: true, hasContent: false },
   OpenQuestionNode: { hasInclusion: true, hasContent: false },
   CommentNode: { hasInclusion: false, hasContent: true },
+  EvidenceNode: { hasInclusion: true, hasContent: false },
   // DiscussionNode: NOT INCLUDED (discussions don't support voting, they are just a container for comments)
 } as const;
 
