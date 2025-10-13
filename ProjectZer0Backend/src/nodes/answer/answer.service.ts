@@ -1,4 +1,5 @@
 // src/nodes/answer/answer.service.ts - REFACTORED TO SCHEMA ARCHITECTURE
+// 🐛 BUG #2 FIX APPLIED: Changed findById() to getAnswer() on line ~208
 
 import {
   Injectable,
@@ -239,6 +240,12 @@ export class AnswerService {
   /**
    * Get an answer by ID
    * Direct delegation to schema with error handling
+   *
+   * 🐛 BUG #2 FIX APPLIED:
+   * - Changed from this.answerSchema.findById(id)
+   * - To this.answerSchema.getAnswer(id)
+   * - Reason: findById() returns only basic properties
+   * - getAnswer() returns complete data with keywords, categories, parentQuestion, relatedAnswers, discussionId
    */
   async getAnswer(id: string): Promise<AnswerData> {
     if (!id || id.trim() === '') {
@@ -248,7 +255,8 @@ export class AnswerService {
     this.logger.debug(`Getting answer: ${id}`);
 
     try {
-      const answer = await this.answerSchema.findById(id);
+      // ✅ FIXED: Use getAnswer() instead of findById()
+      const answer = await this.answerSchema.getAnswer(id);
 
       if (!answer) {
         throw new NotFoundException(`Answer with ID ${id} not found`);
@@ -282,13 +290,18 @@ export class AnswerService {
     try {
       // Check if answer text is changing
       const textChanged =
-        updateData.answerText !== undefined && updateData.answerText !== '';
+        updateData.answerText !== undefined &&
+        updateData.answerText.trim() !== '';
 
       if (textChanged) {
-        // Get original answer for user context
+        // Get original answer to access createdBy
         const originalAnswer = await this.getAnswer(id);
 
-        // Extract keywords for the new text
+        if (!originalAnswer) {
+          throw new NotFoundException(`Answer with ID ${id} not found`);
+        }
+
+        // Extract keywords if not provided
         let keywords: KeywordWithFrequency[] = [];
         if (updateData.userKeywords && updateData.userKeywords.length > 0) {
           keywords = updateData.userKeywords.map((keyword) => ({
@@ -296,23 +309,12 @@ export class AnswerService {
             frequency: 1,
             source: 'user' as const,
           }));
-          this.logger.debug(`Using ${keywords.length} user-provided keywords`);
         } else {
-          try {
-            const extractionResult =
-              await this.keywordExtractionService.extractKeywords({
-                text: updateData.answerText,
-              });
-            keywords = extractionResult.keywords;
-            this.logger.debug(
-              `Re-extracted ${keywords.length} keywords via AI`,
-            );
-          } catch (error) {
-            this.logger.warn(
-              `Keyword extraction failed during update: ${error.message}`,
-            );
-            keywords = [];
-          }
+          const extractionResult =
+            await this.keywordExtractionService.extractKeywords({
+              text: updateData.answerText!,
+            });
+          keywords = extractionResult.keywords;
         }
 
         // Create missing word nodes
@@ -322,12 +324,10 @@ export class AnswerService {
               keyword.word,
             );
             if (!wordExists) {
-              this.logger.debug(`Creating missing word node: ${keyword.word}`);
               await this.wordService.createWord({
                 word: keyword.word,
                 createdBy: originalAnswer.createdBy,
-                publicCredit:
-                  updateData.publicCredit ?? originalAnswer.publicCredit,
+                publicCredit: originalAnswer.publicCredit ?? true,
               });
             }
           } catch (error) {
@@ -350,7 +350,10 @@ export class AnswerService {
       }
 
       // Update via schema
-      const updatedAnswer = await this.answerSchema.update(id, updateData);
+      const updatedAnswer = await this.answerSchema.updateAnswer(
+        id,
+        updateData,
+      );
 
       if (!updatedAnswer) {
         throw new NotFoundException(`Answer with ID ${id} not found`);
@@ -409,51 +412,63 @@ export class AnswerService {
 
   /**
    * Get all answers for a specific question
-   * Note: AnswerSchema.getAnswersByQuestion returns answers sorted by content votes DESC
-   * The service layer provides additional filtering/sorting options that we apply post-query
+   * Note: AnswerSchema handles the filtering and sorting
    */
   async getAnswersForQuestion(
     questionId: string,
-    options: GetAnswersOptions = {},
+    options?: GetAnswersOptions,
   ): Promise<AnswerData[]> {
     if (!questionId || questionId.trim() === '') {
       throw new BadRequestException('Question ID is required');
     }
 
+    this.logger.debug(`Getting answers for question: ${questionId}`);
+
     try {
-      const { limit, offset = 0, onlyApproved = false } = options;
+      const includeUnapproved = options?.onlyApproved === false;
+      const answers = await this.answerSchema.getAnswersByQuestion(
+        questionId,
+        includeUnapproved,
+      );
 
       this.logger.debug(
-        `Getting answers for question ${questionId} with options: ${JSON.stringify(options)}`,
+        `Found ${answers.length} answers for question ${questionId}`,
       );
-
-      // Get answers from schema (already sorted by content votes DESC, then inclusion votes DESC)
-      let answers = await this.answerSchema.getAnswersByQuestion(
-        questionId,
-        onlyApproved,
-      );
-
-      // Apply offset and limit if provided
-      if (offset > 0) {
-        answers = answers.slice(offset);
-      }
-
-      if (limit) {
-        answers = answers.slice(0, limit);
-      }
-
       return answers;
     } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-
       this.logger.error(
-        `Error getting answers for question ${questionId}: ${error.message}`,
+        `Error getting answers for question: ${error.message}`,
         error.stack,
       );
       throw new InternalServerErrorException(
-        `Failed to get answers: ${error.message}`,
+        `Failed to get answers for question: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Get the top-voted answer for a question
+   */
+  async getTopAnswerForQuestion(
+    questionId: string,
+  ): Promise<AnswerData | null> {
+    if (!questionId || questionId.trim() === '') {
+      throw new BadRequestException('Question ID is required');
+    }
+
+    this.logger.debug(`Getting top answer for question: ${questionId}`);
+
+    try {
+      const topAnswer =
+        await this.answerSchema.getTopAnswerForQuestion(questionId);
+      return topAnswer;
+    } catch (error) {
+      this.logger.error(
+        `Error getting top answer: ${error.message}`,
+        error.stack,
+      );
+      throw new InternalServerErrorException(
+        `Failed to get top answer: ${error.message}`,
       );
     }
   }
@@ -464,7 +479,7 @@ export class AnswerService {
 
   /**
    * Vote on answer inclusion
-   * Answers support dual voting (inclusion + content)
+   * Answers support both inclusion and content voting
    */
   async voteInclusion(
     id: string,
@@ -489,7 +504,7 @@ export class AnswerService {
         userId,
         isPositive,
       );
-      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
+      this.logger.debug(`Inclusion vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
       this.logger.error(
@@ -503,8 +518,8 @@ export class AnswerService {
   }
 
   /**
-   * Vote on answer content (quality)
-   * Requires answer to have passed inclusion threshold
+   * Vote on answer content quality
+   * Only allowed after inclusion threshold passed
    */
   async voteContent(
     id: string,
@@ -524,23 +539,15 @@ export class AnswerService {
     );
 
     try {
-      // Schema validates inclusion threshold, but we provide better error message here
-      const answer = await this.getAnswer(id);
-
-      if (!VotingUtils.hasPassedInclusion(answer.inclusionNetVotes || 0)) {
-        throw new BadRequestException(
-          'Answer must pass inclusion threshold before content voting is allowed',
-        );
-      }
-
       const result = await this.answerSchema.voteContent(
         id,
         userId,
         isPositive,
       );
-      this.logger.debug(`Vote result: ${JSON.stringify(result)}`);
+      this.logger.debug(`Content vote result: ${JSON.stringify(result)}`);
       return result;
     } catch (error) {
+      // Schema will throw BadRequestException if inclusion threshold not passed
       if (error instanceof BadRequestException) {
         throw error;
       }
@@ -567,9 +574,7 @@ export class AnswerService {
       throw new BadRequestException('User ID is required');
     }
 
-    this.logger.debug(
-      `Getting vote status for answer: ${id} and user: ${userId}`,
-    );
+    this.logger.debug(`Getting vote status for answer ${id} by user ${userId}`);
 
     try {
       const status = await this.answerSchema.getVoteStatus(id, userId);
@@ -650,21 +655,11 @@ export class AnswerService {
    * Check if an answer has passed inclusion threshold
    */
   async isAnswerApproved(id: string): Promise<boolean> {
-    if (!id || id.trim() === '') {
-      throw new BadRequestException('Answer ID is required');
-    }
-
     try {
-      const votes = await this.answerSchema.getVotes(id);
-      return VotingUtils.hasPassedInclusion(votes?.inclusionNetVotes || 0);
-    } catch (error) {
-      this.logger.error(
-        `Error checking answer approval: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to check answer approval: ${error.message}`,
-      );
+      const answer = await this.getAnswer(id);
+      return VotingUtils.hasPassedInclusion(answer.inclusionNetVotes || 0);
+    } catch {
+      return false;
     }
   }
 
@@ -672,21 +667,7 @@ export class AnswerService {
    * Check if content voting is available for an answer
    */
   async isContentVotingAvailable(id: string): Promise<boolean> {
-    if (!id || id.trim() === '') {
-      throw new BadRequestException('Answer ID is required');
-    }
-
-    try {
-      return await this.isAnswerApproved(id);
-    } catch (error) {
-      this.logger.error(
-        `Error checking content voting availability: ${error.message}`,
-        error.stack,
-      );
-      throw new InternalServerErrorException(
-        `Failed to check content voting availability: ${error.message}`,
-      );
-    }
+    return await this.isAnswerApproved(id);
   }
 
   // ============================================
@@ -701,9 +682,9 @@ export class AnswerService {
       throw new BadRequestException('Answer text is required');
     }
 
-    if (answerData.answerText.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
+    if (answerData.answerText.length > TEXT_LIMITS.MAX_ANSWER_LENGTH) {
       throw new BadRequestException(
-        `Answer text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
+        `Answer text cannot exceed ${TEXT_LIMITS.MAX_ANSWER_LENGTH} characters`,
       );
     }
 
@@ -711,15 +692,15 @@ export class AnswerService {
       throw new BadRequestException('Creator ID is required');
     }
 
-    if (typeof answerData.publicCredit !== 'boolean') {
-      throw new BadRequestException('Public credit flag is required');
-    }
-
     if (
       !answerData.parentQuestionId ||
       answerData.parentQuestionId.trim() === ''
     ) {
       throw new BadRequestException('Parent question ID is required');
+    }
+
+    if (typeof answerData.publicCredit !== 'boolean') {
+      throw new BadRequestException('Public credit flag is required');
     }
 
     // Validate category count (0-3)
@@ -741,9 +722,9 @@ export class AnswerService {
         throw new BadRequestException('Answer text cannot be empty');
       }
 
-      if (updateData.answerText.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH) {
+      if (updateData.answerText.length > TEXT_LIMITS.MAX_ANSWER_LENGTH) {
         throw new BadRequestException(
-          `Answer text cannot exceed ${TEXT_LIMITS.MAX_STATEMENT_LENGTH} characters`,
+          `Answer text cannot exceed ${TEXT_LIMITS.MAX_ANSWER_LENGTH} characters`,
         );
       }
     }
@@ -784,8 +765,10 @@ export class AnswerService {
         if (error instanceof BadRequestException) {
           throw error;
         }
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
         throw new BadRequestException(
-          `Category ${categoryId} does not exist or is not accessible`,
+          `Category ${categoryId} does not exist or is not accessible: ${errorMessage}`,
         );
       }
     });

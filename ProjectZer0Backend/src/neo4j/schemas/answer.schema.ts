@@ -1,4 +1,5 @@
 // src/neo4j/schemas/answer.schema.ts - REFACTORED
+// 🐛 BUG #1 FIX APPLIED: Removed WHERE inclusionNetVotes > 0 from relationship creation (lines ~194 and ~217)
 
 import {
   Injectable,
@@ -157,6 +158,11 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
 
   /**
    * Creates a new answer with keywords and categories
+   *
+   * 🐛 BUG #1 FIX APPLIED:
+   * - Removed WHERE cat.inclusionNetVotes > 0 from category linking (line ~194)
+   * - Removed WHERE w.inclusionNetVotes > 0 from keyword linking (line ~217)
+   * - Philosophy: Allow all relationships during creation, filter during display
    */
   async createAnswer(answerData: {
     id?: string;
@@ -227,13 +233,13 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
       };
 
       // Add categories if provided
+      // ✅ FIXED: Removed WHERE clause - allow linking to any existing category
       if (answerData.categoryIds && answerData.categoryIds.length > 0) {
         query += `
         // Validate categories exist and have passed inclusion threshold
         WITH a, oq
         UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
         CREATE (a)-[:CATEGORIZED_AS {
@@ -257,6 +263,7 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
       }
 
       // Add keywords if provided
+      // ✅ FIXED: Removed WHERE clause - allow linking to any existing word
       if (answerData.keywords && answerData.keywords.length > 0) {
         query += `
         // Process keywords
@@ -265,7 +272,6 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
         
         // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
-        WHERE w.inclusionNetVotes > 0
         
         // Create TAGGED relationship
         CREATE (a)-[:TAGGED {
@@ -291,12 +297,11 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
 
       // Create user relationship
       query += `
-        // Create CREATED relationship for user-created content
         WITH a, oq
         MATCH (u:User {sub: $createdBy})
         CREATE (u)-[:CREATED {
-            createdAt: datetime(),
-            nodeType: 'answer'
+          createdAt: datetime(),
+          nodeType: 'answer'
         }]->(a)
         
         RETURN a as n
@@ -306,7 +311,7 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
 
       if (!result.records || result.records.length === 0) {
         throw new Error(
-          'Failed to create answer - parent question may not exist or have not passed inclusion threshold',
+          'Failed to create answer - parent question may not exist or has not passed inclusion threshold',
         );
       }
 
@@ -398,6 +403,7 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
                collect(DISTINCT {
                  id: cat.id,
                  name: cat.name,
+                 description: cat.description,
                  inclusionNetVotes: cat.inclusionNetVotes
                }) as categories,
                collect(DISTINCT {
@@ -529,14 +535,14 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
     try {
       const whereClause = includeUnapproved
         ? ''
-        : 'AND a.inclusionNetVotes > 0';
+        : 'WHERE a.inclusionNetVotes > 0';
 
       const result = await this.neo4jService.read(
         `
-        MATCH (a:AnswerNode {parentQuestionId: $questionId})
+        MATCH (a:AnswerNode)-[:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})
         ${whereClause}
         RETURN a as n
-        ORDER BY a.contentNetVotes DESC, a.inclusionNetVotes DESC
+        ORDER BY a.contentNetVotes DESC, a.inclusionNetVotes DESC, a.createdAt DESC
         `,
         { questionId },
       );
@@ -547,28 +553,22 @@ export class AnswerSchema extends CategorizedNodeSchema<AnswerData> {
         `Error getting answers for question: ${error.message}`,
         error.stack,
       );
-      throw this.standardError('get answers by question', error);
+      throw this.standardError('get answers for question', error);
     }
   }
 
   /**
-   * Gets the top answer for a question (highest quality score)
+   * Gets the top-voted answer for a question
    */
   async getTopAnswerForQuestion(
     questionId: string,
   ): Promise<AnswerData | null> {
     const answers = await this.getAnswersByQuestion(questionId, false);
-
-    if (answers.length === 0) {
-      return null;
-    }
-
-    // Already sorted by content votes in getAnswersByQuestion
-    return answers[0];
+    return answers.length > 0 ? answers[0] : null;
   }
 
   /**
-   * Gets answers related by tags or categories
+   * Gets related answers through shared keywords
    */
   async getRelatedAnswers(
     answerId: string,
