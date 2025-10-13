@@ -253,7 +253,7 @@ export class QuantityService {
     this.logger.debug(`Getting quantity node: ${id}`);
 
     try {
-      const quantityNode = await this.quantitySchema.findById(id);
+      const quantityNode = await this.quantitySchema.getQuantity(id);
 
       if (!quantityNode) {
         throw new NotFoundException(`Quantity node with ID ${id} not found`);

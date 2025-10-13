@@ -1,4 +1,4 @@
-// src/neo4j/schemas/quantity.schema.ts - REFACTORED
+// src/neo4j/schemas/quantity.schema.ts - REFACTORED - BUG #1 FIXED
 
 import {
   Injectable,
@@ -234,13 +234,13 @@ export class QuantitySchema extends CategorizedNodeSchema<QuantityData> {
       };
 
       // Add categories if provided
+      // FIXED BUG #1: Removed WHERE cat.inclusionNetVotes > 0
       if (quantityData.categoryIds && quantityData.categoryIds.length > 0) {
         query += `
-        // Validate categories exist and have passed inclusion threshold
+        // Match categories and create relationships
         WITH q
         UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
         CREATE (q)-[:CATEGORIZED_AS {
@@ -264,6 +264,7 @@ export class QuantitySchema extends CategorizedNodeSchema<QuantityData> {
       }
 
       // Add keywords if provided
+      // FIXED BUG #1: Removed WHERE w.inclusionNetVotes > 0
       if (quantityData.keywords && quantityData.keywords.length > 0) {
         query += `
         // Process keywords
@@ -272,7 +273,6 @@ export class QuantitySchema extends CategorizedNodeSchema<QuantityData> {
         
         // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
-        WHERE w.inclusionNetVotes > 0
         
         // Create TAGGED relationship
         CREATE (q)-[:TAGGED {

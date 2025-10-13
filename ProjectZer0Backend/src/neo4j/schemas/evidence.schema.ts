@@ -320,13 +320,13 @@ export class EvidenceSchema extends CategorizedNodeSchema<EvidenceData> {
       };
 
       // Add categories if provided
+      // FIXED BUG #1: Removed WHERE cat.inclusionNetVotes > 0
       if (evidenceData.categoryIds && evidenceData.categoryIds.length > 0) {
         query += `
-        // Validate categories exist and have passed inclusion threshold
+        // Match categories and create relationships
         WITH e, parent
         UNWIND $categoryIds as categoryId
         MATCH (cat:CategoryNode {id: categoryId})
-        WHERE cat.inclusionNetVotes > 0
         
         // Create CATEGORIZED_AS relationships
         CREATE (e)-[:CATEGORIZED_AS {
@@ -350,6 +350,7 @@ export class EvidenceSchema extends CategorizedNodeSchema<EvidenceData> {
       }
 
       // Add keywords if provided
+      // FIXED BUG #1: Removed WHERE w.inclusionNetVotes > 0
       if (evidenceData.keywords && evidenceData.keywords.length > 0) {
         query += `
         // Process keywords
@@ -358,7 +359,6 @@ export class EvidenceSchema extends CategorizedNodeSchema<EvidenceData> {
         
         // Find word node for each keyword (should already exist)
         MATCH (w:WordNode {word: keyword.word})
-        WHERE w.inclusionNetVotes > 0
         
         // Create TAGGED relationship
         CREATE (e)-[:TAGGED {
