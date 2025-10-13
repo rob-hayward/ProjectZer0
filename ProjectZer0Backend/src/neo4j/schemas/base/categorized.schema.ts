@@ -586,8 +586,10 @@ export abstract class CategorizedNodeSchema<
     LIMIT $limit
   `;
 
-    params.offset = offset;
-    params.limit = limit;
+    // Convert pagination parameters to Neo4j integers
+    const pagination = this.neo4jService.paginationParams(offset, limit);
+    params.offset = pagination.offset;
+    params.limit = pagination.limit;
 
     try {
       const result = await this.neo4jService.read(query, params);

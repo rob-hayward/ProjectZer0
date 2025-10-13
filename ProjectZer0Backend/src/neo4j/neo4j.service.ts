@@ -1,3 +1,4 @@
+// ProjectZer0Backend/src/neo4j/neo4j.service.ts
 import {
   Injectable,
   Inject,
@@ -89,5 +90,35 @@ export class Neo4jService implements OnApplicationShutdown {
     this.logger.log('Closing Neo4j connection...');
     await this.driver.close();
     this.logger.log('Neo4j connection closed');
+  }
+
+  /**
+   * ✅ NEW: Convert JavaScript number to Neo4j Integer
+   * This is required for LIMIT, SKIP, and other integer parameters in Cypher queries
+   *
+   * @param value - JavaScript number to convert
+   * @returns Neo4j Integer object
+   *
+   * @example
+   * // Instead of: params = { limit: 10000 }
+   * // Use: params = { limit: neo4jService.int(10000) }
+   */
+  int(value: number) {
+    return neo4j.int(value);
+  }
+
+  /**
+   * ✅ NEW: Helper to convert pagination parameters
+   * Converts offset and limit to Neo4j integers
+   *
+   * @param offset - Offset value
+   * @param limit - Limit value
+   * @returns Object with Neo4j Integer values
+   */
+  paginationParams(offset: number, limit: number) {
+    return {
+      offset: neo4j.int(offset),
+      limit: neo4j.int(limit),
+    };
   }
 }

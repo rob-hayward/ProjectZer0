@@ -526,14 +526,24 @@ export class UniversalGraphService {
   private transformStatementToUniversalNode(
     stmt: StatementData,
   ): UniversalNodeData {
+    // Safely convert dates - check if Date instance before calling toISOString()
+    const createdAt =
+      stmt.createdAt instanceof Date
+        ? stmt.createdAt.toISOString()
+        : new Date().toISOString();
+    const updatedAt =
+      stmt.updatedAt instanceof Date
+        ? stmt.updatedAt.toISOString()
+        : new Date().toISOString();
+
     return {
       id: stmt.id,
       type: 'statement',
       content: stmt.statement,
       createdBy: stmt.createdBy,
       publicCredit: stmt.publicCredit,
-      createdAt: stmt.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: stmt.updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt,
+      updatedAt,
       inclusionPositiveVotes: stmt.inclusionPositiveVotes || 0,
       inclusionNegativeVotes: stmt.inclusionNegativeVotes || 0,
       inclusionNetVotes: stmt.inclusionNetVotes || 0,
@@ -554,14 +564,24 @@ export class UniversalGraphService {
   private transformOpenQuestionToUniversalNode(
     q: OpenQuestionData,
   ): UniversalNodeData {
+    // Safely convert dates - check if Date instance before calling toISOString()
+    const createdAt =
+      q.createdAt instanceof Date
+        ? q.createdAt.toISOString()
+        : new Date().toISOString();
+    const updatedAt =
+      q.updatedAt instanceof Date
+        ? q.updatedAt.toISOString()
+        : new Date().toISOString();
+
     return {
       id: q.id,
       type: 'openquestion',
       content: q.questionText,
       createdBy: q.createdBy,
       publicCredit: q.publicCredit,
-      createdAt: q.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: q.updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt,
+      updatedAt,
       inclusionPositiveVotes: q.inclusionPositiveVotes || 0,
       inclusionNegativeVotes: q.inclusionNegativeVotes || 0,
       inclusionNetVotes: q.inclusionNetVotes || 0,
@@ -581,6 +601,16 @@ export class UniversalGraphService {
    * ALWAYS includes parent question info in metadata
    */
   private transformAnswerToUniversalNode(ans: AnswerData): UniversalNodeData {
+    // Safely convert dates - check if Date instance before calling toISOString()
+    const createdAt =
+      ans.createdAt instanceof Date
+        ? ans.createdAt.toISOString()
+        : new Date().toISOString();
+    const updatedAt =
+      ans.updatedAt instanceof Date
+        ? ans.updatedAt.toISOString()
+        : new Date().toISOString();
+
     // Note: AnswerData.findById() returns parentQuestionId (string), not parentQuestion (object)
     // Full parent data is fetched via findById() in fetchAnswers()
     let parentQuestion: UniversalNodeData['metadata']['parentQuestion'];
@@ -607,8 +637,8 @@ export class UniversalGraphService {
       content: ans.answerText,
       createdBy: ans.createdBy,
       publicCredit: ans.publicCredit,
-      createdAt: ans.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: ans.updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt,
+      updatedAt,
       inclusionPositiveVotes: ans.inclusionPositiveVotes || 0,
       inclusionNegativeVotes: ans.inclusionNegativeVotes || 0,
       inclusionNetVotes: ans.inclusionNetVotes || 0,
@@ -632,14 +662,24 @@ export class UniversalGraphService {
   private transformQuantityToUniversalNode(
     qty: QuantityData,
   ): UniversalNodeData {
+    // Safely convert dates - check if Date instance before calling toISOString()
+    const createdAt =
+      qty.createdAt instanceof Date
+        ? qty.createdAt.toISOString()
+        : new Date().toISOString();
+    const updatedAt =
+      qty.updatedAt instanceof Date
+        ? qty.updatedAt.toISOString()
+        : new Date().toISOString();
+
     return {
       id: qty.id,
       type: 'quantity',
       content: qty.question, // ✅ FIXED: Changed from qty.questionText to qty.question
       createdBy: qty.createdBy,
       publicCredit: qty.publicCredit,
-      createdAt: qty.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: qty.updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt,
+      updatedAt,
       inclusionPositiveVotes: qty.inclusionPositiveVotes || 0,
       inclusionNegativeVotes: qty.inclusionNegativeVotes || 0,
       inclusionNetVotes: qty.inclusionNetVotes || 0,
@@ -663,6 +703,16 @@ export class UniversalGraphService {
   private transformEvidenceToUniversalNode(
     evid: EvidenceData,
   ): UniversalNodeData {
+    // Safely convert dates - check if Date instance before calling toISOString()
+    const createdAt =
+      evid.createdAt instanceof Date
+        ? evid.createdAt.toISOString()
+        : new Date().toISOString();
+    const updatedAt =
+      evid.updatedAt instanceof Date
+        ? evid.updatedAt.toISOString()
+        : new Date().toISOString();
+
     // Build parent node metadata from the evidence schema result
     let parentNode: UniversalNodeData['metadata']['parentNode'];
 
@@ -680,8 +730,8 @@ export class UniversalGraphService {
       content: evid.title || evid.url || 'Evidence', // ✅ FIXED: Use evid.url (not evid.sourceUrl)
       createdBy: evid.createdBy,
       publicCredit: evid.publicCredit,
-      createdAt: evid.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: evid.updatedAt?.toISOString() || new Date().toISOString(),
+      createdAt,
+      updatedAt,
       inclusionPositiveVotes: evid.inclusionPositiveVotes || 0,
       inclusionNegativeVotes: evid.inclusionNegativeVotes || 0,
       inclusionNetVotes: evid.inclusionNetVotes || 0,
