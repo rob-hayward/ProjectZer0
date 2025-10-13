@@ -120,8 +120,8 @@ export class QuantityService {
     try {
       // Validate unit category and default unit
       const isValidUnit = await this.unitService.validateUnitInCategory(
-        quantityData.defaultUnitId,
         quantityData.unitCategoryId,
+        quantityData.defaultUnitId,
       );
 
       if (!isValidUnit) {
@@ -587,8 +587,8 @@ export class QuantityService {
       );
 
       const isValidUnit = await this.unitService.validateUnitInCategory(
-        responseData.unitId,
         quantityNode.unitCategoryId,
+        responseData.unitId,
       );
 
       if (!isValidUnit) {
