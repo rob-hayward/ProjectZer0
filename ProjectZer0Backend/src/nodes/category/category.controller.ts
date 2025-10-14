@@ -347,4 +347,22 @@ export class CategoryController {
     this.logger.debug('Getting approved categories');
     return await this.categoryService.getApprovedCategories();
   }
+
+  /**
+   * Get category with composed words for universal graph visualization
+   * GET /categories/:id/with-contents
+   * Phase 2c: Load category + composed words onto graph
+   */
+  @Get(':id/with-contents')
+  async getCategoryWithContents(@Param('id') id: string, @Request() req: any) {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Category ID is required');
+    }
+
+    this.logger.debug(`Getting category with contents for graph: ${id}`);
+
+    return await this.categoryService.getCategoryWithContentsForGraph(id, {
+      userId: req.user?.sub,
+    });
+  }
 }

@@ -26,7 +26,16 @@ import {
 // Types
 export interface UniversalNodeData {
   id: string;
-  type: 'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence';
+  type:
+    | 'statement'
+    | 'openquestion'
+    | 'answer'
+    | 'quantity'
+    | 'evidence'
+    | 'word'
+    | 'definition'
+    | 'category'
+    | 'comment';
   content: string;
   createdBy: string;
   publicCredit: boolean;
@@ -81,7 +90,11 @@ export interface UniversalRelationshipData {
     | 'answers'
     | 'evidence_for'
     | 'shared_category'
-    | 'categorized_as';
+    | 'categorized_as'
+    | 'defines'
+    | 'composed_of'
+    | 'has_comment'
+    | 'has_reply';
   strength: number;
   metadata?: {
     sharedWords?: string[];
@@ -171,6 +184,23 @@ export interface CategoryInfo {
   usageCount: number;
 }
 
+/**
+ * Response format for graph expansion endpoints
+ * Used for loading specific node groups onto the graph
+ * - Word + Definitions
+ * - Category + Composed Words
+ * - Discussion + Comments
+ */
+export interface UniversalGraphExpansionResponse {
+  nodes: UniversalNodeData[];
+  relationships: UniversalRelationshipData[];
+  performance_metrics: {
+    node_count: number;
+    relationship_count: number;
+    relationship_density: number;
+  };
+}
+
 @Injectable()
 export class UniversalGraphService {
   private readonly logger = new Logger(UniversalGraphService.name);
@@ -200,14 +230,20 @@ export class UniversalGraphService {
     try {
       // Set defaults - only content nodes (no Category in default set)
       const {
-        node_types = ['statement', 'openquestion'], // Backward compatible default
+        node_types = [
+          'statement',
+          'openquestion',
+          'answer',
+          'quantity',
+          'evidence',
+        ], // All content nodes
         includeNodeTypes = true,
         categories = [],
         includeCategoriesFilter = true,
         categoryMode = 'any', // ✅ Phase 4.2: Default to ANY mode
         limit = 200,
         offset = 0,
-        sort_by = 'netVotes',
+        sort_by = 'inclusion_votes',
         sort_direction = 'desc',
         keywords = [],
         includeKeywordsFilter = true,
@@ -1213,7 +1249,10 @@ export class UniversalGraphService {
           source,
           target,
           type: 'shared_keyword',
-          strength: sharedCount,
+          strength:
+            typeof sharedCount === 'object'
+              ? sharedCount.toNumber()
+              : sharedCount,
           metadata: {
             sharedWords,
           },
@@ -1380,7 +1419,10 @@ export class UniversalGraphService {
           source,
           target,
           type: 'shared_category',
-          strength: overlapCount,
+          strength:
+            typeof overlapCount === 'object'
+              ? overlapCount.toNumber()
+              : overlapCount,
           metadata: {
             sharedCategories,
           },

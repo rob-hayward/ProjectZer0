@@ -15,6 +15,12 @@ import { VisibilityService } from '../../users/visibility/visibility.service';
 import { DictionaryService } from '../../dictionary/dictionary.service';
 import type { VoteStatus, VoteResult } from '../../neo4j/schemas/vote.schema';
 import type { WordNodeData } from '../../neo4j/schemas/word.schema';
+import { DefinitionService } from '../definition/definition.service';
+import type {
+  UniversalNodeData,
+  UniversalRelationshipData,
+  UniversalGraphExpansionResponse,
+} from '../universal/universal-graph.service';
 
 /**
  * WordService - Business logic for word operations
@@ -52,6 +58,7 @@ export class WordService {
     private readonly userSchema: UserSchema,
     private readonly visibilityService: VisibilityService,
     private readonly dictionaryService: DictionaryService,
+    private readonly definitionService: DefinitionService,
   ) {}
 
   // ============================================
@@ -627,6 +634,129 @@ export class WordService {
       throw new InternalServerErrorException(
         `Failed to check word availability: ${error.message}`,
       );
+    }
+  }
+
+  /**
+   * Get word with all definitions for universal graph visualization
+   * Phase 2b: Load word + definitions onto graph
+   */
+  async getWordWithDefinitionsForGraph(
+    word: string,
+    options: { sortBy?: string; userId?: string },
+  ): Promise<UniversalGraphExpansionResponse> {
+    try {
+      this.logger.debug(`Getting word with definitions for graph: ${word}`);
+
+      // 1. Get word node
+      const wordNode = await this.getWord(word);
+      if (!wordNode) {
+        throw new NotFoundException(`Word '${word}' not found`);
+      }
+
+      // 2. Get all definitions for this word
+      const definitions =
+        await this.definitionService.getDefinitionsByWord(word);
+      this.logger.debug(
+        `Found ${definitions.length} definitions for word: ${word}`,
+      );
+
+      // 3. Transform word to universal format
+      const wordUniversal: UniversalNodeData = {
+        id: wordNode.word,
+        type: 'word' as any, // Note: WordNode not in UniversalNodeData type yet
+        content: wordNode.word,
+        createdBy: wordNode.createdBy,
+        publicCredit: wordNode.publicCredit,
+        createdAt:
+          wordNode.createdAt instanceof Date
+            ? wordNode.createdAt.toISOString()
+            : new Date().toISOString(),
+        updatedAt:
+          wordNode.updatedAt instanceof Date
+            ? wordNode.updatedAt.toISOString()
+            : new Date().toISOString(),
+        inclusionPositiveVotes: wordNode.inclusionPositiveVotes || 0,
+        inclusionNegativeVotes: wordNode.inclusionNegativeVotes || 0,
+        inclusionNetVotes: wordNode.inclusionNetVotes || 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        discussionId: wordNode.discussionId || null,
+        keywords: [],
+        categories: [],
+        metadata: {},
+      };
+
+      // 4. Transform definitions to universal format
+      const definitionNodes: UniversalNodeData[] = definitions.map((def) => ({
+        id: def.id,
+        type: 'definition' as any, // Note: DefinitionNode not in UniversalNodeData type yet
+        content: def.definitionText,
+        createdBy: def.createdBy,
+        publicCredit: def.publicCredit,
+        createdAt:
+          def.createdAt instanceof Date
+            ? def.createdAt.toISOString()
+            : new Date().toISOString(),
+        updatedAt:
+          def.updatedAt instanceof Date
+            ? def.updatedAt.toISOString()
+            : new Date().toISOString(),
+        inclusionPositiveVotes: def.inclusionPositiveVotes || 0,
+        inclusionNegativeVotes: def.inclusionNegativeVotes || 0,
+        inclusionNetVotes: def.inclusionNetVotes || 0,
+        contentPositiveVotes: def.contentPositiveVotes || 0,
+        contentNegativeVotes: def.contentNegativeVotes || 0,
+        contentNetVotes: def.contentNetVotes || 0,
+        discussionId: def.discussionId || null,
+        keywords: [],
+        categories: [],
+        metadata: {},
+      }));
+
+      // 5. Combine all nodes
+      const allNodes = [wordUniversal, ...definitionNodes];
+
+      // 6. Build DEFINES relationships (Definition → Word)
+      const relationships: UniversalRelationshipData[] = definitions.map(
+        (def) => ({
+          id: `${def.id}-defines-${word}`,
+          source: def.id,
+          target: word,
+          type: 'defines',
+          strength: 1.0,
+        }),
+      );
+
+      // 7. Enrich with user context if userId provided
+      const enrichedNodes = allNodes;
+      if (options.userId) {
+        // Could add user vote status here if needed
+        this.logger.debug(
+          `Enriching nodes with user context for: ${options.userId}`,
+        );
+      }
+
+      // 8. Return in expansion format
+      return {
+        nodes: enrichedNodes,
+        relationships,
+        performance_metrics: {
+          node_count: enrichedNodes.length,
+          relationship_count: relationships.length,
+          relationship_density:
+            enrichedNodes.length > 0
+              ? relationships.length / enrichedNodes.length
+              : 0,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error getting word with definitions for graph: ${error.message}`,
+        error.stack,
+      );
+      throw error;
     }
   }
 }

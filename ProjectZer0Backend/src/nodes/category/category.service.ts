@@ -13,6 +13,11 @@ import { UserSchema } from '../../neo4j/schemas/user.schema';
 import type { VoteResult, VoteStatus } from '../../neo4j/schemas/vote.schema';
 import type { CategoryData } from '../../neo4j/schemas/category.schema';
 import { v4 as uuidv4 } from 'uuid';
+import type {
+  UniversalNodeData,
+  UniversalRelationshipData,
+  UniversalGraphExpansionResponse,
+} from '../universal/universal-graph.service';
 
 /**
  * CategoryService - Business logic for category operations
@@ -460,5 +465,165 @@ export class CategoryService {
     if (!data.createdBy || data.createdBy.trim() === '') {
       throw new BadRequestException('Creator ID is required');
     }
+  }
+
+  /**
+   * Get category with composed words for universal graph visualization
+   * Phase 2c: Load category structure onto graph
+   */
+  async getCategoryWithContentsForGraph(
+    categoryId: string,
+    options: { userId?: string },
+  ): Promise<UniversalGraphExpansionResponse> {
+    try {
+      this.logger.debug(
+        `Getting category with contents for graph: ${categoryId}`,
+      );
+
+      // 1. Get category node
+      const category = await this.getCategory(categoryId);
+      if (!category) {
+        throw new NotFoundException(`Category ${categoryId} not found`);
+      }
+
+      // 2. Get composed words - need to query via schema since they're not in CategoryData by default
+      // Use the neo4jService to query the COMPOSED_OF relationships
+      const composedWordsQuery = `
+      MATCH (c:CategoryNode {id: $categoryId})-[:COMPOSED_OF]->(w:WordNode)
+      RETURN w.word as word, w.createdBy as createdBy, w.publicCredit as publicCredit,
+             w.createdAt as createdAt, w.updatedAt as updatedAt,
+             w.inclusionPositiveVotes as inclusionPositiveVotes,
+             w.inclusionNegativeVotes as inclusionNegativeVotes,
+             w.inclusionNetVotes as inclusionNetVotes,
+             w.discussionId as discussionId
+      ORDER BY w.word ASC
+    `;
+
+      const result = await this.categorySchema['neo4jService'].read(
+        composedWordsQuery,
+        { categoryId },
+      );
+
+      const composedWords = result.records.map((record) => ({
+        word: record.get('word'),
+        createdBy: record.get('createdBy'),
+        publicCredit: record.get('publicCredit'),
+        createdAt: record.get('createdAt'),
+        updatedAt: record.get('updatedAt'),
+        inclusionPositiveVotes: this.toNumber(
+          record.get('inclusionPositiveVotes'),
+        ),
+        inclusionNegativeVotes: this.toNumber(
+          record.get('inclusionNegativeVotes'),
+        ),
+        inclusionNetVotes: this.toNumber(record.get('inclusionNetVotes')),
+        discussionId: record.get('discussionId'),
+      }));
+
+      this.logger.debug(
+        `Found ${composedWords.length} composed words for category: ${categoryId}`,
+      );
+
+      // 3. Transform category to universal format
+      const categoryUniversal: UniversalNodeData = {
+        id: category.id,
+        type: 'category' as any,
+        content: category.name,
+        createdBy: category.createdBy,
+        publicCredit: category.publicCredit,
+        createdAt:
+          category.createdAt instanceof Date
+            ? category.createdAt.toISOString()
+            : new Date().toISOString(),
+        updatedAt:
+          category.updatedAt instanceof Date
+            ? category.updatedAt.toISOString()
+            : new Date().toISOString(),
+        inclusionPositiveVotes: category.inclusionPositiveVotes || 0,
+        inclusionNegativeVotes: category.inclusionNegativeVotes || 0,
+        inclusionNetVotes: category.inclusionNetVotes || 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        discussionId: category.discussionId || null,
+        keywords: [],
+        categories: [],
+        metadata: {},
+      };
+
+      // 4. Transform composed words to universal format
+      const wordNodes: UniversalNodeData[] = composedWords.map((word) => ({
+        id: word.word,
+        type: 'word' as any,
+        content: word.word,
+        createdBy: word.createdBy || 'system',
+        publicCredit: word.publicCredit || false,
+        createdAt: word.createdAt
+          ? new Date(word.createdAt).toISOString()
+          : new Date().toISOString(),
+        updatedAt: word.updatedAt
+          ? new Date(word.updatedAt).toISOString()
+          : new Date().toISOString(),
+        inclusionPositiveVotes: word.inclusionPositiveVotes || 0,
+        inclusionNegativeVotes: word.inclusionNegativeVotes || 0,
+        inclusionNetVotes: word.inclusionNetVotes || 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0,
+        discussionId: word.discussionId || null,
+        keywords: [],
+        categories: [],
+        metadata: {},
+      }));
+
+      // 5. Combine all nodes
+      const allNodes = [categoryUniversal, ...wordNodes];
+
+      // 6. Build COMPOSED_OF relationships (Category → Word)
+      const relationships: UniversalRelationshipData[] = composedWords.map(
+        (word) => ({
+          id: `${categoryId}-composed_of-${word.word}`,
+          source: categoryId,
+          target: word.word,
+          type: 'composed_of',
+          strength: 1.0,
+        }),
+      );
+
+      // 7. Use options if needed (for future user context enrichment)
+      if (options.userId) {
+        this.logger.debug(`User context available: ${options.userId}`);
+      }
+
+      // 8. Return in expansion format
+      return {
+        nodes: allNodes,
+        relationships,
+        performance_metrics: {
+          node_count: allNodes.length,
+          relationship_count: relationships.length,
+          relationship_density:
+            allNodes.length > 0 ? relationships.length / allNodes.length : 0,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error getting category with contents for graph: ${error.message}`,
+        error.stack,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Helper to convert Neo4j Integer to number
+   */
+  private toNumber(value: any): number {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'object' && 'toNumber' in value) {
+      return value.toNumber();
+    }
+    return 0;
   }
 }

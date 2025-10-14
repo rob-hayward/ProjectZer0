@@ -451,4 +451,25 @@ export class WordController {
       await this.wordService.isWordAvailableForDefinitionCreation(word);
     return { available };
   }
+
+  @Get(':word/with-definitions')
+  async getWordWithDefinitions(
+    @Param('word') word: string,
+    @Query('sortBy') sortBy: 'votes' | 'chronological' = 'votes',
+    @Request() req: any,
+  ) {
+    if (!word || word.trim() === '') {
+      throw new BadRequestException('Word parameter is required');
+    }
+
+    this.logger.debug(`Getting word with definitions for graph: ${word}`);
+
+    return await this.wordService.getWordWithDefinitionsForGraph(
+      word.toLowerCase(),
+      {
+        sortBy,
+        userId: req.user?.sub,
+      },
+    );
+  }
 }

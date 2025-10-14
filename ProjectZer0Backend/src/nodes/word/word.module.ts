@@ -9,6 +9,7 @@ import { VoteSchema } from '../../neo4j/schemas/vote.schema';
 import { DiscussionModule } from '../discussion/discussion.module'; // ← Import for DiscussionSchema
 import { DictionaryModule } from '../../dictionary/dictionary.module';
 import { VisibilityModule } from '../../users/visibility/visibility.module';
+import { DefinitionModule } from '../definition/definition.module'; // ← ADD THIS
 
 /**
  * WordModule - Module configuration for word operations
@@ -16,6 +17,7 @@ import { VisibilityModule } from '../../users/visibility/visibility.module';
  * ARCHITECTURE:
  * - Imports DiscussionModule to get DiscussionSchema
  * - Imports VisibilityModule for visibility operations
+ * - Imports DefinitionModule for loading word+definitions on graph (Phase 2b)
  * - Provides WordSchema, UserSchema, VoteSchema
  * - Exports WordService and WordSchema for other modules
  *
@@ -23,6 +25,7 @@ import { VisibilityModule } from '../../users/visibility/visibility.module';
  * ✅ DiscussionModule - Provides DiscussionSchema for direct injection
  * ✅ VisibilityModule - Provides VisibilityService
  * ✅ DictionaryModule - Provides DictionaryService for API definitions
+ * ✅ DefinitionModule - Provides DefinitionService for graph visualization
  * ✅ VoteSchema - Required by BaseNodeSchema
  */
 @Module({
@@ -30,6 +33,7 @@ import { VisibilityModule } from '../../users/visibility/visibility.module';
     DiscussionModule, // ← CRITICAL: Import to get DiscussionSchema
     VisibilityModule, // For visibility operations
     DictionaryModule, // For API definition fetching
+    DefinitionModule, // ← ADD THIS: For loading word+definitions on graph
   ],
   controllers: [WordController],
   providers: [
