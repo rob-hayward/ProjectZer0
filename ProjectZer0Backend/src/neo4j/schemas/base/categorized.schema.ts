@@ -579,8 +579,8 @@ export abstract class CategorizedNodeSchema<
     ${includeCategories ? 'OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode) WHERE cat.inclusionNetVotes > 0' : ''}
     RETURN n,
        ${includeDiscussion ? 'head(collect(disc.id)) as discussionId' : 'null as discussionId'},
-       ${includeKeywords ? 'collect(DISTINCT {...}) as keywords' : '[] as keywords'},
-           ${includeCategories ? 'collect(DISTINCT {id: cat.id, name: cat.name, description: cat.description, inclusionNetVotes: cat.inclusionNetVotes}) as categories' : '[] as categories'}
+       ${includeKeywords ? 'collect(DISTINCT {word: w.word, frequency: t.frequency, source: t.source}) as keywords' : '[] as keywords'},
+       ${includeCategories ? 'collect(DISTINCT {id: cat.id, name: cat.name, description: cat.description, inclusionNetVotes: cat.inclusionNetVotes}) as categories' : '[] as categories'}
     ORDER BY n.${sortBy} ${sortDirection}
     SKIP $offset
     LIMIT $limit
@@ -609,7 +609,12 @@ export abstract class CategorizedNodeSchema<
         // ✅ NEW: Add categories
         if (includeCategories) {
           const categoriesData = record.get('categories');
-          nodeData.categories = categoriesData.filter((c: any) => c.id);
+          nodeData.categories = categoriesData
+            .filter((c: any) => c.id)
+            .map((c: any) => ({
+              ...c,
+              inclusionNetVotes: this.toNumber(c.inclusionNetVotes),
+            }));
         }
 
         return nodeData;
