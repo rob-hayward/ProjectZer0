@@ -356,7 +356,16 @@ export abstract class TaggedNodeSchema<
     const query = `
     MATCH (n:${this.nodeLabel})
     ${whereClause}
-    ${includeDiscussion ? 'OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)' : ''}
+   ${
+     includeDiscussion
+       ? `
+        OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+        WITH n, disc
+        ORDER BY disc.createdAt DESC
+        LIMIT 1
+        `
+       : ''
+   }
     ${includeKeywords ? 'OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)' : ''}
     RETURN n,
            ${includeDiscussion ? 'disc.id as discussionId' : 'null as discussionId'},

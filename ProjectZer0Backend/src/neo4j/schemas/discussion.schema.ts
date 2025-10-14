@@ -102,6 +102,9 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
    * @param options Creation options including node details and optional initial comment
    * @returns The created discussion ID and optional comment ID
    */
+  // src/neo4j/schemas/discussion.schema.ts
+  // FIXED: Line 139-180 - Prevent duplicate discussions
+
   async createDiscussionForNode(
     options: CreateDiscussionForNodeOptions,
   ): Promise<DiscussionCreationResult> {
@@ -130,23 +133,56 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
     );
 
     try {
+      // ✅ CRITICAL FIX: Check if discussion already exists
+      const existingDiscussionId = await this.getDiscussionIdForNode(
+        options.nodeType,
+        options.nodeId,
+        idField,
+      );
+
+      if (existingDiscussionId) {
+        this.discussionLogger.warn(
+          `Discussion already exists for ${options.nodeType}: ${options.nodeId}, returning existing: ${existingDiscussionId}`,
+        );
+
+        // If there's an initial comment, still create it
+        let commentId: string | undefined;
+        if (options.initialComment && options.initialComment.trim() !== '') {
+          commentId = await this.createInitialComment(
+            existingDiscussionId,
+            options.createdBy,
+            options.initialComment,
+            options.nodeType,
+            options.nodeId,
+            idField,
+          );
+        }
+
+        return {
+          discussionId: existingDiscussionId,
+          commentId,
+        };
+      }
+
+      // ✅ FIXED: Use MERGE instead of CREATE for the relationship
       let query = `
-        // Verify the node exists
-        MATCH (n:${options.nodeType} {${idField}: $nodeId})
-        
-        // Create the discussion node
-        CREATE (d:DiscussionNode {
-          id: $discussionId,
-          createdBy: $createdBy,
-          associatedNodeId: $nodeId,
-          associatedNodeType: $nodeType,
-          createdAt: datetime(),
-          updatedAt: datetime()
-        })
-        
-        // Create the HAS_DISCUSSION relationship
-        CREATE (n)-[:HAS_DISCUSSION]->(d)
-      `;
+      // Verify the node exists
+      MATCH (n:${options.nodeType} {${idField}: $nodeId})
+      
+      // Create the discussion node
+      CREATE (d:DiscussionNode {
+        id: $discussionId,
+        createdBy: $createdBy,
+        associatedNodeId: $nodeId,
+        associatedNodeType: $nodeType,
+        createdAt: datetime(),
+        updatedAt: datetime()
+      })
+      
+      // ✅ CRITICAL FIX: Use MERGE for HAS_DISCUSSION relationship
+      // This prevents duplicate relationships even in race conditions
+      MERGE (n)-[:HAS_DISCUSSION]->(d)
+    `;
 
       const params: any = {
         nodeId: options.nodeId,
@@ -162,43 +198,43 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
         commentId = `comment-${discussionId}-${Date.now()}`;
 
         query += `
-        // Create the initial comment
-        CREATE (c:CommentNode {
-          id: $commentId,
-          createdBy: $createdBy,
-          discussionId: $discussionId,
-          commentText: $initialComment,
-          parentCommentId: null,
-          createdAt: datetime(),
-          updatedAt: datetime(),
-          // Comments only have content voting
-          inclusionPositiveVotes: 0,
-          inclusionNegativeVotes: 0,
-          inclusionNetVotes: 0,
-          contentPositiveVotes: 0,
-          contentNegativeVotes: 0,
-          contentNetVotes: 0
-        })
-        
-        // Link comment to discussion
-        CREATE (d)-[:HAS_COMMENT]->(c)
-        
-        // Link user to comment
-        WITH d, c
-        MATCH (u:User {sub: $createdBy})
-        CREATE (u)-[:COMMENTED {
-          createdAt: datetime(),
-          commentId: c.id
-        }]->(n)
-        `;
+      // Create the initial comment
+      CREATE (c:CommentNode {
+        id: $commentId,
+        createdBy: $createdBy,
+        discussionId: $discussionId,
+        commentText: $initialComment,
+        parentCommentId: null,
+        createdAt: datetime(),
+        updatedAt: datetime(),
+        // Comments only have content voting
+        inclusionPositiveVotes: 0,
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0
+      })
+      
+      // Link comment to discussion
+      CREATE (d)-[:HAS_COMMENT]->(c)
+      
+      // Link user to comment
+      WITH d, c, n
+      MATCH (u:User {sub: $createdBy})
+      CREATE (u)-[:COMMENTED {
+        createdAt: datetime(),
+        commentId: c.id
+      }]->(n)
+      `;
 
         params.commentId = commentId;
         params.initialComment = options.initialComment;
       }
 
       query += `
-        RETURN d.id as discussionId
-      `;
+      RETURN d.id as discussionId
+    `;
 
       const result = await this.neo4jService.write(query, params);
 
@@ -224,6 +260,70 @@ export class DiscussionSchema extends BaseNodeSchema<DiscussionData> {
       throw new BadRequestException(
         `Failed to create discussion: ${error.message}`,
       );
+    }
+  }
+
+  /**
+   * ✅ NEW HELPER METHOD: Create initial comment for existing discussion
+   */
+  private async createInitialComment(
+    discussionId: string,
+    createdBy: string,
+    commentText: string,
+    nodeType: string,
+    nodeId: string,
+    idField: string,
+  ): Promise<string> {
+    const commentId = `comment-${discussionId}-${Date.now()}`;
+
+    try {
+      await this.neo4jService.write(
+        `
+      MATCH (d:DiscussionNode {id: $discussionId})
+      MATCH (n:${nodeType} {${idField}: $nodeId})
+      
+      CREATE (c:CommentNode {
+        id: $commentId,
+        createdBy: $createdBy,
+        discussionId: $discussionId,
+        commentText: $commentText,
+        parentCommentId: null,
+        createdAt: datetime(),
+        updatedAt: datetime(),
+        inclusionPositiveVotes: 0,
+        inclusionNegativeVotes: 0,
+        inclusionNetVotes: 0,
+        contentPositiveVotes: 0,
+        contentNegativeVotes: 0,
+        contentNetVotes: 0
+      })
+      
+      CREATE (d)-[:HAS_COMMENT]->(c)
+      
+      WITH c, n
+      MATCH (u:User {sub: $createdBy})
+      CREATE (u)-[:COMMENTED {
+        createdAt: datetime(),
+        commentId: c.id
+      }]->(n)
+      
+      RETURN c.id as commentId
+      `,
+        {
+          discussionId,
+          nodeId,
+          commentId,
+          createdBy,
+          commentText,
+        },
+      );
+
+      return commentId;
+    } catch (error) {
+      this.discussionLogger.error(
+        `Error creating initial comment: ${error.message}`,
+      );
+      throw error;
     }
   }
 
