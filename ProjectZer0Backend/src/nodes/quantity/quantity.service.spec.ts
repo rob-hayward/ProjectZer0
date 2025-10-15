@@ -256,8 +256,8 @@ describe('QuantityService - Comprehensive Tests', () => {
       const result = await service.createQuantityNode(validQuantityData);
 
       expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
-        'usd',
         'currency',
+        'usd',
       );
 
       expect(keywordExtractionService.extractKeywords).toHaveBeenCalledWith({
@@ -643,8 +643,8 @@ describe('QuantityService - Comprehensive Tests', () => {
 
       // Verify unit validation
       expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
-        'usd',
         'currency',
+        'usd',
       );
 
       // Verify keyword extraction
@@ -1153,8 +1153,8 @@ describe('QuantityService - Comprehensive Tests', () => {
 
       expect(quantitySchema.getVotes).toHaveBeenCalledWith('quantity-123');
       expect(unitService.validateUnitInCategory).toHaveBeenCalledWith(
-        'usd',
         'currency',
+        'usd',
       );
       expect(quantitySchema.submitResponse).toHaveBeenCalledWith(
         validResponseData,

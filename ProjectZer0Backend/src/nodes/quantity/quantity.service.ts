@@ -253,7 +253,10 @@ export class QuantityService {
     this.logger.debug(`Getting quantity node: ${id}`);
 
     try {
-      const quantityNode = await this.quantitySchema.getQuantity(id);
+      // ✅ CHANGE THIS LINE:
+      // const quantityNode = await this.quantitySchema.getQuantity(id);
+      // TO THIS:
+      const quantityNode = await this.quantitySchema.findById(id);
 
       if (!quantityNode) {
         throw new NotFoundException(`Quantity node with ID ${id} not found`);
@@ -560,7 +563,7 @@ export class QuantityService {
 
   /**
    * Submit a numeric response to a quantity node
-   * Responses only allowed after inclusion threshold passed
+   * Validates: quantity exists, passed inclusion, unit is valid
    */
   async submitResponse(
     responseData: SubmitResponseData,
@@ -572,8 +575,10 @@ export class QuantityService {
     );
 
     try {
-      // Verify quantity node exists and has passed inclusion threshold
-      const votes = await this.getVotes(responseData.quantityNodeId);
+      // Check if quantity node has passed inclusion threshold
+      const votes = await this.quantitySchema.getVotes(
+        responseData.quantityNodeId,
+      );
 
       if (!votes || votes.inclusionNetVotes <= 0) {
         throw new BadRequestException(
@@ -581,12 +586,24 @@ export class QuantityService {
         );
       }
 
-      // Validate unit is valid for quantity node's unit category
-      const quantityNode = await this.getQuantityNode(
+      // Get quantity node to validate unit against its unit category
+      // ✅ CHANGE THIS LINE:
+      // const quantityNode = await this.getQuantityNode(
+      //   responseData.quantityNodeId,
+      // );
+      // TO THIS:
+      const quantityNode = await this.quantitySchema.findById(
         responseData.quantityNodeId,
       );
 
-      const isValidUnit = await this.unitService.validateUnitInCategory(
+      if (!quantityNode) {
+        throw new NotFoundException(
+          `Quantity node ${responseData.quantityNodeId} not found`,
+        );
+      }
+
+      // Validate unit is valid for this quantity's unit category
+      const isValidUnit = this.unitService.validateUnitInCategory(
         quantityNode.unitCategoryId,
         responseData.unitId,
       );
