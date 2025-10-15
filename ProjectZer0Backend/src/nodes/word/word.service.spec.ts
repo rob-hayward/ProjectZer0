@@ -1,4 +1,4 @@
-// src/nodes/word/word.service.spec.ts - REFACTORED ARCHITECTURE TESTS
+// src/nodes/word/word.service.spec.ts - REFACTORED ARCHITECTURE TESTS - FIXED
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { WordService } from './word.service';
@@ -7,6 +7,7 @@ import { DiscussionSchema } from '../../neo4j/schemas/discussion.schema';
 import { UserSchema } from '../../neo4j/schemas/user.schema';
 import { VisibilityService } from '../../users/visibility/visibility.service';
 import { DictionaryService } from '../../dictionary/dictionary.service';
+import { DefinitionService } from '../definition/definition.service'; // ← ADDED
 import {
   BadRequestException,
   NotFoundException,
@@ -20,6 +21,7 @@ describe('WordService - Refactored Architecture', () => {
   let discussionSchema: jest.Mocked<DiscussionSchema>;
   let visibilityService: jest.Mocked<VisibilityService>;
   let dictionaryService: jest.Mocked<DictionaryService>;
+  let definitionService: jest.Mocked<DefinitionService>; // ← ADDED
 
   // Mock data
   const mockWordData = {
@@ -90,6 +92,15 @@ describe('WordService - Refactored Architecture', () => {
       getDefinition: jest.fn(),
     };
 
+    // ✅ ADDED: Mock DefinitionService
+    const mockDefinitionService = {
+      getDefinitionsByWord: jest.fn(),
+      getDefinition: jest.fn(),
+      createDefinition: jest.fn(),
+      updateDefinition: jest.fn(),
+      deleteDefinition: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WordService,
@@ -113,6 +124,11 @@ describe('WordService - Refactored Architecture', () => {
           provide: DictionaryService,
           useValue: mockDictionaryService,
         },
+        // ✅ ADDED: Provide DefinitionService mock
+        {
+          provide: DefinitionService,
+          useValue: mockDefinitionService,
+        },
       ],
     }).compile();
 
@@ -127,6 +143,10 @@ describe('WordService - Refactored Architecture', () => {
     dictionaryService = module.get(
       DictionaryService,
     ) as jest.Mocked<DictionaryService>;
+    // ✅ ADDED: Get DefinitionService mock
+    definitionService = module.get(
+      DefinitionService,
+    ) as jest.Mocked<DefinitionService>;
 
     jest.clearAllMocks();
   });
@@ -148,8 +168,11 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should create a word via schema', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      // ✅ FIXED: createWord returns { word: WordNodeData, definition?: ... }
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
 
       const result = await service.createWord(createWordData);
 
@@ -162,14 +185,17 @@ describe('WordService - Refactored Architecture', () => {
         isApiDefinition: undefined,
         isAICreated: undefined,
       });
-      expect(wordSchema.findById).toHaveBeenCalledWith('test');
+      // ✅ FIXED: No longer fetches via findById, returns directly from createWord result
+      expect(wordSchema.findById).not.toHaveBeenCalled();
       expect(result).toEqual(mockWordData);
     });
 
     it('should create word with initial definition', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: { id: 'def-123', definitionText: 'A test word' },
+      } as any);
 
       await service.createWord({
         ...createWordData,
@@ -185,8 +211,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should create discussion if initialComment provided', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
       });
@@ -208,8 +236,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should continue if discussion creation fails', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       discussionSchema.createDiscussionForNode.mockRejectedValue(
         new Error('Discussion creation failed'),
       );
@@ -227,8 +257,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should fetch API definition if isApiDefinition true', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       dictionaryService.getDefinition.mockResolvedValue('API definition text');
 
       await service.createWord({
@@ -247,8 +279,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should continue if API definition fetch fails', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       dictionaryService.getDefinition.mockRejectedValue(new Error('API error'));
 
       // Should not throw
@@ -845,8 +879,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should call createDiscussionForNode with correct params', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
       });
@@ -868,8 +904,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should use nodeIdField: "word" for discussions', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
       });
@@ -887,8 +925,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should only create discussion if initialComment provided', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
 
       // Without initialComment
       await service.createWord({
@@ -901,8 +941,10 @@ describe('WordService - Refactored Architecture', () => {
 
     it('should continue if discussion creation fails', async () => {
       wordSchema.checkWordExistence.mockResolvedValue(false);
-      wordSchema.createWord.mockResolvedValue({ word: 'test' } as any);
-      wordSchema.findById.mockResolvedValue(mockWordData);
+      wordSchema.createWord.mockResolvedValue({
+        word: mockWordData,
+        definition: undefined,
+      } as any);
       discussionSchema.createDiscussionForNode.mockRejectedValue(
         new Error('Discussion failed'),
       );
@@ -915,6 +957,129 @@ describe('WordService - Refactored Architecture', () => {
       });
 
       expect(result).toEqual(mockWordData);
+    });
+  });
+
+  // ============================================
+  // GRAPH EXPANSION (Phase 2b)
+  // ============================================
+
+  describe('getWordWithDefinitionsForGraph', () => {
+    it('should get word with definitions for graph visualization', async () => {
+      const mockDefinitions = [
+        {
+          id: 'def-1',
+          word: 'test', // ✅ ADDED: Required by DefinitionData
+          definitionText: 'First definition',
+          createdBy: 'user-1',
+          publicCredit: true,
+          createdAt: new Date('2023-01-01'),
+          updatedAt: new Date('2023-01-01'),
+          inclusionPositiveVotes: 5,
+          inclusionNegativeVotes: 1,
+          inclusionNetVotes: 4,
+          contentPositiveVotes: 3,
+          contentNegativeVotes: 0,
+          contentNetVotes: 3,
+          discussionId: 'disc-1',
+        },
+        {
+          id: 'def-2',
+          word: 'test', // ✅ ADDED: Required by DefinitionData
+          definitionText: 'Second definition',
+          createdBy: 'user-2',
+          publicCredit: true,
+          createdAt: new Date('2023-01-02'),
+          updatedAt: new Date('2023-01-02'),
+          inclusionPositiveVotes: 8,
+          inclusionNegativeVotes: 2,
+          inclusionNetVotes: 6,
+          contentPositiveVotes: 5,
+          contentNegativeVotes: 1,
+          contentNetVotes: 4,
+          discussionId: 'disc-2',
+        },
+      ];
+
+      wordSchema.findById.mockResolvedValue(mockWordData);
+      definitionService.getDefinitionsByWord.mockResolvedValue(mockDefinitions);
+
+      const result = await service.getWordWithDefinitionsForGraph('test', {
+        sortBy: 'votes',
+        userId: 'user-123',
+      });
+
+      expect(wordSchema.findById).toHaveBeenCalledWith('test');
+      expect(definitionService.getDefinitionsByWord).toHaveBeenCalledWith(
+        'test',
+      );
+
+      // Verify response structure
+      expect(result).toHaveProperty('nodes');
+      expect(result).toHaveProperty('relationships');
+      expect(result).toHaveProperty('performance_metrics');
+
+      // Verify nodes: 1 word + 2 definitions = 3 nodes
+      expect(result.nodes).toHaveLength(3);
+
+      // Verify word node
+      const wordNode = result.nodes.find((n) => n.id === 'test');
+      expect(wordNode).toBeDefined();
+      expect(wordNode?.type).toBe('word');
+      expect(wordNode?.content).toBe('test');
+
+      // Verify definition nodes
+      const defNodes = result.nodes.filter((n) => n.type === 'definition');
+      expect(defNodes).toHaveLength(2);
+
+      // Verify relationships: 2 DEFINES relationships
+      expect(result.relationships).toHaveLength(2);
+      expect(result.relationships[0].type).toBe('defines');
+      expect(result.relationships[0].source).toBe('def-1');
+      expect(result.relationships[0].target).toBe('test');
+
+      // Verify performance metrics
+      expect(result.performance_metrics.node_count).toBe(3);
+      expect(result.performance_metrics.relationship_count).toBe(2);
+      expect(result.performance_metrics.relationship_density).toBeCloseTo(
+        0.67,
+        2,
+      );
+    });
+
+    it('should handle word not found', async () => {
+      wordSchema.findById.mockResolvedValue(null);
+
+      await expect(
+        service.getWordWithDefinitionsForGraph('nonexistent', {}),
+      ).rejects.toThrow(NotFoundException);
+      await expect(
+        service.getWordWithDefinitionsForGraph('nonexistent', {}),
+      ).rejects.toThrow("Word 'nonexistent' not found");
+    });
+
+    it('should handle word with no definitions', async () => {
+      wordSchema.findById.mockResolvedValue(mockWordData);
+      definitionService.getDefinitionsByWord.mockResolvedValue([]);
+
+      const result = await service.getWordWithDefinitionsForGraph('test', {});
+
+      expect(result.nodes).toHaveLength(1); // Just the word node
+      expect(result.relationships).toHaveLength(0); // No relationships
+      expect(result.performance_metrics.node_count).toBe(1);
+      expect(result.performance_metrics.relationship_count).toBe(0);
+    });
+
+    it('should work without userId', async () => {
+      wordSchema.findById.mockResolvedValue(mockWordData);
+      definitionService.getDefinitionsByWord.mockResolvedValue([]);
+
+      const result = await service.getWordWithDefinitionsForGraph('test', {
+        sortBy: 'alphabetical',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.nodes).toHaveLength(1);
     });
   });
 

@@ -1,4 +1,4 @@
-// src/neo4j/schemas/__tests__/discussion.schema.spec.ts
+// src/neo4j/schemas/__tests__/discussion.schema.spec.ts - FIXED
 // Updated for refactored DiscussionSchema (correct neo4j record shape + lint/type/prettier fixes)
 
 import { Test, TestingModule } from '@nestjs/testing';
@@ -131,6 +131,10 @@ describe('DiscussionSchema (refactored)', () => {
     });
 
     it('creates discussion without initial comment', async () => {
+      // FIXED: Mock getDiscussionIdForNode to return null (no existing discussion)
+      neo4jService.read.mockResolvedValueOnce({ records: [] } as any);
+
+      // Mock the write operation for creating the discussion
       neo4jService.write.mockResolvedValue({
         records: [recordWithAliases({ discussionId: 'disc-123' })],
       } as any);
@@ -141,13 +145,21 @@ describe('DiscussionSchema (refactored)', () => {
         createdBy: 'user-1',
       });
 
+      // Should check for existing discussion first
+      expect(neo4jService.read).toHaveBeenCalledTimes(1);
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (n:WordNode'),
+        expect.objectContaining({ nodeId: 'word-1' }),
+      );
+
+      // Then create new discussion
       expect(neo4jService.write).toHaveBeenCalledTimes(1);
       const [cypher, params] = neo4jService.write.mock.calls[0];
 
       expect(typeof cypher).toBe('string');
       expect(cypher).toContain('MATCH (n:WordNode');
       expect(cypher).toContain('CREATE (d:DiscussionNode');
-      expect(cypher).toContain('CREATE (n)-[:HAS_DISCUSSION]->(d)');
+      expect(cypher).toContain('MERGE (n)-[:HAS_DISCUSSION]->(d)');
       expect(params).toMatchObject({
         nodeId: 'word-1',
         nodeType: 'WordNode',
@@ -158,6 +170,9 @@ describe('DiscussionSchema (refactored)', () => {
     });
 
     it('creates discussion with initial comment and returns commentId', async () => {
+      // FIXED: Mock getDiscussionIdForNode to return null (no existing discussion)
+      neo4jService.read.mockResolvedValueOnce({ records: [] } as any);
+
       neo4jService.write.mockResolvedValue({
         records: [recordWithAliases({ discussionId: 'disc-456' })],
       } as any);
@@ -187,7 +202,11 @@ describe('DiscussionSchema (refactored)', () => {
     });
 
     it('throws a helpful error if MATCHed node does not exist', async () => {
+      // FIXED: Mock getDiscussionIdForNode to return null (no existing discussion)
+      neo4jService.read.mockResolvedValueOnce({ records: [] } as any);
+
       neo4jService.write.mockResolvedValue({ records: [] } as any);
+
       await expect(
         discussionSchema.createDiscussionForNode({
           nodeId: 'nope',
@@ -195,6 +214,95 @@ describe('DiscussionSchema (refactored)', () => {
           createdBy: 'user-1',
         }),
       ).rejects.toThrow(/Failed to create discussion/i);
+    });
+
+    // FIXED: New test for duplicate prevention
+    it('should return existing discussion if one already exists', async () => {
+      // Mock getDiscussionIdForNode to return existing discussion
+      neo4jService.read.mockResolvedValueOnce({
+        records: [recordWithAliases({ discussionId: 'existing-disc-123' })],
+      } as any);
+
+      const result = await discussionSchema.createDiscussionForNode({
+        nodeId: 'word-1',
+        nodeType: 'WordNode',
+        createdBy: 'user-1',
+      });
+
+      // Should have checked for existing discussion
+      expect(neo4jService.read).toHaveBeenCalledTimes(1);
+      expect(neo4jService.read).toHaveBeenCalledWith(
+        expect.stringContaining('MATCH (n:WordNode'),
+        expect.objectContaining({ nodeId: 'word-1' }),
+      );
+
+      // Should NOT have created a new discussion
+      expect(neo4jService.write).not.toHaveBeenCalled();
+
+      // Should return existing discussion ID
+      expect(result.discussionId).toBe('existing-disc-123');
+      expect(result.commentId).toBeUndefined();
+    });
+
+    // FIXED: New test for duplicate prevention with initial comment
+    it('should add initial comment to existing discussion if provided', async () => {
+      // Mock getDiscussionIdForNode to return existing discussion
+      neo4jService.read.mockResolvedValueOnce({
+        records: [recordWithAliases({ discussionId: 'existing-disc-456' })],
+      } as any);
+
+      // Mock createInitialComment
+      neo4jService.write.mockResolvedValueOnce({
+        records: [recordWithAliases({ commentId: 'comment-789' })],
+      } as any);
+
+      const result = await discussionSchema.createDiscussionForNode({
+        nodeId: 'word-1',
+        nodeType: 'WordNode',
+        createdBy: 'user-1',
+        initialComment: 'This is an additional comment',
+      });
+
+      // Should have checked for existing discussion
+      expect(neo4jService.read).toHaveBeenCalledTimes(1);
+
+      // Should have created the initial comment
+      expect(neo4jService.write).toHaveBeenCalledTimes(1);
+      const [cypher, params] = neo4jService.write.mock.calls[0];
+
+      expect(cypher).toContain('MATCH (d:DiscussionNode {id: $discussionId})');
+      expect(cypher).toContain('CREATE (c:CommentNode');
+      expect(params).toMatchObject({
+        discussionId: 'existing-disc-456',
+        commentText: 'This is an additional comment',
+        createdBy: 'user-1',
+      });
+
+      // Should return existing discussion ID with new comment ID
+      expect(result.discussionId).toBe('existing-disc-456');
+      expect(result.commentId).toBeDefined();
+    });
+
+    // FIXED: Test to verify MERGE is used for relationship
+    it('should use MERGE for HAS_DISCUSSION relationship to prevent duplicates', async () => {
+      // Mock getDiscussionIdForNode to return null (no existing discussion)
+      neo4jService.read.mockResolvedValueOnce({ records: [] } as any);
+
+      neo4jService.write.mockResolvedValue({
+        records: [recordWithAliases({ discussionId: 'disc-new' })],
+      } as any);
+
+      await discussionSchema.createDiscussionForNode({
+        nodeId: 'word-1',
+        nodeType: 'WordNode',
+        createdBy: 'user-1',
+      });
+
+      const [cypher] = neo4jService.write.mock.calls[0];
+
+      // Verify MERGE is used instead of CREATE for the relationship
+      expect(cypher).toContain('MERGE (n)-[:HAS_DISCUSSION]->(d)');
+      expect(cypher).not.toMatch(/CREATE.*\(n\)-\[:HAS_DISCUSSION\]->\(d\)/);
     });
   });
 
@@ -298,6 +406,15 @@ describe('DiscussionSchema (refactored)', () => {
 
     it('returns null if none exists', async () => {
       neo4jService.read.mockResolvedValue({ records: [] } as any);
+      const id = await discussionSchema.getDiscussionIdForNode(
+        'StatementNode',
+        'stmt-1',
+      );
+      expect(id).toBeNull();
+    });
+
+    it('returns null on error (graceful handling)', async () => {
+      neo4jService.read.mockRejectedValue(new Error('Database error'));
       const id = await discussionSchema.getDiscussionIdForNode(
         'StatementNode',
         'stmt-1',
@@ -427,10 +544,10 @@ describe('DiscussionSchema (refactored)', () => {
     it('maps hierarchical or flat comments result set', async () => {
       const c1 = {
         id: 'c1',
-        body: 'hello',
+        commentText: 'hello',
         createdAt: '2025-09-29T00:00:00Z',
         updatedAt: '2025-09-29T00:00:00Z',
-        parentId: null,
+        parentCommentId: null,
       };
 
       neo4jService.read.mockResolvedValue({
@@ -461,7 +578,7 @@ describe('DiscussionSchema (refactored)', () => {
       expect(comments).toHaveLength(1);
       expect(comments[0]).toMatchObject({
         id: 'c1',
-        body: 'hello',
+        commentText: 'hello',
         userId: 'u1',
         username: 'Alice',
       });

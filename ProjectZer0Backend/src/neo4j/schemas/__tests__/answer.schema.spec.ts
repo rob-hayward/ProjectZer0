@@ -1,4 +1,4 @@
-// src/neo4j/schemas/__tests__/answer.schema.spec.ts - UPDATED
+// src/neo4j/schemas/__tests__/answer.schema.spec.ts - FIXED
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
@@ -773,8 +773,7 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
           records: [mockRecord],
         } as unknown as Result);
 
-        // Mock the getAnswer call that updateAnswer makes internally
-        // Since updateAnswer with no keywords/categories calls update() which returns the updated data
+        // updateAnswer without keywords/categories calls update() which returns the updated data
         const result = await schema.updateAnswer('answer-123', updateData);
 
         // updateAnswer without keywords/categories uses inherited update()
@@ -868,9 +867,10 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
 
         const result = await schema.getAnswersByQuestion('question-789');
 
+        // FIXED: Updated to match actual implementation using ANSWERS relationship
         expect(neo4jService.read).toHaveBeenCalledWith(
           expect.stringContaining(
-            'MATCH (a:AnswerNode {parentQuestionId: $questionId})',
+            'MATCH (a:AnswerNode)-[:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})',
           ),
           expect.objectContaining({ questionId: 'question-789' }),
         );
@@ -885,8 +885,9 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
 
         await schema.getAnswersByQuestion('question-789');
 
+        // FIXED: Updated to match actual query pattern with WHERE clause
         expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.stringContaining('AND a.inclusionNetVotes > 0'),
+          expect.stringContaining('WHERE a.inclusionNetVotes > 0'),
           expect.any(Object),
         );
       });
@@ -898,10 +899,9 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
 
         await schema.getAnswersByQuestion('question-789', true);
 
-        expect(neo4jService.read).toHaveBeenCalledWith(
-          expect.not.stringContaining('AND a.inclusionNetVotes > 0'),
-          expect.any(Object),
-        );
+        const calledQuery = neo4jService.read.mock.calls[0][0];
+        // Should NOT have WHERE clause when includeUnapproved is true
+        expect(calledQuery).not.toContain('WHERE a.inclusionNetVotes > 0');
       });
 
       it('should validate question ID', async () => {
@@ -1492,8 +1492,11 @@ describe('AnswerSchema with BaseNodeSchema Integration', () => {
 
       await schema.getAnswersByQuestion('question-789');
 
+      // FIXED: Updated to match actual implementation using ANSWERS relationship
       expect(neo4jService.read).toHaveBeenCalledWith(
-        expect.stringContaining('parentQuestionId: $questionId'),
+        expect.stringContaining(
+          'MATCH (a:AnswerNode)-[:ANSWERS]->(oq:OpenQuestionNode {id: $questionId})',
+        ),
         expect.objectContaining({ questionId: 'question-789' }),
       );
       expect(neo4jService.read).toHaveBeenCalledWith(
