@@ -29,20 +29,39 @@ describe('Auth0Strategy', () => {
   });
 
   it('should validate and return the profile', async () => {
-    const mockProfile = { id: '123', name: 'Test User', sub: 'auth0|123' };
+    const mockReq = {
+      sessionID: 'test-session-id',
+      session: {},
+      cookies: {},
+    };
+    const mockProfile = {
+      id: '123',
+      name: 'Test User',
+      sub: 'auth0|123',
+      emails: [{ value: 'test@example.com' }],
+      displayName: 'Test User',
+      provider: 'auth0',
+      _json: {
+        sub: 'auth0|123',
+        email: 'test@example.com',
+        name: 'Test User',
+      },
+    };
+
     const result = await strategy.validate(
+      mockReq,
       'token',
       'refreshToken',
       {},
       mockProfile,
     );
-    expect(result).toEqual(mockProfile);
+
+    expect(result).toBeDefined();
+    expect(result.sub).toBe('auth0|123');
+    expect(result.email).toBe('test@example.com');
   });
 
   it('should handle errors during validation', async () => {
-    // Skip the actual test since we're just testing error handling in the Auth0Strategy
-    // This approach avoids the circular issue of testing error-handling code
-
     // Create a mock logger for the strategy
     (strategy as any).logger = {
       error: jest.fn(),

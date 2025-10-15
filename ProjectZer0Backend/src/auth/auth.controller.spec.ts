@@ -161,12 +161,19 @@ describe('AuthController', () => {
         redirect: jest.fn(),
       } as unknown as Response;
 
+      // Setup config service to return frontend URL
+      configService.get.mockReturnValue('http://localhost:5173');
+
       userAuthService.findOrCreateUser.mockRejectedValue(
         new Error('Database error'),
       );
 
-      await expect(controller.callback(mockReq, mockRes)).rejects.toThrow(
-        'Error during authentication callback',
+      // The controller catches errors and redirects instead of throwing
+      await controller.callback(mockReq, mockRes);
+
+      // Verify that the error was handled by redirecting to frontend with error
+      expect(mockRes.redirect).toHaveBeenCalledWith(
+        'http://localhost:5173?auth_error=callback_failed',
       );
     });
   });
@@ -194,7 +201,10 @@ describe('AuthController', () => {
       await controller.logout(mockReq, mockRes);
 
       expect(mockReq.session.destroy).toHaveBeenCalled();
-      expect(mockRes.clearCookie).toHaveBeenCalledWith('jwt');
+      // Fix: Expect clearCookie to be called with both arguments
+      expect(mockRes.clearCookie).toHaveBeenCalledWith('jwt', {
+        path: '/',
+      });
       expect(mockRes.redirect).toHaveBeenCalledWith(
         expect.stringContaining('https://test.auth0.com/v2/logout'),
       );

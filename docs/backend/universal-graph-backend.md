@@ -1,7 +1,7 @@
 # Universal Graph Implementation Review & Data Structure
 
 **ProjectZer0 Backend - Universal Graph Service**  
-**Version:** 4.2  
+**Version:** 4.2.1  
 **Status:** Production Ready ✅  
 **Last Updated:** October 2025
 
@@ -279,7 +279,8 @@ Returns available categories with usage counts
 ```typescript
 node_types?: 'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
   // Can be comma-separated or array
-  // Default: ['statement', 'openquestion']
+  // Default: ['statement', 'openquestion', 'answer', 'quantity', 'evidence']
+  // Note: Returns ALL content node types by default
   
 includeNodeTypes?: boolean
   // true = include specified types (default)
@@ -288,9 +289,17 @@ includeNodeTypes?: boolean
 
 **Examples:**
 ```
+// Get only statements and answers
 ?node_types=statement,answer
-?node_types=statement&node_types=answer  // Array syntax
-?node_types=evidence&includeNodeTypes=false  // Exclude evidence
+
+// Array syntax
+?node_types=statement&node_types=answer
+
+// Exclude evidence (get all other types)
+?node_types=evidence&includeNodeTypes=false
+
+// Default behavior (no node_types parameter)
+// Returns all 5 content node types
 ```
 
 ### 5.2 Keyword Filtering
@@ -380,7 +389,7 @@ offset?: number
 ```typescript
 sort_by?: 'netVotes' | 'chronological' | 'participants' | 'latest_activity' 
   | 'inclusion_votes' | 'content_votes' | 'keyword_relevance'
-  // Default: 'netVotes'
+  // Default: 'inclusion_votes' (equivalent to 'netVotes')
   
 sort_direction?: 'asc' | 'desc'
   // Default: 'desc'
@@ -391,12 +400,14 @@ sort_direction?: 'asc' | 'desc'
 | Option | Sorts By | Use Case |
 |--------|----------|----------|
 | `netVotes` | `inclusionNetVotes` | Most popular content |
-| `inclusion_votes` | `inclusionNetVotes` | Same as netVotes |
+| `inclusion_votes` | `inclusionNetVotes` | Same as netVotes (default) |
 | `content_votes` | `contentNetVotes` | Best quality content (with fallback) |
 | `chronological` | `createdAt` | Newest/oldest first |
 | `latest_activity` | `updatedAt` | Recently updated |
 | `participants` | Total votes count | Most engaged content |
 | `keyword_relevance` | Not yet implemented | Future feature |
+
+**Note:** `netVotes` and `inclusion_votes` are equivalent - both sort by `inclusionNetVotes`.
 
 **Examples:**
 ```
@@ -501,7 +512,7 @@ requesting_user_id: string
   "inclusionNetVotes": 37,
   "contentPositiveVotes": 0,
   "contentNegativeVotes": 0,
-  "contentNetVotes": 37,  // ← Falls back to inclusionNetVotes
+  "contentNetVotes": 37,
   "discussionId": "disc-456",
   "keywords": [
     { "word": "ai", "frequency": 1 },
@@ -567,7 +578,7 @@ requesting_user_id: string
   "inclusionNetVotes": 14,
   "contentPositiveVotes": 0,
   "contentNegativeVotes": 0,
-  "contentNetVotes": 14,  // ← Falls back to inclusionNetVotes
+  "contentNetVotes": 14,
   "discussionId": null,
   "keywords": [
     { "word": "employment", "frequency": 1 },
@@ -594,7 +605,6 @@ requesting_user_id: string
   "id": "stmt-abc123",
   "type": "statement",
   "content": "Artificial intelligence is transforming healthcare.",
-  // ... other fields ...
   "metadata": {
     "userVoteStatus": {
       "inclusionVote": "positive",
@@ -859,15 +869,22 @@ async function fetchUniversalGraph(params: GraphQueryParams) {
 ### 9.2 Common Query Patterns
 
 ```typescript
-// 1. Get latest statements and questions
+// 1. Get latest content (all types by default)
 const latest = await fetchUniversalGraph({
+  sort_by: 'chronological',
+  sort_direction: 'desc',
+  limit: 50
+});
+
+// 2. Get only statements and questions
+const statementsAndQuestions = await fetchUniversalGraph({
   node_types: ['statement', 'openquestion'],
   sort_by: 'chronological',
   sort_direction: 'desc',
   limit: 50
 });
 
-// 2. Get user's created content
+// 3. Get user's created content
 const myContent = await fetchUniversalGraph({
   user_id: currentUserId,
   userFilterMode: 'created',
@@ -875,7 +892,7 @@ const myContent = await fetchUniversalGraph({
   sort_direction: 'desc'
 });
 
-// 3. Get high-quality content in category
+// 4. Get high-quality content in category
 const qualityContent = await fetchUniversalGraph({
   categories: ['tech-category-id'],
   categoryMode: 'any',
@@ -884,7 +901,7 @@ const qualityContent = await fetchUniversalGraph({
   limit: 100
 });
 
-// 4. Search by keywords (broad match)
+// 5. Search by keywords (broad match)
 const aiContent = await fetchUniversalGraph({
   keywords: ['artificial intelligence', 'machine learning'],
   keywordMode: 'any',
@@ -892,7 +909,7 @@ const aiContent = await fetchUniversalGraph({
   sort_direction: 'desc'
 });
 
-// 5. Search by keywords (strict match)
+// 6. Search by keywords (strict match)
 const aiEthics = await fetchUniversalGraph({
   keywords: ['ai', 'ethics'],
   keywordMode: 'all',
@@ -900,15 +917,15 @@ const aiEthics = await fetchUniversalGraph({
   sort_direction: 'desc'
 });
 
-// 6. Exclude spam content
+// 7. Exclude spam content
 const cleanContent = await fetchUniversalGraph({
   keywords: ['spam', 'advertisement'],
-  includeKeywordsFilter: false,  // Exclude these keywords
+  includeKeywordsFilter: false,
   sort_by: 'netVotes',
   sort_direction: 'desc'
 });
 
-// 7. Get all evidence with parent context
+// 8. Get all evidence with parent context
 const evidence = await fetchUniversalGraph({
   node_types: ['evidence'],
   include_relationships: true,
@@ -917,7 +934,7 @@ const evidence = await fetchUniversalGraph({
   sort_direction: 'desc'
 });
 
-// 8. Get answers to a specific question
+// 9. Get answers to a specific question
 const answers = await fetchUniversalGraph({
   node_types: ['answer'],
   include_relationships: true,
@@ -927,14 +944,9 @@ const answers = await fetchUniversalGraph({
 });
 ```
 
-### 9.3 Handling Node Types
+### 9.3 Handling Node Types (continued)
 
 ```typescript
-// Type-safe node handling
-function getNodeContent(node: UniversalNodeData): string {
-  return node.content;  // Works for all types
-}
-
 function getNodeTitle(node: UniversalNodeData): string {
   switch (node.type) {
     case 'statement':
@@ -1143,7 +1155,7 @@ function filterStateToParams(state: FilterState): GraphQueryParams {
 
 ### 10.1 Basic Functionality Tests
 
-- [ ] Fetch nodes with default parameters
+- [ ] Fetch nodes with default parameters (gets all 5 types)
 - [ ] Handle empty results gracefully
 - [ ] Display all 5 node types correctly
 - [ ] Show vote counts accurately
@@ -1300,7 +1312,7 @@ Create these additional docs when starting frontend work:
 
 ```typescript
 const DEFAULTS = {
-  node_types: ['statement', 'openquestion'],
+  node_types: ['statement', 'openquestion', 'answer', 'quantity', 'evidence'],
   includeNodeTypes: true,
   keywordMode: 'any',
   includeKeywordsFilter: true,
@@ -1309,7 +1321,7 @@ const DEFAULTS = {
   userFilterMode: 'all',
   limit: 200,
   offset: 0,
-  sort_by: 'netVotes',
+  sort_by: 'inclusion_votes',  // equivalent to 'netVotes'
   sort_direction: 'desc',
   include_relationships: true,
   relationship_types: ['shared_keyword', 'related_to', 'answers', 'shared_category'],
@@ -1350,9 +1362,79 @@ const DEFAULTS = {
 
 ---
 
+## 13. Important Notes for Frontend Developers
+
+### 13.1 Default Behavior Changed
+
+⚠️ **Important:** The default `node_types` parameter returns **ALL 5 content node types** by default:
+- Statement
+- OpenQuestion
+- Answer
+- Quantity
+- Evidence
+
+If you only want specific types, you must explicitly filter:
+
+```typescript
+// Get only statements and questions
+const result = await fetchUniversalGraph({
+  node_types: ['statement', 'openquestion']
+});
+
+// Get everything EXCEPT evidence
+const result = await fetchUniversalGraph({
+  node_types: ['evidence'],
+  includeNodeTypes: false
+});
+```
+
+### 13.2 Sort Field Naming
+
+The `sort_by` parameter accepts both `'netVotes'` and `'inclusion_votes'` - they are equivalent:
+
+```typescript
+// These are the same
+sort_by: 'netVotes'
+sort_by: 'inclusion_votes'  // This is the default
+```
+
+Both sort by `inclusionNetVotes` field.
+
+### 13.3 Content Vote Fallback is Automatic
+
+When sorting by `content_votes`, the API automatically falls back to `inclusion_votes` for node types that don't support content voting (OpenQuestion, Quantity, Evidence). This means you can safely sort any mix of node types by content votes:
+
+```typescript
+// Works correctly even though OpenQuestion doesn't have content votes
+const result = await fetchUniversalGraph({
+  node_types: ['statement', 'openquestion', 'answer'],
+  sort_by: 'content_votes',
+  sort_direction: 'desc'
+});
+```
+
+### 13.4 User Context Enrichment
+
+User-specific data is automatically added when the request is authenticated:
+
+```typescript
+// These fields appear in node.metadata when user is logged in
+interface UserContextMetadata {
+  userVoteStatus?: {
+    inclusionVote: 'positive' | 'negative' | null;
+    contentVote: 'positive' | 'negative' | null;
+  };
+  userVisibilityPreference?: 'hidden' | 'visible';
+}
+```
+
+No special parameters needed - just ensure JWT token is in the request header.
+
+---
+
 **Document Status:** ✅ Complete and Ready for Frontend Integration  
 **Last Updated:** October 2025  
-**Version:** 1.0  
+**Version:** 4.2.1
 
 For questions or clarifications, refer to:
 - `/docs/schema-layer.md` - Database layer patterns
