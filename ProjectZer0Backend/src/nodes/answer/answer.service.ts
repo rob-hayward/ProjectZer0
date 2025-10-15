@@ -1,5 +1,4 @@
 // src/nodes/answer/answer.service.ts - REFACTORED TO SCHEMA ARCHITECTURE
-// 🐛 BUG #2 FIX APPLIED: Changed findById() to getAnswer() on line ~208
 
 import {
   Injectable,
@@ -142,22 +141,14 @@ export class AnswerService {
         }));
         this.logger.debug(`Using ${keywords.length} user-provided keywords`);
       } else {
-        try {
-          const extractionResult =
-            await this.keywordExtractionService.extractKeywords({
-              text: answerData.answerText,
-            });
-          keywords = extractionResult.keywords;
-          this.logger.debug(`Extracted ${keywords.length} keywords via AI`);
-        } catch (error) {
-          this.logger.error(
-            `Keyword extraction failed: ${error.message}`,
-            error.stack,
-          );
-          throw new InternalServerErrorException(
-            'Failed to extract keywords from answer',
-          );
-        }
+        const extractionResult =
+          await this.keywordExtractionService.extractKeywords({
+            text: answerData.answerText,
+          });
+        keywords = extractionResult.keywords;
+        this.logger.debug(
+          `Extracted ${keywords.length} keywords via AI for answer`,
+        );
       }
 
       // Create missing word nodes
@@ -167,65 +158,81 @@ export class AnswerService {
             keyword.word,
           );
           if (!wordExists) {
-            this.logger.debug(`Creating missing word node: ${keyword.word}`);
             await this.wordService.createWord({
               word: keyword.word,
               createdBy: answerData.createdBy,
-              publicCredit: answerData.publicCredit ?? true,
+              publicCredit: answerData.publicCredit,
+              isAICreated: true,
             });
+            this.logger.debug(
+              `Created missing word node for keyword: ${keyword.word}`,
+            );
           }
-        } catch (error) {
+        } catch (wordError) {
           this.logger.warn(
-            `Failed to create word '${keyword.word}': ${error.message}`,
+            `Failed to create word node for "${keyword.word}": ${wordError.message}`,
           );
-          // Continue - don't fail answer creation if word creation fails
+          // Continue anyway
         }
       }
 
       // Validate categories if provided
       if (answerData.categoryIds && answerData.categoryIds.length > 0) {
-        await this.validateCategories(answerData.categoryIds);
+        for (const categoryId of answerData.categoryIds) {
+          const category = await this.categoryService.getCategory(categoryId);
+          if (!category) {
+            throw new BadRequestException(
+              `Category with ID ${categoryId} not found`,
+            );
+          }
+
+          if (!VotingUtils.hasPassedInclusion(category.inclusionNetVotes)) {
+            throw new BadRequestException(
+              `Category ${categoryId} must pass inclusion threshold`,
+            );
+          }
+        }
       }
 
-      // Create the answer via schema
-      const createdAnswer = await this.answerSchema.createAnswer({
+      // Create answer
+      const answer = await this.answerSchema.createAnswer({
         id: answerId,
-        createdBy: answerData.createdBy,
-        publicCredit: answerData.publicCredit,
         answerText: answerData.answerText,
         parentQuestionId: answerData.parentQuestionId,
+        createdBy: answerData.createdBy,
+        publicCredit: answerData.publicCredit,
         keywords,
         categoryIds: answerData.categoryIds,
       });
 
-      // Create discussion if initialComment provided
-      // ⚠️ CRITICAL: Use direct DiscussionSchema injection, NOT DiscussionService
+      this.logger.log(`Created answer: ${answerId}`);
+
+      // Create discussion if initial comment provided (Pattern B - Service Layer)
       if (answerData.initialComment) {
         try {
           await this.discussionSchema.createDiscussionForNode({
-            nodeId: createdAnswer.id,
+            nodeId: answerId,
             nodeType: 'AnswerNode',
-            nodeIdField: 'id', // ← Standard ID field
+            nodeIdField: 'id',
             createdBy: answerData.createdBy,
             initialComment: answerData.initialComment,
           });
           this.logger.debug(
-            `Created discussion for answer: ${createdAnswer.id}`,
+            `Created discussion for answer: ${answerId} with initial comment`,
           );
-        } catch (error) {
+        } catch (discussionError) {
           this.logger.warn(
-            `Failed to create discussion for answer ${createdAnswer.id}: ${error.message}`,
+            `Failed to create discussion for answer ${answerId}: ${discussionError.message}`,
           );
-          // Continue - answer creation succeeded
+          // Continue anyway - answer was created successfully
         }
       }
 
-      this.logger.log(`Successfully created answer: ${createdAnswer.id}`);
-      return createdAnswer;
+      return answer;
     } catch (error) {
       if (
         error instanceof BadRequestException ||
-        error instanceof InternalServerErrorException
+        error instanceof NotFoundException
       ) {
         throw error;
       }
@@ -239,13 +246,6 @@ export class AnswerService {
 
   /**
    * Get an answer by ID
-   * Direct delegation to schema with error handling
-   *
-   * 🐛 BUG #2 FIX APPLIED:
-   * - Changed from this.answerSchema.findById(id)
-   * - To this.answerSchema.getAnswer(id)
-   * - Reason: findById() returns only basic properties
-   * - getAnswer() returns complete data with keywords, categories, parentQuestion, relatedAnswers, discussionId
    */
   async getAnswer(id: string): Promise<AnswerData> {
     if (!id || id.trim() === '') {
@@ -255,7 +255,6 @@ export class AnswerService {
     this.logger.debug(`Getting answer: ${id}`);
 
     try {
-      // ✅ FIXED: Use getAnswer() instead of findById()
       const answer = await this.answerSchema.getAnswer(id);
 
       if (!answer) {
@@ -276,8 +275,7 @@ export class AnswerService {
   }
 
   /**
-   * Update an answer with optional keyword re-extraction
-   * Orchestrates: validation + optional keyword re-extraction + word creation + update
+   * Update an answer with optional keyword re-extraction + word creation + update
    */
   async updateAnswer(
     id: string,
@@ -310,11 +308,19 @@ export class AnswerService {
             source: 'user' as const,
           }));
         } else {
-          const extractionResult =
-            await this.keywordExtractionService.extractKeywords({
-              text: updateData.answerText!,
-            });
-          keywords = extractionResult.keywords;
+          // ✅ FIX: Handle keyword extraction failures gracefully
+          try {
+            const extractionResult =
+              await this.keywordExtractionService.extractKeywords({
+                text: updateData.answerText!,
+              });
+            keywords = extractionResult.keywords;
+          } catch (extractionError) {
+            this.logger.warn(
+              `Keyword extraction failed during update: ${extractionError.message}. Continuing with empty keywords.`,
+            );
+            keywords = [];
+          }
         }
 
         // Create missing word nodes
@@ -328,13 +334,14 @@ export class AnswerService {
                 word: keyword.word,
                 createdBy: originalAnswer.createdBy,
                 publicCredit: originalAnswer.publicCredit ?? true,
+                isAICreated: true,
               });
             }
-          } catch (error) {
+          } catch (wordError) {
             this.logger.warn(
-              `Failed to create word '${keyword.word}': ${error.message}`,
+              `Failed to create word node for "${keyword.word}": ${wordError.message}`,
             );
-            // Continue - don't fail update if word creation fails
+            // Continue anyway
           }
         }
 
@@ -342,14 +349,24 @@ export class AnswerService {
         (updateData as any).keywords = keywords;
       }
 
-      // Validate categories if provided
-      if (updateData.categoryIds !== undefined) {
-        if (updateData.categoryIds.length > 0) {
-          await this.validateCategories(updateData.categoryIds);
+      // Validate categories if being updated
+      if (updateData.categoryIds && updateData.categoryIds.length > 0) {
+        for (const categoryId of updateData.categoryIds) {
+          const category = await this.categoryService.getCategory(categoryId);
+          if (!category) {
+            throw new BadRequestException(
+              `Category with ID ${categoryId} not found`,
+            );
+          }
+
+          if (!VotingUtils.hasPassedInclusion(category.inclusionNetVotes)) {
+            throw new BadRequestException(
+              `Category ${categoryId} must pass inclusion threshold`,
+            );
+          }
         }
       }
 
-      // Update via schema
       const updatedAnswer = await this.answerSchema.updateAnswer(
         id,
         updateData,
@@ -359,7 +376,7 @@ export class AnswerService {
         throw new NotFoundException(`Answer with ID ${id} not found`);
       }
 
-      this.logger.debug(`Successfully updated answer: ${id}`);
+      this.logger.log(`Updated answer: ${id}`);
       return updatedAnswer;
     } catch (error) {
       if (
@@ -378,7 +395,6 @@ export class AnswerService {
 
   /**
    * Delete an answer
-   * Direct delegation to schema
    */
   async deleteAnswer(id: string): Promise<{ success: boolean }> {
     if (!id || id.trim() === '') {
@@ -388,18 +404,18 @@ export class AnswerService {
     this.logger.debug(`Deleting answer: ${id}`);
 
     try {
-      // Verify answer exists before deletion
-      await this.getAnswer(id);
+      const answer = await this.answerSchema.getAnswer(id);
+
+      if (!answer) {
+        throw new NotFoundException(`Answer with ID ${id} not found`);
+      }
 
       await this.answerSchema.delete(id);
-      this.logger.debug(`Deleted answer: ${id}`);
+      this.logger.log(`Deleted answer: ${id}`);
 
       return { success: true };
     } catch (error) {
-      if (
-        error instanceof BadRequestException ||
-        error instanceof NotFoundException
-      ) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
 
@@ -410,13 +426,16 @@ export class AnswerService {
     }
   }
 
+  // ============================================
+  // ANSWER-SPECIFIC QUERIES
+  // ============================================
+
   /**
-   * Get all answers for a specific question
-   * Note: AnswerSchema handles the filtering and sorting
+   * Get all answers for a question with optional filtering
    */
   async getAnswersForQuestion(
     questionId: string,
-    options?: GetAnswersOptions,
+    options: GetAnswersOptions = {},
   ): Promise<AnswerData[]> {
     if (!questionId || questionId.trim() === '') {
       throw new BadRequestException('Question ID is required');
@@ -425,16 +444,25 @@ export class AnswerService {
     this.logger.debug(`Getting answers for question: ${questionId}`);
 
     try {
-      const includeUnapproved = options?.onlyApproved === false;
+      // ✅ FIX: Pass onlyApproved correctly (was passing includeUnapproved)
+      const onlyApproved = options?.onlyApproved === true;
       const answers = await this.answerSchema.getAnswersByQuestion(
         questionId,
-        includeUnapproved,
+        onlyApproved,
       );
 
+      // ✅ FIX: Apply limit and offset in service layer
+      let result = answers;
+      if (options.offset !== undefined || options.limit !== undefined) {
+        const offset = options.offset || 0;
+        const limit = options.limit || answers.length;
+        result = answers.slice(offset, offset + limit);
+      }
+
       this.logger.debug(
-        `Found ${answers.length} answers for question ${questionId}`,
+        `Found ${result.length} answers for question ${questionId}`,
       );
-      return answers;
+      return result;
     } catch (error) {
       this.logger.error(
         `Error getting answers for question: ${error.message}`,
@@ -653,11 +681,16 @@ export class AnswerService {
 
   /**
    * Check if an answer has passed inclusion threshold
+   * ✅ FIX: Validate ID first, then use getVotes instead of getAnswer
    */
   async isAnswerApproved(id: string): Promise<boolean> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Answer ID is required');
+    }
+
     try {
-      const answer = await this.getAnswer(id);
-      return VotingUtils.hasPassedInclusion(answer.inclusionNetVotes || 0);
+      const votes = await this.answerSchema.getVotes(id);
+      return VotingUtils.hasPassedInclusion(votes?.inclusionNetVotes || 0);
     } catch {
       return false;
     }
@@ -665,8 +698,13 @@ export class AnswerService {
 
   /**
    * Check if content voting is available for an answer
+   * ✅ FIX: Validate ID first before calling isAnswerApproved
    */
   async isContentVotingAvailable(id: string): Promise<boolean> {
+    if (!id || id.trim() === '') {
+      throw new BadRequestException('Answer ID is required');
+    }
+
     return await this.isAnswerApproved(id);
   }
 
@@ -714,65 +752,27 @@ export class AnswerService {
    */
   private validateUpdateAnswerData(updateData: UpdateAnswerData): void {
     if (Object.keys(updateData).length === 0) {
-      throw new BadRequestException('No update data provided');
-    }
-
-    if (updateData.answerText !== undefined) {
-      if (!updateData.answerText || updateData.answerText.trim() === '') {
-        throw new BadRequestException('Answer text cannot be empty');
-      }
-
-      if (updateData.answerText.length > TEXT_LIMITS.MAX_ANSWER_LENGTH) {
-        throw new BadRequestException(
-          `Answer text cannot exceed ${TEXT_LIMITS.MAX_ANSWER_LENGTH} characters`,
-        );
-      }
+      throw new BadRequestException('Update data cannot be empty');
     }
 
     if (
-      updateData.publicCredit !== undefined &&
-      typeof updateData.publicCredit !== 'boolean'
+      updateData.answerText !== undefined &&
+      updateData.answerText.trim() === ''
     ) {
-      throw new BadRequestException('Public credit must be a boolean value');
+      throw new BadRequestException('Answer text cannot be empty');
     }
 
-    // Validate category count if provided (0-3)
+    if (
+      updateData.answerText &&
+      updateData.answerText.length > TEXT_LIMITS.MAX_ANSWER_LENGTH
+    ) {
+      throw new BadRequestException(
+        `Answer text cannot exceed ${TEXT_LIMITS.MAX_ANSWER_LENGTH} characters`,
+      );
+    }
+
     if (updateData.categoryIds && updateData.categoryIds.length > 3) {
       throw new BadRequestException('Answer can have maximum 3 categories');
     }
-  }
-
-  /**
-   * Validate categories exist and are approved for use
-   */
-  private async validateCategories(categoryIds: string[]): Promise<void> {
-    if (!categoryIds || categoryIds.length === 0) return;
-
-    const validationPromises = categoryIds.map(async (categoryId) => {
-      try {
-        const category = await this.categoryService.getCategory(categoryId);
-        if (!category) {
-          throw new BadRequestException(
-            `Category ${categoryId} does not exist`,
-          );
-        }
-        if (category.inclusionNetVotes <= 0) {
-          throw new BadRequestException(
-            `Category ${categoryId} must have passed inclusion threshold`,
-          );
-        }
-      } catch (error) {
-        if (error instanceof BadRequestException) {
-          throw error;
-        }
-        const errorMessage =
-          error instanceof Error ? error.message : 'Unknown error';
-        throw new BadRequestException(
-          `Category ${categoryId} does not exist or is not accessible: ${errorMessage}`,
-        );
-      }
-    });
-
-    await Promise.all(validationPromises);
   }
 }

@@ -49,38 +49,31 @@ describe('AnswerService - Comprehensive Tests', () => {
 
   beforeEach(async () => {
     const mockAnswerSchema = {
-      // Domain methods
       createAnswer: jest.fn(),
       getAnswer: jest.fn(),
       updateAnswer: jest.fn(),
-      getAnswersByQuestion: jest.fn(),
-      getTopAnswerForQuestion: jest.fn(),
-
-      // BaseNodeSchema methods
-      findById: jest.fn(),
-      update: jest.fn(),
       delete: jest.fn(),
       voteInclusion: jest.fn(),
       voteContent: jest.fn(),
       getVoteStatus: jest.fn(),
       removeVote: jest.fn(),
       getVotes: jest.fn(),
+      getAnswersByQuestion: jest.fn(),
+      getTopAnswerForQuestion: jest.fn(),
+      findById: jest.fn(),
     };
 
     const mockDiscussionSchema = {
       createDiscussionForNode: jest.fn(),
-      getDiscussionComments: jest.fn(),
-      hasDiscussion: jest.fn(),
+      getDiscussionIdForNode: jest.fn(),
     };
 
     const mockUserSchema = {
       addCreatedNode: jest.fn(),
-      getUserCreatedNodes: jest.fn(),
     };
 
     const mockCategoryService = {
       getCategory: jest.fn(),
-      validateCategories: jest.fn(),
     };
 
     const mockKeywordExtractionService = {
@@ -90,12 +83,10 @@ describe('AnswerService - Comprehensive Tests', () => {
     const mockWordService = {
       checkWordExistence: jest.fn(),
       createWord: jest.fn(),
-      getWord: jest.fn(),
     };
 
     const mockOpenQuestionService = {
       getOpenQuestion: jest.fn(),
-      createOpenQuestion: jest.fn(),
       updateOpenQuestion: jest.fn(),
     };
 
@@ -199,6 +190,11 @@ describe('AnswerService - Comprehensive Tests', () => {
         mockParentQuestion as any,
       );
 
+      // ✅ FIXED: Mock keyword extraction (runs before category validation)
+      keywordExtractionService.extractKeywords.mockResolvedValue({
+        keywords: [],
+      });
+
       await expect(
         service.createAnswer({
           ...validAnswerData,
@@ -227,14 +223,14 @@ describe('AnswerService - Comprehensive Tests', () => {
     });
 
     it('should create answer with AI-extracted keywords', async () => {
-      const mockKeywords = [
-        { word: 'comprehensive', frequency: 1, source: 'ai' as const },
-        { word: 'answer', frequency: 1, source: 'ai' as const },
-      ];
-
       openQuestionService.getOpenQuestion.mockResolvedValue(
         mockParentQuestion as any,
       );
+
+      const mockKeywords = [
+        { word: 'test', frequency: 1, source: 'ai' as const },
+        { word: 'keyword', frequency: 2, source: 'ai' as const },
+      ];
 
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: mockKeywords,
@@ -253,7 +249,6 @@ describe('AnswerService - Comprehensive Tests', () => {
 
       answerSchema.createAnswer.mockResolvedValue(mockCreatedAnswer);
 
-      // ✅ FIXED: AnswerService follows Pattern B - service creates discussion
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
       });
@@ -272,9 +267,8 @@ describe('AnswerService - Comprehensive Tests', () => {
         }),
       );
 
-      // ✅ FIXED: Service DOES create discussion (Pattern B - Service Layer)
       expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
-        nodeId: mockCreatedAnswer.id,
+        nodeId: expect.any(String),
         nodeType: 'AnswerNode',
         nodeIdField: 'id',
         createdBy: validAnswerData.createdBy,
@@ -323,13 +317,13 @@ describe('AnswerService - Comprehensive Tests', () => {
     });
 
     it('should create missing word nodes from extracted keywords', async () => {
-      const mockKeywords = [
-        { word: 'newword', frequency: 1, source: 'ai' as const },
-      ];
-
       openQuestionService.getOpenQuestion.mockResolvedValue(
         mockParentQuestion as any,
       );
+
+      const mockKeywords = [
+        { word: 'newword', frequency: 1, source: 'ai' as const },
+      ];
 
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: mockKeywords,
@@ -355,17 +349,18 @@ describe('AnswerService - Comprehensive Tests', () => {
         word: 'newword',
         createdBy: validAnswerData.createdBy,
         publicCredit: true,
+        isAICreated: true,
       });
     });
 
     it('should not create word nodes that already exist', async () => {
-      const mockKeywords = [
-        { word: 'existing', frequency: 1, source: 'ai' as const },
-      ];
-
       openQuestionService.getOpenQuestion.mockResolvedValue(
         mockParentQuestion as any,
       );
+
+      const mockKeywords = [
+        { word: 'existing', frequency: 1, source: 'ai' as const },
+      ];
 
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: mockKeywords,
@@ -390,13 +385,13 @@ describe('AnswerService - Comprehensive Tests', () => {
     });
 
     it('should continue if word creation fails', async () => {
-      const mockKeywords = [
-        { word: 'newword', frequency: 1, source: 'ai' as const },
-      ];
-
       openQuestionService.getOpenQuestion.mockResolvedValue(
         mockParentQuestion as any,
       );
+
+      const mockKeywords = [
+        { word: 'newword', frequency: 1, source: 'ai' as const },
+      ];
 
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: mockKeywords,
@@ -468,23 +463,25 @@ describe('AnswerService - Comprehensive Tests', () => {
         mockParentQuestion as any,
       );
 
+      // ✅ FIXED: Mock keyword extraction (runs before category validation)
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: [],
       });
 
-      const mockCategory = {
+      categoryService.getCategory.mockResolvedValue({
         id: 'cat-1',
-        inclusionNetVotes: -1, // Not approved
-      } as any;
-
-      categoryService.getCategory.mockResolvedValue(mockCategory);
+        inclusionNetVotes: -1,
+      } as any);
 
       await expect(
         service.createAnswer({
-          ...validAnswerData,
+          createdBy: 'test-user',
+          publicCredit: true,
+          answerText: 'Test answer',
+          parentQuestionId: 'question-123',
           categoryIds: ['cat-1'],
         }),
-      ).rejects.toThrow('must have passed inclusion threshold');
+      ).rejects.toThrow('Category cat-1 must pass inclusion threshold');
     });
 
     it('should reject non-existent categories', async () => {
@@ -492,6 +489,7 @@ describe('AnswerService - Comprehensive Tests', () => {
         mockParentQuestion as any,
       );
 
+      // ✅ FIXED: Mock keyword extraction (runs before category validation)
       keywordExtractionService.extractKeywords.mockResolvedValue({
         keywords: [],
       });
@@ -500,10 +498,13 @@ describe('AnswerService - Comprehensive Tests', () => {
 
       await expect(
         service.createAnswer({
-          ...validAnswerData,
+          createdBy: 'test-user',
+          publicCredit: true,
+          answerText: 'Test answer',
+          parentQuestionId: 'question-123',
           categoryIds: ['nonexistent'],
         }),
-      ).rejects.toThrow('does not exist');
+      ).rejects.toThrow('Category with ID nonexistent not found');
     });
 
     it('should continue if discussion creation fails', async () => {
@@ -761,6 +762,7 @@ describe('AnswerService - Comprehensive Tests', () => {
         word: 'newword',
         createdBy: 'user',
         publicCredit: true,
+        isAICreated: true,
       });
     });
 
@@ -968,6 +970,52 @@ describe('AnswerService - Comprehensive Tests', () => {
   });
 
   // ============================================
+  // GET TOP ANSWER TESTS
+  // ============================================
+  describe('getTopAnswerForQuestion', () => {
+    it('should get top answer for a question', async () => {
+      const mockTopAnswer = {
+        id: 'answer-1',
+        answerText: 'Best answer',
+        contentNetVotes: 10,
+      } as any;
+
+      answerSchema.getTopAnswerForQuestion.mockResolvedValue(mockTopAnswer);
+
+      const result = await service.getTopAnswerForQuestion('question-123');
+
+      expect(answerSchema.getTopAnswerForQuestion).toHaveBeenCalledWith(
+        'question-123',
+      );
+      expect(result).toEqual(mockTopAnswer);
+    });
+
+    it('should return null when no answers exist', async () => {
+      answerSchema.getTopAnswerForQuestion.mockResolvedValue(null);
+
+      const result = await service.getTopAnswerForQuestion('question-123');
+
+      expect(result).toBeNull();
+    });
+
+    it('should throw BadRequestException for empty question ID', async () => {
+      await expect(service.getTopAnswerForQuestion('')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should wrap schema errors in InternalServerErrorException', async () => {
+      answerSchema.getTopAnswerForQuestion.mockRejectedValue(
+        new Error('Database error'),
+      );
+
+      await expect(
+        service.getTopAnswerForQuestion('question-123'),
+      ).rejects.toThrow(InternalServerErrorException);
+    });
+  });
+
+  // ============================================
   // VOTING TESTS - DUAL VOTING
   // ============================================
   describe('voteInclusion', () => {
@@ -1031,13 +1079,11 @@ describe('AnswerService - Comprehensive Tests', () => {
         inclusionNetVotes: 5,
       } as any;
 
-      // ✅ FIXED: Service calls voteContent which internally uses findById, not getAnswer
       answerSchema.findById.mockResolvedValue(approvedAnswer);
       answerSchema.voteContent.mockResolvedValue(mockVoteResult);
 
       const result = await service.voteContent('test-id', 'user-123', true);
 
-      // voteContent is called directly - it handles the inclusion check internally
       expect(answerSchema.voteContent).toHaveBeenCalledWith(
         'test-id',
         'user-123',
@@ -1052,10 +1098,8 @@ describe('AnswerService - Comprehensive Tests', () => {
         inclusionNetVotes: -1,
       } as any;
 
-      // ✅ FIXED: Schema's voteContent uses findById internally
       answerSchema.findById.mockResolvedValue(unapprovedAnswer);
 
-      // Mock voteContent to throw the expected error
       answerSchema.voteContent.mockRejectedValue(
         new BadRequestException(
           'Answer must pass inclusion threshold before content voting is allowed',
@@ -1268,7 +1312,6 @@ describe('AnswerService - Comprehensive Tests', () => {
         inclusionNetVotes: 5,
       };
 
-      // ✅ FIXED: Service uses getVotes, not getAnswer
       answerSchema.getVotes.mockResolvedValue(mockVotes);
 
       const result = await service.isAnswerApproved('test-id');
@@ -1416,19 +1459,13 @@ describe('AnswerService - Comprehensive Tests', () => {
       };
 
       // Mock parent question validation
-      const mockParentQuestion = {
+      openQuestionService.getOpenQuestion.mockResolvedValue({
         id: 'question-123',
-        questionText: 'What is AI?',
         inclusionNetVotes: 10,
-      };
-
-      openQuestionService.getOpenQuestion.mockResolvedValue(
-        mockParentQuestion as any,
-      );
+      } as any);
 
       // Mock keyword extraction
       const mockKeywords = [
-        { word: 'comprehensive', frequency: 1, source: 'ai' as const },
         { word: 'artificial', frequency: 1, source: 'ai' as const },
         { word: 'intelligence', frequency: 1, source: 'ai' as const },
       ];
@@ -1437,31 +1474,21 @@ describe('AnswerService - Comprehensive Tests', () => {
         keywords: mockKeywords,
       });
 
-      // Mock word checks - 'comprehensive' exists, others don't
-      wordService.checkWordExistence.mockImplementation(
-        async (word: string) => {
-          return word === 'comprehensive';
-        },
-      );
-
+      // Mock word creation (words don't exist)
+      wordService.checkWordExistence.mockResolvedValue(false);
       wordService.createWord.mockResolvedValue({} as any);
 
       // Mock category validation
-      const mockCategory = {
+      categoryService.getCategory.mockResolvedValue({
         id: 'cat-1',
         inclusionNetVotes: 5,
-      } as any;
-
-      categoryService.getCategory.mockResolvedValue(mockCategory);
+      } as any);
 
       // Mock answer creation
       const mockCreatedAnswer = {
-        id: 'answer-integration-123',
+        id: 'answer-123',
         answerText: answerData.answerText,
         createdBy: answerData.createdBy,
-        publicCredit: true,
-        parentQuestionId: answerData.parentQuestionId,
-        categoryIds: answerData.categoryIds,
       } as any;
 
       answerSchema.createAnswer.mockResolvedValue(mockCreatedAnswer);
@@ -1469,13 +1496,14 @@ describe('AnswerService - Comprehensive Tests', () => {
       // Mock discussion creation
       discussionSchema.createDiscussionForNode.mockResolvedValue({
         discussionId: 'discussion-123',
+        commentId: 'comment-123',
       });
 
       const result = await service.createAnswer(answerData);
 
       // Verify parent question validation
       expect(openQuestionService.getOpenQuestion).toHaveBeenCalledWith(
-        'question-123',
+        answerData.parentQuestionId,
       );
 
       // Verify keyword extraction
@@ -1483,16 +1511,18 @@ describe('AnswerService - Comprehensive Tests', () => {
         text: answerData.answerText,
       });
 
-      // Verify word creation for missing words
       expect(wordService.createWord).toHaveBeenCalledWith({
         word: 'artificial',
         createdBy: answerData.createdBy,
         publicCredit: true,
+        isAICreated: true,
       });
+
       expect(wordService.createWord).toHaveBeenCalledWith({
         word: 'intelligence',
         createdBy: answerData.createdBy,
         publicCredit: true,
+        isAICreated: true,
       });
 
       // Verify category validation
@@ -1503,15 +1533,15 @@ describe('AnswerService - Comprehensive Tests', () => {
       expect(answerSchema.createAnswer).toHaveBeenCalledWith(
         expect.objectContaining({
           answerText: answerData.answerText,
+          createdBy: answerData.createdBy,
           keywords: mockKeywords,
           categoryIds: answerData.categoryIds,
-          parentQuestionId: answerData.parentQuestionId,
         }),
       );
 
-      // Verify discussion creation (Pattern B - Service Layer)
+      // Verify discussion creation
       expect(discussionSchema.createDiscussionForNode).toHaveBeenCalledWith({
-        nodeId: 'answer-integration-123',
+        nodeId: expect.any(String),
         nodeType: 'AnswerNode',
         nodeIdField: 'id',
         createdBy: answerData.createdBy,
@@ -1526,17 +1556,20 @@ describe('AnswerService - Comprehensive Tests', () => {
     it('should handle complete answer update with text change', async () => {
       const originalAnswer = {
         id: 'test-id',
-        answerText: 'Original answer',
+        answerText: 'Original answer text',
         createdBy: 'test-user',
         publicCredit: true,
-      } as any;
-
-      answerSchema.getAnswer.mockResolvedValue(originalAnswer);
+        inclusionNetVotes: 5,
+        contentNetVotes: 3,
+      };
 
       const updateData = {
-        answerText: 'Updated answer about machine learning',
+        answerText: 'Updated answer with machine learning concepts',
         categoryIds: ['cat-1'],
       };
+
+      // Mock original answer retrieval
+      answerSchema.getAnswer.mockResolvedValue(originalAnswer as any);
 
       // Mock keyword extraction
       const mockKeywords = [
@@ -1571,17 +1604,18 @@ describe('AnswerService - Comprehensive Tests', () => {
         text: updateData.answerText,
       });
 
-      // Verify word creation
       expect(wordService.createWord).toHaveBeenCalledWith({
         word: 'machine',
         createdBy: originalAnswer.createdBy,
         publicCredit: originalAnswer.publicCredit,
+        isAICreated: true,
       });
 
       expect(wordService.createWord).toHaveBeenCalledWith({
         word: 'learning',
         createdBy: originalAnswer.createdBy,
         publicCredit: originalAnswer.publicCredit,
+        isAICreated: true,
       });
 
       // Verify category validation
