@@ -19,7 +19,7 @@
 	} from '../behaviours';
 
 	// Import the new separated components
-	import VoteButtons from '../ui/VoteButtons.svelte';
+	import VoteButtons from '../ui/ContentVoteButtons.svelte';
 	import VoteStats from '../ui/VoteStats.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
