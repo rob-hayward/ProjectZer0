@@ -11,9 +11,17 @@
 	export let nodeX: number | undefined = undefined;
 	export let nodeY: number | undefined = undefined;
 	
-	// ContentBox is now always used - remove the useContentBox prop
-	// Keep showContentBoxBorder for debugging
+	// ContentBox debugging
 	export let showContentBoxBorder: boolean = false;
+
+	// NEW: Threshold-based expansion control
+	// Node types should pass canExpand based on inclusion vote threshold
+	// Default to true for backward compatibility with existing nodes
+	export let canExpand: boolean = true;
+
+	// NEW: Position override props for special cases (e.g., larger nodes like Quantity)
+	// These are multipliers of radius for vertical positioning
+	export let titleYOffset: number = 0.85; // Distance above ContentBox for title
 
 	export let voteBasedStyles = {
 		glow: { intensity: 8, opacity: 0.6 },
@@ -63,13 +71,16 @@
 		dispatch('modeChange', eventData);
 	}
 
-	// New consistent slot interface - all slots get ContentBox props
+	// Calculate position for title (above ContentBox)
+	$: radius = node.radius;
+	$: titleY = -radius * titleYOffset;
+
+	// Slot interface - standardized positions managed by BasePreviewNode
 	interface $Slots {
-		title: { radius: number }; // Title stays outside ContentBox
+		title: { radius: number }; // Positioned above ContentBox
 		content: { x: number; y: number; width: number; height: number; layoutConfig: any };
 		voting: { x: number; y: number; width: number; height: number; layoutConfig: any };
 		stats: { x: number; y: number; width: number; height: number; layoutConfig: any };
-		default: { radius: number; filterId: string; gradientId: string };
 	}
 </script>
 
@@ -82,12 +93,16 @@
 >
 	<BaseNode {node} {voteBasedStyles}>
 		<svelte:fragment slot="default" let:radius let:filterId let:gradientId>
-			<!-- Title stays outside ContentBox for consistency with detail mode -->
+			<!-- Title positioned above ContentBox -->
+			<!-- This ensures consistent positioning across all preview nodes -->
 			{#if $$slots.title}
-				<slot name="title" {radius} />
+				<g transform="translate(0, {titleY})">
+					<slot name="title" {radius} />
+				</g>
 			{/if}
 			
-			<!-- ContentBox is now always used -->
+			<!-- ContentBox at center (0, 0) - handles all internal content layout -->
+			<!-- ContentBox manages content, voting, and stats sections with configurable ratios -->
 			<ContentBox nodeType={node.type} mode="preview" showBorder={showContentBoxBorder}>
 				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
 					{#if $$slots.content}
@@ -101,6 +116,7 @@
 					{/if}
 				</svelte:fragment>
 
+				<!-- Stats slot exists but typically unused in preview mode (layoutConfig sets height to 0) -->
 				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig>
 					{#if $$slots.stats}
 						<slot name="stats" {x} {y} {width} {height} {layoutConfig} />
@@ -108,17 +124,20 @@
 				</svelte:fragment>
 			</ContentBox>
 
-			<!-- Expand button -->
-			<ExpandCollapseButton
-				mode="expand"
-				y={radius * 0.7071}
-				x={-radius * 0.7071}
-				nodeX={nodeX}
-				nodeY={nodeY}
-				nodeId={node.id}
-				on:click={handleButtonClick}
-				on:modeChange={handleModeChange}
-			/>
+			<!-- Expand button (SE corner) - only shown if canExpand is true -->
+			<!-- Hidden when inclusion votes don't meet threshold -->
+			{#if canExpand}
+				<ExpandCollapseButton
+					mode="expand"
+					y={radius * 0.7071}
+					x={-radius * 0.7071}
+					nodeX={nodeX}
+					nodeY={nodeY}
+					nodeId={node.id}
+					on:click={handleButtonClick}
+					on:modeChange={handleModeChange}
+				/>
+			{/if}
 		</svelte:fragment>
 	</BaseNode>
 </g>
