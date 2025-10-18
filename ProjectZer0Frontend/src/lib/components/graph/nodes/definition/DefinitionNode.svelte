@@ -1,297 +1,358 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-	import type { Definition } from '$lib/types/domain/nodes';
+	import type { VoteStatus } from '$lib/types/domain/nodes';
 	import { isDefinitionData } from '$lib/types/graph/enhanced';
-	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { userStore } from '$lib/stores/userStore';
-	import { graphStore } from '$lib/stores/graphStore';
-	import { wordViewStore } from '$lib/stores/wordViewStore';
-	import { getUserDetails } from '$lib/services/userLookup';
-
-	import {
-		createVoteBehaviour,
-		createVisibilityBehaviour,
-		createModeBehaviour,
-		createDataBehaviour
-	} from '../behaviours';
-
-	// Import the shared UI components
-	import VoteButtons from '../ui/ContentVoteButtons.svelte';
-	import VoteStats from '../ui/VoteStats.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
+	import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
+	import ContentVoteButtons from '../ui/ContentVoteButtons.svelte';
+	import VoteStats from '../ui/VoteStats.svelte';
+	import NodeMetadata from '../ui/NodeMetadata.svelte';
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
-	import ContentBox from '../ui/ContentBox.svelte';
-	import { wrapTextForWidth } from '../utils/textUtils';
+	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
+	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+	import { fetchWithAuth } from '$lib/services/api';
 
 	export let node: RenderableNode;
 	export let wordText: string = '';
 
-	// Debug toggle - set to true to show ContentBox borders (NOW TRUE FOR DESIGN WORK)
-	const DEBUG_SHOW_BORDERS = true;
-
+	// Type validation
 	if (!isDefinitionData(node.data)) {
 		throw new Error('Invalid node data type for DefinitionNode');
 	}
 
-	const definitionData = node.data as Definition;
+	const definitionData = node.data;
+
+	// Determine subtype from group
 	const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
 	const nodeTitle = subtype === 'live' ? 'Live Definition' : 'Alternative Definition';
 
-	// Get the definition text
+	// Helper to get correct metadata group (maps live-definition and alternative-definition to 'definition')
+	function getMetadataGroup(): 'definition' {
+		return 'definition';
+	}
+
+	// Data extraction
 	$: definitionText = definitionData.definitionText;
 
-	let voteBehaviour: any;
-	let visibilityBehaviour: any;
-	let modeBehaviour: any;
-	let dataBehaviour: any;
-	let behavioursInitialized = false;
+	// INCLUSION voting (whether definition should exist)
+	$: inclusionPositiveVotes = getNeo4jNumber(definitionData.inclusionPositiveVotes) || 0;
+	$: inclusionNegativeVotes = getNeo4jNumber(definitionData.inclusionNegativeVotes) || 0;
+	$: inclusionNetVotes = getNeo4jNumber(definitionData.inclusionNetVotes) || 
+		(inclusionPositiveVotes - inclusionNegativeVotes);
+	
+	// CONTENT voting (quality/accuracy of definition)
+	$: contentPositiveVotes = getNeo4jNumber(definitionData.contentPositiveVotes) || 0;
+	$: contentNegativeVotes = getNeo4jNumber(definitionData.contentNegativeVotes) || 0;
+	$: contentNetVotes = getNeo4jNumber(definitionData.contentNetVotes) || 
+		(contentPositiveVotes - contentNegativeVotes);
+	
+	// User vote status - with safe fallback for backward compatibility
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 
+		node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
+	
+	// Threshold check for expansion (based on inclusion votes)
+	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
-	function triggerDataUpdate() {
-		definitionDataWrapper = { ...definitionData };
-	}
+	// Voting state
+	let isVotingInclusion = false;
+	let isVotingContent = false;
+	let inclusionVoteSuccess = false;
+	let contentVoteSuccess = false;
+	let lastInclusionVoteType: VoteStatus | null = null;
+	let lastContentVoteType: VoteStatus | null = null;
 
-	$: if (node.id && !behavioursInitialized) {
-		voteBehaviour = createVoteBehaviour(node.id, 'definition', {
-			voteStore: wordViewStore,
-			graphStore,
-			apiIdentifier: definitionData.id,
-			dataObject: definitionData,
-			getVoteEndpoint: (id) => `/definitions/${id}/vote`,
-			getRemoveVoteEndpoint: (id) => `/definitions/${id}/vote/remove`,
-			onDataUpdate: triggerDataUpdate
-		});
-
-		visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
-		modeBehaviour = createModeBehaviour(node.mode);
-		dataBehaviour = createDataBehaviour('definition', definitionData, {
-			transformData: (rawData) => ({
-				...rawData,
-				formattedDate: rawData.createdAt
-					? new Date(rawData.createdAt).toLocaleDateString()
-					: ''
-			})
-		});
-
-		behavioursInitialized = true;
-	}
-
+	// Mode state
 	$: isDetail = node.mode === 'detail';
-	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
-	function getNeo4jNumber(value: any): number {
-		return value && typeof value === 'object' && 'low' in value ? Number(value.low) : Number(value || 0);
-	}
-
-	let definitionDataWrapper = definitionData;
-
-	$: dataPositiveVotes = getNeo4jNumber(definitionDataWrapper.positiveVotes) || 0;
-	$: dataNegativeVotes = getNeo4jNumber(definitionDataWrapper.negativeVotes) || 0;
-	$: storeVoteData = wordViewStore.getVoteData(node.id);
-
-	$: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
-	$: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
-	$: netVotes = positiveVotes - negativeVotes;
-
-	$: behaviorState = voteBehaviour?.getCurrentState() || {};
-	$: userVoteStatus = behaviorState.userVoteStatus || 'none';
-	$: isVoting = behaviorState.isVoting || false;
-	$: voteSuccess = behaviorState.voteSuccess || false;
-	$: lastVoteType = behaviorState.lastVoteType || null;
-
+	// Event dispatcher
 	const dispatch = createEventDispatcher<{
-		modeChange: { mode: NodeMode };
+		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
 	}>();
 
-	function syncVoteState() {
-		if (voteBehaviour) {
-			const state = voteBehaviour.getCurrentState();
-			userVoteStatus = state.userVoteStatus;
-			isVoting = state.isVoting;
-			voteSuccess = state.voteSuccess;
-			lastVoteType = state.lastVoteType;
-		}
-	}
+	// INCLUSION vote handler
+	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (isVotingInclusion) return;
+		isVotingInclusion = true;
+		inclusionVoteSuccess = false;
 
-	async function updateVoteState(voteType: 'agree' | 'disagree' | 'none') {
-		if (!voteBehaviour) return false;
-		userVoteStatus = voteType;
-		isVoting = true;
+		const { voteType } = event.detail;
 
 		try {
-			const success = await voteBehaviour.handleVote(voteType);
-			syncVoteState();
-			if (success) triggerDataUpdate();
-			return success;
-		} catch (error) {
-			syncVoteState();
-			return false;
-		}
-	}
+			const endpoint = voteType === 'none'
+				? `/definitions/${definitionData.id}/inclusion-vote/remove`
+				: `/definitions/${definitionData.id}/inclusion-vote`;
 
-	function handleModeChange() {
-		const newMode = modeBehaviour?.handleModeChange();
-		if (newMode) dispatch('modeChange', { mode: newMode });
-	}
+			const response = await fetchWithAuth(endpoint, {
+				method: voteType === 'none' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
+			});
 
-	function handleVote(event: CustomEvent<{ voteType: any }>) {
-		updateVoteState(event.detail.voteType);
-	}
+			if (response.ok) {
+				const result = await response.json();
+				
+				// Update local inclusion vote counts
+				if (result.inclusionPositiveVotes !== undefined) {
+					definitionData.inclusionPositiveVotes = result.inclusionPositiveVotes;
+				}
+				if (result.inclusionNegativeVotes !== undefined) {
+					definitionData.inclusionNegativeVotes = result.inclusionNegativeVotes;
+				}
+				if (result.inclusionNetVotes !== undefined) {
+					definitionData.inclusionNetVotes = result.inclusionNetVotes;
+				}
 
-	let definitionCreatorDetails: any = null;
+				// Update metadata - create structure if needed
+				if (!node.metadata) {
+					node.metadata = { group: getMetadataGroup() };
+				}
+				if (!node.metadata.inclusionVoteStatus) {
+					node.metadata.inclusionVoteStatus = { status: null };
+				}
+				node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
 
-	onMount(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 0));
+				inclusionVoteSuccess = true;
+				lastInclusionVoteType = voteType === 'none' ? null : voteType;
 
-		const initPromises = [];
-		if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
-		if (voteBehaviour) {
-			initPromises.push(
-				voteBehaviour.initialize({
-					positiveVotes: definitionData.positiveVotes,
-					negativeVotes: definitionData.negativeVotes
-				})
-			);
-		}
-		if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(netVotes));
-		if (initPromises.length > 0) await Promise.all(initPromises);
-
-		syncVoteState();
-
-		// Recalculate visibility after initialization
-		if (graphStore) {
-			graphStore.recalculateNodeVisibility(
-				node.id,
-				positiveVotes,
-				negativeVotes
-			);
-		}
-
-		if (definitionData.createdBy && definitionData.createdBy !== 'FreeDictionaryAPI') {
-			try {
-				definitionCreatorDetails = await getUserDetails(definitionData.createdBy);
-			} catch (e) {
-				console.error('[DefinitionNode] Error fetching creator details:', e);
+				// Reset success indicator after delay
+				setTimeout(() => {
+					inclusionVoteSuccess = false;
+					lastInclusionVoteType = null;
+				}, 2000);
 			}
+		} catch (error) {
+			console.error('Error voting on definition inclusion:', error);
+		} finally {
+			isVotingInclusion = false;
 		}
-	});
+	}
 
-	onDestroy(() => {
-		if (dataBehaviour?.destroy) dataBehaviour.destroy();
-	});
+	// CONTENT vote handler
+	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (isVotingContent) return;
+		isVotingContent = true;
+		contentVoteSuccess = false;
+
+		const { voteType } = event.detail;
+
+		try {
+			const endpoint = voteType === 'none'
+				? `/definitions/${definitionData.id}/content-vote/remove`
+				: `/definitions/${definitionData.id}/content-vote`;
+
+			const response = await fetchWithAuth(endpoint, {
+				method: voteType === 'none' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
+			});
+
+			if (response.ok) {
+				const result = await response.json();
+				
+				// Update local content vote counts
+				if (result.contentPositiveVotes !== undefined) {
+					definitionData.contentPositiveVotes = result.contentPositiveVotes;
+				}
+				if (result.contentNegativeVotes !== undefined) {
+					definitionData.contentNegativeVotes = result.contentNegativeVotes;
+				}
+				if (result.contentNetVotes !== undefined) {
+					definitionData.contentNetVotes = result.contentNetVotes;
+				}
+
+				// Update metadata - create structure if needed
+				if (!node.metadata) {
+					node.metadata = { group: getMetadataGroup() };
+				}
+				if (!node.metadata.contentVoteStatus) {
+					node.metadata.contentVoteStatus = { status: null };
+				}
+				node.metadata.contentVoteStatus.status = voteType === 'none' ? null : voteType;
+
+				contentVoteSuccess = true;
+				lastContentVoteType = voteType === 'none' ? null : voteType;
+
+				// Reset success indicator after delay
+				setTimeout(() => {
+					contentVoteSuccess = false;
+					lastContentVoteType = null;
+				}, 2000);
+			}
+		} catch (error) {
+			console.error('Error voting on definition content:', error);
+		} finally {
+			isVotingContent = false;
+		}
+	}
+
+	// Mode change handler
+	function handleModeChange(event: CustomEvent) {
+		dispatch('modeChange', {
+			...event.detail,
+			nodeId: node.id
+		});
+	}
 </script>
 
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
-		<svelte:fragment slot="default" let:radius>
-			<NodeHeader title={nodeTitle} radius={radius} mode="detail" />
-			<ContentBox nodeType="definition" mode="detail" showBorder={false}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-					<!-- Main definition text with bold word styling -->
-					<foreignObject
-						x={x}
-						y={y + layoutConfig.titleYOffset - 20}
-						width={width}
-						height={height - layoutConfig.titleYOffset - 90}
-					>
-						<div class="definition-display">
-							<span class="definition-text"><span class="word-part">{wordText}:</span> {definitionText}</span>
-						</div>
-					</foreignObject>
-
-					<!-- Instruction text using EXACT WordNode method -->
-					<foreignObject
-						x={x}
-						y={y + height - 80}
-						width={width}
-						height="60"
-					>
-						<div class="instruction-text">
-							{wrapTextForWidth(
-								"Vote whether you agree with this definition for this word, within the context of ProjectZer0. You can change your vote anytime using the voting controls below.",
-								width,
-								{ fontSize: 14, fontFamily: 'Inter' }
-							).join(' ')}
-						</div>
-					</foreignObject>
-				</svelte:fragment>
-
-				<svelte:fragment slot="voting" let:width let:height>
-					<VoteButtons
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{isVoting}
-						{voteSuccess}
-						{lastVoteType}
-						availableWidth={width}
-						containerY={height}
-						mode="detail"
-						on:vote={handleVote}
-					/>
-				</svelte:fragment>
-
-				<svelte:fragment slot="stats" let:width>
-					<VoteStats
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{userName}
-						showUserStatus={true}
-						availableWidth={width}
-						containerY={26}
-						showBackground={false}
-					/>
-				</svelte:fragment>
-			</ContentBox>
-
-			{#if definitionData.createdBy}
-				<CreatorCredits
-					createdBy={definitionData.createdBy}
-					publicCredit={true}
-					creatorDetails={definitionCreatorDetails}
-					radius={radius}
-					prefix="defined by:"
-				/>
-			{/if}
-		</svelte:fragment>
-	</BaseDetailNode>
-{:else}
-	<BasePreviewNode {node} on:modeChange={handleModeChange} showContentBoxBorder={false}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title={nodeTitle} radius={radius} size="small" mode="preview" />
+			<NodeHeader title={nodeTitle} {radius} mode="detail" />
 		</svelte:fragment>
 
+		<!-- Content: Definition text with bold word -->
 		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-			<!-- Main definition text with bold word styling -->
 			<foreignObject
 				x={x}
-				y={y + layoutConfig.titleYOffset - 10}
-				width={width}
-				height={height - layoutConfig.titleYOffset}
+				y={y + 10}
+				{width}
+				height={height - 100}
 			>
-				<div class="definition-preview">
-					<span class="definition-text"><span class="word-part">{wordText}:</span> {definitionText}</span>
+				<div class="definition-display">
+					<span class="definition-text">
+						<span class="word-part">{wordText}:</span> {definitionText}
+					</span>
+				</div>
+			</foreignObject>
+
+			<!-- Instruction text for dual voting -->
+			<foreignObject
+				x={x}
+				y={y + height - 90}
+				{width}
+				height="80"
+			>
+				<div class="instruction-text">
+					<strong>Include/Exclude:</strong> Should this definition exist for "{wordText}"? 
+					<strong>Agree/Disagree:</strong> Is this definition accurate and well-written?
 				</div>
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
-			<VoteButtons
-				{userVoteStatus}
-				{positiveVotes}
-				{negativeVotes}
-				{isVoting}
-				{voteSuccess}
-				{lastVoteType}
+		<!-- DUAL VOTING: Both inclusion and content -->
+		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Inclusion voting -->
+			<InclusionVoteButtons
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				isVoting={isVotingInclusion}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
 				availableWidth={width}
-				containerY={y + height / 2}
+				containerY={y}
+				mode="detail"
+				on:vote={handleInclusionVote}
+			/>
+
+			<!-- Content voting (positioned below inclusion) -->
+			<ContentVoteButtons
+				userVoteStatus={contentUserVoteStatus}
+				positiveVotes={contentPositiveVotes}
+				negativeVotes={contentNegativeVotes}
+				isVoting={isVotingContent}
+				voteSuccess={contentVoteSuccess}
+				lastVoteType={lastContentVoteType}
+				availableWidth={width}
+				containerY={y + 60}
+				mode="detail"
+				on:vote={handleContentVote}
+			/>
+		</svelte:fragment>
+
+		<!-- Vote stats showing both voting types separately -->
+		<svelte:fragment slot="stats" let:width let:y>
+			<!-- Inclusion stats -->
+			<VoteStats
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				positiveLabel="Include"
+				negativeLabel="Exclude"
+				availableWidth={width}
+				containerY={y}
+				showUserStatus={false}
+			/>
+			
+			<!-- Content stats (positioned below) -->
+			<g transform="translate(0, 80)">
+				<VoteStats
+					userVoteStatus={contentUserVoteStatus}
+					positiveVotes={contentPositiveVotes}
+					negativeVotes={contentNegativeVotes}
+					positiveLabel="Agree"
+					negativeLabel="Disagree"
+					availableWidth={width}
+					containerY={y}
+					showUserStatus={false}
+				/>
+			</g>
+		</svelte:fragment>
+
+		<!-- Metadata -->
+		<svelte:fragment slot="metadata" let:radius>
+			<NodeMetadata
+				createdAt={definitionData.createdAt}
+				updatedAt={definitionData.updatedAt}
+				{radius}
+			/>
+		</svelte:fragment>
+
+		<!-- Creator credits -->
+		<svelte:fragment slot="credits" let:radius>
+			{#if definitionData.createdBy && definitionData.createdBy !== 'FreeDictionaryAPI'}
+				<CreatorCredits
+					createdBy={definitionData.createdBy}
+					publicCredit={definitionData.publicCredit}
+					{radius}
+					prefix="defined by:"
+				/>
+			{/if}
+		</svelte:fragment>
+
+		<!-- No createChild slot - Definitions don't create children -->
+	</BaseDetailNode>
+{:else}
+	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
+		<svelte:fragment slot="title" let:radius>
+			<NodeHeader title={nodeTitle} {radius} mode="preview" size="small" />
+		</svelte:fragment>
+
+		<!-- Content: Definition text with bold word -->
+		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+			<foreignObject
+				x={x}
+				y={y + layoutConfig.titleYOffset}
+				{width}
+				{height}
+			>
+				<div class="definition-preview">
+					<span class="definition-text">
+						<span class="word-part">{wordText}:</span> {definitionText}
+					</span>
+				</div>
+			</foreignObject>
+		</svelte:fragment>
+
+		<!-- Preview mode: ONLY inclusion voting -->
+		<svelte:fragment slot="voting" let:width let:height let:y>
+			<InclusionVoteButtons
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				isVoting={isVotingInclusion}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
+				availableWidth={width}
+				containerY={y}
 				mode="preview"
-				on:vote={handleVote}
+				on:vote={handleInclusionVote}
 			/>
 		</svelte:fragment>
 	</BasePreviewNode>
@@ -310,8 +371,7 @@
 		justify-content: center;
 		width: 100%;
 		height: 100%;
-		padding: 0;
-		margin: 0;
+		padding: 10px;
 		box-sizing: border-box;
 	}
 
@@ -327,8 +387,7 @@
 		justify-content: center;
 		width: 100%;
 		height: 100%;
-		padding: 0;
-		margin: 0;
+		padding: 5px;
 		box-sizing: border-box;
 	}
 
@@ -344,18 +403,17 @@
 
 	.instruction-text {
 		font-family: Inter;
-		font-size: 14px;
+		font-size: 12px;
 		font-weight: 400;
-		color: rgba(255, 255, 255, 0.85);
+		color: rgba(255, 255, 255, 0.75);
 		text-align: center;
 		line-height: 1.4;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		padding: 0;
-		margin: 0;
+		padding: 10px;
 		box-sizing: border-box;
+	}
+
+	.instruction-text strong {
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 600;
 	}
 </style>

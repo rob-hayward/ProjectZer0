@@ -33,7 +33,6 @@ export interface ConsolidatedKeywordMetadata {
     averageStrength: number;
 }
 
-// UPDATED: Metadata type for enhanced nodes - now includes user-specific data
 export interface NodeMetadata {
     centralRadius?: number;
     group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'openquestion' | 'quantity'| 'comment' | 'comment-form' | 'control';
@@ -41,31 +40,41 @@ export interface NodeMetadata {
     isDetail?: boolean;
     votes?: number;
     createdAt?: string;
-    angle?: number;    // For navigation node positioning
-    radius?: number;   // For radial positioning
-    golden?: number;   // For golden ratio-based layouts
-    parentCommentId?: string; // Added for comment threading
-    depth?: number;    // Added for comment nesting level
-    isExpanded?: boolean; // Added for expanded comments
+    angle?: number;
+    radius?: number;
+    golden?: number;
+    parentCommentId?: string;
+    depth?: number;
+    isExpanded?: boolean;
     
-    // NEW: Universal graph properties
-    consensus_ratio?: number;  // Consensus ratio (0.0 to 1.0) - DEPRECATED but kept for compatibility
-    participant_count?: number; // Number of participants
-    net_votes?: number; // Net positive/negative votes
+    // Universal graph properties
+    consensus_ratio?: number;
+    participant_count?: number;
+    net_votes?: number;
     
-    // NEW: User-specific data from backend
+    // User-specific voting data from backend
+    // For nodes with SINGLE voting type (Word, OpenQuestion, Comment, Category)
     userVoteStatus?: {
         status: 'agree' | 'disagree' | null;
     };
+    
+    // For nodes with DUAL voting types (Definition, Statement, Answer, Quantity, Evidence)
+    inclusionVoteStatus?: {
+        status: 'agree' | 'disagree' | null;
+    };
+    contentVoteStatus?: {
+        status: 'agree' | 'disagree' | null;
+    };
+    
     userVisibilityPreference?: {
         isVisible: boolean;
         source: string;
         timestamp: number;
     };
 
-    // ADDED: Statement-specific metadata
-    answer_count?: number; // For OpenQuestion nodes
-    related_statements_count?: number; // For Statement nodes
+    // Additional metadata
+    answer_count?: number;
+    related_statements_count?: number;
 }
 
 // Core node interface for initial data

@@ -1,7 +1,10 @@
 <!-- src/lib/components/graph/nodes/base/BaseNode.svelte -->
+<!-- ENHANCED: Automatic visibility recalculation based on vote changes -->
 <script lang="ts">
-    import { createEventDispatcher, onMount } from 'svelte';
+    import { createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+    import { graphStore } from '$lib/stores/graphStore';
+    import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     
     // Node data - contains ALL information needed for rendering
     export let node: RenderableNode;
@@ -33,6 +36,24 @@
     $: radius = node.radius;
     $: highlightColor = style.highlightColor || style.colors?.border || '#3498db';
 
+    // ✅ AUTOMATIC VISIBILITY RECALCULATION
+    // Watches for inclusion vote changes and updates graph store automatically
+    $: if (node.data && graphStore) {
+        const hasInclusionVotes = 'inclusionPositiveVotes' in node.data;
+        
+        if (hasInclusionVotes) {
+            const data = node.data as any;
+            
+            const positiveVotes = getNeo4jNumber(data.inclusionPositiveVotes) || 0;
+            const negativeVotes = getNeo4jNumber(data.inclusionNegativeVotes) || 0;
+            
+            // Update graph store whenever votes change
+            if (typeof graphStore.recalculateNodeVisibility === 'function') {
+                graphStore.recalculateNodeVisibility(node.id, positiveVotes, negativeVotes);
+            }
+        }
+    }
+
     function handleClick() {
         dispatch('click');
     }
@@ -57,101 +78,90 @@
 >
     <!-- Filter and gradient definitions -->
     <defs>
-        <filter id={filterId} x="-100%" y="-100%" width="300%" height="300%">
-            <!-- Strong outer glow - adjusted by vote-based styling -->
-            <feGaussianBlur in="SourceAlpha" stdDeviation={voteBasedStyles.glow.intensity} result="blur1"/>
-            <feFlood flood-color={highlightColor} flood-opacity={voteBasedStyles.glow.opacity} result="color1"/>
-            <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
-            
-            <!-- Medium glow -->
-            <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur2"/>
-            <feFlood flood-color={highlightColor} flood-opacity="0.8" result="color2"/>
-            <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
-            
-            <!-- Sharp inner glow -->
-            <feGaussianBlur in="SourceAlpha" stdDeviation="1" result="blur3"/>
-            <feFlood flood-color={highlightColor} flood-opacity="1" result="color3"/>
-            <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
-            
+        <!-- Glow filter for highlight effects -->
+        <filter id={filterId} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur in="SourceGraphic" stdDeviation={voteBasedStyles.glow.intensity} result="blur"/>
+            <feColorMatrix 
+                in="blur" 
+                type="matrix" 
+                values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 {voteBasedStyles.glow.opacity} 0"
+                result="glow"
+            />
             <feMerge>
-                <feMergeNode in="shadow1"/>
-                <feMergeNode in="shadow2"/>
-                <feMergeNode in="shadow3"/>
+                <feMergeNode in="glow"/>
                 <feMergeNode in="SourceGraphic"/>
             </feMerge>
         </filter>
-
-        <!-- Gradient for the outer ring -->
+        
+        <!-- Radial gradient for background -->
         <radialGradient id={gradientId}>
-            <stop offset="0%" stop-color="rgba(0,0,0,0)"/>
-            <stop offset="85%" stop-color={highlightColor} stop-opacity="0.5"/>
-            <stop offset="100%" stop-color={highlightColor} stop-opacity="0.1"/>
+            <stop offset="0%" style="stop-color:{highlightColor};stop-opacity:0.4" />
+            <stop offset="50%" style="stop-color:{highlightColor};stop-opacity:0.2" />
+            <stop offset="100%" style="stop-color:{highlightColor};stop-opacity:0.05" />
         </radialGradient>
     </defs>
 
-    <!-- Base node layers - Use explicit r={radius} instead of CSS vars -->
-    <circle {radius} r={radius} class="background-layer-1" />
-    <circle {radius} r={radius - 4} class="background-layer-2" />
-    <circle {radius} r={radius - 8} class="background-layer-3" />
-    <circle {radius} r={radius - 12} class="content-background" />
-    
-    <!-- Decorative rings with glow effect - adjusted by vote-based styling -->
-    <circle
-        {radius}
-        r={radius}
-        class="outer-ring"
-        style:stroke={highlightColor}
-        style:stroke-opacity={voteBasedStyles.ring.opacity}
-        style:stroke-width={voteBasedStyles.ring.width}
-        filter={`url(#${filterId})`}
+    <!-- 4 background layers for depth effect -->
+    <circle 
+        class="background-layer-1" 
+        r={radius * 0.95} 
+        fill="url(#{gradientId})" 
+        opacity="0.5"
+    />
+    <circle 
+        class="background-layer-2" 
+        r={radius * 0.90} 
+        fill="url(#{gradientId})" 
+        opacity="0.8"
+    />
+    <circle 
+        class="background-layer-3" 
+        r={radius * 0.85} 
+        fill="url(#{gradientId})" 
+        opacity="0.9"
+    />
+    <circle 
+        class="content-background" 
+        r={radius * 0.80} 
+        fill={style.colors?.background || '#1a1a1a'} 
+        opacity="0.95"
     />
     
-    <circle {radius} r={radius - 2} class="middle-ring" />
+    <!-- Decorative rings -->
+    <circle 
+        class="outer-ring" 
+        r={radius} 
+        fill="none" 
+        stroke={highlightColor} 
+        stroke-width={voteBasedStyles.ring.width} 
+        opacity={voteBasedStyles.ring.opacity}
+        filter="url(#{filterId})"
+    />
+    <circle 
+        class="middle-ring" 
+        r={radius * 0.97} 
+        fill="none" 
+        stroke="white" 
+        stroke-width="1" 
+        opacity="0.2"
+    />
     
-    <!-- Pass relevant data to child components -->
+    <!-- Slot for child content (BasePreviewNode or BaseDetailNode) -->
     <slot {radius} {filterId} {gradientId} />
 </g>
 
 <style>
-    /* Base node styles */
     .base-node {
-        position: relative;
+        will-change: transform;
+        transition: all 0.3s ease-out;
     }
-    
-    .background-layer-1 {
-        fill: rgba(0, 0, 0, 0.5);
-        transition: r 0.3s ease-out;
+
+    .base-node circle {
+        transition: opacity 0.3s ease, stroke-width 0.3s ease;
     }
-    
-    .background-layer-2 {
-        fill: rgba(0, 0, 0, 0.8);
-        transition: r 0.3s ease-out;
-    }
-    
-    .background-layer-3 {
-        fill: rgba(0, 0, 0, 0.9);
-        transition: r 0.3s ease-out;
-    }
- 
-    .content-background {
-        fill: rgba(0, 0, 0, 0.95);
-        transition: r 0.3s ease-out;
-    }
- 
-    .outer-ring {
-        fill: none;
-        vector-effect: non-scaling-stroke;
-        transition: r 0.3s ease-out;
-    }
- 
-    .middle-ring {
-        fill: none;
-        stroke: rgba(255, 255, 255, 0.15);
-        stroke-width: 1;
-        transition: r 0.3s ease-out;
-    }
- 
-    :global(.base-node *) {
-        vector-effect: non-scaling-stroke;
+
+    .base-node:hover .outer-ring {
+        stroke-width: 8;
+        opacity: 0.8;
     }
 </style>
