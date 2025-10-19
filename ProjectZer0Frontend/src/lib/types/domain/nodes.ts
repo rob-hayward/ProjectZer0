@@ -45,10 +45,55 @@ export interface WordNode {
     };
 }
 
+export interface CategoryNode {
+    id: string; // UUID
+    name: string; // Auto-generated from composed words (e.g., "artificial intelligence")
+    createdBy: string;
+    publicCredit: boolean;
+    createdAt: string;
+    updatedAt: string;
+    // Inclusion voting only for categories
+    inclusionPositiveVotes: number;
+    inclusionNegativeVotes: number;
+    inclusionNetVotes: number;
+    // Content voting (always 0 for Category nodes)
+    contentPositiveVotes?: number;
+    contentNegativeVotes?: number;
+    contentNetVotes?: number;
+    // Category-specific properties
+    wordCount?: number;
+    contentCount?: number;
+    childCount?: number;
+    words?: Array<{ // The 1-5 words that compose this category
+        id: string; // The word itself (e.g., 'artificial')
+        word: string; // Same as id
+        inclusionNetVotes: number;
+    }>;
+    parentCategory?: {
+        id: string; // Parent category UUID
+        name: string;
+    } | null;
+    childCategories?: Array<{
+        id: string; // Child category UUID
+        name: string;
+        inclusionNetVotes: number;
+    }>;
+    discussionId?: string;
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
 export interface Keyword {
     word: string;
     frequency?: number;
     source: 'user' | 'ai' | 'both';
+}
+
+export interface Category {
+    id: string;
+    name: string;
 }
 
 export interface RelatedStatement {
@@ -66,7 +111,7 @@ export interface StatementNode {
     initialComment?: string;
     createdAt: string;
     updatedAt: string;
-    // Content voting for statements
+    // Dual voting for statements
     inclusionPositiveVotes: number;
     inclusionNegativeVotes: number;
     inclusionNetVotes: number;
@@ -76,7 +121,9 @@ export interface StatementNode {
     // Legacy properties (may be deprecated)
     positiveVotes?: number;
     negativeVotes?: number;
+    // Content node properties
     keywords?: Keyword[];
+    categories?: string[] | Category[]; // Category IDs (creation) or enriched objects (from API)
     relatedStatements?: RelatedStatement[];
     discussionId?: string;
     discussion?: {
@@ -117,9 +164,37 @@ export interface OpenQuestionNode {
     // Legacy properties
     positiveVotes?: number;
     negativeVotes?: number;
+    // Content node properties
     keywords?: Keyword[];
+    categories?: string[] | Category[]; // Category IDs (creation) or enriched objects (from API)
     relatedQuestions?: RelatedQuestion[];
     answers?: AnswerStatement[];
+    discussionId?: string;
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
+export interface AnswerNode {
+    id: string;
+    answerText: string;
+    questionId: string; // Parent question UUID
+    createdBy: string;
+    publicCredit: boolean;
+    initialComment?: string;
+    createdAt: string;
+    updatedAt: string;
+    // Dual voting for answers
+    inclusionPositiveVotes: number;
+    inclusionNegativeVotes: number;
+    inclusionNetVotes: number;
+    contentPositiveVotes: number;
+    contentNegativeVotes: number;
+    contentNetVotes: number;
+    // Content node properties
+    keywords?: Keyword[];
+    categories?: string[] | Category[]; // Category IDs (creation) or enriched objects (from API)
     discussionId?: string;
     discussion?: {
         id: string;
@@ -145,7 +220,38 @@ export interface QuantityNode {
     contentNegativeVotes: number;
     contentNetVotes: number;
     responseCount?: number;
+    // Content node properties
     keywords?: Keyword[];
+    categories?: Category[]; // Category objects (max 3)
+    discussionId?: string;
+    discussion?: {
+        id: string;
+        comments: Comment[];
+    };
+}
+
+export interface EvidenceNode {
+    id: string;
+    title: string;
+    url: string;
+    evidenceType: 'peer_reviewed_study' | 'government_report' | 'news_article' | 'expert_opinion' | 'dataset' | 'video' | 'image' | 'other';
+    parentNodeId: string; // Parent statement/answer/quantity UUID
+    parentNodeType: 'StatementNode' | 'AnswerNode' | 'QuantityNode';
+    createdBy: string;
+    publicCredit: boolean;
+    initialComment?: string;
+    createdAt: string;
+    updatedAt: string;
+    // Dual voting for evidence
+    inclusionPositiveVotes: number;
+    inclusionNegativeVotes: number;
+    inclusionNetVotes: number;
+    contentPositiveVotes: number;
+    contentNegativeVotes: number;
+    contentNetVotes: number;
+    // Content node properties
+    keywords?: Keyword[];
+    categories?: Category[]; // Category objects (max 3)
     discussionId?: string;
     discussion?: {
         id: string;

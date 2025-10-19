@@ -1,507 +1,422 @@
-<!-- src/lib/components/graph/nodes/statement/StatementNode.svelte - CORRECTED VERSION -->
+<!-- src/lib/components/graph/nodes/statement/StatementNode.svelte -->
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from 'svelte';
-	import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
-	import type { StatementNode, VoteStatus } from '$lib/types/domain/nodes';
+	import { createEventDispatcher } from 'svelte';
+	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
+	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
 	import { isStatementData } from '$lib/types/graph/enhanced';
-	import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { userStore } from '$lib/stores/userStore';
-	import { graphStore } from '$lib/stores/graphStore';
-	import { getUserDetails } from '$lib/services/userLookup';
-	
-	// Import all possible vote stores
-	import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
-	import { universalGraphStore } from '$lib/stores/universalGraphStore';
-	
-	// Import the shared UI components
-	import VoteButtons from '../ui/ContentVoteButtons.svelte';
-	import VoteStats from '../ui/VoteStats.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
+	import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
+	import ContentVoteButtons from '../ui/ContentVoteButtons.svelte';
+	import VoteStats from '../ui/VoteStats.svelte';
+	import CategoryTags from '../ui/CategoryTags.svelte';
+	import KeywordTags from '../ui/KeywordTags.svelte';
+	import NodeMetadata from '../ui/NodeMetadata.svelte';
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
-	import ContentBox from '../ui/ContentBox.svelte';
+	import CreateLinkedNodeButton from '../ui/CreateLinkedNodeButton.svelte';
+	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
+	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+	import { fetchWithAuth } from '$lib/services/api';
 
 	export let node: RenderableNode;
-	export let statementText: string = '';
-	export let nodeX: number | undefined = undefined;
-	export let nodeY: number | undefined = undefined;
-	
-	// Optional props for explicit context control
-	export let viewType: ViewType | undefined = undefined;
-	export let voteStore: any = undefined;
 
-	// Debug toggle
-	const DEBUG_SHOW_BORDERS = false;
-
+	// Type validation
 	if (!isStatementData(node.data)) {
 		throw new Error('Invalid node data type for StatementNode');
 	}
 
-	const statementData = node.data as StatementNode;
+	const statementData = node.data;
 
-	// Get the statement text
-	$: displayStatementText = statementText || statementData.statement;
-
-	// Context-aware store detection
-	$: detectedViewType = detectViewContext(viewType);
-	$: contextVoteStore = selectVoteStore(detectedViewType, voteStore);
-
-	/**
-	 * Detect current view context using multiple methods
-	 */
-	function detectViewContext(explicitViewType?: ViewType): ViewType {
-		// Method 1: Use explicit viewType prop if provided
-		if (explicitViewType) {
-			return explicitViewType;
-		}
-
-		// Method 2: Detect from URL path
-		if (typeof window !== 'undefined') {
-			const pathname = window.location.pathname;
-			if (pathname.includes('/universal')) return 'universal';
-			if (pathname.includes('/statement-network')) return 'statement-network';
-			if (pathname.includes('/discussion')) return 'discussion';
-		}
-
-		// Method 3: Detect from graph store context
-		if (graphStore) {
-			const currentViewType = graphStore.getViewType?.();
-			if (currentViewType) return currentViewType;
-		}
-
-		// Default fallback
-		return 'statement-network';
+	// Helper to get correct metadata group
+	function getMetadataGroup(): 'statement' {
+		return 'statement';
 	}
 
-	/**
-	 * Select appropriate vote store based on context
-	 */
-	function selectVoteStore(detectedViewType: ViewType, explicitStore?: any) {
-		// Method 1: Use explicit store override if provided
-		if (explicitStore) {
-			return explicitStore;
+	// Data extraction
+	$: displayStatement = statementData.statement;
+
+	// INCLUSION voting (whether statement should exist)
+	$: inclusionPositiveVotes = getNeo4jNumber(statementData.inclusionPositiveVotes) || 0;
+	$: inclusionNegativeVotes = getNeo4jNumber(statementData.inclusionNegativeVotes) || 0;
+	$: inclusionNetVotes = getNeo4jNumber(statementData.inclusionNetVotes) || 
+		(inclusionPositiveVotes - inclusionNegativeVotes);
+	
+	// CONTENT voting (quality/accuracy of statement)
+	$: contentPositiveVotes = getNeo4jNumber(statementData.contentPositiveVotes) || 0;
+	$: contentNegativeVotes = getNeo4jNumber(statementData.contentNegativeVotes) || 0;
+	$: contentNetVotes = getNeo4jNumber(statementData.contentNetVotes) || 
+		(contentPositiveVotes - contentNegativeVotes);
+	
+	// User vote status - with safe fallback for backward compatibility
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
+	
+	// Threshold check for expansion (based on inclusion votes)
+	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
+
+	// Extract categories - handle both string[] and Category[] formats
+	// Backend enriches with { id, name } but creation uses string IDs
+	$: categories = (() => {
+		const cats = statementData.categories || [];
+		if (cats.length === 0) return [];
+		
+		// Check if already enriched (has objects with id/name)
+		if (typeof cats[0] === 'object' && 'id' in cats[0]) {
+			return cats as { id: string; name: string }[];
 		}
-
-		// Method 2: Select based on detected view type
-		switch (detectedViewType) {
-			case 'universal':
-				return universalGraphStore;
-			
-			case 'statement-network':
-				return statementNetworkStore;
-			
-			case 'discussion':
-				return statementNetworkStore;
-			
-			default:
-				return statementNetworkStore;
-		}
-	}
-
-	// REMOVED: No more behavior creation - use node.mode directly from manager
-	// Use mode directly from node (controlled by manager)
-	$: isDetail = node.mode === 'detail';
-	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
-
-	function getNeo4jNumber(value: any): number {
-		return value && typeof value === 'object' && 'low' in value ? Number(value.low) : Number(value || 0);
-	}
-
-	// Get all data from node metadata and data - NO API CALLS
-	$: dataPositiveVotes = getNeo4jNumber(statementData.positiveVotes) || 0;
-	$: dataNegativeVotes = getNeo4jNumber(statementData.negativeVotes) || 0;
-
-	// Extract vote data from node metadata properly (universal view)
-	$: metadataVotes = (() => {
-		if (node.metadata?.votes && typeof node.metadata.votes === 'object' && 'positive' in node.metadata.votes) {
-			// Use vote data from metadata.votes object (preferred for universal view)
-			const votesObj = node.metadata.votes as any;
-			const positive = getNeo4jNumber(votesObj.positive) || 0;
-			const negative = getNeo4jNumber(votesObj.negative) || 0;
-			const net = getNeo4jNumber(votesObj.net);
-			
-			return {
-				positive,
-				negative,
-				net: net !== undefined ? net : (positive - negative)
-			};
-		} else if (node.metadata?.net_votes !== undefined) {
-			// Fallback: use net_votes with data for positive/negative (original logic)
-			return {
-				positive: dataPositiveVotes,
-				negative: dataNegativeVotes,
-				net: getNeo4jNumber(node.metadata.net_votes)
-			};
-		}
-		return null;
+		
+		// If string IDs, we can't display them without names - return empty
+		// This would only happen during creation before backend enrichment
+		return [];
 	})();
 
-	// Use metadata votes if available, otherwise use data votes
-	$: positiveVotes = metadataVotes?.positive ?? dataPositiveVotes;
-	$: negativeVotes = metadataVotes?.negative ?? dataNegativeVotes;
-	$: netVotes = metadataVotes?.net ?? (positiveVotes - negativeVotes);
+	// Extract keywords
+	$: keywords = statementData.keywords || [];
 
-	// User vote status from metadata ONLY - no API calls
-	$: userVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	// Voting state
+	let isVotingInclusion = false;
+	let isVotingContent = false;
+	let inclusionVoteSuccess = false;
+	let contentVoteSuccess = false;
+	let lastInclusionVoteType: VoteStatus | null = null;
+	let lastContentVoteType: VoteStatus | null = null;
 
-	// Get related statements count from node metadata
-	$: relatedStatementsCount = (node.metadata as any)?.related_statements_count || statementData.relatedStatements?.length || 0;
+	// Mode state
+	$: isDetail = node.mode === 'detail';
 
-	// Visibility determination - community-based with user override
-	$: communityHidden = netVotes < 0;
-	$: userVisibilityOverride = node.metadata?.userVisibilityPreference?.isVisible;
-	$: isNodeHidden = userVisibilityOverride !== undefined ? !userVisibilityOverride : communityHidden;
-
-	// Voting state - only for active interactions
-	let isVoting = false;
-	let voteSuccess = false;
-	let lastVoteType: VoteStatus | null = null;
-
-	// Consistent green styling
-	$: {
-		if (node.style) {
-			node.style.highlightColor = NODE_CONSTANTS.COLORS.STATEMENT.border;
-		}
-	}
-
-	// Consistent styling - NOT vote-based
-	$: voteBasedStyles = {
-		glow: {
-			intensity: 8,
-			opacity: 0.6
-		},
-		ring: {
-			width: 6,
-			opacity: 0.5
-		}
-	};
-
+	// Event dispatcher
 	const dispatch = createEventDispatcher<{
-		modeChange: { 
-			nodeId: string;
-			mode: NodeMode;
-			position?: { x: number; y: number };
-		};
+		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
+		createChildNode: { parentId: string; parentType: string; childType: string };
+		categoryClick: { categoryId: string; categoryName: string };
+		keywordClick: { word: string };
 	}>();
 
-	/**
-	 * Handle vote - only makes API call when user actually votes
-	 */
-	async function updateVoteState(voteType: VoteStatus) {
-		if (isVoting) return false;
-		
-		isVoting = true;
-		lastVoteType = voteType;
-		
+	// INCLUSION vote handler
+	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (isVotingInclusion) return;
+		isVotingInclusion = true;
+		inclusionVoteSuccess = false;
+
+		const { voteType } = event.detail;
+
 		try {
-			const endpoint = voteType === 'none' 
-				? `/nodes/statement/${node.id}/vote/remove`
-				: `/nodes/statement/${node.id}/vote`;
-				
-			const method = 'POST';
-			const body = voteType !== 'none' ? JSON.stringify({
-				isPositive: voteType === 'agree'
-			}) : undefined;
-			
-			const { fetchWithAuth } = await import('$lib/services/api');
-			
-			const result = await fetchWithAuth(endpoint, {
-				method,
-				body
+			const endpoint = voteType === 'none'
+				? `/statements/${statementData.id}/inclusion-vote/remove`
+				: `/statements/${statementData.id}/inclusion-vote`;
+
+			const response = await fetchWithAuth(endpoint, {
+				method: voteType === 'none' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
 			});
-			
-			if (result) {
-				const newPositiveVotes = getNeo4jNumber(result.positiveVotes);
-				const newNegativeVotes = getNeo4jNumber(result.negativeVotes);
+
+			if (response.ok) {
+				const result = await response.json();
 				
-				positiveVotes = newPositiveVotes;
-				negativeVotes = newNegativeVotes;
-				netVotes = newPositiveVotes - newNegativeVotes;
-				
-				userVoteStatus = voteType;
-				
-				if (contextVoteStore?.updateVoteData) {
-					contextVoteStore.updateVoteData(node.id, newPositiveVotes, newNegativeVotes);
+				// Update local inclusion vote counts (BaseNode watches these automatically)
+				if (result.inclusionPositiveVotes !== undefined) {
+					statementData.inclusionPositiveVotes = result.inclusionPositiveVotes;
 				}
-				
-				if (contextVoteStore?.updateUserVoteStatus) {
-					const storeVoteStatus = voteType === 'none' ? null : voteType;
-					contextVoteStore.updateUserVoteStatus(node.id, storeVoteStatus);
+				if (result.inclusionNegativeVotes !== undefined) {
+					statementData.inclusionNegativeVotes = result.inclusionNegativeVotes;
 				}
-				
-				if (graphStore) {
-					graphStore.recalculateNodeVisibility(node.id, newPositiveVotes, newNegativeVotes);
+				if (result.inclusionNetVotes !== undefined) {
+					statementData.inclusionNetVotes = result.inclusionNetVotes;
 				}
-				
-				voteSuccess = true;
+
+				// Update metadata - create structure if needed
+				if (!node.metadata) {
+					node.metadata = { group: getMetadataGroup() };
+				}
+				if (!node.metadata.inclusionVoteStatus) {
+					node.metadata.inclusionVoteStatus = { status: null };
+				}
+				node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
+
+				inclusionVoteSuccess = true;
+				lastInclusionVoteType = voteType === 'none' ? null : voteType;
+
+				// Reset success indicator after delay
 				setTimeout(() => {
-					voteSuccess = false;
-					lastVoteType = null;
-				}, 1000);
-				
-				return true;
+					inclusionVoteSuccess = false;
+					lastInclusionVoteType = null;
+				}, 2000);
 			}
-			
-			return false;
 		} catch (error) {
-			console.error('[StatementNode] Error voting:', error);
-			return false;
+			console.error('Error voting on statement inclusion:', error);
 		} finally {
-			isVoting = false;
+			isVotingInclusion = false;
 		}
 	}
 
-	/**
-	 * Handle visibility change - only makes API call when user changes preference
-	 */
-	async function updateVisibilityPreference(isVisible: boolean) {
+	// CONTENT vote handler
+	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (isVotingContent) return;
+		isVotingContent = true;
+		contentVoteSuccess = false;
+
+		const { voteType } = event.detail;
+
 		try {
-			const { fetchWithAuth } = await import('$lib/services/api');
-			
-			await fetchWithAuth(`/users/visibility-preferences`, {
-				method: 'POST',
-				body: JSON.stringify({
-					[node.id]: {
-						isVisible,
-						source: 'user',
-						timestamp: Date.now()
-					}
-				})
+			const endpoint = voteType === 'none'
+				? `/statements/${statementData.id}/content-vote/remove`
+				: `/statements/${statementData.id}/content-vote`;
+
+			const response = await fetchWithAuth(endpoint, {
+				method: voteType === 'none' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
 			});
-			
-			if (contextVoteStore?.updateUserVisibilityPreference) {
-				contextVoteStore.updateUserVisibilityPreference(node.id, isVisible, 'user');
+
+			if (response.ok) {
+				const result = await response.json();
+				
+				// Update local content vote counts
+				if (result.contentPositiveVotes !== undefined) {
+					statementData.contentPositiveVotes = result.contentPositiveVotes;
+				}
+				if (result.contentNegativeVotes !== undefined) {
+					statementData.contentNegativeVotes = result.contentNegativeVotes;
+				}
+				if (result.contentNetVotes !== undefined) {
+					statementData.contentNetVotes = result.contentNetVotes;
+				}
+
+				// Update metadata - create structure if needed
+				if (!node.metadata) {
+					node.metadata = { group: getMetadataGroup() };
+				}
+				if (!node.metadata.contentVoteStatus) {
+					node.metadata.contentVoteStatus = { status: null };
+				}
+				node.metadata.contentVoteStatus.status = voteType === 'none' ? null : voteType;
+
+				contentVoteSuccess = true;
+				lastContentVoteType = voteType === 'none' ? null : voteType;
+
+				// Reset success indicator after delay
+				setTimeout(() => {
+					contentVoteSuccess = false;
+					lastContentVoteType = null;
+				}, 2000);
 			}
-			
-			if (graphStore) {
-				graphStore.updateNodeVisibility(node.id, !isVisible, 'user');
-			}
-			
-			return true;
 		} catch (error) {
-			console.error('[StatementNode] Error updating visibility preference:', error);
-			return false;
+			console.error('Error voting on statement content:', error);
+		} finally {
+			isVotingContent = false;
 		}
 	}
 
-	// CORRECTED: Mode change handler - forward events to NodeRenderer
-	function handleModeChange(event: CustomEvent<{ 
-		mode: NodeMode; 
-		position?: { x: number; y: number };
-		nodeId?: string;
-	}>) {
-		console.log('[StatementNode] MODE EVENT - Received from ExpandCollapseButton:', {
-			nodeId: node.id.substring(0, 8),
-			currentNodeMode: node.mode,
-			eventMode: event.detail.mode,
-			eventNodeId: event.detail.nodeId?.substring(0, 8),
-			eventPosition: event.detail.position,
-			hasPosition: !!event.detail.position
+	// Mode change handler
+	function handleModeChange(event: CustomEvent) {
+		dispatch('modeChange', {
+			...event.detail,
+			nodeId: node.id
 		});
-		
-		// CRITICAL: Forward directly to NodeRenderer/Graph - don't use behaviors
-		const eventData = {
-			nodeId: node.id, // Always use our node ID
-			mode: event.detail.mode,
-			position: event.detail.position || { x: node.position.x, y: node.position.y }
-		};
-		
-		console.log('[StatementNode] MODE EVENT - Dispatching to NodeRenderer:', eventData);
-		
-		// Forward the event
-		dispatch('modeChange', eventData);
-		
-		console.log('[StatementNode] MODE EVENT - Successfully dispatched to parent');
-		
-		// DEBUG: Also dispatch to window for testing
-		if (typeof window !== 'undefined') {
-			window.dispatchEvent(new CustomEvent('debug-statement-mode', {
-				detail: eventData
-			}));
-			console.log('[StatementNode] DEBUG - Also dispatched debug event to window');
-		}
 	}
 
-	function handleVote(event: CustomEvent<{ voteType: any }>) {
-		updateVoteState(event.detail.voteType);
+	// Category click handler
+	function handleCategoryClick(event: CustomEvent<{ categoryId: string; categoryName: string }>) {
+		dispatch('categoryClick', event.detail);
 	}
 
-	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
-		updateVisibilityPreference(!event.detail.isHidden);
-		dispatch('visibilityChange', event.detail);
+	// Keyword click handler
+	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
+		dispatch('keywordClick', event.detail);
 	}
 
-	let statementCreatorDetails: any = null;
-
-	onMount(async () => {
-		// REMOVED: No behavior initialization - we use data-only approach
-		
-		// Only fetch creator details if needed
-		if (statementData.createdBy) {
-			try {
-				statementCreatorDetails = await getUserDetails(statementData.createdBy);
-			} catch (e) {
-				console.error('[StatementNode] Error fetching creator details:', e);
-			}
-		}
-		
-		// Only log if there are issues or in development mode
-		if (import.meta.env.DEV && (!positiveVotes && !negativeVotes && !userVoteStatus)) {
-			console.warn('[StatementNode] Node may have incomplete data:', {
-				nodeId: node.id,
-				hasVotes: !!(positiveVotes || negativeVotes),
-				hasUserStatus: !!userVoteStatus
-			});
-		}
-	});
-
-	onDestroy(() => {
-		// No cleanup needed since we don't create behaviors
-	});
+	// Create child node handler (Evidence)
+	function handleCreateChild() {
+		dispatch('createChildNode', {
+			parentId: node.id,
+			parentType: 'statement',
+			childType: 'evidence'
+		});
+	}
 </script>
 
 {#if isDetail}
-	<BaseDetailNode 
-		{node} 
-		{nodeX}
-		{nodeY}
-		{voteBasedStyles}
-		on:modeChange={handleModeChange}
-		on:visibilityChange={handleVisibilityChange}
-	>
-		<svelte:fragment slot="default" let:radius>
-			<NodeHeader title="Statement" radius={radius} mode="detail" />
-			<ContentBox nodeType="statement" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-					<!-- Main statement text -->
-					<foreignObject
-						x={x}
-						y={y + layoutConfig.titleYOffset + 0}
-						width={width}
-						height={height - layoutConfig.titleYOffset - 90}
-					>
-						<div class="statement-display">
-							{displayStatementText}
-						</div>
-					</foreignObject>
+	<BaseDetailNode {node} on:modeChange={handleModeChange}>
+		<svelte:fragment slot="title" let:radius>
+			<NodeHeader title="Statement" {radius} mode="detail" />
+		</svelte:fragment>
 
-					<!-- Keywords Display (if any) -->
-					{#if statementData.keywords && statementData.keywords.length > 0}
-						<foreignObject
-							x={x}
-							y={y}
-							width={width}
-							height="50"
-						>
-							<div class="keywords-section">
-								<div class="keywords-container">
-									{#each statementData.keywords as keyword}
-										<div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
-											{keyword.word}
-										</div>
-									{/each}
-								</div>
-							</div>
-						</foreignObject>
-					{/if}
+		<!-- CategoryTags: Show categories this statement is tagged with -->
+		<svelte:fragment slot="categoryTags" let:radius>
+			{#if categories.length > 0}
+				<CategoryTags 
+					{categories}
+					{radius}
+					maxDisplay={3}
+					on:categoryClick={handleCategoryClick}
+				/>
+			{/if}
+		</svelte:fragment>
 
-					<!-- Related Statements Count Display -->
-					{#if relatedStatementsCount > 0}
-						<foreignObject
-							x={x}
-							y={y + height - 140}
-							width={width}
-							height="30"
-						>
-							<div class="related-count">
-								{relatedStatementsCount} related statement{relatedStatementsCount !== 1 ? 's' : ''}
-							</div>
-						</foreignObject>
-					{/if}
-				</svelte:fragment>
+		<!-- KeywordTags: Show keywords (user and AI) -->
+		<svelte:fragment slot="keywordTags" let:radius>
+			{#if keywords.length > 0}
+				<KeywordTags 
+					{keywords}
+					{radius}
+					maxDisplay={8}
+					on:keywordClick={handleKeywordClick}
+				/>
+			{/if}
+		</svelte:fragment>
 
-				<svelte:fragment slot="voting" let:width let:height>
-					<VoteButtons
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{isVoting}
-						{voteSuccess}
-						{lastVoteType}
-						availableWidth={width}
-						containerY={height}
-						mode="detail"
-						on:vote={handleVote}
-					/>
-				</svelte:fragment>
+		<!-- Content: Display the statement text -->
+		<svelte:fragment slot="content" let:x let:y let:width let:height>
+			<foreignObject
+				{x}
+				y={y + 10}
+				{width}
+				height={height - 100}
+			>
+				<div class="statement-display">
+					{displayStatement}
+				</div>
+			</foreignObject>
 
-				<svelte:fragment slot="stats" let:width>
-					<VoteStats
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{userName}
-						showUserStatus={true}
-						availableWidth={width}
-						containerY={30}
-						showBackground={false}
-					/>
-				</svelte:fragment>
-			</ContentBox>
+			<!-- Instruction text for dual voting -->
+			<foreignObject
+				{x}
+				y={y + height - 90}
+				{width}
+				height="80"
+			>
+				<div class="instruction-text">
+					<strong>Include/Exclude:</strong> Should this statement exist in the graph? 
+					<strong>Agree/Disagree:</strong> Is this statement accurate and well-reasoned?
+				</div>
+			</foreignObject>
+		</svelte:fragment>
 
-			{#if statementData.createdBy}
-				<CreatorCredits
-					createdBy={statementData.createdBy}
-					publicCredit={statementData.publicCredit}
-					creatorDetails={statementCreatorDetails}
-					radius={radius}
-					prefix="created by:"
+		<!-- DUAL VOTING: Both inclusion and content -->
+		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Inclusion voting -->
+			<InclusionVoteButtons
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				isVoting={isVotingInclusion}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
+				availableWidth={width}
+				containerY={y}
+				mode="detail"
+				on:vote={handleInclusionVote}
+			/>
+
+			<!-- Content voting (positioned below inclusion) -->
+			<ContentVoteButtons
+				userVoteStatus={contentUserVoteStatus}
+				positiveVotes={contentPositiveVotes}
+				negativeVotes={contentNegativeVotes}
+				isVoting={isVotingContent}
+				voteSuccess={contentVoteSuccess}
+				lastVoteType={lastContentVoteType}
+				availableWidth={width}
+				containerY={y + 60}
+				mode="detail"
+				on:vote={handleContentVote}
+			/>
+		</svelte:fragment>
+
+		<!-- Vote stats showing both voting types separately -->
+		<svelte:fragment slot="stats" let:width let:y>
+			<!-- Inclusion stats -->
+			<VoteStats
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				positiveLabel="Include"
+				negativeLabel="Exclude"
+				availableWidth={width}
+				containerY={y}
+				showUserStatus={false}
+			/>
+			
+			<!-- Content stats (positioned below) -->
+			<g transform="translate(0, 80)">
+				<VoteStats
+					userVoteStatus={contentUserVoteStatus}
+					positiveVotes={contentPositiveVotes}
+					negativeVotes={contentNegativeVotes}
+					positiveLabel="Agree"
+					negativeLabel="Disagree"
+					availableWidth={width}
+					containerY={y}
+					showUserStatus={false}
+				/>
+			</g>
+		</svelte:fragment>
+
+		<!-- Metadata: Standard node metadata -->
+		<svelte:fragment slot="metadata" let:radius>
+			<NodeMetadata
+				createdAt={statementData.createdAt}
+				updatedAt={statementData.updatedAt}
+				{radius}
+			/>
+		</svelte:fragment>
+
+		<!-- Credits: Standard creator credits -->
+		<svelte:fragment slot="credits" let:radius>
+			<CreatorCredits
+				createdBy={statementData.createdBy}
+				publicCredit={statementData.publicCredit}
+				{radius}
+			/>
+		</svelte:fragment>
+
+		<!-- CreateChild: Evidence creation button (NE corner) -->
+		<svelte:fragment slot="createChild" let:radius>
+			{#if canExpand}
+				<CreateLinkedNodeButton
+					y={-radius * 0.7071}
+					x={radius * 0.7071}
+					nodeId={node.id}
+					nodeType="statement"
+					on:click={handleCreateChild}
 				/>
 			{/if}
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode 
-		{node} 
-		{nodeX}
-		{nodeY}
-		{voteBasedStyles}
-		on:modeChange={handleModeChange}
-		on:visibilityChange={handleVisibilityChange}
-		showContentBoxBorder={DEBUG_SHOW_BORDERS}
-	>
+	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Statement" radius={radius} size="small" mode="preview" />
+			<NodeHeader title="Statement" {radius} mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-			<!-- Main statement text -->
-			<foreignObject
-				x={x}
-				y={y - 55}
-				width={width}
-				height={height - layoutConfig.titleYOffset}
+		<!-- Content: Show statement text in preview -->
+		<svelte:fragment slot="content" let:x let:y let:width let:height>
+			<text
+				x="0"
+				y={y + 10}
+				class="statement-preview"
+				text-anchor="middle"
 			>
-				<div class="statement-preview">
-					{displayStatementText}
-				</div>
-			</foreignObject>
+				{displayStatement.length > 80 ? displayStatement.substring(0, 80) + '...' : displayStatement}
+			</text>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
-			<VoteButtons
-				{userVoteStatus}
-				{positiveVotes}
-				{negativeVotes}
-				{isVoting}
-				{voteSuccess}
-				{lastVoteType}
+		<!-- Voting: Inclusion voting in preview mode (primary) -->
+		<svelte:fragment slot="voting" let:x let:y let:width let:height>
+			<InclusionVoteButtons
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				isVoting={isVotingInclusion}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
 				availableWidth={width}
-				containerY={y + height / 2}
+				containerY={y}
 				mode="preview"
-				on:vote={handleVote}
+				on:vote={handleInclusionVote}
 			/>
 		</svelte:fragment>
 	</BasePreviewNode>
@@ -509,7 +424,7 @@
 
 <style>
 	.statement-display {
-		font-family: Inter;
+		font-family: 'Inter', sans-serif;
 		font-size: 16px;
 		font-weight: 400;
 		color: rgba(255, 255, 255, 0.9);
@@ -520,76 +435,30 @@
 		justify-content: center;
 		width: 100%;
 		height: 100%;
-		padding: 0;
-		margin: 0;
+		padding: 10px;
 		box-sizing: border-box;
 	}
 
 	.statement-preview {
-		font-family: Inter;
-		font-size: 12px;
-		font-weight: 400;
-		color: rgba(255, 255, 255, 0.9);
-		text-align: center;
-		line-height: 1.4;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		padding: 0;
-		margin: 0;
-		box-sizing: border-box;
-	}
-
-	.keywords-section {
-		font-family: Inter;
-		color: rgba(255, 255, 255, 0.9);
-		text-align: left;
-		width: 100%;
-		height: 100%;
-		padding: 0;
-		margin: 0;
-		box-sizing: border-box;
-	}
-
-	.keywords-container {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-	}
-
-	.keyword-chip {
-		background: rgba(46, 204, 113, 0.2);  /* GREEN background for statements */
-		border: 1px solid rgba(46, 204, 113, 0.3);  /* GREEN border for statements */
-		border-radius: 12px;
-		padding: 4px 8px;
-		font-size: 10px;
-		color: white;
-		font-family: Inter;
+		font-family: 'Orbitron', sans-serif;
+		font-size: 14px;
 		font-weight: 500;
+		fill: white;
+		dominant-baseline: middle;
 	}
 
-	.keyword-chip.ai-keyword {
-		background: rgba(52, 152, 219, 0.2);
-		border: 1px solid rgba(52, 152, 219, 0.3);
-	}
-
-	.keyword-chip.user-keyword {
-		background: rgba(46, 204, 113, 0.2);  /* GREEN for user keywords on statements */
-		border: 1px solid rgba(46, 204, 113, 0.3);
-	}
-	
-	.related-count {
-		font-family: Inter;
+	.instruction-text {
+		font-family: 'Inter', sans-serif;
 		font-size: 11px;
 		font-weight: 400;
-		color: rgba(46, 204, 113, 0.8);  /* GREEN for related statement count */
+		color: rgba(255, 255, 255, 0.7);
 		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
+		line-height: 1.3;
+		padding: 5px 10px;
+	}
+
+	.instruction-text strong {
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 600;
 	}
 </style>

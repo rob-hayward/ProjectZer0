@@ -1,7 +1,7 @@
-// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships and D3-native opacity
+// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships and D3-native opacity + Category support
 
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
-import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData } from '../domain/nodes';
+import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData, CategoryNode, AnswerNode, EvidenceNode } from '../domain/nodes';
 import type { UserProfile } from '../domain/user';
 import type { NavigationOption } from '../domain/navigation';
 
@@ -16,11 +16,11 @@ export interface ControlNodeData {
 }
 
 // View and group types
-export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal';
-export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control';
-export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control';
+export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | 'statement' | 'openquestion' | 'network' | 'create-definition' | 'statement-network' | 'quantity' | 'discussion'| 'universal' | 'category';
+export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
+export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
 // ENHANCED: Updated link types with consolidated support
-export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to';
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to' | 'composed_of' | 'tagged_with';
 export type NodeMode = 'preview' | 'detail';
 
 // NEW: Consolidated keyword metadata interface
@@ -35,7 +35,7 @@ export interface ConsolidatedKeywordMetadata {
 
 export interface NodeMetadata {
     centralRadius?: number;
-    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'openquestion' | 'quantity'| 'comment' | 'comment-form' | 'control';
+    group: 'central' | 'word' | 'definition' | 'navigation' | 'statement' | 'openquestion' | 'quantity'| 'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
     fixed?: boolean;
     isDetail?: boolean;
     votes?: number;
@@ -81,7 +81,7 @@ export interface NodeMetadata {
 export interface GraphNode {
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode | AnswerNode | EvidenceNode;
     group: NodeGroup;
     mode?: NodeMode;
     metadata?: NodeMetadata; // Make metadata optional in GraphNode
@@ -101,7 +101,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -218,7 +218,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -283,6 +283,7 @@ export interface GraphPageData {
     statementData: StatementNode | null;
     openQuestionData?: OpenQuestionNode | null; // Add openQuestion data
     quantityData?: QuantityNode | null; // Add quantity data
+    categoryData?: CategoryNode | null; // Add category data
     nodes?: GraphNode[];
     links?: GraphLink[];
     _routeKey?: string; // Added for forcing re-renders on navigation
@@ -330,23 +331,15 @@ export class ConsolidatedRelationshipUtils {
      */
     static getEffectiveStrength(link: RenderableLink | EnhancedLink): number {
         if (link.metadata?.consolidatedKeywords) {
-            const consolidated = link.metadata.consolidatedKeywords;
-            // Use total strength but cap it for visual consistency
-            return Math.min(1.0, consolidated.totalStrength);
+            return link.metadata.consolidatedKeywords.averageStrength;
         }
-        
-        // Fallback to legacy relationCount-based calculation
-        if (link.metadata?.relationCount && link.metadata.relationCount > 1) {
-            return Math.min(1.0, 0.3 + (link.metadata.relationCount - 1) * 0.1);
-        }
-        
-        return link.strength || link.metadata?.strength || 0.3;
+        return link.strength || 1.0;
     }
 
     /**
-     * Get relationship count (how many original relationships this represents)
+     * Get the relationship count (how many individual relationships this represents)
      */
-    static getRelationshipCount(link: RenderableLink | EnhancedLink): number {
+    static getRelationCount(link: RenderableLink | EnhancedLink): number {
         if (link.metadata?.consolidatedKeywords) {
             return link.metadata.consolidatedKeywords.relationCount;
         }
@@ -354,41 +347,9 @@ export class ConsolidatedRelationshipUtils {
     }
 
     /**
-     * Get tooltip text for consolidated relationships
+     * Calculate visual styles for a consolidated relationship
      */
-    static getTooltipText(link: RenderableLink | EnhancedLink): string {
-        if (this.isConsolidated(link)) {
-            const consolidated = link.metadata!.consolidatedKeywords!;
-            const keywordList = consolidated.sharedWords.slice(0, 5).join(', ');
-            const remaining = Math.max(0, consolidated.sharedWords.length - 5);
-            
-            let text = `Shared keywords: ${keywordList}`;
-            if (remaining > 0) {
-                text += ` (and ${remaining} more)`;
-            }
-            text += `\nRelations: ${consolidated.relationCount}`;
-            text += `\nTotal strength: ${consolidated.totalStrength.toFixed(2)}`;
-            
-            return text;
-        } else {
-            // Handle legacy relationships
-            const keywords = this.getAllKeywords(link);
-            const strength = this.getEffectiveStrength(link);
-            
-            if (keywords.length > 1) {
-                return `${keywords.length} shared keywords: ${keywords.join(', ')}\nStrength: ${strength.toFixed(2)}`;
-            } else if (keywords.length === 1) {
-                return `Shared keyword: ${keywords[0]}\nStrength: ${strength.toFixed(2)}`;
-            } else {
-                return `Relationship strength: ${strength.toFixed(2)}`;
-            }
-        }
-    }
-
-    /**
-     * Calculate visual properties for rendering
-     */
-    static getVisualProperties(link: RenderableLink | EnhancedLink): {
+    static getVisualStyles(link: RenderableLink | EnhancedLink): {
         strokeWidth: number;
         opacity: number;
         dashArray: string;
@@ -396,10 +357,10 @@ export class ConsolidatedRelationshipUtils {
     } {
         const isConsolidated = this.isConsolidated(link);
         const effectiveStrength = this.getEffectiveStrength(link);
-        const relationCount = this.getRelationshipCount(link);
+        const relationCount = this.getRelationCount(link);
         
-        // Calculate stroke width based on effective strength
-        const baseStrokeWidth = link.type === 'shared_keyword' ? 1.0 : 1.5;
+        // Base stroke width scales with strength
+        const baseStrokeWidth = isConsolidated ? 2.0 : 1.5;
         const strokeWidth = Math.min(3.0, baseStrokeWidth + effectiveStrength * 1.5);
         
         // Calculate opacity - consolidated relationships get slight boost
@@ -465,6 +426,18 @@ export const isCommentFormData = (data: any): data is CommentFormData =>
 export const isControlNodeData = (data: any): data is ControlNodeData =>
     data && 'id' in data && !('word' in data) && !('statement' in data) && !('questionText' in data) && !('commentText' in data);
 
+export const isAnswerData = (data: any): data is AnswerNode =>
+    data && 'answerText' in data && typeof data.answerText === 'string' && 'questionId' in data;
+
+export const isEvidenceData = (data: any): data is EvidenceNode =>
+    data && 'title' in data && 'url' in data && 'evidenceType' in data && 'parentNodeId' in data;
+
+export const isCategoryData = (data: any): data is CategoryNode =>
+    typeof data === 'object' &&
+    data !== null &&
+    'name' in data &&
+    typeof data.name === 'string';
+
 // Node type guards
 export const isDashboardNode = (node: RenderableNode): node is RenderableNode & { data: UserProfile } =>
     node.type === 'dashboard' && isUserProfileData(node.data);
@@ -502,6 +475,9 @@ export const isCommentFormNode = (node: RenderableNode): boolean =>
 export const isControlNode = (node: RenderableNode): node is RenderableNode & { data: ControlNodeData } =>
     node.type === 'control' && isControlNodeData(node.data);
 
+export const isCategoryNode = (node: RenderableNode): node is RenderableNode & { data: CategoryNode } =>
+    node.type === 'category' && isCategoryData(node.data);
+
 export const isStatementAnswerFormNode = (node: RenderableNode): boolean =>
     node.type === 'statement-answer-form' && isUserProfileData(node.data);
 
@@ -530,3 +506,9 @@ export const isRespondsToLink = (link: RenderableLink): boolean =>
 
 export const isRelatedToLink = (link: RenderableLink): boolean =>
     link.type === 'related_to';
+
+export const isComposedOfLink = (link: RenderableLink): boolean =>
+    link.type === 'composed_of';
+
+export const isTaggedWithLink = (link: RenderableLink): boolean =>
+    link.type === 'tagged_with';

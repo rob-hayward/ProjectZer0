@@ -1,13 +1,14 @@
-<!-- src/lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte -->
+<!-- src/lib/components/graph/nodes/answer/AnswerNode.svelte -->
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
 	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
-	import { isOpenQuestionData } from '$lib/types/graph/enhanced';
+	import { isAnswerData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
 	import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
+	import ContentVoteButtons from '../ui/ContentVoteButtons.svelte';
 	import VoteStats from '../ui/VoteStats.svelte';
 	import CategoryTags from '../ui/CategoryTags.svelte';
 	import KeywordTags from '../ui/KeywordTags.svelte';
@@ -21,35 +22,42 @@
 	export let node: RenderableNode;
 
 	// Type validation
-	if (!isOpenQuestionData(node.data)) {
-		throw new Error('Invalid node data type for OpenQuestionNode');
+	if (!isAnswerData(node.data)) {
+		throw new Error('Invalid node data type for AnswerNode');
 	}
 
-	const questionData = node.data;
+	const answerData = node.data;
 
 	// Helper to get correct metadata group
-	function getMetadataGroup(): 'openquestion' {
-		return 'openquestion';
+	function getMetadataGroup(): 'answer' {
+		return 'answer';
 	}
 
 	// Data extraction
-	$: displayQuestion = questionData.questionText;
+	$: displayAnswer = answerData.answerText;
 
-	// Inclusion voting data (OpenQuestion nodes have inclusion voting only)
-	$: inclusionPositiveVotes = getNeo4jNumber(questionData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(questionData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(questionData.inclusionNetVotes) || 
+	// INCLUSION voting (whether answer should exist)
+	$: inclusionPositiveVotes = getNeo4jNumber(answerData.inclusionPositiveVotes) || 0;
+	$: inclusionNegativeVotes = getNeo4jNumber(answerData.inclusionNegativeVotes) || 0;
+	$: inclusionNetVotes = getNeo4jNumber(answerData.inclusionNetVotes) || 
 		(inclusionPositiveVotes - inclusionNegativeVotes);
 	
-	// User vote status from metadata - uses userVoteStatus for single voting pattern
-	$: inclusionUserVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	// CONTENT voting (quality/accuracy of answer)
+	$: contentPositiveVotes = getNeo4jNumber(answerData.contentPositiveVotes) || 0;
+	$: contentNegativeVotes = getNeo4jNumber(answerData.contentNegativeVotes) || 0;
+	$: contentNetVotes = getNeo4jNumber(answerData.contentNetVotes) || 
+		(contentPositiveVotes - contentNegativeVotes);
 	
-	// Threshold check for expansion
+	// User vote status
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
+	
+	// Threshold check for expansion (based on inclusion votes)
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
 	// Extract categories - handle both string[] and Category[] formats
 	$: categories = (() => {
-		const cats = questionData.categories || [];
+		const cats = answerData.categories || [];
 		if (cats.length === 0) return [];
 		
 		// Check if already enriched (has objects with id/name)
@@ -62,15 +70,15 @@
 	})();
 
 	// Extract keywords
-	$: keywords = questionData.keywords || [];
-
-	// Extract answer count
-	$: answerCount = questionData.answerCount || 0;
+	$: keywords = answerData.keywords || [];
 
 	// Voting state
 	let isVotingInclusion = false;
-	let voteSuccess = false;
-	let lastVoteType: VoteStatus | null = null;
+	let isVotingContent = false;
+	let inclusionVoteSuccess = false;
+	let contentVoteSuccess = false;
+	let lastInclusionVoteType: VoteStatus | null = null;
+	let lastContentVoteType: VoteStatus | null = null;
 
 	// Mode state
 	$: isDetail = node.mode === 'detail';
@@ -84,18 +92,18 @@
 		keywordClick: { word: string };
 	}>();
 
-	// Vote handler
+	// INCLUSION vote handler
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
 		if (isVotingInclusion) return;
 		isVotingInclusion = true;
-		voteSuccess = false;
+		inclusionVoteSuccess = false;
 
 		const { voteType } = event.detail;
 
 		try {
 			const endpoint = voteType === 'none'
-				? `/openquestions/${questionData.id}/vote/remove`
-				: `/openquestions/${questionData.id}/vote`;
+				? `/answers/${answerData.id}/inclusion-vote/remove`
+				: `/answers/${answerData.id}/inclusion-vote`;
 
 			const response = await fetchWithAuth(endpoint, {
 				method: voteType === 'none' ? 'DELETE' : 'POST',
@@ -106,39 +114,95 @@
 			if (response.ok) {
 				const result = await response.json();
 				
-				// Update local vote counts (BaseNode watches these automatically)
+				// Update local inclusion vote counts
 				if (result.inclusionPositiveVotes !== undefined) {
-					questionData.inclusionPositiveVotes = result.inclusionPositiveVotes;
+					answerData.inclusionPositiveVotes = result.inclusionPositiveVotes;
 				}
 				if (result.inclusionNegativeVotes !== undefined) {
-					questionData.inclusionNegativeVotes = result.inclusionNegativeVotes;
+					answerData.inclusionNegativeVotes = result.inclusionNegativeVotes;
 				}
 				if (result.inclusionNetVotes !== undefined) {
-					questionData.inclusionNetVotes = result.inclusionNetVotes;
+					answerData.inclusionNetVotes = result.inclusionNetVotes;
 				}
 
-				// Update metadata - userVoteStatus is used for single voting pattern
+				// Update metadata
 				if (!node.metadata) {
 					node.metadata = { group: getMetadataGroup() };
 				}
-				if (!node.metadata.userVoteStatus) {
-					node.metadata.userVoteStatus = { status: null };
+				if (!node.metadata.inclusionVoteStatus) {
+					node.metadata.inclusionVoteStatus = { status: null };
 				}
-				node.metadata.userVoteStatus.status = voteType === 'none' ? null : voteType;
+				node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
 
-				voteSuccess = true;
-				lastVoteType = voteType === 'none' ? null : voteType;
+				inclusionVoteSuccess = true;
+				lastInclusionVoteType = voteType === 'none' ? null : voteType;
 
-				// Reset success indicator after delay
 				setTimeout(() => {
-					voteSuccess = false;
-					lastVoteType = null;
+					inclusionVoteSuccess = false;
+					lastInclusionVoteType = null;
 				}, 2000);
 			}
 		} catch (error) {
-			console.error('Error voting on open question:', error);
+			console.error('Error voting on answer inclusion:', error);
 		} finally {
 			isVotingInclusion = false;
+		}
+	}
+
+	// CONTENT vote handler
+	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (isVotingContent) return;
+		isVotingContent = true;
+		contentVoteSuccess = false;
+
+		const { voteType } = event.detail;
+
+		try {
+			const endpoint = voteType === 'none'
+				? `/answers/${answerData.id}/content-vote/remove`
+				: `/answers/${answerData.id}/content-vote`;
+
+			const response = await fetchWithAuth(endpoint, {
+				method: voteType === 'none' ? 'DELETE' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
+			});
+
+			if (response.ok) {
+				const result = await response.json();
+				
+				// Update local content vote counts
+				if (result.contentPositiveVotes !== undefined) {
+					answerData.contentPositiveVotes = result.contentPositiveVotes;
+				}
+				if (result.contentNegativeVotes !== undefined) {
+					answerData.contentNegativeVotes = result.contentNegativeVotes;
+				}
+				if (result.contentNetVotes !== undefined) {
+					answerData.contentNetVotes = result.contentNetVotes;
+				}
+
+				// Update metadata
+				if (!node.metadata) {
+					node.metadata = { group: getMetadataGroup() };
+				}
+				if (!node.metadata.contentVoteStatus) {
+					node.metadata.contentVoteStatus = { status: null };
+				}
+				node.metadata.contentVoteStatus.status = voteType === 'none' ? null : voteType;
+
+				contentVoteSuccess = true;
+				lastContentVoteType = voteType === 'none' ? null : voteType;
+
+				setTimeout(() => {
+					contentVoteSuccess = false;
+					lastContentVoteType = null;
+				}, 2000);
+			}
+		} catch (error) {
+			console.error('Error voting on answer content:', error);
+		} finally {
+			isVotingContent = false;
 		}
 	}
 
@@ -160,12 +224,12 @@
 		dispatch('keywordClick', event.detail);
 	}
 
-	// Create child node handler (Answer)
+	// Create child node handler (Evidence)
 	function handleCreateChild() {
 		dispatch('createChildNode', {
 			parentId: node.id,
-			parentType: 'openquestion',
-			childType: 'answer'
+			parentType: 'answer',
+			childType: 'evidence'
 		});
 	}
 </script>
@@ -173,10 +237,10 @@
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Open Question" {radius} mode="detail" />
+			<NodeHeader title="Answer" {radius} mode="detail" />
 		</svelte:fragment>
 
-		<!-- CategoryTags: Show categories this question is tagged with -->
+		<!-- CategoryTags: Show categories this answer is tagged with -->
 		<svelte:fragment slot="categoryTags" let:radius>
 			{#if categories.length > 0}
 				<CategoryTags 
@@ -200,52 +264,67 @@
 			{/if}
 		</svelte:fragment>
 
-		<!-- Content: Display the question text -->
+		<!-- Content: Display the answer text -->
 		<svelte:fragment slot="content" let:x let:y let:width let:height>
 			<foreignObject
 				{x}
 				y={y + 10}
 				{width}
-				height={height - 80}
+				height={height - 100}
 			>
-				<div class="question-display">
-					{displayQuestion}
+				<div class="answer-display">
+					{displayAnswer}
 				</div>
 			</foreignObject>
 
-			<!-- Answer count display -->
-			{#if answerCount > 0}
-				<foreignObject
-					{x}
-					y={y + height - 70}
-					{width}
-					height="60"
-				>
-					<div class="answer-count">
-						{answerCount} answer{answerCount !== 1 ? 's' : ''}
-					</div>
-				</foreignObject>
-			{/if}
+			<!-- Instruction text for dual voting -->
+			<foreignObject
+				{x}
+				y={y + height - 90}
+				{width}
+				height="80"
+			>
+				<div class="instruction-text">
+					<strong>Include/Exclude:</strong> Should this answer exist for the question? 
+					<strong>Agree/Disagree:</strong> Is this answer accurate and helpful?
+				</div>
+			</foreignObject>
 		</svelte:fragment>
 
-		<!-- Voting: Inclusion voting only -->
+		<!-- DUAL VOTING: Both inclusion and content -->
 		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Inclusion voting -->
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
 				isVoting={isVotingInclusion}
-				{voteSuccess}
-				{lastVoteType}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="detail"
 				on:vote={handleInclusionVote}
 			/>
+
+			<!-- Content voting (positioned below inclusion) -->
+			<ContentVoteButtons
+				userVoteStatus={contentUserVoteStatus}
+				positiveVotes={contentPositiveVotes}
+				negativeVotes={contentNegativeVotes}
+				isVoting={isVotingContent}
+				voteSuccess={contentVoteSuccess}
+				lastVoteType={lastContentVoteType}
+				availableWidth={width}
+				containerY={y + 60}
+				mode="detail"
+				on:vote={handleContentVote}
+			/>
 		</svelte:fragment>
 
-		<!-- Vote stats showing inclusion voting -->
+		<!-- Vote stats showing both voting types separately -->
 		<svelte:fragment slot="stats" let:width let:y>
+			<!-- Inclusion stats -->
 			<VoteStats
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
@@ -256,13 +335,27 @@
 				containerY={y}
 				showUserStatus={false}
 			/>
+			
+			<!-- Content stats (positioned below) -->
+			<g transform="translate(0, 80)">
+				<VoteStats
+					userVoteStatus={contentUserVoteStatus}
+					positiveVotes={contentPositiveVotes}
+					negativeVotes={contentNegativeVotes}
+					positiveLabel="Agree"
+					negativeLabel="Disagree"
+					availableWidth={width}
+					containerY={y}
+					showUserStatus={false}
+				/>
+			</g>
 		</svelte:fragment>
 
 		<!-- Metadata: Standard node metadata -->
 		<svelte:fragment slot="metadata" let:radius>
 			<NodeMetadata
-				createdAt={questionData.createdAt}
-				updatedAt={questionData.updatedAt}
+				createdAt={answerData.createdAt}
+				updatedAt={answerData.updatedAt}
 				{radius}
 			/>
 		</svelte:fragment>
@@ -270,21 +363,20 @@
 		<!-- Credits: Standard creator credits -->
 		<svelte:fragment slot="credits" let:radius>
 			<CreatorCredits
-				createdBy={questionData.createdBy}
-				publicCredit={questionData.publicCredit}
+				createdBy={answerData.createdBy}
+				publicCredit={answerData.publicCredit}
 				{radius}
-				prefix="asked by:"
 			/>
 		</svelte:fragment>
 
-		<!-- CreateChild: Answer creation button (NE corner) -->
+		<!-- CreateChild: Evidence creation button (NE corner) -->
 		<svelte:fragment slot="createChild" let:radius>
 			{#if canExpand}
 				<CreateLinkedNodeButton
 					y={-radius * 0.7071}
 					x={radius * 0.7071}
 					nodeId={node.id}
-					nodeType="openquestion"
+					nodeType="answer"
 					on:click={handleCreateChild}
 				/>
 			{/if}
@@ -293,30 +385,30 @@
 {:else}
 	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Question" {radius} mode="preview" />
+			<NodeHeader title="Answer" {radius} mode="preview" />
 		</svelte:fragment>
 
-		<!-- Content: Show question text in preview -->
+		<!-- Content: Show answer text in preview -->
 		<svelte:fragment slot="content" let:x let:y let:width let:height>
 			<text
 				x="0"
 				y={y + 10}
-				class="question-preview"
+				class="answer-preview"
 				text-anchor="middle"
 			>
-				{displayQuestion.length > 80 ? displayQuestion.substring(0, 80) + '...' : displayQuestion}
+				{displayAnswer.length > 80 ? displayAnswer.substring(0, 80) + '...' : displayAnswer}
 			</text>
 		</svelte:fragment>
 
-		<!-- Voting: Inclusion voting in preview mode -->
+		<!-- Voting: Inclusion voting in preview mode (primary) -->
 		<svelte:fragment slot="voting" let:x let:y let:width let:height>
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
 				isVoting={isVotingInclusion}
-				{voteSuccess}
-				{lastVoteType}
+				voteSuccess={inclusionVoteSuccess}
+				lastVoteType={lastInclusionVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="preview"
@@ -327,7 +419,7 @@
 {/if}
 
 <style>
-	.question-display {
+	.answer-display {
 		font-family: 'Inter', sans-serif;
 		font-size: 16px;
 		font-weight: 400;
@@ -343,7 +435,7 @@
 		box-sizing: border-box;
 	}
 
-	.question-preview {
+	.answer-preview {
 		font-family: 'Orbitron', sans-serif;
 		font-size: 14px;
 		font-weight: 500;
@@ -351,16 +443,18 @@
 		dominant-baseline: middle;
 	}
 
-	.answer-count {
+	.instruction-text {
 		font-family: 'Inter', sans-serif;
-		font-size: 12px;
-		font-weight: 500;
-		color: rgba(0, 188, 212, 0.9); /* Cyan color for questions */
+		font-size: 11px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.7);
 		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
+		line-height: 1.3;
+		padding: 5px 10px;
+	}
+
+	.instruction-text strong {
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 600;
 	}
 </style>
