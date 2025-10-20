@@ -234,24 +234,38 @@ export interface EvidenceNode {
     id: string;
     title: string;
     url: string;
+    authors?: string[]; // ADDED
+    publicationDate?: Date | string; // ADDED
+    description?: string; // ADDED
     evidenceType: 'peer_reviewed_study' | 'government_report' | 'news_article' | 'expert_opinion' | 'dataset' | 'video' | 'image' | 'other';
     parentNodeId: string; // Parent statement/answer/quantity UUID
     parentNodeType: 'StatementNode' | 'AnswerNode' | 'QuantityNode';
+    parentInfo?: { // ADDED
+        id: string;
+        type: string;
+        title: string;
+    };
     createdBy: string;
     publicCredit: boolean;
     initialComment?: string;
     createdAt: string;
     updatedAt: string;
-    // Dual voting for evidence
+    // Inclusion voting only for evidence (no standard content voting)
     inclusionPositiveVotes: number;
     inclusionNegativeVotes: number;
     inclusionNetVotes: number;
-    contentPositiveVotes: number;
-    contentNegativeVotes: number;
-    contentNetVotes: number;
+    contentPositiveVotes: number; // Keep for schema compatibility
+    contentNegativeVotes: number; // Keep for schema compatibility
+    contentNetVotes: number; // Keep for schema compatibility
+    // Peer review metrics (aggregated) - ADDED
+    avgQualityScore?: number;
+    avgIndependenceScore?: number;
+    avgRelevanceScore?: number;
+    overallScore?: number;
+    reviewCount?: number;
     // Content node properties
     keywords?: Keyword[];
-    categories?: Category[]; // Category objects (max 3)
+    categories?: string[] | Category[]; // Category IDs (creation) or enriched objects (from API)
     discussionId?: string;
     discussion?: {
         id: string;

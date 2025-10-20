@@ -1,76 +1,59 @@
 <!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
 <script lang="ts">
-    import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
+    import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
     import { isQuantityData } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '../../../../constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
+    import NodeHeader from '../ui/NodeHeader.svelte';
+    import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
+    import VoteStats from '../ui/VoteStats.svelte';
+    import CategoryTags from '../ui/CategoryTags.svelte';
+    import KeywordTags from '../ui/KeywordTags.svelte';
+    import NodeMetadata from '../ui/NodeMetadata.svelte';
+    import CreatorCredits from '../ui/CreatorCredits.svelte';
+    import CreateLinkedNodeButton from '../ui/CreateLinkedNodeButton.svelte';
+    import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
+    import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
+    import { fetchWithAuth } from '$lib/services/api';
     import { userStore } from '$lib/stores/userStore';
     import { graphStore } from '$lib/stores/graphStore';
     import { unitPreferenceStore } from '$lib/stores/unitPreferenceStore';
-    import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
-    import { fetchWithAuth } from '$lib/services/api';
     import { getUserResponse, getStatistics, submitResponse, deleteUserResponse } from '$lib/services/quantity';
-    import { COLORS } from '$lib/constants/colors';
     import QuantityVisualization from './QuantityVisualization.svelte';
-    import type { UnitPreference } from '$lib/stores/unitPreferenceStore';
-    
-    // ENHANCED: Import universal graph store for batch data
     import { universalGraphStore } from '$lib/stores/universalGraphStore';
     import { get } from 'svelte/store';
-    
-    // Import the shared behaviors and UI components
-    import {
-        createVoteBehaviour,
-        createVisibilityBehaviour,
-        createModeBehaviour,
-        createDataBehaviour
-    } from '../behaviours';
-    
-    // Import the shared UI components
-    import NodeHeader from '../ui/NodeHeader.svelte';
-    import CreatorCredits from '../ui/CreatorCredits.svelte';
-    import ContentBox from '../ui/ContentBox.svelte';
-    import { wrapTextForWidth } from '../utils/textUtils';
     
     export let node: RenderableNode;
     export let question: string = '';
     export let unitCategoryId: string = '';
     export let defaultUnitId: string = '';
-    
-    // ENHANCED: Optional props for explicit context control
     export let viewType: ViewType | undefined = undefined;
     
-    // Debug toggle - set to true to show ContentBox borders
-    const DEBUG_SHOW_BORDERS = false;
-    
-    // Type guard for quantity data
+    // Type validation
     if (!isQuantityData(node.data)) {
         throw new Error('Invalid node data type for QuantityNode');
     }
 
-    // Extract data from node
     const quantityData = node.data;
     
-    // Use props if provided, otherwise fall back to node data
+    // Helper to get correct metadata group
+    function getMetadataGroup(): 'quantity' {
+        return 'quantity';
+    }
+    
+    // Data extraction
     $: displayQuestion = question || quantityData.question;
     $: displayUnitCategoryId = unitCategoryId || quantityData.unitCategoryId;
     $: displayDefaultUnitId = defaultUnitId || quantityData.defaultUnitId;
     
-    // ENHANCED: Context-aware detection
+    // Context-aware detection
     $: detectedViewType = detectViewContext(viewType);
 
-    /**
-     * ROBUST: Detect current view context using multiple methods
-     */
     function detectViewContext(explicitViewType?: ViewType): ViewType {
-        // Method 1: Use explicit viewType prop if provided
-        if (explicitViewType) {
-            return explicitViewType;
-        }
+        if (explicitViewType) return explicitViewType;
 
-        // Method 2: Detect from URL path
         if (typeof window !== 'undefined') {
             const pathname = window.location.pathname;
             if (pathname.includes('/universal')) return 'universal';
@@ -78,24 +61,48 @@
             if (pathname.includes('/discussion')) return 'discussion';
         }
 
-        // Method 3: Detect from graph store context
         if (graphStore) {
             const currentViewType = graphStore.getViewType?.();
             if (currentViewType) return currentViewType;
         }
 
-        // Default fallback
         return 'quantity';
     }
     
-    // Behavior instances
-    let voteBehaviour: any;
-    let visibilityBehaviour: any;
-    let modeBehaviour: any;
-    let dataBehaviour: any;
-    let behavioursInitialized = false;
+    // INCLUSION voting extraction
+    $: inclusionPositiveVotes = getNeo4jNumber(quantityData.inclusionPositiveVotes) || 0;
+    $: inclusionNegativeVotes = getNeo4jNumber(quantityData.inclusionNegativeVotes) || 0;
+    $: inclusionNetVotes = getNeo4jNumber(quantityData.inclusionNetVotes) || 
+        (inclusionPositiveVotes - inclusionNegativeVotes);
+    $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
     
-    // State variables for quantity-specific features
+    // Threshold check for expansion
+    $: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
+
+    // Extract categories - handle both string[] and Category[] formats
+    $: categories = (() => {
+        const cats = quantityData.categories || [];
+        if (cats.length === 0) return [];
+        
+        if (typeof cats[0] === 'object' && 'id' in cats[0]) {
+            return cats as Array<{ id: string; name: string }>;
+        }
+        
+        return [];
+    })();
+
+    // Extract keywords
+    $: keywords = quantityData.keywords || [];
+
+    // Voting state
+    let isVotingInclusion = false;
+    let inclusionVoteSuccess = false;
+    let lastInclusionVoteType: VoteStatus | null = null;
+
+    // Mode state
+    $: isDetail = node.mode === 'detail';
+    
+    // Quantity-specific state variables
     let categoryName = '';
     let defaultUnitName = '';
     let defaultUnitSymbol = '';
@@ -111,66 +118,109 @@
     let errorMessage: string | null = null;
     let isLoadingResponses = false;
     let isLoadingUnitPreferences = false;
-    
-    // ENHANCED: Track if we've used batch data to avoid duplicate API calls
     let usedBatchData = false;
     
-    // Initialize behaviors
-    $: if (node.id && !behavioursInitialized) {
-        console.log(`[QuantityNode] Initializing for context: ${detectedViewType}`);
-        
-        // Note: Quantity nodes don't typically have voting, but we can add it if needed
-        // Future: If voting support is added to quantity nodes:
-        // voteBehaviour = createVoteBehaviour(node.id, 'quantity', { 
-        //     voteStore: detectedViewType === 'universal' ? universalGraphStore : null 
-        // });
-        
-        visibilityBehaviour = createVisibilityBehaviour(node.id, { 
-            graphStore, 
-            viewType: detectedViewType 
-        });
-        modeBehaviour = createModeBehaviour(node.mode);
-        dataBehaviour = createDataBehaviour('quantity', quantityData, {
-            transformData: (rawData) => ({
-                ...rawData,
-                formattedDate: rawData.createdAt
-                    ? new Date(rawData.createdAt).toLocaleDateString()
-                    : ''
-            })
-        });
-        
-        behavioursInitialized = true;
-    }
-    
+    // Event dispatcher
     const dispatch = createEventDispatcher<{
-        modeChange: { mode: NodeMode };
-        hover: { isHovered: boolean };
+        modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
         visibilityChange: { isHidden: boolean };
+        createChildNode: { parentId: string; parentType: string; childType: string };
+        categoryClick: { categoryId: string; categoryName: string };
+        keywordClick: { word: string };
     }>();
 
-    function handleModeChange() {
-        const newMode = modeBehaviour?.handleModeChange();
-        if (newMode) {
-            dispatch('modeChange', { mode: newMode });
-        }
-    }
-    
-    function handleHover(event: CustomEvent<{ isHovered: boolean }>) {
-        dispatch('hover', event.detail);
+    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
+        dispatch('modeChange', {
+            mode: event.detail.mode,
+            nodeId: node.id
+        });
     }
     
     function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         dispatch('visibilityChange', event.detail);
     }
 
-    // ENHANCED: Try to load data from universal graph store first
+    function handleCategoryClick(event: CustomEvent<{ categoryId: string; categoryName: string }>) {
+        dispatch('categoryClick', event.detail);
+    }
+
+    function handleKeywordClick(event: CustomEvent<{ word: string }>) {
+        dispatch('keywordClick', event.detail);
+    }
+
+    function handleCreateChild() {
+        dispatch('createChildNode', {
+            parentId: node.id,
+            parentType: 'quantity',
+            childType: 'evidence'
+        });
+    }
+
+    // INCLUSION vote handler
+    async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+        if (isVotingInclusion) return;
+        isVotingInclusion = true;
+        inclusionVoteSuccess = false;
+
+        const { voteType } = event.detail;
+
+        try {
+            const endpoint = voteType === 'none'
+                ? `/quantities/${quantityData.id}/inclusion-vote/remove`
+                : `/quantities/${quantityData.id}/inclusion-vote`;
+
+            const response = await fetchWithAuth(endpoint, {
+                method: voteType === 'none' ? 'DELETE' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                
+                // Update local inclusion vote counts
+                if (result.inclusionPositiveVotes !== undefined) {
+                    quantityData.inclusionPositiveVotes = result.inclusionPositiveVotes;
+                }
+                if (result.inclusionNegativeVotes !== undefined) {
+                    quantityData.inclusionNegativeVotes = result.inclusionNegativeVotes;
+                }
+                if (result.inclusionNetVotes !== undefined) {
+                    quantityData.inclusionNetVotes = result.inclusionNetVotes;
+                }
+
+                // Update metadata
+                if (!node.metadata) {
+                    node.metadata = { group: getMetadataGroup() };
+                }
+                if (!node.metadata.inclusionVoteStatus) {
+                    node.metadata.inclusionVoteStatus = { status: null };
+                }
+                node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
+
+                inclusionVoteSuccess = true;
+                lastInclusionVoteType = voteType === 'none' ? null : voteType;
+
+                setTimeout(() => {
+                    inclusionVoteSuccess = false;
+                    lastInclusionVoteType = null;
+                }, 2000);
+            }
+        } catch (error) {
+            console.error('Error voting on quantity inclusion:', error);
+        } finally {
+            isVotingInclusion = false;
+        }
+    }
+
+    // Optimized data loading from universal graph store
     async function loadUserResponseOptimized() {
-        // First, try to get user response from universal graph batch data
         if (detectedViewType === 'universal' && !usedBatchData) {
             const universalData = get(universalGraphStore);
-            if (universalData?.user_data?.quantity_responses?.[node.id]) {
-                const batchResponse = universalData.user_data.quantity_responses[node.id];
-                console.log(`[QuantityNode] Using batch user response for ${node.id}:`, batchResponse);
+            // Type assertion to handle the store typing issue
+            const userData = (universalData as any)?.user_data;
+            if (userData?.quantity_responses?.[node.id]) {
+                const batchResponse = userData.quantity_responses[node.id];
                 
                 userResponse = {
                     id: batchResponse.nodeId,
@@ -182,11 +232,10 @@
                 
                 responseValue = batchResponse.value.toString();
                 usedBatchData = true;
-                return; // Skip API call
+                return;
             }
         }
         
-        // Fallback: Make individual API call if batch data not available
         try {
             userResponse = await getUserResponse(node.id);
             
@@ -217,17 +266,16 @@
         }
     }
 
-    // ENHANCED: Try to load unit preferences from batch data first
     async function loadUnitPreferenceOptimized() {
         try {
             isLoadingUnitPreferences = true;
             
-            // First, try to get unit preference from universal graph batch data
             if (detectedViewType === 'universal' && !usedBatchData) {
                 const universalData = get(universalGraphStore);
-                if (universalData?.user_data?.unit_preferences?.[node.id]) {
-                    const batchPreference = universalData.user_data.unit_preferences[node.id];
-                    console.log(`[QuantityNode] Using batch unit preference for ${node.id}:`, batchPreference);
+                // Type assertion to handle the store typing issue
+                const userData = (universalData as any)?.user_data;
+                if (userData?.unit_preferences?.[node.id]) {
+                    const batchPreference = userData.unit_preferences[node.id];
                     
                     displayUnitId = batchPreference.unitId;
                     selectedUnitId = batchPreference.unitId;
@@ -238,7 +286,6 @@
                             displayUnitSymbol = unit.symbol;
                         }
                         
-                        // Update user response unit symbol if available
                         if (userResponse && availableUnits.length > 0) {
                             const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
                             if (responseUnit) {
@@ -248,11 +295,10 @@
                     }
                     
                     isLoadingUnitPreferences = false;
-                    return; // Skip API calls
+                    return;
                 }
             }
             
-            // Fallback: Use the existing unit preference store logic
             if (!$unitPreferenceStore.isLoaded) {
                 await unitPreferenceStore.loadPreferences();
             }
@@ -269,7 +315,6 @@
                         displayUnitSymbol = unit.symbol;
                     }
                     
-                    // Update user response unit symbol if available
                     if (userResponse && availableUnits.length > 0) {
                         const responseUnit = availableUnits.find(u => u.id === userResponse.unitId);
                         if (responseUnit) {
@@ -287,9 +332,7 @@
         }
     }
 
-    // Quantity-specific functions (preserved from original but optimized)
     async function loadUnitDetails() {
-        // CRITICAL FIX: Skip API calls if no valid unit data or if values are null/invalid
         if (!displayUnitCategoryId || 
             displayUnitCategoryId === 'default' || 
             displayUnitCategoryId === 'null' ||
@@ -301,13 +344,11 @@
             displayDefaultUnitId === null ||
             displayDefaultUnitId.trim() === '') {
             
-            // Set fallback values instead of making API calls
             categoryName = 'No units configured';
             defaultUnitName = 'No unit';
             defaultUnitSymbol = '';
             availableUnits = [];
             
-            // Still initialize display units to prevent errors
             if (!displayUnitId) {
                 displayUnitId = 'none';
                 selectedUnitId = 'none';
@@ -318,7 +359,6 @@
         }
         
         try {
-            // Get category details
             const category = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}`);
             if (category) {
                 categoryName = category.name;
@@ -326,12 +366,10 @@
                 categoryName = 'Unknown Category';
             }
             
-            // Get units for this category
             const units = await fetchWithAuth(`/api/units/categories/${displayUnitCategoryId}/units`);
             if (units && Array.isArray(units)) {
                 availableUnits = units;
                 
-                // Find default unit details
                 const defaultUnit = units.find(u => u.id === displayDefaultUnitId);
                 if (defaultUnit) {
                     defaultUnitName = defaultUnit.name;
@@ -341,7 +379,6 @@
                     defaultUnitSymbol = '';
                 }
                 
-                // Initialize selected and display units
                 if (!displayUnitId) {
                     displayUnitId = displayDefaultUnitId;
                     selectedUnitId = displayDefaultUnitId;
@@ -356,13 +393,11 @@
         } catch (error) {
             console.error('[QuantityNode] Error loading unit details:', error);
             
-            // Set fallback values on error to prevent further API calls
             categoryName = 'Error loading units';
             defaultUnitName = 'Error';
             defaultUnitSymbol = '';
             availableUnits = [];
             
-            // Ensure display units are set to prevent undefined errors
             if (!displayUnitId) {
                 displayUnitId = 'error';
                 selectedUnitId = 'error';
@@ -374,8 +409,6 @@
     async function loadStatistics() {
         try {
             isLoadingResponses = true;
-            // NOTE: Keep using individual API call for statistics as this data changes frequently
-            // and we need fresh data when users submit responses
             statistics = await getStatistics(node.id);
             
             if (statistics?.responses && Array.isArray(statistics.responses)) {
@@ -421,7 +454,6 @@
                 }
             }
             
-            // ENHANCED: Still save to preference store for persistence
             await unitPreferenceStore.setPreference(node.id, displayUnitId);
         } catch (error) {
             console.error('[QuantityNode] Error changing unit:', error);
@@ -450,18 +482,9 @@
         errorMessage = null;
         
         try {
-            // ENHANCED: Make individual API call for user interaction
             await submitResponse(node.id, numValue, displayUnitId);
-            
-            // Reload data after submission
             await loadUserResponseOptimized();
             await loadStatistics();
-            
-            // ENHANCED: If in universal view, update the store cache
-            if (detectedViewType === 'universal') {
-                // The individual API call above should trigger store updates automatically
-                // via the existing store mechanisms
-            }
         } catch (error) {
             console.error('[QuantityNode] Error submitting response:', error);
             errorMessage = 'Failed to submit response';
@@ -477,16 +500,10 @@
         isSubmitting = true;
         
         try {
-            // ENHANCED: Make individual API call for user interaction
             await deleteUserResponse(node.id);
             responseValue = '';
             userResponse = null;
             await loadStatistics();
-            
-            // ENHANCED: If in universal view, update the store cache
-            if (detectedViewType === 'universal') {
-                // The individual API call above should trigger store updates automatically
-            }
         } catch (error) {
             console.error('[QuantityNode] Error deleting response:', error);
             errorMessage = 'Failed to delete response';
@@ -522,8 +539,6 @@
     }
 
     // Reactive declarations
-    $: isDetail = node.mode === 'detail';
-    $: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
     $: hasUserResponse = userResponse !== null;
     $: responseCount = statistics?.responseCount || 0;
     $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
@@ -548,69 +563,82 @@
     }, ['']);
 
     onMount(async () => {
-        // Initialize behaviors
-        const initPromises = [];
-        if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
-        if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(0)); // No votes for quantity nodes
-        if (initPromises.length > 0) await Promise.all(initPromises);
-        
-        // ENHANCED: Initialize with optimized data loading
         unitPreferenceStore.initialize();
         await loadUnitDetails();
         await loadUnitPreferenceOptimized();
         await loadUserResponseOptimized();
         await loadStatistics();
     });
-
-    onDestroy(() => {
-        if (dataBehaviour?.destroy) dataBehaviour.destroy();
-    });
 </script>
 
 {#if isDetail}
     <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
-        <svelte:fragment slot="default" let:radius>
-            <NodeHeader title="Quantity" radius={radius} mode="detail" />
-            
-            <!-- Custom layout for quantity node - not using ContentBox due to complex layout needs -->
-            
-            <!-- Keywords Display (if any) -->
-            {#if quantityData.keywords && quantityData.keywords.length > 0}
-                <g transform="translate(0, {-radius + 280})">
-                    <text 
-                        x="-520" 
-                        class="keywords-label left-align"
-                        style:font-family="Inter"
-                        style:font-size="14px"
-                        style:fill="rgba(255, 255, 255, 0.8)"
-                    >
-                        Keywords:
-                    </text>
-                    
-                    <foreignObject 
-                        x="-520"
-                        y="10"
-                        width="1040"
-                        height="50"
-                    >
-                        <div class="keywords-container">
-                            {#each quantityData.keywords as keyword}
-                                <div class="keyword-chip" class:ai-keyword={keyword.source === 'ai'} class:user-keyword={keyword.source === 'user'}>
-                                    {keyword.word}
-                                </div>
-                            {/each}
-                        </div>
-                    </foreignObject>
-                </g>
+        <svelte:fragment slot="title" let:radius>
+            <NodeHeader title="Quantity" {radius} mode="detail" />
+        </svelte:fragment>
+
+        <!-- CategoryTags (if any) -->
+        <svelte:fragment slot="categoryTags" let:radius>
+            {#if categories.length > 0}
+                <CategoryTags
+                    {categories}
+                    {radius}
+                    maxDisplay={3}
+                    on:categoryClick={handleCategoryClick}
+                />
             {/if}
+        </svelte:fragment>
+
+        <!-- KeywordTags (if any) -->
+        <svelte:fragment slot="keywordTags" let:radius>
+            {#if keywords.length > 0}
+                <KeywordTags
+                    {keywords}
+                    {radius}
+                    maxDisplay={8}
+                    on:keywordClick={handleKeywordClick}
+                />
+            {/if}
+        </svelte:fragment>
+
+        <!-- Custom Content - Quantity nodes have complex layout that doesn't fit ContentBox -->
+        <svelte:fragment slot="content" let:x let:y let:width let:height>
+            <!-- Inclusion Voting Section -->
+            <g transform="translate({x}, {y - 150})">
+                <VoteStats
+                    userVoteStatus={inclusionUserVoteStatus}
+                    positiveVotes={inclusionPositiveVotes}
+                    negativeVotes={inclusionNegativeVotes}
+                    showUserStatus={false}
+                    availableWidth={width * 0.4}
+                    containerY={0}
+                    positiveLabel="Total Agree"
+                    negativeLabel="Total Disagree"
+                    netLabel="Net Votes"
+                />
+                
+                <g transform="translate({width * 0.25}, 0)">
+                    <InclusionVoteButtons
+                        userVoteStatus={inclusionUserVoteStatus}
+                        positiveVotes={inclusionPositiveVotes}
+                        negativeVotes={inclusionNegativeVotes}
+                        isVoting={isVotingInclusion}
+                        availableWidth={width * 0.3}
+                        containerY={50}
+                        mode="detail"
+                        on:vote={handleInclusionVote}
+                    />
+                </g>
+            </g>
 
             <!-- Question Display -->
-            <g transform="translate(0, {-radius + 340})">
+            <g transform="translate({x}, {y - 50})">
                 <foreignObject 
-                    x="-520"
-                    width="1040"
-                    height="100"
+                    x="0"
+                    y="0"
+                    {width}
+                    height="80"
                 >
                     <div class="question-text">
                         {displayQuestion}
@@ -619,22 +647,22 @@
             </g>
             
             <!-- Category Display --> 
-            <g transform="translate(0, {-radius + 490})">
+            <g transform="translate({x}, {y + 40})">
                 <text 
-                    x="-520" 
+                    x="0" 
                     class="unit-category-label left-align"
                     style:font-family="Inter"
                     style:font-size="14px"
                     style:fill="rgba(255, 255, 255, 0.8)"
                 >
-                    Category: {categoryName}
+                    Unit Category: {categoryName}
                 </text>
             </g>
 
             <!-- Community Responses Visualization -->
-            <g transform="translate(0, {-radius + 530})">
+            <g transform="translate({x}, {y + 80})">
                 <text 
-                    x="-520" 
+                    x="0" 
                     class="section-header left-align"
                     style:font-family="Inter"
                     style:font-size="16px"
@@ -645,9 +673,9 @@
                 </text>
                 
                 <foreignObject
-                    x="-520"
+                    x="0"
                     y="30"
-                    width="1040"
+                    {width}
                     height="320"
                 >
                     {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
@@ -672,7 +700,7 @@
                 {#if statistics && (!statistics.distributionCurve || statistics.distributionCurve.length === 0) && responseCount > 0}
                     <g transform="translate(0, 130)">
                         <text 
-                            x="-520"
+                            x="0"
                             y="20"
                             class="stats-summary left-align"
                             style:font-family="Inter"
@@ -683,7 +711,7 @@
                         </text>
                         
                         <text 
-                            x="-520"
+                            x="0"
                             y="50"
                             class="stats-summary left-align"
                             style:font-family="Inter"
@@ -694,7 +722,7 @@
                         </text>
                         
                         <text 
-                            x="-370"
+                            x={width * 0.3}
                             y="20"
                             class="stats-summary left-align"
                             style:font-family="Inter"
@@ -705,7 +733,7 @@
                         </text>
                         
                         <text 
-                            x="-370"
+                            x={width * 0.3}
                             y="50"
                             class="stats-summary left-align"
                             style:font-family="Inter"
@@ -716,7 +744,7 @@
                         </text>
                         
                         <text 
-                            x="-220"
+                            x={width * 0.6}
                             y="20"
                             class="stats-summary left-align"
                             style:font-family="Inter"
@@ -730,9 +758,9 @@
             </g>
 
             <!-- User Response Section -->
-            <g transform="translate(0, {-radius + 870})">
+            <g transform="translate({x}, {y + 420})">
                 <text 
-                    x="-520" 
+                    x="0" 
                     class="section-header left-align"
                     style:font-family="Inter"
                     style:font-size="16px"
@@ -746,7 +774,7 @@
                 {#if hasUserResponse}
                     <g transform="translate(0, 30)">
                         <text 
-                            x="-520"
+                            x="0"
                             class="user-response-value left-align"
                             style:font-family="Inter"
                             style:font-size="14px"
@@ -756,7 +784,7 @@
                         </text>
                         
                         <!-- Delete response button -->
-                        <foreignObject x="-180" y="40" width="120" height="40">
+                        <foreignObject x={width * 0.7} y="40" width="120" height="40">
                             <button 
                                 class="response-button delete-button"
                                 on:click={handleDeleteResponse}
@@ -771,7 +799,7 @@
                 <!-- Response input form -->
                 <g transform="translate(0, {hasUserResponse ? 70 : 40})">
                     <text 
-                        x="-520"
+                        x="0"
                         y="-10"
                         class="form-label left-align"
                         style:font-family="Inter"
@@ -781,7 +809,7 @@
                         {hasUserResponse ? 'Update your answer:' : 'Enter your answer:'}
                     </text>
                 
-                    <foreignObject x="-520" y="0" width="200" height="40">
+                    <foreignObject x="0" y="0" width="200" height="40">
                         <input 
                             type="text" 
                             class="response-input"
@@ -792,7 +820,7 @@
                         />
                     </foreignObject>
                     
-                    <foreignObject x="-310" y="0" width="120" height="40">
+                    <foreignObject x="210" y="0" width="120" height="40">
                         <button 
                             class="response-button submit-button"
                             on:click={handleSubmitResponse}
@@ -804,7 +832,7 @@
                     
                     {#if errorMessage}
                         <text 
-                            x="-520"
+                            x="0"
                             y="50"
                             class="error-message left-align"
                             style:font-family="Inter"
@@ -817,7 +845,7 @@
                     
                     <!-- Unit Selection Control -->
                     <text 
-                        x="-520"
+                        x="0"
                         y="70"
                         class="unit-preferences-label left-align"
                         style:font-family="Inter"
@@ -827,7 +855,7 @@
                         Change Units:
                     </text>
                     
-                    <foreignObject x="-410" y="60" width="200" height="40">
+                    <foreignObject x="110" y="60" width="200" height="40">
                         <select 
                             class="unit-select display-unit-select"
                             value={displayUnitId}
@@ -842,82 +870,74 @@
                     </foreignObject>
                 </g>
             </g>
-                        
-            <!-- Creator credits -->
+        </svelte:fragment>
+
+        <!-- Create Evidence Button -->
+        <svelte:fragment slot="createChild" let:radius>
+            <CreateLinkedNodeButton
+                y={-radius * 0.7071}
+                x={radius * 0.7071}
+                nodeId={node.id}
+                nodeType="quantity"
+                on:click={handleCreateChild}
+            />
+        </svelte:fragment>
+
+        <!-- Creator credits -->
+        <svelte:fragment slot="credits" let:radius>
             {#if quantityData.createdBy}
                 <CreatorCredits
                     createdBy={quantityData.createdBy}
                     publicCredit={quantityData.publicCredit}
                     creatorDetails={null}
-                    radius={radius}
+                    {radius}
                     prefix="created by:"
                 />
             {/if}
         </svelte:fragment>
+
+        <!-- Node Metadata (timestamps) -->
+        <svelte:fragment slot="metadata" let:radius>
+            <NodeMetadata
+                createdAt={quantityData.createdAt}
+                updatedAt={quantityData.updatedAt}
+                {radius}
+            />
+        </svelte:fragment>
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
-    <BasePreviewNode {node} on:modeChange={handleModeChange} on:hover={handleHover} on:visibilityChange={handleVisibilityChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
+    <BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="title" let:radius>
-            <NodeHeader title="Quantity" radius={radius} size="small" mode="preview" />
+            <NodeHeader title="Quantity" {radius} size="small" mode="preview" />
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+        <svelte:fragment slot="content" let:x let:y let:width let:height>
             <foreignObject
-                x={x}
-                y={y + layoutConfig.titleYOffset - 10}
-                width={width}
-                height={height - layoutConfig.titleYOffset}
+                {x}
+                {y}
+                {width}
+                {height}
             >
                 <div class="question-preview">
-                    {#each lines as line, i}
-                        <div class="question-line">
-                            {line}
-                        </div>
+                    {#each lines as line}
+                        <div class="question-line">{line}</div>
                     {/each}
                 </div>
             </foreignObject>
         </svelte:fragment>
 
-        <svelte:fragment slot="voting" let:x let:y let:width let:height>
-            <!-- Show category and stats instead of voting for quantity nodes -->
-            <text
-                x="0"
-                y={y + height / 2 - 20}
-                class="unit-info"
-                style:font-family="Inter"
-                style:font-size="12px"
-                style:fill="rgba(255, 255, 255, 0.7)"
-                style:text-anchor="middle"
-            >
-                {categoryName || displayUnitCategoryId}
-            </text>
-            
-            <text
-                x="0"
-                y={y + height / 2}
-                class="stats-info"
-                style:font-family="Inter"
-                style:font-size="12px"
-                style:fill="rgba(255, 255, 255, 0.7)"
-                style:text-anchor="middle"
-            >
-                {responseCount} {responseCount === 1 ? 'response' : 'responses'}
-            </text>
-            
-            {#if responseCount > 0 && statistics?.mean !== undefined}
-                <text
-                    x="0"
-                    y={y + height / 2 + 20}
-                    class="stats-value"
-                    style:font-family="Inter"
-                    style:font-size="12px"
-                    style:fill="rgba(26, 188, 156, 0.9)"
-                    style:text-anchor="middle"
-                >
-                    Mean: {formatNumber(statistics.mean)} {displayUnitSymbol}
-                </text>
-            {/if}
+        <svelte:fragment slot="voting" let:width let:height>
+            <InclusionVoteButtons
+                userVoteStatus={inclusionUserVoteStatus}
+                positiveVotes={inclusionPositiveVotes}
+                negativeVotes={inclusionNegativeVotes}
+                isVoting={isVotingInclusion}
+                availableWidth={width}
+                containerY={height / 2}
+                mode="preview"
+                on:vote={handleInclusionVote}
+            />
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
@@ -957,34 +977,6 @@
     
     .question-line {
         margin-bottom: 2px;
-    }
-    
-    /* Keywords styling */
-    :global(.keywords-container) {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 5px;
-        margin-top: 5px;
-    }
-    
-    :global(.keyword-chip) {
-        background: rgba(26, 188, 156, 0.2);
-        border: 1px solid rgba(26, 188, 156, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 11px;
-        color: white;
-        font-family: 'Inter', sans-serif;
-    }
-    
-    :global(.keyword-chip.ai-keyword) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-    }
-    
-    :global(.keyword-chip.user-keyword) {
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
     }
 
     /* Community Responses Styling */

@@ -1,4 +1,4 @@
-// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships and D3-native opacity + Category support
+// src/lib/types/graph/enhanced.ts - UPDATED for consolidated relationships and D3-native opacity + Category support + Evidence support
 
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3-force';
 import type { Definition, WordNode, NodeStyle, StatementNode, OpenQuestionNode, QuantityNode, CommentNode, CommentFormData, CategoryNode, AnswerNode, EvidenceNode } from '../domain/nodes';
@@ -66,6 +66,14 @@ export interface NodeMetadata {
         status: 'agree' | 'disagree' | null;
     };
     
+    // ADDED: For Evidence peer review
+    userReview?: {
+        id?: string;
+        qualityScore: number;
+        independenceScore: number;
+        relevanceScore: number;
+    } | null;
+    
     userVisibilityPreference?: {
         isVisible: boolean;
         source: string;
@@ -101,7 +109,7 @@ export interface EnhancedNode {
     // Core identity
     id: string;
     type: NodeType;
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode | AnswerNode | EvidenceNode;
     group: NodeGroup;
     mode?: NodeMode;
     isHidden?: boolean;
@@ -218,7 +226,7 @@ export interface RenderableNode {
     mode?: NodeMode;
     isHidden?: boolean;
     hiddenReason?: 'community' | 'user';
-    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode;
+    data: UserProfile | NavigationOption | WordNode | Definition | StatementNode | OpenQuestionNode | QuantityNode | CommentNode | CommentFormData | ControlNodeData | CategoryNode | AnswerNode | EvidenceNode;
     radius: number;
     position: NodePosition;
     style: NodeStyle;
@@ -281,9 +289,9 @@ export interface GraphPageData {
     viewType: ViewType;
     wordData: WordNode | null;
     statementData: StatementNode | null;
-    openQuestionData?: OpenQuestionNode | null; // Add openQuestion data
-    quantityData?: QuantityNode | null; // Add quantity data
-    categoryData?: CategoryNode | null; // Add category data
+    openQuestionData?: OpenQuestionNode | null;
+    quantityData?: QuantityNode | null;
+    categoryData?: CategoryNode | null;
     nodes?: GraphNode[];
     links?: GraphLink[];
     _routeKey?: string; // Added for forcing re-renders on navigation
@@ -330,26 +338,18 @@ export class ConsolidatedRelationshipUtils {
      * Get the effective strength for visual rendering (stroke width, etc.)
      */
     static getEffectiveStrength(link: RenderableLink | EnhancedLink): number {
+        // If consolidated metadata exists, use its totalStrength
         if (link.metadata?.consolidatedKeywords) {
-            return link.metadata.consolidatedKeywords.averageStrength;
+            return link.metadata.consolidatedKeywords.totalStrength;
         }
+        // Fallback to direct strength or default
         return link.strength || 1.0;
     }
 
     /**
-     * Get the relationship count (how many individual relationships this represents)
+     * Calculate visual rendering properties based on consolidated relationship
      */
-    static getRelationCount(link: RenderableLink | EnhancedLink): number {
-        if (link.metadata?.consolidatedKeywords) {
-            return link.metadata.consolidatedKeywords.relationCount;
-        }
-        return link.metadata?.relationCount || 1;
-    }
-
-    /**
-     * Calculate visual styles for a consolidated relationship
-     */
-    static getVisualStyles(link: RenderableLink | EnhancedLink): {
+    static getVisualProperties(link: RenderableLink | EnhancedLink): {
         strokeWidth: number;
         opacity: number;
         dashArray: string;
@@ -357,9 +357,9 @@ export class ConsolidatedRelationshipUtils {
     } {
         const isConsolidated = this.isConsolidated(link);
         const effectiveStrength = this.getEffectiveStrength(link);
-        const relationCount = this.getRelationCount(link);
+        const relationCount = link.metadata?.consolidatedKeywords?.relationCount || 1;
         
-        // Base stroke width scales with strength
+        // Calculate stroke width - consolidated relationships get thicker base
         const baseStrokeWidth = isConsolidated ? 2.0 : 1.5;
         const strokeWidth = Math.min(3.0, baseStrokeWidth + effectiveStrength * 1.5);
         
@@ -477,6 +477,12 @@ export const isControlNode = (node: RenderableNode): node is RenderableNode & { 
 
 export const isCategoryNode = (node: RenderableNode): node is RenderableNode & { data: CategoryNode } =>
     node.type === 'category' && isCategoryData(node.data);
+
+export const isAnswerNode = (node: RenderableNode): node is RenderableNode & { data: AnswerNode } =>
+    node.type === 'answer' && isAnswerData(node.data);
+
+export const isEvidenceNode = (node: RenderableNode): node is RenderableNode & { data: EvidenceNode } =>
+    node.type === 'evidence' && isEvidenceData(node.data);
 
 export const isStatementAnswerFormNode = (node: RenderableNode): boolean =>
     node.type === 'statement-answer-form' && isUserProfileData(node.data);
