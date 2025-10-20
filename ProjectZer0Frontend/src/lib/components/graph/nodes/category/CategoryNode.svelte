@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/category/CategoryNode.svelte -->
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
 	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
@@ -14,7 +14,8 @@
 	import CreateLinkedNodeButton from '../ui/CreateLinkedNodeButton.svelte';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
-	import { fetchWithAuth } from '$lib/services/api';
+	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+	import { graphStore } from '$lib/stores/graphStore';
 
 	export let node: RenderableNode;
 
@@ -52,7 +53,7 @@
 		discussionId?: string;
 	}
 
-	const categoryData = node.data as CategoryNodeData;
+	let categoryData = node.data as CategoryNodeData;
 
 	// Data extraction
 	$: displayName = categoryData.name;
@@ -63,9 +64,8 @@
 	$: inclusionNetVotes = getNeo4jNumber(categoryData.inclusionNetVotes) || 
 		(inclusionPositiveVotes - inclusionNegativeVotes);
 	
-	// User vote status from metadata - uses userVoteStatus for single voting pattern
-	// (like Word node, not inclusionVoteStatus like Definition node)
-	$: inclusionUserVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	// User vote status from metadata
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
 	
 	// Threshold check for expansion
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
@@ -78,10 +78,8 @@
 		source: 'user' as const
 	})) as Keyword[];
 
-	// Voting state
-	let isVotingInclusion = false;
-	let voteSuccess = false;
-	let lastVoteType: VoteStatus | null = null;
+	// Voting behaviour instance
+	let inclusionVoting: VoteBehaviour;
 
 	// Mode state
 	$: isDetail = node.mode === 'detail';
@@ -93,63 +91,49 @@
 		createChildNode: { parentId: string; parentType: string; preAssignedCategory: string };
 	}>();
 
-	// Vote handler
-	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (isVotingInclusion) return;
-		isVotingInclusion = true;
-		voteSuccess = false;
-
-		const { voteType } = event.detail;
-
-		try {
-			const endpoint = voteType === 'none'
-				? `/categories/${categoryData.id}/vote/remove`
-				: `/categories/${categoryData.id}/vote`;
-
-			const response = await fetchWithAuth(endpoint, {
-				method: voteType === 'none' ? 'DELETE' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-			});
-
-			if (response.ok) {
-				const result = await response.json();
-				
-				// Update local vote counts (BaseNode watches these automatically)
-				if (result.inclusionPositiveVotes !== undefined) {
-					categoryData.inclusionPositiveVotes = result.inclusionPositiveVotes;
-				}
-				if (result.inclusionNegativeVotes !== undefined) {
-					categoryData.inclusionNegativeVotes = result.inclusionNegativeVotes;
-				}
-				if (result.inclusionNetVotes !== undefined) {
-					categoryData.inclusionNetVotes = result.inclusionNetVotes;
-				}
-
-				// Update metadata - userVoteStatus is used for single voting pattern
-				if (!node.metadata) {
-					node.metadata = { group: 'category' };
-				}
-				if (!node.metadata.userVoteStatus) {
-					node.metadata.userVoteStatus = { status: null };
-				}
-				node.metadata.userVoteStatus.status = voteType === 'none' ? null : voteType;
-
-				voteSuccess = true;
-				lastVoteType = voteType === 'none' ? null : voteType;
-
-				// Reset success indicator after delay
-				setTimeout(() => {
-					voteSuccess = false;
-					lastVoteType = null;
-				}, 2000);
+	// Initialize voting behaviour on mount
+	onMount(async () => {
+		// Create voting behaviour for inclusion votes
+		inclusionVoting = createVoteBehaviour(node.id, 'category', {
+			apiIdentifier: categoryData.id,
+			dataObject: categoryData,
+			dataProperties: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/categories/${id}/vote`,
+			getRemoveVoteEndpoint: (id) => `/categories/${id}/vote/remove`,
+			graphStore,
+			onDataUpdate: () => {
+				// Trigger reactivity
+				categoryData = { ...categoryData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'inclusionVoteStatus'
 			}
-		} catch (error) {
-			console.error('Error voting on category:', error);
-		} finally {
-			isVotingInclusion = false;
-		}
+		});
+
+		// Initialize with current vote data
+		await inclusionVoting.initialize({
+			positiveVotes: inclusionPositiveVotes,
+			negativeVotes: inclusionNegativeVotes,
+			skipVoteStatusFetch: false
+		});
+	});
+
+	// Vote handler - now uses behaviour
+	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (!inclusionVoting) return;
+		await inclusionVoting.handleVote(event.detail.voteType);
 	}
+
+	// Get reactive state from behaviour
+	$: votingState = inclusionVoting?.getCurrentState() || {
+		isVoting: false,
+		voteSuccess: false,
+		lastVoteType: null
+	};
 
 	// Mode change handler
 	function handleModeChange(event: CustomEvent) {
@@ -160,7 +144,6 @@
 	}
 
 	// Keyword click handler (for composed words that define the category)
-	// KeywordTags emits 'keywordClick' with { word: string }
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
 		const { word } = event.detail;
 		console.log('Composed word clicked:', word);
@@ -214,7 +197,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
+				isVoting={votingState.isVoting}
+				voteSuccess={votingState.voteSuccess}
+				lastVoteType={votingState.lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="detail"
@@ -292,7 +277,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
+				isVoting={votingState.isVoting}
+				voteSuccess={votingState.voteSuccess}
+				lastVoteType={votingState.lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="preview"

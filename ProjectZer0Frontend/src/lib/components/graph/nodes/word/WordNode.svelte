@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/word/WordNode.svelte -->
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
 	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
 	import { isWordNodeData } from '$lib/types/graph/enhanced';
@@ -14,7 +14,8 @@
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
-	import { fetchWithAuth } from '$lib/services/api';
+	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+	import { graphStore } from '$lib/stores/graphStore';
 
 	export let node: RenderableNode;
 
@@ -23,7 +24,7 @@
 		throw new Error('Invalid node data type for WordNode');
 	}
 
-	const wordData = node.data;
+	let wordData = node.data;
 
 	// Data extraction
 	$: displayWord = wordData.word;
@@ -34,10 +35,8 @@
 	$: inclusionNetVotes = getNeo4jNumber(wordData.inclusionNetVotes) || 
 		(inclusionPositiveVotes - inclusionNegativeVotes);
 	
-	// User vote status from metadata - uses VoteStatus type for consistency
-	// InclusionVoteButtons expects VoteStatus ('agree'/'disagree'/'none')
-	// and displays it as "Include"/"Exclude" labels
-	$: inclusionUserVoteStatus = (node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	// User vote status from metadata
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
 	
 	// Threshold check for expansion
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
@@ -49,10 +48,8 @@
 		source: 'user' as const
 	})) as Keyword[];
 
-	// Voting state
-	let isVotingInclusion = false;
-	let voteSuccess = false;
-	let lastVoteType: VoteStatus | null = null;
+	// Voting behaviour instance
+	let inclusionVoting: VoteBehaviour;
 
 	// Mode state
 	$: isDetail = node.mode === 'detail';
@@ -63,63 +60,49 @@
 		visibilityChange: { isHidden: boolean };
 	}>();
 
-	// Vote handler
-	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (isVotingInclusion) return;
-		isVotingInclusion = true;
-		voteSuccess = false;
-
-		const { voteType } = event.detail;
-
-		try {
-			const endpoint = voteType === 'none'
-				? `/nodes/word/${encodeURIComponent(displayWord)}/vote/remove`
-				: `/nodes/word/${encodeURIComponent(displayWord)}/vote`;
-
-			const response = await fetchWithAuth(endpoint, {
-				method: voteType === 'none' ? 'DELETE' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-			});
-
-			if (response.ok) {
-				const result = await response.json();
-				
-				// Update local vote counts
-				if (result.inclusionPositiveVotes !== undefined) {
-					wordData.inclusionPositiveVotes = result.inclusionPositiveVotes;
-				}
-				if (result.inclusionNegativeVotes !== undefined) {
-					wordData.inclusionNegativeVotes = result.inclusionNegativeVotes;
-				}
-				if (result.inclusionNetVotes !== undefined) {
-					wordData.inclusionNetVotes = result.inclusionNetVotes;
-				}
-
-				// Update metadata - userVoteStatus.status is used for all voting types
-				if (node.metadata?.userVoteStatus) {
-					node.metadata.userVoteStatus.status = voteType === 'none' ? null : voteType;
-				} else if (node.metadata) {
-					node.metadata.userVoteStatus = {
-						status: voteType === 'none' ? null : voteType
-					};
-				}
-
-				voteSuccess = true;
-				lastVoteType = voteType === 'none' ? null : voteType;
-
-				// Reset success indicator after delay
-				setTimeout(() => {
-					voteSuccess = false;
-					lastVoteType = null;
-				}, 2000);
+	// Initialize voting behaviour on mount
+	onMount(async () => {
+		// Create voting behaviour for inclusion votes
+		inclusionVoting = createVoteBehaviour(node.id, 'word', {
+			apiIdentifier: displayWord, // Words use their text as identifier
+			dataObject: wordData,
+			dataProperties: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (word) => `/nodes/word/${encodeURIComponent(word)}/vote`,
+			getRemoveVoteEndpoint: (word) => `/nodes/word/${encodeURIComponent(word)}/vote/remove`,
+			graphStore,
+			onDataUpdate: () => {
+				// Trigger reactivity
+				wordData = { ...wordData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'inclusionVoteStatus'
 			}
-		} catch (error) {
-			console.error('Error voting on word:', error);
-		} finally {
-			isVotingInclusion = false;
-		}
+		});
+
+		// Initialize with current vote data
+		await inclusionVoting.initialize({
+			positiveVotes: inclusionPositiveVotes,
+			negativeVotes: inclusionNegativeVotes,
+			skipVoteStatusFetch: false
+		});
+	});
+
+	// Vote handler - now uses behaviour
+	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		if (!inclusionVoting) return;
+		await inclusionVoting.handleVote(event.detail.voteType);
 	}
+
+	// Get reactive state from behaviour
+	$: votingState = inclusionVoting?.getCurrentState() || {
+		isVoting: false,
+		voteSuccess: false,
+		lastVoteType: null
+	};
 
 	// Mode change handler
 	function handleModeChange(event: CustomEvent) {
@@ -130,7 +113,6 @@
 	}
 
 	// Keyword click handler (for categories this word appears in)
-	// KeywordTags emits 'keywordClick' with { word: string }
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
 		// TODO: Implement keyword navigation or filtering
 		console.log('Keyword clicked:', event.detail.word);
@@ -178,9 +160,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
-				{voteSuccess}
-				{lastVoteType}
+				isVoting={votingState.isVoting}
+				voteSuccess={votingState.voteSuccess}
+				lastVoteType={votingState.lastVoteType}
 				availableWidth={width}
 				containerY={0}
 				mode="detail"
@@ -252,9 +234,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
-				{voteSuccess}
-				{lastVoteType}
+				isVoting={votingState.isVoting}
+				voteSuccess={votingState.voteSuccess}
+				lastVoteType={votingState.lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="preview"

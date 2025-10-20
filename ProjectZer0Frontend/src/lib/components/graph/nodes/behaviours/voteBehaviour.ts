@@ -34,12 +34,18 @@ export interface VoteBehaviourOptions {
   };
   // Callback to trigger reactivity in parent component
   onDataUpdate?: () => void;
-  // ENHANCED: Support for pre-loaded batch data
+  // Support for pre-loaded batch data
   initialVoteData?: {
     userVoteStatus?: VoteStatus;
     positiveVotes?: number;
     negativeVotes?: number;
     votedAt?: string;
+  };
+  // NEW: Metadata configuration for updating node.metadata
+  metadataConfig?: {
+    nodeMetadata: any; // Reference to node.metadata object
+    voteStatusKey: 'inclusionVoteStatus' | 'contentVoteStatus' | 'userVoteStatus';
+    metadataGroup?: string; // e.g., 'definition', 'statement'
   };
 }
 
@@ -67,6 +73,11 @@ export interface VoteBehaviour {
 
 /**
  * Creates standardised voting behaviour for node components
+ * Supports both single and dual voting systems
+ * 
+ * @param nodeId - Node identifier
+ * @param nodeType - Type of node (e.g., 'definition', 'statement')
+ * @param options - Configuration options
  */
 export function createVoteBehaviour(
   nodeId: string, 
@@ -84,7 +95,8 @@ export function createVoteBehaviour(
     negativeVotesKey: 'negativeVotes'
   };
   const onDataUpdate = options.onDataUpdate || null;
-  const initialVoteData = options.initialVoteData || null; // ENHANCED: Extract initial vote data
+  const initialVoteData = options.initialVoteData || null;
+  const metadataConfig = options.metadataConfig || null;
   
   // Default endpoint functions
   const getVoteEndpoint = options.getVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote`);
@@ -122,6 +134,11 @@ export function createVoteBehaviour(
   );
 
   // Private helper functions
+  
+  /**
+   * Updates vote counts from API response
+   * Handles data object mutation, store updates, and graph visibility
+   */
   function updateVoteCounts(apiResponse: any): void {
     const pos = getNeo4jNumber(apiResponse.positiveVotes);
     const neg = getNeo4jNumber(apiResponse.negativeVotes);
@@ -141,7 +158,7 @@ export function createVoteBehaviour(
       }
     }
     
-    // CLEAN: Update external store if provided - now each view uses its correct store
+    // Update external store if provided - each view uses its correct store
     if (voteStore && typeof voteStore.updateVoteData === 'function') {
       voteStore.updateVoteData(nodeId, pos, neg);
     }
@@ -152,6 +169,38 @@ export function createVoteBehaviour(
     }
   }
 
+  /**
+   * NEW: Updates node.metadata with current vote status
+   * Ensures UI components display correct vote button states
+   */
+  function updateMetadata(voteType: VoteStatus): void {
+    if (!metadataConfig) return;
+    
+    const { nodeMetadata, voteStatusKey, metadataGroup } = metadataConfig;
+    
+    // Ensure metadata object exists
+    if (!nodeMetadata) {
+      console.warn('[VoteBehaviour] nodeMetadata not provided, skipping metadata update');
+      return;
+    }
+    
+    // Create metadata group if needed (for dual-voting nodes)
+    if (metadataGroup && !nodeMetadata.group) {
+      nodeMetadata.group = metadataGroup;
+    }
+    
+    // Create vote status structure if needed
+    if (!nodeMetadata[voteStatusKey]) {
+      nodeMetadata[voteStatusKey] = { status: null };
+    }
+    
+    // Update vote status (null for 'none', otherwise the vote type)
+    nodeMetadata[voteStatusKey].status = voteType === 'none' ? null : voteType;
+  }
+
+  /**
+   * Performs the actual API call with retry logic
+   */
   async function performVoteAction(voteType: VoteStatus, retryCount: number = 0): Promise<any> {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1000;
@@ -188,6 +237,9 @@ export function createVoteBehaviour(
     }
   }
 
+  /**
+   * Fetches initial vote status from API
+   */
   async function initializeVoteStatus(retryCount: number = 0): Promise<void> {
     const MAX_RETRIES = 3;
     const RETRY_DELAY = 1000;
@@ -221,11 +273,15 @@ export function createVoteBehaviour(
   }
 
   // Public methods
+
+  /**
+   * Initialize voting behaviour with optional pre-loaded data
+   */
   async function initialize(
     initialData: Partial<VoteBehaviourState> & { skipVoteStatusFetch?: boolean } = {}
   ): Promise<void> {
     try {
-      // ENHANCED: Check if we have pre-loaded initial vote data
+      // Check if we have pre-loaded initial vote data
       if (initialVoteData) {
         console.log(`[VoteBehaviour] Using pre-loaded vote data for ${nodeId}:`, initialVoteData);
         
@@ -255,7 +311,7 @@ export function createVoteBehaviour(
         return;
       }
 
-      // CLEAN: Initialize from external store if available - now uses correct store
+      // Initialize from external store if available
       if (voteStore && typeof voteStore.getVoteData === 'function') {
         const storeData = voteStore.getVoteData(nodeId);
         positiveVotes.set(storeData.positiveVotes || 0);
@@ -282,7 +338,7 @@ export function createVoteBehaviour(
         }
       }
 
-      // ENHANCED: Skip vote status fetch if we have batch data or explicit skip
+      // Skip vote status fetch if we have batch data or explicit skip
       if (!initialData.skipVoteStatusFetch) {
         // Fetch user's vote status from API
         await initializeVoteStatus();
@@ -296,6 +352,9 @@ export function createVoteBehaviour(
     }
   }
 
+  /**
+   * Handle vote action with optimistic updates and rollback on failure
+   */
   async function handleVote(voteType: VoteStatus): Promise<boolean> {
     const currentVoteStatus = get(userVoteStatus);
     const currentIsVoting = get(isVoting);
@@ -328,6 +387,9 @@ export function createVoteBehaviour(
       // Update vote counts from API response
       updateVoteCounts(result);
       
+      // NEW: Update metadata
+      updateMetadata(voteType);
+      
       // Update last vote time for rate limiting
       lastVoteTime.set(Date.now());
       
@@ -355,6 +417,11 @@ export function createVoteBehaviour(
         dataObject[dataProperties.negativeVotesKey] = originalNegativeVotes;
       }
       
+      // Rollback metadata changes
+      if (metadataConfig) {
+        updateMetadata(originalVoteStatus);
+      }
+      
       error.set('Failed to record vote');
       return false;
       
@@ -363,6 +430,9 @@ export function createVoteBehaviour(
     }
   }
 
+  /**
+   * Update vote data from external source (e.g., batch updates)
+   */
   function updateFromExternalSource(voteData: Partial<VoteBehaviourState>): void {
     if (voteData.positiveVotes !== undefined) {
       const pos = getNeo4jNumber(voteData.positiveVotes);
@@ -380,9 +450,17 @@ export function createVoteBehaviour(
     }
     if (voteData.userVoteStatus !== undefined) {
       userVoteStatus.set(voteData.userVoteStatus);
+      
+      // Update metadata as well
+      if (metadataConfig) {
+        updateMetadata(voteData.userVoteStatus);
+      }
     }
   }
 
+  /**
+   * Reset all voting state to initial values
+   */
   function reset(): void {
     userVoteStatus.set('none');
     positiveVotes.set(0);
@@ -394,6 +472,9 @@ export function createVoteBehaviour(
     lastVoteTime.set(0);
   }
 
+  /**
+   * Get current state snapshot
+   */
   function getCurrentState(): VoteBehaviourState {
     return {
       userVoteStatus: get(userVoteStatus),

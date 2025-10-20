@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
 	import type { VoteStatus } from '$lib/types/domain/nodes';
 	import { isDefinitionData } from '$lib/types/graph/enhanced';
@@ -14,7 +14,8 @@
 	import CreatorCredits from '../ui/CreatorCredits.svelte';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
-	import { fetchWithAuth } from '$lib/services/api';
+	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+	import { graphStore } from '$lib/stores/graphStore';
 
 	export let node: RenderableNode;
 	export let wordText: string = '';
@@ -24,7 +25,7 @@
 		throw new Error('Invalid node data type for DefinitionNode');
 	}
 
-	const definitionData = node.data;
+	let definitionData = node.data;
 
 	// Determine subtype from group
 	const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
@@ -50,21 +51,16 @@
 	$: contentNetVotes = getNeo4jNumber(definitionData.contentNetVotes) || 
 		(contentPositiveVotes - contentNegativeVotes);
 	
-	// User vote status - with safe fallback for backward compatibility
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 
-		node.metadata?.userVoteStatus?.status || 'none') as VoteStatus;
+	// User vote status
+	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
 	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
 	
 	// Threshold check for expansion (based on inclusion votes)
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
-	// Voting state
-	let isVotingInclusion = false;
-	let isVotingContent = false;
-	let inclusionVoteSuccess = false;
-	let contentVoteSuccess = false;
-	let lastInclusionVoteType: VoteStatus | null = null;
-	let lastContentVoteType: VoteStatus | null = null;
+	// Voting behaviour instances
+	let inclusionVoting: VoteBehaviour;
+	let contentVoting: VoteBehaviour;
 
 	// Mode state
 	$: isDetail = node.mode === 'detail';
@@ -75,121 +71,90 @@
 		visibilityChange: { isHidden: boolean };
 	}>();
 
-	// INCLUSION vote handler
+	// Initialize voting behaviours on mount
+	onMount(async () => {
+		// Create voting behaviour for INCLUSION votes
+		inclusionVoting = createVoteBehaviour(node.id, 'definition', {
+			apiIdentifier: definitionData.id,
+			dataObject: definitionData,
+			dataProperties: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/definitions/${id}/inclusion-vote`,
+			getRemoveVoteEndpoint: (id) => `/definitions/${id}/inclusion-vote/remove`,
+			graphStore,
+			onDataUpdate: () => {
+				// Trigger reactivity
+				definitionData = { ...definitionData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'inclusionVoteStatus',
+				metadataGroup: getMetadataGroup()
+			}
+		});
+
+		// Create voting behaviour for CONTENT votes
+		contentVoting = createVoteBehaviour(node.id, 'definition', {
+			apiIdentifier: definitionData.id,
+			dataObject: definitionData,
+			dataProperties: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/definitions/${id}/content-vote`,
+			getRemoveVoteEndpoint: (id) => `/definitions/${id}/content-vote/remove`,
+			graphStore,
+			onDataUpdate: () => {
+				// Trigger reactivity
+				definitionData = { ...definitionData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'contentVoteStatus',
+				metadataGroup: getMetadataGroup()
+			}
+		});
+
+		// Initialize both voting behaviours
+		await Promise.all([
+			inclusionVoting.initialize({
+				positiveVotes: inclusionPositiveVotes,
+				negativeVotes: inclusionNegativeVotes,
+				skipVoteStatusFetch: false
+			}),
+			contentVoting.initialize({
+				positiveVotes: contentPositiveVotes,
+				negativeVotes: contentNegativeVotes,
+				skipVoteStatusFetch: false
+			})
+		]);
+	});
+
+	// Vote handlers - now use behaviours
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (isVotingInclusion) return;
-		isVotingInclusion = true;
-		inclusionVoteSuccess = false;
-
-		const { voteType } = event.detail;
-
-		try {
-			const endpoint = voteType === 'none'
-				? `/definitions/${definitionData.id}/inclusion-vote/remove`
-				: `/definitions/${definitionData.id}/inclusion-vote`;
-
-			const response = await fetchWithAuth(endpoint, {
-				method: voteType === 'none' ? 'DELETE' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-			});
-
-			if (response.ok) {
-				const result = await response.json();
-				
-				// Update local inclusion vote counts
-				if (result.inclusionPositiveVotes !== undefined) {
-					definitionData.inclusionPositiveVotes = result.inclusionPositiveVotes;
-				}
-				if (result.inclusionNegativeVotes !== undefined) {
-					definitionData.inclusionNegativeVotes = result.inclusionNegativeVotes;
-				}
-				if (result.inclusionNetVotes !== undefined) {
-					definitionData.inclusionNetVotes = result.inclusionNetVotes;
-				}
-
-				// Update metadata - create structure if needed
-				if (!node.metadata) {
-					node.metadata = { group: getMetadataGroup() };
-				}
-				if (!node.metadata.inclusionVoteStatus) {
-					node.metadata.inclusionVoteStatus = { status: null };
-				}
-				node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
-
-				inclusionVoteSuccess = true;
-				lastInclusionVoteType = voteType === 'none' ? null : voteType;
-
-				// Reset success indicator after delay
-				setTimeout(() => {
-					inclusionVoteSuccess = false;
-					lastInclusionVoteType = null;
-				}, 2000);
-			}
-		} catch (error) {
-			console.error('Error voting on definition inclusion:', error);
-		} finally {
-			isVotingInclusion = false;
-		}
+		if (!inclusionVoting) return;
+		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
-	// CONTENT vote handler
 	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (isVotingContent) return;
-		isVotingContent = true;
-		contentVoteSuccess = false;
-
-		const { voteType } = event.detail;
-
-		try {
-			const endpoint = voteType === 'none'
-				? `/definitions/${definitionData.id}/content-vote/remove`
-				: `/definitions/${definitionData.id}/content-vote`;
-
-			const response = await fetchWithAuth(endpoint, {
-				method: voteType === 'none' ? 'DELETE' : 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-			});
-
-			if (response.ok) {
-				const result = await response.json();
-				
-				// Update local content vote counts
-				if (result.contentPositiveVotes !== undefined) {
-					definitionData.contentPositiveVotes = result.contentPositiveVotes;
-				}
-				if (result.contentNegativeVotes !== undefined) {
-					definitionData.contentNegativeVotes = result.contentNegativeVotes;
-				}
-				if (result.contentNetVotes !== undefined) {
-					definitionData.contentNetVotes = result.contentNetVotes;
-				}
-
-				// Update metadata - create structure if needed
-				if (!node.metadata) {
-					node.metadata = { group: getMetadataGroup() };
-				}
-				if (!node.metadata.contentVoteStatus) {
-					node.metadata.contentVoteStatus = { status: null };
-				}
-				node.metadata.contentVoteStatus.status = voteType === 'none' ? null : voteType;
-
-				contentVoteSuccess = true;
-				lastContentVoteType = voteType === 'none' ? null : voteType;
-
-				// Reset success indicator after delay
-				setTimeout(() => {
-					contentVoteSuccess = false;
-					lastContentVoteType = null;
-				}, 2000);
-			}
-		} catch (error) {
-			console.error('Error voting on definition content:', error);
-		} finally {
-			isVotingContent = false;
-		}
+		if (!contentVoting) return;
+		await contentVoting.handleVote(event.detail.voteType);
 	}
+
+	// Get reactive state from behaviours
+	$: inclusionVotingState = inclusionVoting?.getCurrentState() || {
+		isVoting: false,
+		voteSuccess: false,
+		lastVoteType: null
+	};
+
+	$: contentVotingState = contentVoting?.getCurrentState() || {
+		isVoting: false,
+		voteSuccess: false,
+		lastVoteType: null
+	};
 
 	// Mode change handler
 	function handleModeChange(event: CustomEvent) {
@@ -242,9 +207,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
-				voteSuccess={inclusionVoteSuccess}
-				lastVoteType={lastInclusionVoteType}
+				isVoting={inclusionVotingState.isVoting}
+				voteSuccess={inclusionVotingState.voteSuccess}
+				lastVoteType={inclusionVotingState.lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="detail"
@@ -256,9 +221,9 @@
 				userVoteStatus={contentUserVoteStatus}
 				positiveVotes={contentPositiveVotes}
 				negativeVotes={contentNegativeVotes}
-				isVoting={isVotingContent}
-				voteSuccess={contentVoteSuccess}
-				lastVoteType={lastContentVoteType}
+				isVoting={contentVotingState.isVoting}
+				voteSuccess={contentVotingState.voteSuccess}
+				lastVoteType={contentVotingState.lastVoteType}
 				availableWidth={width}
 				containerY={y + 60}
 				mode="detail"
@@ -346,9 +311,9 @@
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
 				negativeVotes={inclusionNegativeVotes}
-				isVoting={isVotingInclusion}
-				voteSuccess={inclusionVoteSuccess}
-				lastVoteType={lastInclusionVoteType}
+				isVoting={inclusionVotingState.isVoting}
+				voteSuccess={inclusionVotingState.voteSuccess}
+				lastVoteType={inclusionVotingState.lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="preview"
