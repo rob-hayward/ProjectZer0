@@ -24,6 +24,7 @@
     import QuantityVisualization from './QuantityVisualization.svelte';
     import { universalGraphStore } from '$lib/stores/universalGraphStore';
     import { get } from 'svelte/store';
+    import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
     
     export let node: RenderableNode;
     export let question: string = '';
@@ -36,7 +37,8 @@
         throw new Error('Invalid node data type for QuantityNode');
     }
 
-    const quantityData = node.data;
+    // CRITICAL: Change const to let for reactivity
+    let quantityData = node.data;
     
     // Helper to get correct metadata group
     function getMetadataGroup(): 'quantity' {
@@ -74,6 +76,8 @@
     $: inclusionNegativeVotes = getNeo4jNumber(quantityData.inclusionNegativeVotes) || 0;
     $: inclusionNetVotes = getNeo4jNumber(quantityData.inclusionNetVotes) || 
         (inclusionPositiveVotes - inclusionNegativeVotes);
+    
+    // User vote status from metadata
     $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
     
     // Threshold check for expansion
@@ -94,10 +98,8 @@
     // Extract keywords
     $: keywords = quantityData.keywords || [];
 
-    // Voting state
-    let isVotingInclusion = false;
-    let inclusionVoteSuccess = false;
-    let lastInclusionVoteType: VoteStatus | null = null;
+    // Voting behaviour instance
+    let inclusionVoting: VoteBehaviour;
 
     // Mode state
     $: isDetail = node.mode === 'detail';
@@ -129,6 +131,57 @@
         keywordClick: { word: string };
     }>();
 
+    // Initialize voting behaviour on mount
+    onMount(async () => {
+        // Create voting behaviour for inclusion votes
+        inclusionVoting = createVoteBehaviour(node.id, 'quantity', {
+            apiIdentifier: quantityData.id,
+            dataObject: quantityData,
+            dataProperties: {
+                positiveVotesKey: 'inclusionPositiveVotes',
+                negativeVotesKey: 'inclusionNegativeVotes'
+            },
+            getVoteEndpoint: (id) => `/quantities/${id}/inclusion-vote`,
+            getRemoveVoteEndpoint: (id) => `/quantities/${id}/inclusion-vote/remove`,
+            graphStore,
+            onDataUpdate: () => {
+                // Trigger reactivity
+                quantityData = { ...quantityData };
+            },
+            metadataConfig: {
+                nodeMetadata: node.metadata,
+                voteStatusKey: 'inclusionVoteStatus'
+            }
+        });
+
+        // Initialize with current vote data
+        await inclusionVoting.initialize({
+            positiveVotes: inclusionPositiveVotes,
+            negativeVotes: inclusionNegativeVotes,
+            skipVoteStatusFetch: false
+        });
+
+        // Initialize quantity-specific features
+        unitPreferenceStore.initialize();
+        await loadUnitDetails();
+        await loadUnitPreferenceOptimized();
+        await loadUserResponseOptimized();
+        await loadStatistics();
+    });
+
+    // Vote handler - now uses behaviour
+    async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+        if (!inclusionVoting) return;
+        await inclusionVoting.handleVote(event.detail.voteType);
+    }
+
+    // Get reactive state from behaviour
+    $: votingState = inclusionVoting?.getCurrentState() || {
+        isVoting: false,
+        voteSuccess: false,
+        lastVoteType: null
+    };
+
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
         dispatch('modeChange', {
             mode: event.detail.mode,
@@ -154,63 +207,6 @@
             parentType: 'quantity',
             childType: 'evidence'
         });
-    }
-
-    // INCLUSION vote handler
-    async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-        if (isVotingInclusion) return;
-        isVotingInclusion = true;
-        inclusionVoteSuccess = false;
-
-        const { voteType } = event.detail;
-
-        try {
-            const endpoint = voteType === 'none'
-                ? `/quantities/${quantityData.id}/inclusion-vote/remove`
-                : `/quantities/${quantityData.id}/inclusion-vote`;
-
-            const response = await fetchWithAuth(endpoint, {
-                method: voteType === 'none' ? 'DELETE' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                
-                // Update local inclusion vote counts
-                if (result.inclusionPositiveVotes !== undefined) {
-                    quantityData.inclusionPositiveVotes = result.inclusionPositiveVotes;
-                }
-                if (result.inclusionNegativeVotes !== undefined) {
-                    quantityData.inclusionNegativeVotes = result.inclusionNegativeVotes;
-                }
-                if (result.inclusionNetVotes !== undefined) {
-                    quantityData.inclusionNetVotes = result.inclusionNetVotes;
-                }
-
-                // Update metadata
-                if (!node.metadata) {
-                    node.metadata = { group: getMetadataGroup() };
-                }
-                if (!node.metadata.inclusionVoteStatus) {
-                    node.metadata.inclusionVoteStatus = { status: null };
-                }
-                node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
-
-                inclusionVoteSuccess = true;
-                lastInclusionVoteType = voteType === 'none' ? null : voteType;
-
-                setTimeout(() => {
-                    inclusionVoteSuccess = false;
-                    lastInclusionVoteType = null;
-                }, 2000);
-            }
-        } catch (error) {
-            console.error('Error voting on quantity inclusion:', error);
-        } finally {
-            isVotingInclusion = false;
-        }
     }
 
     // Optimized data loading from universal graph store
@@ -561,14 +557,6 @@
         }
         return acc;
     }, ['']);
-
-    onMount(async () => {
-        unitPreferenceStore.initialize();
-        await loadUnitDetails();
-        await loadUnitPreferenceOptimized();
-        await loadUserResponseOptimized();
-        await loadStatistics();
-    });
 </script>
 
 {#if isDetail}
@@ -623,7 +611,9 @@
                         userVoteStatus={inclusionUserVoteStatus}
                         positiveVotes={inclusionPositiveVotes}
                         negativeVotes={inclusionNegativeVotes}
-                        isVoting={isVotingInclusion}
+                        isVoting={votingState.isVoting}
+                        voteSuccess={votingState.voteSuccess}
+                        lastVoteType={votingState.lastVoteType}
                         availableWidth={width * 0.3}
                         containerY={50}
                         mode="detail"
@@ -932,7 +922,9 @@
                 userVoteStatus={inclusionUserVoteStatus}
                 positiveVotes={inclusionPositiveVotes}
                 negativeVotes={inclusionNegativeVotes}
-                isVoting={isVotingInclusion}
+                isVoting={votingState.isVoting}
+                voteSuccess={votingState.voteSuccess}
+                lastVoteType={votingState.lastVoteType}
                 availableWidth={width}
                 containerY={height / 2}
                 mode="preview"

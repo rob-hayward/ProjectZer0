@@ -1,6 +1,6 @@
 <!-- src/lib/components/graph/nodes/evidence/EvidenceNode.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
     import { isEvidenceData } from '$lib/types/graph/enhanced';
@@ -16,6 +16,8 @@
     import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
     import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     import { fetchWithAuth } from '$lib/services/api';
+    import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+    import { graphStore } from '$lib/stores/graphStore';
 
     export let node: RenderableNode;
 
@@ -24,7 +26,8 @@
         throw new Error('Invalid node data type for EvidenceNode');
     }
 
-    const evidenceData = node.data;
+    // CRITICAL: Change const to let for reactivity
+    let evidenceData = node.data;
 
     // Helper to get correct metadata group
     function getMetadataGroup(): 'evidence' {
@@ -79,6 +82,8 @@
     $: inclusionNegativeVotes = getNeo4jNumber(evidenceData.inclusionNegativeVotes) || 0;
     $: inclusionNetVotes = getNeo4jNumber(evidenceData.inclusionNetVotes) || 
         (inclusionPositiveVotes - inclusionNegativeVotes);
+    
+    // User vote status from metadata
     $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
 
     // Threshold check for expansion
@@ -110,12 +115,10 @@
     $: userReview = node.metadata?.userReview || null;
     $: hasUserReview = userReview !== null && userReview !== undefined;
 
-    // Voting state
-    let isVotingInclusion = false;
-    let inclusionVoteSuccess = false;
-    let lastInclusionVoteType: VoteStatus | null = null;
+    // Voting behaviour instance
+    let inclusionVoting: VoteBehaviour;
 
-    // Peer review state
+    // Peer review state (NOT voting - separate quality assessment system)
     let isSubmittingReview = false;
     let qualityScore: number = 0;
     let independenceScore: number = 0;
@@ -147,6 +150,50 @@
         parentNodeClick: { parentId: string; parentType: string };
         urlClick: { url: string };
     }>();
+
+    // Initialize voting behaviour on mount
+    onMount(async () => {
+        // Create voting behaviour for inclusion votes
+        inclusionVoting = createVoteBehaviour(node.id, 'evidence', {
+            apiIdentifier: evidenceData.id,
+            dataObject: evidenceData,
+            dataProperties: {
+                positiveVotesKey: 'inclusionPositiveVotes',
+                negativeVotesKey: 'inclusionNegativeVotes'
+            },
+            getVoteEndpoint: (id) => `/evidence/${id}/inclusion-vote`,
+            getRemoveVoteEndpoint: (id) => `/evidence/${id}/inclusion-vote/remove`,
+            graphStore,
+            onDataUpdate: () => {
+                // Trigger reactivity
+                evidenceData = { ...evidenceData };
+            },
+            metadataConfig: {
+                nodeMetadata: node.metadata,
+                voteStatusKey: 'inclusionVoteStatus'
+            }
+        });
+
+        // Initialize with current vote data
+        await inclusionVoting.initialize({
+            positiveVotes: inclusionPositiveVotes,
+            negativeVotes: inclusionNegativeVotes,
+            skipVoteStatusFetch: false
+        });
+    });
+
+    // Vote handler - now uses behaviour
+    async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+        if (!inclusionVoting) return;
+        await inclusionVoting.handleVote(event.detail.voteType);
+    }
+
+    // Get reactive state from behaviour
+    $: votingState = inclusionVoting?.getCurrentState() || {
+        isVoting: false,
+        voteSuccess: false,
+        lastVoteType: null
+    };
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
         dispatch('modeChange', {
@@ -183,64 +230,7 @@
         }
     }
 
-    // INCLUSION vote handler
-    async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-        if (isVotingInclusion) return;
-        isVotingInclusion = true;
-        inclusionVoteSuccess = false;
-
-        const { voteType } = event.detail;
-
-        try {
-            const endpoint = voteType === 'none'
-                ? `/evidence/${evidenceData.id}/inclusion-vote/remove`
-                : `/evidence/${evidenceData.id}/inclusion-vote`;
-
-            const response = await fetchWithAuth(endpoint, {
-                method: voteType === 'none' ? 'DELETE' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: voteType !== 'none' ? JSON.stringify({ voteType }) : undefined
-            });
-
-            if (response.ok) {
-                const result = await response.json();
-                
-                // Update local inclusion vote counts
-                if (result.inclusionPositiveVotes !== undefined) {
-                    evidenceData.inclusionPositiveVotes = result.inclusionPositiveVotes;
-                }
-                if (result.inclusionNegativeVotes !== undefined) {
-                    evidenceData.inclusionNegativeVotes = result.inclusionNegativeVotes;
-                }
-                if (result.inclusionNetVotes !== undefined) {
-                    evidenceData.inclusionNetVotes = result.inclusionNetVotes;
-                }
-
-                // Update metadata
-                if (!node.metadata) {
-                    node.metadata = { group: getMetadataGroup() };
-                }
-                if (!node.metadata.inclusionVoteStatus) {
-                    node.metadata.inclusionVoteStatus = { status: null };
-                }
-                node.metadata.inclusionVoteStatus.status = voteType === 'none' ? null : voteType;
-
-                inclusionVoteSuccess = true;
-                lastInclusionVoteType = voteType === 'none' ? null : voteType;
-
-                setTimeout(() => {
-                    inclusionVoteSuccess = false;
-                    lastInclusionVoteType = null;
-                }, 2000);
-            }
-        } catch (error) {
-            console.error('Error voting on evidence inclusion:', error);
-        } finally {
-            isVotingInclusion = false;
-        }
-    }
-
-    // Peer review handlers
+    // Peer review handlers (SEPARATE from voting system)
     function handleScoreClick(metric: 'quality' | 'independence' | 'relevance', score: number) {
         if (metric === 'quality') qualityScore = score;
         if (metric === 'independence') independenceScore = score;
@@ -284,6 +274,9 @@
                 evidenceData.overallScore = result.overallScore;
                 evidenceData.reviewCount = result.reviewCount;
 
+                // Trigger reactivity
+                evidenceData = { ...evidenceData };
+
                 // Update user's review in metadata
                 if (!node.metadata) {
                     node.metadata = { group: getMetadataGroup() };
@@ -326,6 +319,9 @@
                 evidenceData.avgRelevanceScore = result.avgRelevanceScore;
                 evidenceData.overallScore = result.overallScore;
                 evidenceData.reviewCount = result.reviewCount;
+
+                // Trigger reactivity
+                evidenceData = { ...evidenceData };
 
                 // Clear user's review
                 qualityScore = 0;
@@ -532,7 +528,9 @@
                         userVoteStatus={inclusionUserVoteStatus}
                         positiveVotes={inclusionPositiveVotes}
                         negativeVotes={inclusionNegativeVotes}
-                        isVoting={isVotingInclusion}
+                        isVoting={votingState.isVoting}
+                        voteSuccess={votingState.voteSuccess}
+                        lastVoteType={votingState.lastVoteType}
                         availableWidth={width * 0.4}
                         containerY={50}
                         mode="detail"
@@ -754,7 +752,9 @@
                 userVoteStatus={inclusionUserVoteStatus}
                 positiveVotes={inclusionPositiveVotes}
                 negativeVotes={inclusionNegativeVotes}
-                isVoting={isVotingInclusion}
+                isVoting={votingState.isVoting}
+                voteSuccess={votingState.voteSuccess}
+                lastVoteType={votingState.lastVoteType}
                 availableWidth={width}
                 containerY={height / 2}
                 mode="preview"

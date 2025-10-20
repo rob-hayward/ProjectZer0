@@ -12,12 +12,7 @@
 	import { discussionStore } from '$lib/stores/discussionStore';
 	import { getUserDetails } from '$lib/services/userLookup';
 
-	import {
-		createVoteBehaviour,
-		createVisibilityBehaviour,
-		createModeBehaviour,
-		createDataBehaviour
-	} from '../behaviours';
+	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
 
 	// Import the shared UI components
 	import VoteButtons from '../ui/ContentVoteButtons.svelte';
@@ -27,6 +22,7 @@
 	import ContentBox from '../ui/ContentBox.svelte';
 	import ReplyButton from '../ui/ReplyButton.svelte';
 	import { wrapTextForWidth } from '../utils/textUtils';
+	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 
 	export let node: RenderableNode;
 	export let isReply: boolean = false;
@@ -38,68 +34,35 @@
 		throw new Error('Invalid node data type for CommentNode');
 	}
 
-	const commentData = node.data as CommentNode;
+	// CRITICAL: Change const to let for reactivity
+	let commentData = node.data as CommentNode;
 
-	let voteBehaviour: any;
-	let visibilityBehaviour: any;
-	let modeBehaviour: any;
-	let dataBehaviour: any;
-	let behavioursInitialized = false;
+	// Voting behaviour instance
+	let voteBehaviour: VoteBehaviour;
 
 	// Track replying state from discussionStore
 	$: isReplying = $discussionStore.isAddingReply && $discussionStore.replyToCommentId === node.id;
 
-	function triggerDataUpdate() {
-		commentDataWrapper = { ...commentData };
-	}
-
-	$: if (node.id && !behavioursInitialized) {
-		voteBehaviour = createVoteBehaviour(node.id, 'comment', {
-			voteStore: discussionStore,
-			graphStore,
-			apiIdentifier: node.id,
-			dataObject: commentData,
-			getVoteEndpoint: (id) => `/comments/${id}/vote`,
-			getRemoveVoteEndpoint: (id) => `/comments/${id}/vote/remove`,
-			onDataUpdate: triggerDataUpdate
-		});
-
-		visibilityBehaviour = createVisibilityBehaviour(node.id, { graphStore });
-		modeBehaviour = createModeBehaviour(node.mode);
-		dataBehaviour = createDataBehaviour('comment', commentData, {
-			transformData: (rawData) => ({
-				...rawData,
-				formattedDate: rawData.createdAt
-					? new Date(rawData.createdAt).toLocaleDateString()
-					: ''
-			})
-		});
-
-		behavioursInitialized = true;
-	}
-
 	$: isDetail = node.mode === 'detail';
 	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
-	function getNeo4jNumber(value: any): number {
-		return value && typeof value === 'object' && 'low' in value ? Number(value.low) : Number(value || 0);
-	}
-
-	let commentDataWrapper = commentData;
-
-	$: dataPositiveVotes = getNeo4jNumber(commentDataWrapper.positiveVotes) || 0;
-	$: dataNegativeVotes = getNeo4jNumber(commentDataWrapper.negativeVotes) || 0;
-	$: storeVoteData = discussionStore.getVoteData(node.id);
-
-	$: positiveVotes = dataPositiveVotes || storeVoteData.positiveVotes;
-	$: negativeVotes = dataNegativeVotes || storeVoteData.negativeVotes;
+	// Extract vote data with proper reactivity
+	$: positiveVotes = getNeo4jNumber(commentData.positiveVotes) || 0;
+	$: negativeVotes = getNeo4jNumber(commentData.negativeVotes) || 0;
 	$: netVotes = positiveVotes - negativeVotes;
 
-	$: behaviorState = voteBehaviour?.getCurrentState() || {};
-	$: userVoteStatus = behaviorState.userVoteStatus || 'none';
-	$: isVoting = behaviorState.isVoting || false;
-	$: voteSuccess = behaviorState.voteSuccess || false;
-	$: lastVoteType = behaviorState.lastVoteType || null;
+	// Get reactive state from behaviour
+	$: votingState = voteBehaviour?.getCurrentState() || {
+		userVoteStatus: 'none',
+		isVoting: false,
+		voteSuccess: false,
+		lastVoteType: null
+	};
+
+	$: userVoteStatus = votingState.userVoteStatus;
+	$: isVoting = votingState.isVoting;
+	$: voteSuccess = votingState.voteSuccess;
+	$: lastVoteType = votingState.lastVoteType;
 
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode };
@@ -107,39 +70,14 @@
 		reply: { commentId: string };
 	}>();
 
-	function syncVoteState() {
-		if (voteBehaviour) {
-			const state = voteBehaviour.getCurrentState();
-			userVoteStatus = state.userVoteStatus;
-			isVoting = state.isVoting;
-			voteSuccess = state.voteSuccess;
-			lastVoteType = state.lastVoteType;
-		}
-	}
-
-	async function updateVoteState(voteType: 'agree' | 'disagree' | 'none') {
-		if (!voteBehaviour) return false;
-		userVoteStatus = voteType;
-		isVoting = true;
-
-		try {
-			const success = await voteBehaviour.handleVote(voteType);
-			syncVoteState();
-			if (success) triggerDataUpdate();
-			return success;
-		} catch (error) {
-			syncVoteState();
-			return false;
-		}
-	}
-
 	function handleModeChange() {
-		const newMode = modeBehaviour?.handleModeChange();
-		if (newMode) dispatch('modeChange', { mode: newMode });
+		dispatch('modeChange', { mode: isDetail ? 'preview' : 'detail' });
 	}
 
-	function handleVote(event: CustomEvent<{ voteType: any }>) {
-		updateVoteState(event.detail.voteType);
+	// Vote handler - now uses behaviour
+	async function handleVote(event: CustomEvent<{ voteType: any }>) {
+		if (!voteBehaviour) return;
+		await voteBehaviour.handleVote(event.detail.voteType);
 	}
 
 	// Reply functionality
@@ -169,22 +107,37 @@
 	}
 
 	onMount(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 0));
+		// Create voting behaviour for content votes
+		// NOTE: Comments have ONLY content voting (no inclusion voting)
+		// All comments are included by default (freedom of speech principle)
+		// Users vote on the quality/agreement with the comment content
+		voteBehaviour = createVoteBehaviour(node.id, 'comment', {
+			voteStore: discussionStore,
+			graphStore,
+			apiIdentifier: node.id,
+			dataObject: commentData,
+			dataProperties: {
+				positiveVotesKey: 'positiveVotes',
+				negativeVotesKey: 'negativeVotes'
+			},
+			getVoteEndpoint: (id) => `/comments/${id}/vote`,
+			getRemoveVoteEndpoint: (id) => `/comments/${id}/vote/remove`,
+			onDataUpdate: () => {
+				// Trigger reactivity
+				commentData = { ...commentData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'contentVoteStatus' // Content voting only
+			}
+		});
 
-		const initPromises = [];
-		if (dataBehaviour) initPromises.push(dataBehaviour.initialize());
-		if (voteBehaviour) {
-			initPromises.push(
-				voteBehaviour.initialize({
-					positiveVotes: commentData.positiveVotes,
-					negativeVotes: commentData.negativeVotes
-				})
-			);
-		}
-		if (visibilityBehaviour) initPromises.push(visibilityBehaviour.initialize(netVotes));
-		if (initPromises.length > 0) await Promise.all(initPromises);
-
-		syncVoteState();
+		// Initialize with current vote data
+		await voteBehaviour.initialize({
+			positiveVotes: commentData.positiveVotes,
+			negativeVotes: commentData.negativeVotes,
+			skipVoteStatusFetch: false
+		});
 
 		// Recalculate visibility after initialization
 		if (graphStore) {
@@ -195,6 +148,7 @@
 			);
 		}
 
+		// Load creator details
 		if (commentData.createdBy) {
 			try {
 				commentCreatorDetails = await getUserDetails(commentData.createdBy);
@@ -205,80 +159,81 @@
 	});
 
 	onDestroy(() => {
-		if (dataBehaviour?.destroy) dataBehaviour.destroy();
+		// Cleanup if needed
 	});
 </script>
 
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
-		<svelte:fragment slot="default" let:radius>
-			<NodeHeader title={isReply ? "Reply" : "Comment"} radius={radius} mode="detail" />
-			<ContentBox nodeType="comment" mode="detail" showBorder={DEBUG_SHOW_BORDERS}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-					<!-- Main comment text using wrapTextForWidth -->
-					<foreignObject
-						x={x}
-						y={y + layoutConfig.titleYOffset + 10}
-						width={width}
-						height={height - layoutConfig.titleYOffset - 50}
-					>
-						<div class="comment-display">
-							{wrapTextForWidth(
-								commentData.commentText,
-								width,
-								{ fontSize: 14, fontFamily: 'Inter' }
-							).join(' ')}
-						</div>
-					</foreignObject>
+		<svelte:fragment slot="title" let:radius>
+			<NodeHeader title={isReply ? "Reply" : "Comment"} {radius} mode="detail" />
+		</svelte:fragment>
 
-					<!-- Author and date metadata -->
-					<foreignObject
-						x={x}
-						y={y + height - 40}
-						width={width}
-						height="30"
-					>
-						<div class="metadata-display">
-							{commentData.createdBy} · {formatDate(commentData.createdAt)}
-						</div>
-					</foreignObject>
-				</svelte:fragment>
+		<svelte:fragment slot="content" let:x let:y let:width let:height>
+			<!-- Main comment text using wrapTextForWidth -->
+			<foreignObject
+				x={x}
+				y={y + 10}
+				width={width}
+				height={height - 50}
+			>
+				<div class="comment-display">
+					{wrapTextForWidth(
+						commentData.commentText,
+						width,
+						{ fontSize: 14, fontFamily: 'Inter' }
+					).join(' ')}
+				</div>
+			</foreignObject>
 
-				<svelte:fragment slot="voting" let:width let:height>
-					<VoteButtons
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{isVoting}
-						{voteSuccess}
-						{lastVoteType}
-						availableWidth={width}
-						containerY={height}
-						mode="detail"
-						on:vote={handleVote}
-					/>
-				</svelte:fragment>
+			<!-- Author and date metadata -->
+			<foreignObject
+				x={x}
+				y={y + height - 40}
+				width={width}
+				height="30"
+			>
+				<div class="metadata-display">
+					{commentData.createdBy} · {formatDate(commentData.createdAt)}
+				</div>
+			</foreignObject>
+		</svelte:fragment>
 
-				<svelte:fragment slot="stats" let:width>
-					<VoteStats
-						{userVoteStatus}
-						{positiveVotes}
-						{negativeVotes}
-						{userName}
-						showUserStatus={true}
-						availableWidth={width}
-						containerY={26}
-						showBackground={false}
-					/>
-				</svelte:fragment>
-			</ContentBox>
+		<svelte:fragment slot="voting" let:x let:y let:width let:height>
+			<VoteButtons
+				{userVoteStatus}
+				{positiveVotes}
+				{negativeVotes}
+				{isVoting}
+				{voteSuccess}
+				{lastVoteType}
+				availableWidth={width}
+				containerY={y + height / 2}
+				mode="detail"
+				on:vote={handleVote}
+			/>
+		</svelte:fragment>
 
+		<svelte:fragment slot="stats" let:x let:y let:width let:height>
+			<VoteStats
+				{userVoteStatus}
+				{positiveVotes}
+				{negativeVotes}
+				{userName}
+				showUserStatus={true}
+				availableWidth={width}
+				containerY={y}
+				showBackground={false}
+			/>
+		</svelte:fragment>
+
+		<svelte:fragment slot="credits" let:radius>
 			{#if commentData.createdBy}
 				<CreatorCredits
 					createdBy={commentData.createdBy}
 					publicCredit={commentData.publicCredit || true}
 					creatorDetails={commentCreatorDetails}
-					radius={radius}
+					{radius}
 					prefix="by:"
 				/>
 			{/if}
