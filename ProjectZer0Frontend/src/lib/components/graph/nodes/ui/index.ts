@@ -10,3 +10,12 @@ export { default as NodeMetadata } from './NodeMetadata.svelte';
 export { default as TextContent } from './TextContent.svelte';
 export { default as NodeHeader } from './NodeHeader.svelte';
 export { default as CreatorCredits } from './CreatorCredits.svelte';
+export { default as ContentBox } from './ContentBox.svelte';
+
+// Action buttons
+export { default as CreateLinkedNodeButton } from './CreateLinkedNodeButton.svelte';
+export { default as ReplyButton } from './ReplyButton.svelte';
+export { default as ExpandCollapseButton } from './ExpandCollapseButton.svelte';
+export { default as ShowHideButton } from './ShowHideButton.svelte';
+export { default as DiscussButton } from './DiscussButton.svelte';
+export { default as AnswerQuestionButton } from './AnswerQuestionButton.svelte';

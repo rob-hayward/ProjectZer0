@@ -1,7 +1,7 @@
 // src/lib/components/graph/nodes/behaviours/__test__.ts
 // This is a test file to verify TypeScript compilation
 
-import { createVoteBehaviour, createVisibilityBehaviour, createModeBehaviour, createDataBehaviour } from './index';
+import { createVoteBehaviour, createVisibilityBehaviour } from './index';
 import type { VoteBehaviourOptions, VoteBehaviourState } from './voteBehaviour';
 import type { VoteStatus } from '$lib/types/domain/nodes';
 
@@ -37,28 +37,8 @@ function testVisibilityBehaviour() {
   return visibilityBehaviour;
 }
 
-// Test mode behaviour
-function testModeBehaviour() {
-  const modeBehaviour = createModeBehaviour('preview', {
-    allowModeChange: true
-  });
-
-  return modeBehaviour;
-}
-
-// Test data behaviour
-function testDataBehaviour() {
-  const dataBehaviour = createDataBehaviour('word', { text: 'test' }, {
-    transformData: (data: any) => ({ ...data, processed: true })
-  });
-
-  return dataBehaviour;
-}
-
 // Export tests for potential use
 export {
   testVoteBehaviour,
   testVisibilityBehaviour,
-  testModeBehaviour,
-  testDataBehaviour
 };

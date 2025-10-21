@@ -7,9 +7,5 @@ export type { VoteBehaviour, VoteBehaviourOptions, VoteBehaviourState } from './
 export { createVisibilityBehaviour } from './visibilityBehaviour';
 export type { VisibilityBehaviour, VisibilityBehaviourOptions, VisibilityBehaviourState } from './visibilityBehaviour';
 
-export { createModeBehaviour } from './modeBehaviour';
-export type { ModeBehaviour, ModeBehaviourOptions, ModeBehaviourState } from './modeBehaviour';
 
-export { createDataBehaviour } from './dataBehaviour';
-export type { DataBehaviour, DataBehaviourOptions, DataBehaviourState } from './dataBehaviour';
 

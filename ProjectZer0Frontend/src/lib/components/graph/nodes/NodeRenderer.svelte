@@ -1,6 +1,7 @@
-<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - CORRECTED -->
+<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - WITH VISIBILITY BEHAVIOUR -->
 <script lang="ts">
-    import { createEventDispatcher, onMount, tick } from 'svelte';
+    import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
+    import { get } from 'svelte/store';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
     import HiddenNode from './hidden/HiddenNode.svelte';  
     import ShowHideButton from './ui/ShowHideButton.svelte';
@@ -15,7 +16,8 @@
     import { graphStore } from '$lib/stores/graphStore';
     import { navigateToNodeDiscussion } from '$lib/services/navigation';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
-	import { universalGraphStore } from '$lib/stores/universalGraphStore';
+    import { universalGraphStore } from '$lib/stores/universalGraphStore';
+    import { createVisibilityBehaviour, type VisibilityBehaviour } from './behaviours/visibilityBehaviour';
     
     // The node to render
     export let node: RenderableNode;
@@ -25,6 +27,10 @@
     
     // Add viewType as a prop to know when we're in discussion view
     export let viewType: ViewType;
+    
+    // ENHANCED: Visibility behaviour instance
+    let visibilityBehaviour: VisibilityBehaviour | null = null;
+    let visibilityUnsubscribe: (() => void) | null = null;
     
     // Event dispatcher for mode changes, visibility changes, discussions, and linked nodes
     const dispatch = createEventDispatcher<{
@@ -81,7 +87,7 @@
         
         // CRITICAL: Ensure we have consistent event data
         const eventData = {
-            nodeId: event.detail.nodeId || node.id, // Use event nodeId or fallback to our node.id
+            nodeId: event.detail.nodeId || node.id,
             mode: event.detail.mode,
             position: event.detail.position || { x: node.position.x, y: node.position.y }
         };
@@ -98,12 +104,13 @@
         console.log('[NodeRenderer] MODE EVENT - Successfully dispatched to Graph component');
     }
     
-    // Handle visibility change events
+    // ENHANCED: Handle visibility change events with visibilityBehaviour integration
     async function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {
         console.log('[NodeRenderer] handleVisibilityChange called:', {
             nodeId: node.id,
             isHidden: event.detail.isHidden,
-            isProcessing: isProcessingVisibilityChange
+            isProcessing: isProcessingVisibilityChange,
+            hasVisibilityBehaviour: !!visibilityBehaviour
         });
         
         if (isProcessingVisibilityChange) {
@@ -113,52 +120,76 @@
         
         isProcessingVisibilityChange = true;
         
-        if (graphStore) {
-            console.log('[NodeRenderer] Updating graph store visibility');
-            graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
-            graphStore.forceTick(5);
-        }
-        
-        dispatch('visibilityChange', { 
-            nodeId: node.id, 
-            isHidden: event.detail.isHidden 
-        });
-        
-        if (node.type === 'comment') {
-            await tick();
+        try {
+            // PRIORITY: Use visibilityBehaviour if available
+            if (visibilityBehaviour) {
+                console.log('[NodeRenderer] Using visibilityBehaviour to handle visibility change');
+                await visibilityBehaviour.handleVisibilityChange(
+                    event.detail.isHidden,
+                    'user'
+                );
+                // visibilityBehaviour will update node.isHidden via subscription
+            } else {
+                console.log('[NodeRenderer] No visibilityBehaviour - falling back to direct update');
+                // Fallback: Update node directly
+                node.isHidden = event.detail.isHidden;
+                node.hiddenReason = 'user';
+            }
             
-            if (node.isHidden && !event.detail.isHidden) {
-                setTimeout(() => {
-                    forceRefresh++;
-                    
-                    const customEvent = new CustomEvent('node-size-changed', {
-                        bubbles: true,
-                        detail: { 
-                            nodeId: node.id,
-                            nodeType: node.type,
-                            radius: node.radius
+            // Still update graphStore for simulation coordination
+            if (graphStore) {
+                console.log('[NodeRenderer] Updating graph store visibility');
+                graphStore.updateNodeVisibility(node.id, event.detail.isHidden, 'user');
+                graphStore.forceTick(5);
+            }
+            
+            // Forward to Graph
+            dispatch('visibilityChange', { 
+                nodeId: node.id, 
+                isHidden: event.detail.isHidden 
+            });
+            
+            // Special handling for comment nodes (existing code)
+            if (node.type === 'comment') {
+                await tick();
+                
+                if (node.isHidden && !event.detail.isHidden) {
+                    setTimeout(() => {
+                        forceRefresh++;
+                        
+                        const customEvent = new CustomEvent('node-size-changed', {
+                            bubbles: true,
+                            detail: { 
+                                nodeId: node.id,
+                                nodeType: node.type,
+                                radius: node.radius
+                            }
+                        });
+                        
+                        const element = document.querySelector(`[data-node-id="${node.id}"]`);
+                        if (element) {
+                            element.dispatchEvent(customEvent);
                         }
-                    });
-                    
-                    const element = document.querySelector(`[data-node-id="${node.id}"]`);
-                    if (element) {
-                        element.dispatchEvent(customEvent);
-                    }
-                    
-                    window.dispatchEvent(new CustomEvent('node-size-changed', {
-                        detail: { 
-                            nodeId: node.id, 
-                            nodeType: node.type,
-                            radius: node.radius
-                        }
-                    }));
-                    
+                        
+                        window.dispatchEvent(new CustomEvent('node-size-changed', {
+                            detail: { 
+                                nodeId: node.id, 
+                                nodeType: node.type,
+                                radius: node.radius
+                            }
+                        }));
+                        
+                        isProcessingVisibilityChange = false;
+                    }, 100);
+                } else {
                     isProcessingVisibilityChange = false;
-                }, 100);
+                }
             } else {
                 isProcessingVisibilityChange = false;
             }
-        } else {
+            
+        } catch (error) {
+            console.error('[NodeRenderer] Error handling visibility change:', error);
             isProcessingVisibilityChange = false;
         }
         
@@ -238,14 +269,94 @@
                     : 0;
     })();
     
+    // ENHANCED: Update community visibility when votes change
+    $: if (visibilityBehaviour && netVotes !== undefined) {
+        console.log('[NodeRenderer] Updating community visibility for', node.id, 'netVotes:', netVotes);
+        visibilityBehaviour.updateCommunityVisibility(netVotes);
+    }
+    
     // Calculate button positions based on node radius
     $: showHideButtonX = node.radius * 0.7071;
     $: showHideButtonY = node.radius * 0.7071;
     
-    onMount(() => {
-        if (node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment' || node.type === 'openquestion') {
-            const preference = visibilityStore.getPreference(node.id);
-            if (preference !== undefined) {
+    // ENHANCED: Initialize visibility behaviour on mount
+    onMount(async () => {
+        console.log('[NodeRenderer] Mounting node:', node.id, 'type:', node.type);
+        
+        // Determine which store to use based on viewType
+        const store = viewType === 'universal' ? universalGraphStore : 
+                      node.type === 'statement' ? statementNetworkStore :
+                      node.type === 'word' || node.type === 'definition' ? wordViewStore :
+                      node.type === 'openquestion' ? openQuestionViewStore :
+                      graphStore;
+        
+        // Create visibility behaviour for votable nodes
+        if (node.type === 'word' || node.type === 'definition' || 
+            node.type === 'statement' || node.type === 'quantity' || 
+            node.type === 'comment' || node.type === 'openquestion') {
+            
+            console.log('[NodeRenderer] Creating visibilityBehaviour for', node.id);
+            
+            try {
+                visibilityBehaviour = createVisibilityBehaviour(node.id, {
+                    communityThreshold: 0,
+                    graphStore: store
+                });
+                
+                // Initialize with current net votes
+                await visibilityBehaviour.initialize(netVotes);
+                
+                console.log('[NodeRenderer] visibilityBehaviour initialized:', {
+                    nodeId: node.id,
+                    netVotes,
+                    currentState: visibilityBehaviour.getCurrentState()
+                });
+                
+                // Subscribe to visibility changes from the behaviour
+                visibilityUnsubscribe = visibilityBehaviour.isHidden.subscribe(isHidden => {
+                    const hiddenReason = get(visibilityBehaviour!.hiddenReason);
+                    
+                    console.log('[NodeRenderer] Visibility subscription update:', {
+                        nodeId: node.id,
+                        isHidden,
+                        hiddenReason,
+                        currentNodeHidden: node.isHidden
+                    });
+                    
+                    // Only update if state actually changed
+                    if (node.isHidden !== isHidden || node.hiddenReason !== hiddenReason) {
+                        console.log('[NodeRenderer] Updating node visibility state');
+                        
+                        // Update node properties for rendering
+                        node.isHidden = isHidden;
+                        node.hiddenReason = hiddenReason;
+                        
+                        // Trigger reactivity
+                        forceRefresh++;
+                        
+                        // Notify Graph component
+                        dispatch('visibilityChange', {
+                            nodeId: node.id,
+                            isHidden
+                        });
+                    }
+                });
+                
+            } catch (error) {
+                console.error('[NodeRenderer] Error creating visibilityBehaviour:', error);
+            }
+        }
+        
+        // Apply cached preference (existing code - now redundant but harmless)
+        const preference = visibilityStore.getPreference(node.id);
+        if (preference !== undefined) {
+            console.log('[NodeRenderer] Found cached preference for', node.id, ':', preference);
+            
+            if (visibilityBehaviour) {
+                // Let visibilityBehaviour handle it
+                await visibilityBehaviour.setUserPreference(preference);
+            } else {
+                // Fallback for nodes without visibilityBehaviour
                 const shouldBeHidden = !preference;
                 
                 if (node.isHidden !== shouldBeHidden) {
@@ -255,6 +366,23 @@
                     });
                 }
             }
+        }
+    });
+    
+    // ENHANCED: Cleanup on destroy
+    onDestroy(() => {
+        console.log('[NodeRenderer] Destroying node:', node.id);
+        
+        // Unsubscribe from visibility changes
+        if (visibilityUnsubscribe) {
+            visibilityUnsubscribe();
+            visibilityUnsubscribe = null;
+        }
+        
+        // Reset visibility behaviour
+        if (visibilityBehaviour) {
+            visibilityBehaviour.reset();
+            visibilityBehaviour = null;
         }
     });
 </script>

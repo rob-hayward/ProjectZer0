@@ -6,14 +6,7 @@
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import NodeHeader from '../ui/NodeHeader.svelte';
-    import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
-    import VoteStats from '../ui/VoteStats.svelte';
-    import CategoryTags from '../ui/CategoryTags.svelte';
-    import KeywordTags from '../ui/KeywordTags.svelte';
-    import NodeMetadata from '../ui/NodeMetadata.svelte';
-    import CreatorCredits from '../ui/CreatorCredits.svelte';
-    import CreateLinkedNodeButton from '../ui/CreateLinkedNodeButton.svelte';
+    import { TextContent, NodeHeader, InclusionVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits, CreateLinkedNodeButton } from '../ui';
     import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
     import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     import { fetchWithAuth } from '$lib/services/api';
@@ -32,25 +25,20 @@
     export let defaultUnitId: string = '';
     export let viewType: ViewType | undefined = undefined;
     
-    // Type validation
     if (!isQuantityData(node.data)) {
         throw new Error('Invalid node data type for QuantityNode');
     }
 
-    // CRITICAL: Change const to let for reactivity
     let quantityData = node.data;
     
-    // Helper to get correct metadata group
     function getMetadataGroup(): 'quantity' {
         return 'quantity';
     }
     
-    // Data extraction
     $: displayQuestion = question || quantityData.question;
     $: displayUnitCategoryId = unitCategoryId || quantityData.unitCategoryId;
     $: displayDefaultUnitId = defaultUnitId || quantityData.defaultUnitId;
     
-    // Context-aware detection
     $: detectedViewType = detectViewContext(viewType);
 
     function detectViewContext(explicitViewType?: ViewType): ViewType {
@@ -71,19 +59,15 @@
         return 'quantity';
     }
     
-    // INCLUSION voting extraction
     $: inclusionPositiveVotes = getNeo4jNumber(quantityData.inclusionPositiveVotes) || 0;
     $: inclusionNegativeVotes = getNeo4jNumber(quantityData.inclusionNegativeVotes) || 0;
     $: inclusionNetVotes = getNeo4jNumber(quantityData.inclusionNetVotes) || 
         (inclusionPositiveVotes - inclusionNegativeVotes);
     
-    // User vote status from metadata
     $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
     
-    // Threshold check for expansion
     $: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
-    // Extract categories - handle both string[] and Category[] formats
     $: categories = (() => {
         const cats = quantityData.categories || [];
         if (cats.length === 0) return [];
@@ -95,16 +79,12 @@
         return [];
     })();
 
-    // Extract keywords
     $: keywords = quantityData.keywords || [];
 
-    // Voting behaviour instance
     let inclusionVoting: VoteBehaviour;
 
-    // Mode state
     $: isDetail = node.mode === 'detail';
     
-    // Quantity-specific state variables
     let categoryName = '';
     let defaultUnitName = '';
     let defaultUnitSymbol = '';
@@ -122,7 +102,6 @@
     let isLoadingUnitPreferences = false;
     let usedBatchData = false;
     
-    // Event dispatcher
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
         visibilityChange: { isHidden: boolean };
@@ -131,9 +110,7 @@
         keywordClick: { word: string };
     }>();
 
-    // Initialize voting behaviour on mount
     onMount(async () => {
-        // Create voting behaviour for inclusion votes
         inclusionVoting = createVoteBehaviour(node.id, 'quantity', {
             apiIdentifier: quantityData.id,
             dataObject: quantityData,
@@ -145,7 +122,6 @@
             getRemoveVoteEndpoint: (id) => `/quantities/${id}/inclusion-vote/remove`,
             graphStore,
             onDataUpdate: () => {
-                // Trigger reactivity
                 quantityData = { ...quantityData };
             },
             metadataConfig: {
@@ -154,14 +130,12 @@
             }
         });
 
-        // Initialize with current vote data
         await inclusionVoting.initialize({
             positiveVotes: inclusionPositiveVotes,
             negativeVotes: inclusionNegativeVotes,
             skipVoteStatusFetch: false
         });
 
-        // Initialize quantity-specific features
         unitPreferenceStore.initialize();
         await loadUnitDetails();
         await loadUnitPreferenceOptimized();
@@ -169,13 +143,11 @@
         await loadStatistics();
     });
 
-    // Vote handler - now uses behaviour
     async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
         if (!inclusionVoting) return;
         await inclusionVoting.handleVote(event.detail.voteType);
     }
 
-    // Get reactive state from behaviour
     $: votingState = inclusionVoting?.getCurrentState() || {
         isVoting: false,
         voteSuccess: false,
@@ -209,11 +181,9 @@
         });
     }
 
-    // Optimized data loading from universal graph store
     async function loadUserResponseOptimized() {
         if (detectedViewType === 'universal' && !usedBatchData) {
             const universalData = get(universalGraphStore);
-            // Type assertion to handle the store typing issue
             const userData = (universalData as any)?.user_data;
             if (userData?.quantity_responses?.[node.id]) {
                 const batchResponse = userData.quantity_responses[node.id];
@@ -268,7 +238,6 @@
             
             if (detectedViewType === 'universal' && !usedBatchData) {
                 const universalData = get(universalGraphStore);
-                // Type assertion to handle the store typing issue
                 const userData = (universalData as any)?.user_data;
                 if (userData?.unit_preferences?.[node.id]) {
                     const batchPreference = userData.unit_preferences[node.id];
@@ -534,7 +503,6 @@
                 : value.toFixed(2);
     }
 
-    // Reactive declarations
     $: hasUserResponse = userResponse !== null;
     $: responseCount = statistics?.responseCount || 0;
     $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
@@ -542,31 +510,14 @@
     $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
     $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
     $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
-
-    // Text wrapping for preview mode
-    $: textWidth = node.radius * 2 - 45;
-    $: maxCharsPerLine = Math.floor(textWidth / 8);
-    $: lines = displayQuestion.split(' ').reduce((acc, word) => {
-        const currentLine = acc[acc.length - 1] || '';
-        const testLine = currentLine + (currentLine ? ' ' : '') + word;
-        
-        if (!currentLine || testLine.length <= maxCharsPerLine) {
-            acc[acc.length - 1] = testLine;
-        } else {
-            acc.push(word);
-        }
-        return acc;
-    }, ['']);
 </script>
 
 {#if isDetail}
-    <!-- DETAIL MODE -->
     <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Quantity" {radius} mode="detail" />
         </svelte:fragment>
 
-        <!-- CategoryTags (if any) -->
         <svelte:fragment slot="categoryTags" let:radius>
             {#if categories.length > 0}
                 <CategoryTags
@@ -578,7 +529,6 @@
             {/if}
         </svelte:fragment>
 
-        <!-- KeywordTags (if any) -->
         <svelte:fragment slot="keywordTags" let:radius>
             {#if keywords.length > 0}
                 <KeywordTags
@@ -590,9 +540,7 @@
             {/if}
         </svelte:fragment>
 
-        <!-- Custom Content - Quantity nodes have complex layout that doesn't fit ContentBox -->
         <svelte:fragment slot="content" let:x let:y let:width let:height>
-            <!-- Inclusion Voting Section -->
             <g transform="translate({x}, {y - 150})">
                 <VoteStats
                     userVoteStatus={inclusionUserVoteStatus}
@@ -622,21 +570,13 @@
                 </g>
             </g>
 
-            <!-- Question Display -->
+            <!-- Question Display - MIGRATED TO TextContent -->
             <g transform="translate({x}, {y - 50})">
-                <foreignObject 
-                    x="0"
-                    y="0"
-                    {width}
-                    height="80"
-                >
-                    <div class="question-text">
-                        {displayQuestion}
-                    </div>
+                <foreignObject x="0" y="0" {width} height="80">
+                    <TextContent text={displayQuestion} mode="detail" />
                 </foreignObject>
             </g>
             
-            <!-- Category Display --> 
             <g transform="translate({x}, {y + 40})">
                 <text 
                     x="0" 
@@ -649,7 +589,6 @@
                 </text>
             </g>
 
-            <!-- Community Responses Visualization -->
             <g transform="translate({x}, {y + 80})">
                 <text 
                     x="0" 
@@ -686,7 +625,6 @@
                     {/if}
                 </foreignObject>
                 
-                <!-- Basic statistics summary if no visualization available -->
                 {#if statistics && (!statistics.distributionCurve || statistics.distributionCurve.length === 0) && responseCount > 0}
                     <g transform="translate(0, 130)">
                         <text 
@@ -747,7 +685,6 @@
                 {/if}
             </g>
 
-            <!-- User Response Section -->
             <g transform="translate({x}, {y + 420})">
                 <text 
                     x="0" 
@@ -760,7 +697,6 @@
                     {hasUserResponse ? 'Your Response' : 'Add Your Response'}
                 </text>
                 
-                <!-- User's current response display (if exists) -->
                 {#if hasUserResponse}
                     <g transform="translate(0, 30)">
                         <text 
@@ -773,7 +709,6 @@
                             Current answer: <tspan class="value-highlight" style:fill="rgba(26, 188, 156, 0.9)" style:font-weight="bold">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
                         </text>
                         
-                        <!-- Delete response button -->
                         <foreignObject x={width * 0.7} y="40" width="120" height="40">
                             <button 
                                 class="response-button delete-button"
@@ -786,7 +721,6 @@
                     </g>
                 {/if}
                 
-                <!-- Response input form -->
                 <g transform="translate(0, {hasUserResponse ? 70 : 40})">
                     <text 
                         x="0"
@@ -833,7 +767,6 @@
                         </text>
                     {/if}
                     
-                    <!-- Unit Selection Control -->
                     <text 
                         x="0"
                         y="70"
@@ -862,7 +795,6 @@
             </g>
         </svelte:fragment>
 
-        <!-- Create Evidence Button -->
         <svelte:fragment slot="createChild" let:radius>
             <CreateLinkedNodeButton
                 y={-radius * 0.7071}
@@ -873,7 +805,6 @@
             />
         </svelte:fragment>
 
-        <!-- Creator credits -->
         <svelte:fragment slot="credits" let:radius>
             {#if quantityData.createdBy}
                 <CreatorCredits
@@ -886,7 +817,6 @@
             {/if}
         </svelte:fragment>
 
-        <!-- Node Metadata (timestamps) -->
         <svelte:fragment slot="metadata" let:radius>
             <NodeMetadata
                 createdAt={quantityData.createdAt}
@@ -896,24 +826,14 @@
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
-    <!-- PREVIEW MODE -->
     <BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Quantity" {radius} size="small" mode="preview" />
         </svelte:fragment>
 
         <svelte:fragment slot="content" let:x let:y let:width let:height>
-            <foreignObject
-                {x}
-                {y}
-                {width}
-                {height}
-            >
-                <div class="question-preview">
-                    {#each lines as line}
-                        <div class="question-line">{line}</div>
-                    {/each}
-                </div>
+            <foreignObject {x} {y} {width} {height}>
+                <TextContent text={displayQuestion} mode="preview" />
             </foreignObject>
         </svelte:fragment>
 
@@ -939,39 +859,6 @@
         text-anchor: start;
     }
 
-    /* Question styling */
-    :global(.question-text) {
-        color: white;
-        font-family: 'Inter', sans-serif;
-        font-size: 16px;
-        font-weight: 500;
-        line-height: 1.5;
-        text-align: left;
-    }
-    
-    .question-preview {
-        font-family: 'Inter', sans-serif;
-        font-size: 12px;
-        font-weight: 400;
-        color: rgba(255, 255, 255, 0.9);
-        text-align: center;
-        line-height: 1.4;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        padding: 0;
-        margin: 0;
-        box-sizing: border-box;
-    }
-    
-    .question-line {
-        margin-bottom: 2px;
-    }
-
-    /* Community Responses Styling */
     :global(.loading-message), :global(.no-responses-message), :global(.no-visualization-message) {
         color: rgba(255, 255, 255, 0.6);
         font-style: italic;
@@ -981,7 +868,6 @@
         font-size: 14px;
     }
 
-    /* Form Styling */
     :global(.response-input) {
         width: 100%;
         height: 100%;

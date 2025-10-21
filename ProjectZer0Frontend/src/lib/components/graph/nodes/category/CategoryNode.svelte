@@ -1,308 +1,241 @@
-<!-- src/lib/components/graph/nodes/category/CategoryNode.svelte -->
+<!-- src/lib/components/graph/nodes/comment/CommentNode.svelte -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
+	import type { CommentNode } from '$lib/types/domain/nodes';
+	import { isCommentData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import NodeHeader from '../ui/NodeHeader.svelte';
-	import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
-	import VoteStats from '../ui/VoteStats.svelte';
-	import KeywordTags from '../ui/KeywordTags.svelte';
-	import NodeMetadata from '../ui/NodeMetadata.svelte';
-	import CreatorCredits from '../ui/CreatorCredits.svelte';
-	import CreateLinkedNodeButton from '../ui/CreateLinkedNodeButton.svelte';
-	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
-	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
-	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+	import { TextContent, NodeHeader, ContentVoteButtons, VoteStats, CreatorCredits, ReplyButton } from '../ui';
+	import { userStore } from '$lib/stores/userStore';
 	import { graphStore } from '$lib/stores/graphStore';
+	import { discussionStore } from '$lib/stores/discussionStore';
+	import { getUserDetails } from '$lib/services/userLookup';
+	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
+	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 
 	export let node: RenderableNode;
+	export let isReply: boolean = false;
 
-	// Type definition for CategoryNode data structure
-	interface CategoryNodeData {
-		id: string;
-		name: string;
-		createdBy: string;
-		publicCredit: boolean;
-		createdAt: string;
-		updatedAt: string;
-		inclusionPositiveVotes: number;
-		inclusionNegativeVotes: number;
-		inclusionNetVotes: number;
-		contentPositiveVotes?: number;
-		contentNegativeVotes?: number;
-		contentNetVotes?: number;
-		wordCount?: number;
-		contentCount?: number;
-		childCount?: number;
-		words?: Array<{
-			id: string;
-			word: string;
-			inclusionNetVotes: number;
-		}>;
-		parentCategory?: {
-			id: string;
-			name: string;
-		} | null;
-		childCategories?: Array<{
-			id: string;
-			name: string;
-			inclusionNetVotes: number;
-		}>;
-		discussionId?: string;
+	if (!isCommentData(node.data)) {
+		throw new Error('Invalid node data type for CommentNode');
 	}
 
-	let categoryData = node.data as CategoryNodeData;
+	let commentData = node.data as CommentNode;
+	let voteBehaviour: VoteBehaviour;
 
-	// Data extraction
-	$: displayName = categoryData.name;
-
-	// Inclusion voting data (Category nodes have inclusion voting only)
-	$: inclusionPositiveVotes = getNeo4jNumber(categoryData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(categoryData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(categoryData.inclusionNetVotes) || 
-		(inclusionPositiveVotes - inclusionNegativeVotes);
-	
-	// User vote status from metadata
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
-	
-	// Threshold check for expansion
-	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
-
-	// Convert composed words to Keyword[] format for KeywordTags component
-	// Categories are composed of 1-5 WordNodes
-	$: keywordsForDisplay = (categoryData.words || []).map((wordObj: { id: string; word: string; inclusionNetVotes: number }) => ({
-		word: wordObj.word,
-		frequency: 1,
-		source: 'user' as const
-	})) as Keyword[];
-
-	// Voting behaviour instance
-	let inclusionVoting: VoteBehaviour;
-
-	// Mode state
+	$: isReplying = $discussionStore.isAddingReply && $discussionStore.replyToCommentId === node.id;
 	$: isDetail = node.mode === 'detail';
+	$: userName = $userStore?.preferred_username || $userStore?.name || 'Anonymous';
 
-	// Event dispatcher
-	const dispatch = createEventDispatcher<{
-		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
-		visibilityChange: { isHidden: boolean };
-		createChildNode: { parentId: string; parentType: string; preAssignedCategory: string };
-	}>();
+	$: positiveVotes = getNeo4jNumber(commentData.positiveVotes) || 0;
+	$: negativeVotes = getNeo4jNumber(commentData.negativeVotes) || 0;
+	$: netVotes = positiveVotes - negativeVotes;
 
-	// Initialize voting behaviour on mount
-	onMount(async () => {
-		// Create voting behaviour for inclusion votes
-		inclusionVoting = createVoteBehaviour(node.id, 'category', {
-			apiIdentifier: categoryData.id,
-			dataObject: categoryData,
-			dataProperties: {
-				positiveVotesKey: 'inclusionPositiveVotes',
-				negativeVotesKey: 'inclusionNegativeVotes'
-			},
-			getVoteEndpoint: (id) => `/categories/${id}/vote`,
-			getRemoveVoteEndpoint: (id) => `/categories/${id}/vote/remove`,
-			graphStore,
-			onDataUpdate: () => {
-				// Trigger reactivity
-				categoryData = { ...categoryData };
-			},
-			metadataConfig: {
-				nodeMetadata: node.metadata,
-				voteStatusKey: 'inclusionVoteStatus'
-			}
-		});
-
-		// Initialize with current vote data
-		await inclusionVoting.initialize({
-			positiveVotes: inclusionPositiveVotes,
-			negativeVotes: inclusionNegativeVotes,
-			skipVoteStatusFetch: false
-		});
-	});
-
-	// Vote handler - now uses behaviour
-	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!inclusionVoting) return;
-		await inclusionVoting.handleVote(event.detail.voteType);
-	}
-
-	// Get reactive state from behaviour
-	$: votingState = inclusionVoting?.getCurrentState() || {
+	$: votingState = voteBehaviour?.getCurrentState() || {
+		userVoteStatus: 'none',
 		isVoting: false,
 		voteSuccess: false,
 		lastVoteType: null
 	};
 
-	// Mode change handler
-	function handleModeChange(event: CustomEvent) {
-		dispatch('modeChange', {
-			...event.detail,
-			nodeId: node.id
+	$: userVoteStatus = votingState.userVoteStatus;
+	$: isVoting = votingState.isVoting;
+	$: voteSuccess = votingState.voteSuccess;
+	$: lastVoteType = votingState.lastVoteType;
+
+	const dispatch = createEventDispatcher<{
+		modeChange: { mode: NodeMode };
+		visibilityChange: { isHidden: boolean };
+		reply: { commentId: string };
+	}>();
+
+	function handleModeChange() {
+		dispatch('modeChange', { mode: isDetail ? 'preview' : 'detail' });
+	}
+
+	async function handleVote(event: CustomEvent<{ voteType: any }>) {
+		if (!voteBehaviour) return;
+		await voteBehaviour.handleVote(event.detail.voteType);
+	}
+
+	function handleReply() {
+		dispatch('reply', { commentId: node.id });
+		discussionStore.startReply(node.id);
+	}
+
+	function handleReplyButtonClick(event: CustomEvent<{ nodeId: string | undefined }>) {
+		handleReply();
+	}
+
+	let commentCreatorDetails: any = null;
+
+	function formatDate(date: string | Date): string {
+		if (!date) return '';
+		const d = new Date(date);
+		return d.toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric'
 		});
 	}
 
-	// Keyword click handler (for composed words that define the category)
-	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
-		const { word } = event.detail;
-		console.log('Composed word clicked:', word);
-		// TODO: Implement expansion - load word node with definitions
-		// This would fetch /words/${word}/with-definitions and add to graph
-	}
-
-	// Create child node handler (generic - any node type tagged with this category)
-	function handleCreateChild() {
-		dispatch('createChildNode', {
-			parentId: node.id,
-			parentType: 'category',
-			preAssignedCategory: node.id
+	onMount(async () => {
+		voteBehaviour = createVoteBehaviour(node.id, 'comment', {
+			voteStore: discussionStore,
+			graphStore,
+			apiIdentifier: node.id,
+			dataObject: commentData,
+			dataProperties: {
+				positiveVotesKey: 'positiveVotes',
+				negativeVotesKey: 'negativeVotes'
+			},
+			getVoteEndpoint: (id) => `/comments/${id}/vote`,
+			getRemoveVoteEndpoint: (id) => `/comments/${id}/vote/remove`,
+			onDataUpdate: () => {
+				commentData = { ...commentData };
+			},
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'contentVoteStatus'
+			}
 		});
-	}
+
+		await voteBehaviour.initialize({
+			positiveVotes: commentData.positiveVotes,
+			negativeVotes: commentData.negativeVotes,
+			skipVoteStatusFetch: false
+		});
+
+		if (graphStore) {
+			graphStore.recalculateNodeVisibility(
+				node.id,
+				positiveVotes,
+				negativeVotes
+			);
+		}
+
+		if (commentData.createdBy) {
+			try {
+				commentCreatorDetails = await getUserDetails(commentData.createdBy);
+			} catch (e) {
+				console.error('[CommentNode] Error fetching creator details:', e);
+			}
+		}
+	});
 </script>
 
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Category" {radius} mode="detail" />
+			<NodeHeader title={isReply ? "Reply" : "Comment"} {radius} mode="detail" />
 		</svelte:fragment>
 
-		<!-- KeywordTags: Show composed words that define this category -->
-		<svelte:fragment slot="keywordTags" let:radius>
-			{#if keywordsForDisplay.length > 0}
-				<KeywordTags 
-					keywords={keywordsForDisplay}
-					{radius}
-					maxDisplay={5}
-					on:keywordClick={handleKeywordClick}
-				/>
-			{/if}
-		</svelte:fragment>
-
-		<!-- Content: Display the category name prominently -->
 		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<text
-				x="0"
-				y={y + 20}
-				class="category-name"
-				text-anchor="middle"
-			>
-				{displayName}
-			</text>
+			<foreignObject {x} {y} {width} {height}>
+				<TextContent text={commentData.commentText} mode="detail" />
+			</foreignObject>
 		</svelte:fragment>
 
-		<!-- Voting: Inclusion voting only -->
-		<svelte:fragment slot="voting" let:x let:y let:width let:height>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
+		<svelte:fragment slot="voting" let:width let:height let:y>
+			<ContentVoteButtons
+				userVoteStatus={userVoteStatus}
+				positiveVotes={positiveVotes}
+				negativeVotes={negativeVotes}
+				isVoting={isVoting}
+				voteSuccess={voteSuccess}
+				lastVoteType={lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="detail"
-				on:vote={handleInclusionVote}
+				on:vote={handleVote}
 			/>
 		</svelte:fragment>
 
-		<!-- Stats: Single voting stats -->
 		<svelte:fragment slot="stats" let:width let:y>
 			<VoteStats
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				positiveLabel="Include"
-				negativeLabel="Exclude"
+				userVoteStatus={userVoteStatus}
+				positiveVotes={positiveVotes}
+				negativeVotes={negativeVotes}
+				positiveLabel="Agree"
+				negativeLabel="Disagree"
 				availableWidth={width}
 				containerY={y}
 				showUserStatus={false}
 			/>
 		</svelte:fragment>
 
-		<!-- Metadata: Standard node metadata -->
 		<svelte:fragment slot="metadata" let:radius>
-			<NodeMetadata
-				createdAt={categoryData.createdAt}
-				updatedAt={categoryData.updatedAt}
-				{radius}
-			/>
+			{#if commentData.createdAt}
+				<text
+					x="0"
+					y={radius * 0.78}
+					class="comment-date"
+					text-anchor="middle"
+					fill="rgba(255, 255, 255, 0.6)"
+					font-size="11px"
+					font-family="Inter"
+				>
+					{formatDate(commentData.createdAt)}
+				</text>
+			{/if}
 		</svelte:fragment>
 
-		<!-- Credits: Standard creator credits -->
 		<svelte:fragment slot="credits" let:radius>
-			<CreatorCredits
-				createdBy={categoryData.createdBy}
-				publicCredit={categoryData.publicCredit}
-				{radius}
-			/>
+			{#if commentData.createdBy}
+				<CreatorCredits
+					createdBy={commentData.createdBy}
+					publicCredit={commentData.publicCredit}
+					{radius}
+					prefix="by:"
+				/>
+			{/if}
 		</svelte:fragment>
 
-		<!-- CreateChild: Generic node creation button (NE corner) -->
-		<!-- Any node type can be tagged with this category -->
 		<svelte:fragment slot="createChild" let:radius>
-			{#if canExpand}
-				<CreateLinkedNodeButton
+			{#if !isReply}
+				<ReplyButton
 					y={-radius * 0.7071}
 					x={radius * 0.7071}
 					nodeId={node.id}
-					nodeType="category"
-					on:click={handleCreateChild}
+					on:reply={handleReplyButtonClick}
 				/>
 			{/if}
 		</svelte:fragment>
 	</BaseDetailNode>
 {:else}
-	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
+	<BasePreviewNode {node} canExpand={true} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Category" {radius} mode="preview" />
+			<NodeHeader title={isReply ? "Reply" : "Comment"} {radius} mode="preview" size="small" />
 		</svelte:fragment>
 
-		<!-- Content: Show category name in preview -->
 		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<text
-				x="0"
-				y={y + 10}
-				class="category-name-preview"
-				text-anchor="middle"
-			>
-				{displayName}
-			</text>
+			<foreignObject {x} {y} {width} {height}>
+				<TextContent text={commentData.commentText} mode="preview" />
+			</foreignObject>
 		</svelte:fragment>
 
-		<!-- Voting: Inclusion voting in preview mode -->
-		<svelte:fragment slot="voting" let:x let:y let:width let:height>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
+		<svelte:fragment slot="voting" let:width let:height let:y>
+			<ContentVoteButtons
+				userVoteStatus={userVoteStatus}
+				positiveVotes={positiveVotes}
+				negativeVotes={negativeVotes}
+				isVoting={isVoting}
+				voteSuccess={voteSuccess}
+				lastVoteType={lastVoteType}
 				availableWidth={width}
 				containerY={y}
 				mode="preview"
-				on:vote={handleInclusionVote}
+				on:vote={handleVote}
 			/>
 		</svelte:fragment>
 	</BasePreviewNode>
 {/if}
 
 <style>
-	.category-name {
-		font-family: 'Orbitron', sans-serif;
-		font-size: 18px;
-		font-weight: 600;
-		fill: white;
-		dominant-baseline: middle;
-	}
-
-	.category-name-preview {
-		font-family: 'Orbitron', sans-serif;
-		font-size: 14px;
-		font-weight: 500;
-		fill: white;
-		dominant-baseline: middle;
+	.comment-date {
+		font-family: Inter, sans-serif;
+		font-size: 11px;
+		font-weight: 400;
 	}
 </style>
