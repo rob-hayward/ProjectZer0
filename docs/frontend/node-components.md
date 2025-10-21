@@ -402,6 +402,71 @@ $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'non
 
 ---
 
+### 5.5 Special Node Cases
+
+While most nodes follow the standard patterns exactly, three node types have additional complexity beyond voting:
+
+#### Evidence Node: Peer Review System
+
+**Standard Pattern:** Inclusion voting only (Pattern 1)
+
+**Additional System:** Community peer review with quality/independence/relevance scoring
+
+Evidence nodes implement both:
+1. **VoteBehaviour** for inclusion voting (include/exclude)
+2. **Custom peer review logic** for quality assessment (not using voteBehaviour)
+
+The peer review system is intentionally separate because it assesses *evidence quality* rather than *graph inclusion*.
+
+**Key Files:**
+- `EvidenceNode.svelte` - Contains peer review state and submission logic
+- Uses custom API: `/evidence/{id}/review`
+
+#### Quantity Node: Response & Unit Handling
+
+**Standard Pattern:** Inclusion voting only (Pattern 1)
+
+**Additional Systems:**
+1. Response submission (numerical answers with units)
+2. Unit preference management via `unitPreferenceStore`
+3. Statistics visualization from aggregated responses
+
+**Special Layout Considerations:**
+- Uses larger radius (200 vs 150)
+- Requires custom position offsets via `BaseDetailNode` props:
+  - `titleYOffset={0.90}`
+  - `categoryTagsYOffset={0.78}`
+  - `keywordTagsYOffset={0.66}`
+
+**Key Files:**
+- `QuantityNode.svelte` - Response submission and statistics
+- `QuantityVisualization.svelte` - Chart component
+- `unitPreferenceStore.ts` - Unit conversion logic
+
+#### Comment Node: Discussion Threading
+
+**Standard Pattern:** Content voting only (Pattern 3)
+
+**Additional System:** Reply threading and discussion management
+
+Comments can be nested as replies and use `discussionStore` instead of `graphStore` for state management.
+
+**Key Differences:**
+- Uses `discussionStore.startReply()` for threading
+- Has `isReply` prop for nested display
+- Includes `ReplyButton` component
+- Different event handling for reply functionality
+
+**Key Files:**
+- `CommentNode.svelte` - Reply state management
+- `discussionStore.ts` - Discussion-specific state
+
+---
+
+**Developer Note:** These special cases are **justified by domain requirements** and do not indicate architectural problems. The base voting patterns remain consistent; additional functionality is layered on top without breaking the established patterns.
+
+---
+
 ## 6. VoteBehaviour System
 
 ### 6.1 Overview

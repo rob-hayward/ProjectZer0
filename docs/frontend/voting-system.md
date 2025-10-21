@@ -269,6 +269,65 @@ onMount(async () => {
 
 ---
 
+## Special Cases
+
+### Evidence Node: Dual System (Inclusion Voting + Peer Review)
+
+**Used by:** Evidence
+
+Evidence nodes use a **dual system** that combines standard inclusion voting with a specialized peer review system:
+
+**Inclusion Voting:**
+- Standard include/exclude voting (same as other nodes)
+- Determines visibility and graph inclusion
+- Uses `InclusionVoteButtons` component
+
+**Peer Review System:**
+- **Separate from voting** - not managed by voteBehaviour
+- Users rate evidence on three dimensions:
+  - **Quality Score** (1-5): Source reliability, methodology rigor
+  - **Independence Score** (1-5): Potential bias, funding sources
+  - **Relevance Score** (1-5): How well it supports parent node
+- Community aggregates displayed as overall score
+- Star rating UI for submission
+
+**Why Two Systems?**
+- **Inclusion voting** → Community consensus on whether evidence should exist
+- **Peer review** → Expert assessment of evidence quality
+
+**Implementation Note:**
+The peer review system is implemented separately in `EvidenceNode.svelte` and does NOT use voteBehaviour. It has its own API endpoints (`/evidence/{id}/review`) and state management.
+
+### Quantity Node: Response Submission Beyond Voting
+
+**Used by:** Quantity
+
+Quantity nodes have standard inclusion voting plus specialized response functionality:
+
+**Inclusion Voting:**
+- Standard include/exclude voting
+- Determines whether question should exist in graph
+
+**Response System:**
+- Users submit numerical responses with units
+- Statistics calculated from all responses (mean, median, range)
+- Unit conversion handled via `unitPreferenceStore`
+- Visualization with distribution charts
+
+**Why Different?**
+- **Inclusion voting** → Should this quantity question exist?
+- **Response submission** → What's your answer to the question?
+
+**Special Considerations:**
+- Larger node radius (200 vs 150) requires custom position offsets
+- Uses `titleYOffset`, `categoryTagsYOffset` props on BaseDetailNode
+- Integrates with `QuantityVisualization` component
+
+**Implementation Note:**
+Response submission uses separate API endpoints (`/quantities/{id}/responses`) and is not managed by voteBehaviour. State is managed via `userResponse` and `statistics` variables.
+
+---
+
 ## Implementation Guide
 
 ### Step 1: Change `const` to `let`
@@ -572,7 +631,7 @@ metadataConfig: {
 
 ### By The Numbers
 
-- **9 nodes** using centralized voting
+- **10 nodes** using centralized voting
 - **~800 lines** of duplicate code eliminated
 - **3 patterns:** Single, Dual, Content-only
 - **100% coverage:** Every node type standardized
