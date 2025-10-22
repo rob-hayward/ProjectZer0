@@ -292,8 +292,8 @@ const mockVoteStore = {
 **Duration:** 3-4 hours
 
 **Files Needed:**
-- ✅ `visibilityBehaviour.ts` (already have)
-- ✅ `visibilityPreferenceStore.ts` (already have)
+- ✅ `visibilityBehaviour.ts` 
+- ✅ `visibilityPreferenceStore.ts` 
 - 📄 `types/domain/nodes.ts`
 
 **Test Suite Structure:**
@@ -503,9 +503,9 @@ describe('BaseDetailNode', () => {
 **Duration:** 4-5 hours
 
 **Files Needed:**
-- ✅ `ContentVoteButtons.svelte` (already have)
-- ✅ `InclusionVoteButtons.svelte` (already have)
-- ✅ `VoteStats.svelte` (already have)
+- ✅ `ContentVoteButtons.svelte` 
+- ✅ `InclusionVoteButtons.svelte` 
+- ✅ `VoteStats.svelte` 
 - 📄 `constants/colors.ts` (COLORS)
 
 **Test Suite Structure:**
