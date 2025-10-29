@@ -1,19 +1,13 @@
-<!-- src/lib/components/graph/nodes/controls/ControlNode.svelte -->
+<!-- src/lib/components/graph/nodes/controlNode/ControlNode.svelte -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import NodeHeader from '../ui/NodeHeader.svelte';
     import ContentBox from '../ui/ContentBox.svelte';
     import type { NetworkSortType, NetworkSortDirection } from '$lib/stores/statementNetworkStore';
-    import { wordListStore } from '$lib/stores/wordListStore';
-    import {
-        createModeBehaviour,
-        createDataBehaviour
-    } from '../behaviours';
     
     // Props
     export let node: RenderableNode;
@@ -24,21 +18,7 @@
     export let showOnlyMyItems: boolean = false;
     export let availableKeywords: string[] = [];
     
-    // Behaviours
-    let modeBehaviour: any;
-    let dataBehaviour: any;
-    let behavioursInitialized = false;
-    
-    // Initialize behaviours
-    $: if (node.id && !behavioursInitialized) {
-        modeBehaviour = createModeBehaviour(node.mode);
-        dataBehaviour = createDataBehaviour('control', {}, {
-            transformData: (rawData) => rawData
-        });
-        behavioursInitialized = true;
-    }
-    
-    // Internal state - IMPORTANT: Track mode reactively
+    // Internal state - Track mode reactively
     $: isDetail = node.mode === 'detail';
     
     // Form state variables
@@ -49,7 +29,7 @@
     let keywordError: string | null = null;
     let keywordExists = false;
     
-    // CRITICAL: Control node has special sizes - ensure they are used
+    // Control node has special sizes
     $: controlRadius = isDetail 
         ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
         : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
@@ -97,17 +77,15 @@
         };
     }>();
     
-    // Function to handle mode changes using behaviour
+    // Function to handle mode changes
     function handleModeChange() {
         // Apply any pending changes on collapse
         if (isDetail && pendingChanges) {
             applyChanges();
         }
         
-        const newMode = modeBehaviour?.handleModeChange();
-        if (newMode) {
-            dispatch('modeChange', { mode: newMode });
-        }
+        const newMode: NodeMode = isDetail ? 'preview' : 'detail';
+        dispatch('modeChange', { mode: newMode });
     }
     
     // Apply changes to parent component
@@ -129,7 +107,7 @@
         pendingChanges = false;
     }
     
-    // Clear all filters - FIXED to ensure pendingChanges is set
+    // Clear all filters
     function clearAllFilters() {
         editKeywords = [];
         editShowOnlyMyItems = false;
@@ -307,11 +285,6 @@
         editKeywords = [...keywords];
         editKeywordOperator = keywordOperator;
         editShowOnlyMyItems = showOnlyMyItems;
-        
-        // Initialize behaviours
-        if (dataBehaviour) {
-            await dataBehaviour.initialize();
-        }
     });
     
     // Debug logging for mode changes
@@ -328,192 +301,181 @@
 {#if isDetail}
     <!-- DETAIL MODE -->
     <BaseDetailNode node={nodeWithCorrectSize} on:modeChange={handleModeChange}>
-        <svelte:fragment slot="default" let:radius>
+        <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Graph Controls" {radius} mode="detail" />
-            
-            <!-- Position ContentBox below the header -->
-            <g transform="translate(0, 0)">
-                <ContentBox 
-                    nodeType="control" 
-                    mode="detail" 
-                    showBorder={false}
-                >
-                    <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-                        <!-- Sort Controls Section -->
-                        <foreignObject
-                            x={x}
-                            y={y - 20}
-                            width={width}
-                            height="120"
-                        >
-                            <div class="control-container">
-                                <h3 class="section-title">Sort and Filter Statements</h3>
-                                
-                                <div class="control-row">
-                                    <div class="control-section">
-                                        <label for="sort-type">Sort by</label>
-                                        <select 
-                                            id="sort-type"
-                                            bind:value={editSortType}
-                                            on:change={markPendingChanges}
-                                        >
-                                            {#each Object.entries(sortOptions) as [value, label]}
-                                                <option {value}>{label}</option>
-                                            {/each}
-                                        </select>
-                                    </div>
-                                    
-                                    <div class="control-section">
-                                        <label for="sort-direction">Direction</label>
-                                        <select 
-                                            id="sort-direction"
-                                            bind:value={editSortDirection}
-                                            on:change={markPendingChanges}
-                                        >
-                                            {#each Object.entries(directionOptions) as [value, label]}
-                                                <option {value}>{label}</option>
-                                            {/each}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </foreignObject>
+        </svelte:fragment>
+        
+        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+            <!-- Sort Controls Section -->
+            <foreignObject
+                x={x}
+                y={y - 20}
+                width={width}
+                height="120"
+            >
+                <div class="control-container">
+                    <h3 class="section-title">Sort and Filter Statements</h3>
+                    
+                    <div class="control-row">
+                        <div class="control-section">
+                            <label for="sort-type">Sort by</label>
+                            <select 
+                                id="sort-type"
+                                bind:value={editSortType}
+                                on:change={markPendingChanges}
+                            >
+                                {#each Object.entries(sortOptions) as [value, label]}
+                                    <option {value}>{label}</option>
+                                {/each}
+                            </select>
+                        </div>
                         
-                        <!-- Keyword Filter Section -->
-                        <foreignObject
-                            x={x}
-                            y={y + 100}
-                            width={width}
-                            height={editKeywords.length > 0 ? 200 : 120}
+                        <div class="control-section">
+                            <label for="sort-direction">Direction</label>
+                            <select 
+                                id="sort-direction"
+                                bind:value={editSortDirection}
+                                on:change={markPendingChanges}
+                            >
+                                {#each Object.entries(directionOptions) as [value, label]}
+                                    <option {value}>{label}</option>
+                                {/each}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </foreignObject>
+            
+            <!-- Keyword Filter Section -->
+            <foreignObject
+                x={x}
+                y={y + 100}
+                width={width}
+                height={editKeywords.length > 0 ? 200 : 120}
+            >
+                <div class="control-container">
+                    <h3 class="section-title">Filter by Keywords</h3>
+                    
+                    <div class="keyword-input-container">
+                        <div class="autocomplete-wrapper">
+                            <input
+                                type="text"
+                                placeholder="Add keyword..."
+                                bind:value={keywordInput}
+                                on:input={handleKeywordInputChange}
+                                on:keydown={handleKeywordInputKeydown}
+                                autocomplete="off"
+                                class={keywordError ? "has-error" : ""}
+                            />
+                            
+                            {#if keywordError}
+                                <div class="keyword-error">{keywordError}</div>
+                            {/if}
+                            
+                            {#if keywordSearchResults.length > 0 && keywordInput}
+                                <div class="autocomplete-dropdown" role="listbox">
+                                    {#each keywordSearchResults as suggestion}
+                                        <button 
+                                            class="autocomplete-item"
+                                            role="option"
+                                            aria-selected="false"
+                                            on:click={() => addKeyword(suggestion)}
+                                            on:keydown={(e) => e.key === 'Enter' && addKeyword(suggestion)}
+                                        >
+                                            <span class="suggestion-text">
+                                                {suggestion}
+                                            </span>
+                                            {#if suggestion.toLowerCase() === keywordInput.toLowerCase().trim()}
+                                                <span class="exact-match">(exact match)</span>
+                                            {/if}
+                                        </button>
+                                    {/each}
+                                </div>
+                            {/if}
+                        </div>
+                        
+                        <button 
+                            class="add-keyword"
+                            on:click={() => addKeyword(keywordInput)}
+                            disabled={!keywordInput || (keywordInput.trim() !== '' && !keywordExists)}
+                            title={keywordExists ? "Add this keyword" : "This keyword doesn't exist in the database"}
                         >
-                            <div class="control-container">
-                                <h3 class="section-title">Filter by Keywords</h3>
-                                
-                                <div class="keyword-input-container">
-                                    <div class="autocomplete-wrapper">
-                                        <input
-                                            type="text"
-                                            placeholder="Add keyword..."
-                                            bind:value={keywordInput}
-                                            on:input={handleKeywordInputChange}
-                                            on:keydown={handleKeywordInputKeydown}
-                                            autocomplete="off"
-                                            class={keywordError ? "has-error" : ""}
-                                        />
-                                        
-                                        {#if keywordError}
-                                            <div class="keyword-error">{keywordError}</div>
-                                        {/if}
-                                        
-                                        {#if keywordSearchResults.length > 0 && keywordInput}
-                                            <div class="autocomplete-dropdown" role="listbox">
-                                                {#each keywordSearchResults as suggestion}
-                                                    <button 
-                                                        class="autocomplete-item"
-                                                        role="option"
-                                                        aria-selected="false"
-                                                        on:click={() => addKeyword(suggestion)}
-                                                        on:keydown={(e) => e.key === 'Enter' && addKeyword(suggestion)}
-                                                    >
-                                                        <span class="suggestion-text">
-                                                            {suggestion}
-                                                        </span>
-                                                        {#if suggestion.toLowerCase() === keywordInput.toLowerCase().trim()}
-                                                            <span class="exact-match">(exact match)</span>
-                                                        {/if}
-                                                    </button>
-                                                {/each}
-                                            </div>
-                                        {/if}
-                                    </div>
-                                    
+                            Add
+                        </button>
+                    </div>
+                    
+                    <!-- Selected Keywords Display -->
+                    {#if editKeywords.length > 0}
+                        <div class="selected-keywords">
+                            {#each editKeywords as keyword, index}
+                                <div class="keyword-chip">
+                                    <span>{keyword}</span>
                                     <button 
-                                        class="add-keyword"
-                                        on:click={() => addKeyword(keywordInput)}
-                                        disabled={!keywordInput || (keywordInput.trim() !== '' && !keywordExists)}
-                                        title={keywordExists ? "Add this keyword" : "This keyword doesn't exist in the database"}
+                                        class="remove-keyword"
+                                        on:click={() => removeKeyword(keyword)}
+                                        aria-label={`Remove ${keyword} filter`}
                                     >
-                                        Add
+                                        <span class="material-symbols-outlined">close</span>
                                     </button>
                                 </div>
                                 
-                                <!-- Selected Keywords Display -->
-                                {#if editKeywords.length > 0}
-                                    <div class="selected-keywords">
-                                        {#each editKeywords as keyword, index}
-                                            <div class="keyword-chip">
-                                                <span>{keyword}</span>
-                                                <button 
-                                                    class="remove-keyword"
-                                                    on:click={() => removeKeyword(keyword)}
-                                                    aria-label={`Remove ${keyword} filter`}
-                                                >
-                                                    <span class="material-symbols-outlined">close</span>
-                                                </button>
-                                            </div>
-                                            
-                                            <!-- Add operator between keywords -->
-                                            {#if index < editKeywords.length - 1}
-                                                <button 
-                                                    class="keyword-operator" 
-                                                    on:click={toggleKeywordOperator}
-                                                    on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
-                                                    aria-label="Toggle filter operator"
-                                                >
-                                                    {editKeywordOperator}
-                                                </button>
-                                            {/if}
-                                        {/each}
-                                        
-                                        <!-- Operator explanation -->
-                                        {#if editKeywords.length > 1}
-                                            <div class="operator-info">
-                                                <button 
-                                                    class="operator-toggle"
-                                                    on:click={toggleKeywordOperator}
-                                                    aria-label="Toggle between AND and OR operators"
-                                                >
-                                                    {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
-                                                </button>
-                                                <span class="operator-hint">
-                                                    (click to change)
-                                                </span>
-                                            </div>
-                                        {/if}
-                                    </div>
+                                <!-- Add operator between keywords -->
+                                {#if index < editKeywords.length - 1}
+                                    <button 
+                                        class="keyword-operator" 
+                                        on:click={toggleKeywordOperator}
+                                        on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
+                                        aria-label="Toggle filter operator"
+                                    >
+                                        {editKeywordOperator}
+                                    </button>
                                 {/if}
-                            </div>
-                        </foreignObject>
-                    </svelte:fragment>
-                </ContentBox>
-            </g>
+                            {/each}
+                            
+                            <!-- Operator explanation -->
+                            {#if editKeywords.length > 1}
+                                <div class="operator-info">
+                                    <button 
+                                        class="operator-toggle"
+                                        on:click={toggleKeywordOperator}
+                                        aria-label="Toggle between AND and OR operators"
+                                    >
+                                        {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
+                                    </button>
+                                    <span class="operator-hint">
+                                        (click to change)
+                                    </span>
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
+                </div>
+            </foreignObject>
             
-            <!-- Action Buttons - positioned at bottom of node -->
-            <g transform="translate(0, {radius - 100})">
-                <foreignObject 
-                    x={-160} 
-                    y={0} 
-                    width={320} 
-                    height={60}
-                >
-                    <div class="button-group">
-                        <button 
-                            class="clear-filters"
-                            on:click={clearAllFilters}
-                            disabled={editKeywords.length === 0 && !editShowOnlyMyItems}
-                        >
-                            Clear All Filters
-                        </button>
-                        <button 
-                            class="apply-filters"
-                            on:click={applyChanges}
-                            disabled={!pendingChanges}
-                        >
-                            Apply Changes
-                        </button>
-                    </div>
-                </foreignObject>
-            </g>
+            <!-- Action Buttons - positioned at bottom of content area -->
+            <foreignObject 
+                x={x} 
+                y={y + (editKeywords.length > 0 ? 310 : 230)} 
+                width={width} 
+                height={60}
+            >
+                <div class="button-group">
+                    <button 
+                        class="clear-filters"
+                        on:click={clearAllFilters}
+                        disabled={editKeywords.length === 0 && !editShowOnlyMyItems}
+                    >
+                        Clear All Filters
+                    </button>
+                    <button 
+                        class="apply-filters"
+                        on:click={applyChanges}
+                        disabled={!pendingChanges}
+                    >
+                        Apply Changes
+                    </button>
+                </div>
+            </foreignObject>
         </svelte:fragment>
     </BaseDetailNode>
 {:else}

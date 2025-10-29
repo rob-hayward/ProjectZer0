@@ -29,8 +29,10 @@
         modeChange: { mode: NodeMode };
     }>();
     
-    function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
-        dispatch('modeChange', event.detail);
+    function handleModeChange() {
+        // EditProfileNode is always in detail mode, but we handle the event for consistency
+        const newMode: NodeMode = 'detail';
+        dispatch('modeChange', { mode: newMode });
     }
     
     let preferred_username = userData.preferred_username || '';
@@ -97,17 +99,19 @@
 </script>
 
 <BaseDetailNode {node} {style} on:modeChange={handleModeChange}>
-    <svelte:fragment slot="default" let:radius>
+    <svelte:fragment slot="title" let:radius>
         <!-- Title -->
         <text 
-            dy={-radius + 120} 
+            y={-radius + 120}
             class="title"
         >
             Edit Profile
         </text>
+    </svelte:fragment>
 
+    <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
         <!-- Form Fields -->
-        <g transform="translate(0, {-radius + 150})">
+        <g transform="translate({x}, {y + layoutConfig.titleYOffset})">
             <UsernameInput
                 bind:username={preferred_username}
                 disabled={loading}
