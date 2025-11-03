@@ -178,13 +178,11 @@ export function createVisibilityBehaviour(
 
   async function setUserPreference(isVisible: boolean): Promise<void> {
     try {
-      // Update local state
       userPreference.set(isVisible);
       
-      // Save to global visibility store
-      visibilityStore.setPreference(nodeId, isVisible);
+      // ✅ FIXED: Added await
+      await visibilityStore.setPreference(nodeId, isVisible);
       
-      // ENHANCED: Update graph store if it supports user preferences
       if (graphStore && typeof graphStore.updateUserVisibilityPreference === 'function') {
         graphStore.updateUserVisibilityPreference(nodeId, isVisible, 'user');
       }
@@ -193,7 +191,7 @@ export function createVisibilityBehaviour(
     } catch (err) {
       console.error(`[VisibilityBehaviour] Error setting user preference for ${nodeId}:`, err);
       error.set('Failed to save preference');
-      throw err;
+      // The error is logged and stored in state for UI feedback
     }
   }
 
