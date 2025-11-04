@@ -823,66 +823,63 @@
                     </g>
 
                     <!-- Nodes layer -->
-                    <g class="nodes-layer">
-                        {#if $graphStore && $graphStore.nodes}
-                            {#each $graphStore.nodes as node (node.id)}
-                                <NodeRenderer 
-                                    {node}
-                                    viewType={viewType}
-                                    on:modeChange={handleModeChange}
-                                    on:visibilityChange={handleVisibilityChange}
-                                    on:reply={event => {
-                                        dispatch('reply', { commentId: event.detail.commentId });
-                                    }}
-                                    on:answerQuestion={event => {
-                                        dispatch('answerQuestion', { questionId: event.detail.questionId });
-                                    }}
-                                >
-                                    <svelte:fragment 
-                                        slot="default" 
-                                        let:node 
-                                        let:nodeX
-                                        let:nodeY
-                                        let:handleModeChange
-                                    >
-                                        <!-- FIXED: Direct node rendering with proper event binding -->
-                                        {#if isStatementNode(node)}
-                                            <StatementNode 
-                                                {node}
-                                                statementText={isStatementData(node.data) ? node.data.statement : ''}
-                                                viewType="universal"
-                                                on:modeChange={handleModeChange}
-                                            />
-                                        {:else if isOpenQuestionNode(node)}
-                                            <OpenQuestionNode
-                                                {node}
-                                                questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
-                                                viewType="universal"
-                                                on:modeChange={handleModeChange}
-                                            />
-                                        {:else if isNavigationNode(node)}
-                                            <NavigationNode 
-                                                {node}
-                                            />
-                                        {:else if node.id === 'universal-graph-controls'}
-                                            <ControlNode 
-                                                {node}
-                                            >
-                                                <slot {node} {handleModeChange} />
-                                            </ControlNode>
-                                        {:else}
-                                            <!-- Fallback for other node types -->
-                                            <slot {node} {handleModeChange} />
-                                        {/if}
-                                        
-                                        {#if showDebug}
-                                            <GraphDebugVisualizer {node} active={showDebug} />
-                                        {/if}
-                                    </svelte:fragment>
-                                </NodeRenderer>
-                            {/each}
-                        {/if}
-                    </g>
+                    <!-- Nodes layer - CORRECTED VERSION -->
+<g class="nodes-layer">
+    {#if $graphStore && $graphStore.nodes}
+        {#each $graphStore.nodes as node (node.id)}
+            <NodeRenderer 
+                {node}
+                viewType={viewType}
+                on:modeChange={handleModeChange}
+                on:visibilityChange={handleVisibilityChange}
+                on:reply={event => {
+                    dispatch('reply', { commentId: event.detail.commentId });
+                }}
+                on:answerQuestion={event => {
+                    dispatch('answerQuestion', { questionId: event.detail.questionId });
+                }}
+            >
+                <svelte:fragment 
+                    slot="default" 
+                    let:node 
+                    let:nodeX
+                    let:nodeY
+                    let:handleModeChange
+                >
+                    <!-- Direct node rendering - viewType removed from StatementNode and OpenQuestionNode -->
+                    {#if isStatementNode(node)}
+                        <StatementNode 
+                            {node}
+                            on:modeChange={handleModeChange}
+                        />
+                    {:else if isOpenQuestionNode(node)}
+                        <OpenQuestionNode
+                            {node}
+                            on:modeChange={handleModeChange}
+                        />
+                    {:else if isNavigationNode(node)}
+                        <NavigationNode 
+                            {node}
+                        />
+                    {:else if node.id === 'universal-graph-controls'}
+                        <ControlNode 
+                            {node}
+                        >
+                            <slot {node} {handleModeChange} />
+                        </ControlNode>
+                    {:else}
+                        <!-- Fallback for other node types -->
+                        <slot {node} {handleModeChange} />
+                    {/if}
+                    
+                    {#if showDebug}
+                        <GraphDebugVisualizer {node} active={showDebug} />
+                    {/if}
+                </svelte:fragment>
+            </NodeRenderer>
+        {/each}
+    {/if}
+</g>
 
                     {#if showDebug}
                         <g class="debug-overlay">

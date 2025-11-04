@@ -297,7 +297,17 @@ export interface GraphPageData {
     _routeKey?: string; // Added for forcing re-renders on navigation
 }
 
-// NEW: Utility class for working with consolidated relationships
+// FIXED: ConsolidatedRelationshipUtils class with missing methods added
+// This should replace the existing class in: src/lib/types/graph/enhanced.ts
+
+/**
+ * NEW: Utility class for working with consolidated relationships
+ * 
+ * FIXES:
+ * - Added missing getRelationshipCount() method
+ * - Added missing getTooltipText() method
+ * - Updated getVisualProperties() to use getRelationshipCount() method
+ */
 export class ConsolidatedRelationshipUtils {
     /**
      * Check if a relationship is consolidated (has multiple keywords)
@@ -308,6 +318,17 @@ export class ConsolidatedRelationshipUtils {
             link.metadata?.consolidatedKeywords &&
             link.metadata.consolidatedKeywords.relationCount > 1
         );
+    }
+
+    /**
+     * ADDED: Get the number of relationships consolidated into this link
+     */
+    static getRelationshipCount(link: RenderableLink | EnhancedLink): number {
+        if (link.metadata?.consolidatedKeywords) {
+            return link.metadata.consolidatedKeywords.relationCount;
+        }
+        // Fallback to legacy relationCount or default to 1
+        return link.metadata?.relationCount || 1;
     }
 
     /**
@@ -347,7 +368,25 @@ export class ConsolidatedRelationshipUtils {
     }
 
     /**
+     * ADDED: Get tooltip text for a relationship
+     */
+    static getTooltipText(link: RenderableLink | EnhancedLink): string {
+        const isConsolidated = this.isConsolidated(link);
+        const keywords = this.getAllKeywords(link);
+        const relationCount = this.getRelationshipCount(link);
+        const effectiveStrength = this.getEffectiveStrength(link);
+        
+        if (isConsolidated) {
+            return `Shared keywords: ${keywords.join(', ')} (${relationCount} relationships, strength: ${effectiveStrength.toFixed(2)})`;
+        }
+        
+        const keyword = keywords[0] || 'connection';
+        return `Shared keyword: ${keyword} (strength: ${effectiveStrength.toFixed(2)})`;
+    }
+
+    /**
      * Calculate visual rendering properties based on consolidated relationship
+     * UPDATED: Now uses getRelationshipCount() method instead of direct access
      */
     static getVisualProperties(link: RenderableLink | EnhancedLink): {
         strokeWidth: number;
@@ -357,7 +396,7 @@ export class ConsolidatedRelationshipUtils {
     } {
         const isConsolidated = this.isConsolidated(link);
         const effectiveStrength = this.getEffectiveStrength(link);
-        const relationCount = link.metadata?.consolidatedKeywords?.relationCount || 1;
+        const relationCount = this.getRelationshipCount(link); // FIXED: Use method instead of direct access
         
         // Calculate stroke width - consolidated relationships get thicker base
         const baseStrokeWidth = isConsolidated ? 2.0 : 1.5;

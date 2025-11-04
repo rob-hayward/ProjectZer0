@@ -67,8 +67,8 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/openquestions/${id}/vote`,
-			getRemoveVoteEndpoint: (id) => `/openquestions/${id}/vote/remove`,
+			getVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote/remove`,
 			graphStore,
 			onDataUpdate: () => {
 				questionData = { ...questionData };

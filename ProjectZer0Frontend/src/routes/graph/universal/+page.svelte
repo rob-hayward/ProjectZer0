@@ -736,35 +736,31 @@
         </div>
     {/if}
 
-    <!-- Graph visualization -->
-    <Graph 
-        data={graphData}
-        viewType={viewType}
-        bind:graphStore={graphStore}
-        on:modechange={handleNodeModeChange}
-        on:visibilitychange={handleVisibilityChange}
-    >
-        <svelte:fragment slot="default" let:node let:handleModeChange>
-            {#if isStatementNode(node)}
-                <StatementNode 
-                    {node}
-                    statementText={isStatementData(node.data) ? node.data.statement : ''}
-                    viewType="universal"
-                />
-            {:else if isOpenQuestionNode(node)}
-                <OpenQuestionNode
-                    {node}
-                    questionText={isOpenQuestionData(node.data) ? node.data.questionText : ''}
-                    viewType="universal"
-                />
-            {:else if isNavigationNode(node)}
-                <NavigationNode 
-                    {node}
-                />
-            {:else if node.id === controlNodeId}
-                <ControlNode 
-                    {node}
-                >
+   <!-- Graph visualization - CORRECTED VERSION -->
+<Graph 
+    data={graphData}
+    viewType={viewType}
+    bind:graphStore={graphStore}
+    on:modechange={handleNodeModeChange}
+    on:visibilitychange={handleVisibilityChange}
+>
+    <svelte:fragment slot="default" let:node let:handleModeChange>
+        {#if isStatementNode(node)}
+            <StatementNode 
+                {node}
+            />
+        {:else if isOpenQuestionNode(node)}
+            <OpenQuestionNode
+                {node}
+            />
+        {:else if isNavigationNode(node)}
+            <NavigationNode 
+                {node}
+            />
+        {:else if node.id === controlNodeId}
+            <ControlNode 
+                {node}
+            >
                     <!-- Universal Graph Controls -->
                     <div class="control-content">
                         <h3>Universal Graph Controls - Phase 2.2</h3>

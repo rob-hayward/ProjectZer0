@@ -73,8 +73,8 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/statements/${id}/inclusion-vote`,
-			getRemoveVoteEndpoint: (id) => `/statements/${id}/inclusion-vote/remove`,
+			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote/remove`,
 			graphStore,
 			onDataUpdate: () => {
 				statementData = { ...statementData };
@@ -93,8 +93,8 @@
 				positiveVotesKey: 'contentPositiveVotes',
 				negativeVotesKey: 'contentNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/statements/${id}/content-vote`,
-			getRemoveVoteEndpoint: (id) => `/statements/${id}/content-vote/remove`,
+			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote/remove`,
 			graphStore,
 			onDataUpdate: () => {
 				statementData = { ...statementData };
