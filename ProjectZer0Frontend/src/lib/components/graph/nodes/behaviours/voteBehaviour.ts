@@ -1,4 +1,5 @@
 // src/lib/components/graph/nodes/behaviours/voteBehaviour.ts
+// FIXED v2: Added API response property mapping for proper UI updates
 
 import { writable, derived, get, type Writable, type Readable } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
@@ -23,12 +24,18 @@ export interface VoteBehaviourOptions {
   graphStore?: any;
   getVoteEndpoint?: (id: string) => string;
   getRemoveVoteEndpoint?: (id: string) => string;
+  getVoteStatusEndpoint?: (id: string) => string;
   // Custom identifier for API calls (e.g., word text instead of node ID)
   apiIdentifier?: string;
   // Data object to update directly for reactivity
   dataObject?: any;
   // Properties to update in data object
   dataProperties?: {
+    positiveVotesKey?: string;
+    negativeVotesKey?: string;
+  };
+  // NEW: Properties to read from API response
+  apiResponseKeys?: {
     positiveVotesKey?: string;
     negativeVotesKey?: string;
   };
@@ -41,11 +48,11 @@ export interface VoteBehaviourOptions {
     negativeVotes?: number;
     votedAt?: string;
   };
-  // NEW: Metadata configuration for updating node.metadata
+  // Metadata configuration for updating node.metadata
   metadataConfig?: {
-    nodeMetadata: any; // Reference to node.metadata object
+    nodeMetadata: any;
     voteStatusKey: 'inclusionVoteStatus' | 'contentVoteStatus' | 'userVoteStatus';
-    metadataGroup?: string; // e.g., 'definition', 'statement'
+    metadataGroup?: string;
   };
 }
 
@@ -94,6 +101,11 @@ export function createVoteBehaviour(
     positiveVotesKey: 'positiveVotes',
     negativeVotesKey: 'negativeVotes'
   };
+  // NEW: API response keys default to data property keys
+  const apiResponseKeys = options.apiResponseKeys || {
+    positiveVotesKey: dataProperties.positiveVotesKey || 'positiveVotes',
+    negativeVotesKey: dataProperties.negativeVotesKey || 'negativeVotes'
+  };
   const onDataUpdate = options.onDataUpdate || null;
   const initialVoteData = options.initialVoteData || null;
   const metadataConfig = options.metadataConfig || null;
@@ -101,6 +113,7 @@ export function createVoteBehaviour(
   // Default endpoint functions
   const getVoteEndpoint = options.getVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote`);
   const getRemoveVoteEndpoint = options.getRemoveVoteEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote/remove`);
+  const getVoteStatusEndpoint = options.getVoteStatusEndpoint || ((id: string) => `/nodes/${nodeType}/${id}/vote-status`);
 
   // Internal state stores
   const userVoteStatus: Writable<VoteStatus> = writable('none');
@@ -136,12 +149,20 @@ export function createVoteBehaviour(
   // Private helper functions
   
   /**
-   * Updates vote counts from API response
-   * Handles data object mutation, store updates, and graph visibility
+   * FIXED: Updates vote counts from API response using configured property names
    */
   function updateVoteCounts(apiResponse: any): void {
-    const pos = getNeo4jNumber(apiResponse.positiveVotes);
-    const neg = getNeo4jNumber(apiResponse.negativeVotes);
+    // Read from API response using configured keys
+    const pos = getNeo4jNumber(apiResponse[apiResponseKeys.positiveVotesKey!]);
+    const neg = getNeo4jNumber(apiResponse[apiResponseKeys.negativeVotesKey!]);
+    
+    console.log('[VoteBehaviour] Updating vote counts:', {
+      nodeId,
+      apiResponseKeys,
+      rawResponse: apiResponse,
+      extractedPos: pos,
+      extractedNeg: neg
+    });
     
     // Update internal stores
     positiveVotes.set(pos);
@@ -152,13 +173,18 @@ export function createVoteBehaviour(
       dataObject[dataProperties.positiveVotesKey] = pos;
       dataObject[dataProperties.negativeVotesKey] = neg;
       
+      console.log('[VoteBehaviour] Updated data object:', {
+        [dataProperties.positiveVotesKey]: pos,
+        [dataProperties.negativeVotesKey]: neg
+      });
+      
       // Trigger reactivity callback if provided
       if (onDataUpdate && typeof onDataUpdate === 'function') {
         onDataUpdate();
       }
     }
     
-    // Update external store if provided - each view uses its correct store
+    // Update external store if provided
     if (voteStore && typeof voteStore.updateVoteData === 'function') {
       voteStore.updateVoteData(nodeId, pos, neg);
     }
@@ -170,32 +196,33 @@ export function createVoteBehaviour(
   }
 
   /**
-   * NEW: Updates node.metadata with current vote status
-   * Ensures UI components display correct vote button states
+   * Updates node.metadata with current vote status
    */
   function updateMetadata(voteType: VoteStatus): void {
     if (!metadataConfig) return;
     
     const { nodeMetadata, voteStatusKey, metadataGroup } = metadataConfig;
     
-    // Ensure metadata object exists
     if (!nodeMetadata) {
       console.warn('[VoteBehaviour] nodeMetadata not provided, skipping metadata update');
       return;
     }
     
-    // Create metadata group if needed (for dual-voting nodes)
     if (metadataGroup && !nodeMetadata.group) {
       nodeMetadata.group = metadataGroup;
     }
     
-    // Create vote status structure if needed
     if (!nodeMetadata[voteStatusKey]) {
       nodeMetadata[voteStatusKey] = { status: null };
     }
     
-    // Update vote status (null for 'none', otherwise the vote type)
     nodeMetadata[voteStatusKey].status = voteType === 'none' ? null : voteType;
+    
+    console.log('[VoteBehaviour] Updated metadata:', {
+      nodeId,
+      voteStatusKey,
+      newStatus: voteType === 'none' ? null : voteType
+    });
   }
 
   /**
@@ -209,12 +236,10 @@ export function createVoteBehaviour(
       let result;
       
       if (voteType === 'none') {
-        // Remove vote
         result = await fetchWithAuth(getRemoveVoteEndpoint(apiIdentifier), {
           method: 'POST'
         });
       } else {
-        // Cast vote
         result = await fetchWithAuth(getVoteEndpoint(apiIdentifier), {
           method: 'POST',
           body: JSON.stringify({
@@ -245,7 +270,7 @@ export function createVoteBehaviour(
     const RETRY_DELAY = 1000;
     
     try {
-      const response = await fetchWithAuth(getVoteEndpoint(apiIdentifier));
+      const response = await fetchWithAuth(getVoteStatusEndpoint(apiIdentifier));
       
       if (!response) {
         throw new Error('No response from vote status endpoint');
@@ -253,8 +278,9 @@ export function createVoteBehaviour(
       
       userVoteStatus.set(response.status || 'none');
       
-      // Update vote counts from API response
-      if (response.positiveVotes !== undefined && response.negativeVotes !== undefined) {
+      // Update vote counts from API response (if provided)
+      if (response[apiResponseKeys.positiveVotesKey!] !== undefined && 
+          response[apiResponseKeys.negativeVotesKey!] !== undefined) {
         updateVoteCounts(response);
       }
       
@@ -285,17 +311,14 @@ export function createVoteBehaviour(
       if (initialVoteData) {
         console.log(`[VoteBehaviour] Using pre-loaded vote data for ${nodeId}:`, initialVoteData);
         
-        // Set user vote status from batch data
         if (initialVoteData.userVoteStatus !== undefined) {
           userVoteStatus.set(initialVoteData.userVoteStatus);
         }
         
-        // Set vote counts from batch data
         if (initialVoteData.positiveVotes !== undefined && initialVoteData.negativeVotes !== undefined) {
           positiveVotes.set(getNeo4jNumber(initialVoteData.positiveVotes));
           negativeVotes.set(getNeo4jNumber(initialVoteData.negativeVotes));
           
-          // Also update data object if provided
           if (dataObject && dataProperties) {
             if (dataProperties.positiveVotesKey) {
               dataObject[dataProperties.positiveVotesKey] = getNeo4jNumber(initialVoteData.positiveVotes);
@@ -306,7 +329,6 @@ export function createVoteBehaviour(
           }
         }
         
-        // Skip API call since we have batch data
         error.set(null);
         return;
       }
@@ -323,7 +345,6 @@ export function createVoteBehaviour(
         const pos = getNeo4jNumber(initialData.positiveVotes);
         positiveVotes.set(pos);
         
-        // Update data object as well
         if (dataObject && dataProperties && dataProperties.positiveVotesKey) {
           dataObject[dataProperties.positiveVotesKey] = pos;
         }
@@ -332,7 +353,6 @@ export function createVoteBehaviour(
         const neg = getNeo4jNumber(initialData.negativeVotes);
         negativeVotes.set(neg);
         
-        // Update data object as well
         if (dataObject && dataProperties && dataProperties.negativeVotesKey) {
           dataObject[dataProperties.negativeVotesKey] = neg;
         }
@@ -340,7 +360,6 @@ export function createVoteBehaviour(
 
       // Skip vote status fetch if we have batch data or explicit skip
       if (!initialData.skipVoteStatusFetch) {
-        // Fetch user's vote status from API
         await initializeVoteStatus();
       } else {
         console.log(`[VoteBehaviour] Skipping vote status fetch for ${nodeId} (using batch data)`);
@@ -381,13 +400,24 @@ export function createVoteBehaviour(
       // Optimistic update
       userVoteStatus.set(voteType);
       
+      console.log('[VoteBehaviour] Performing vote action:', {
+        nodeId,
+        voteType,
+        endpoint: getVoteEndpoint(apiIdentifier)
+      });
+      
       // Perform API call
       const result = await performVoteAction(voteType);
+      
+      console.log('[VoteBehaviour] Vote action successful:', {
+        nodeId,
+        result
+      });
       
       // Update vote counts from API response
       updateVoteCounts(result);
       
-      // NEW: Update metadata
+      // Update metadata
       updateMetadata(voteType);
       
       // Update last vote time for rate limiting
@@ -451,7 +481,6 @@ export function createVoteBehaviour(
     if (voteData.userVoteStatus !== undefined) {
       userVoteStatus.set(voteData.userVoteStatus);
       
-      // Update metadata as well
       if (metadataConfig) {
         updateMetadata(voteData.userVoteStatus);
       }

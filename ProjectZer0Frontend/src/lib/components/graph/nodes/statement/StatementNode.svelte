@@ -65,6 +65,9 @@
 		keywordClick: { word: string };
 	}>();
 
+	// UPDATED v2: StatementNode.svelte onMount section
+	// Added apiResponseKeys to map API response property names for both vote types
+
 	onMount(async () => {
 		inclusionVoting = createVoteBehaviour(node.id, 'statement', {
 			apiIdentifier: statementData.id,
@@ -73,8 +76,14 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
+			// NEW: Tell voteBehaviour which properties to read from API response
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
 			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
-			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote/remove`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				statementData = { ...statementData };
@@ -93,8 +102,14 @@
 				positiveVotesKey: 'contentPositiveVotes',
 				negativeVotesKey: 'contentNegativeVotes'
 			},
+			// NEW: Tell voteBehaviour which properties to read from API response
+			apiResponseKeys: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
 			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
-			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote/remove`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				statementData = { ...statementData };

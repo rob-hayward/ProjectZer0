@@ -59,6 +59,10 @@
 		keywordClick: { word: string };
 	}>();
 
+	
+	// UPDATED v2: OpenQuestionNode.svelte onMount section
+	// Added apiResponseKeys to map API response property names
+
 	onMount(async () => {
 		inclusionVoting = createVoteBehaviour(node.id, 'openquestion', {
 			apiIdentifier: questionData.id,
@@ -67,8 +71,14 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
+			// NEW: Tell voteBehaviour which properties to read from API response
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
 			getVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote-inclusion`,
-			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote/remove`,
+			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/openquestion/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				questionData = { ...questionData };
