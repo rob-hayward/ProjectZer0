@@ -599,7 +599,8 @@ export class UniversalOpacityController {
      */
     private getSortedContentNodes(nodes: EnhancedNode[]): Array<{ node: EnhancedNode; sortValue: number }> {
         const contentNodes = nodes
-            .filter(n => n.type === 'statement' || n.type === 'openquestion')
+            .filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+             n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence')
             .map(node => {
                 let sortValue: number;
                 
