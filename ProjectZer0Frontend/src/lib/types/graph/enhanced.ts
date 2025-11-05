@@ -20,7 +20,7 @@ export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | '
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
 // ENHANCED: Updated link types with consolidated support
-export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to' | 'composed_of' | 'tagged_with';
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to' | 'composed_of' | 'tagged_with'| 'evidence_for';
 export type NodeMode = 'preview' | 'detail';
 
 // NEW: Consolidated keyword metadata interface
@@ -46,6 +46,13 @@ export interface NodeMetadata {
     parentCommentId?: string;
     depth?: number;
     isExpanded?: boolean;
+    parentQuestion?: string;        
+    discussionId?: string;          
+    sourceUrl?: string;             
+    parentNode?: string;            
+    evidenceType?: string;
+    unitCategoryId?: string;        // For Quantity nodes
+    defaultUnitId?: string;         // For Quantity nodes
     
     // Universal graph properties
     consensus_ratio?: number;

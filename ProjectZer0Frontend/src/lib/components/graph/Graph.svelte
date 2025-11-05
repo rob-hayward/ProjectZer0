@@ -21,11 +21,20 @@
     import { userStore } from '$lib/stores/userStore';
     
     // Import node components
+    import AnswerNode from './nodes/answer/AnswerNode.svelte';
+    import CategoryNode from './nodes/category/CategoryNode.svelte';
+    import CommentNode from './nodes/comment/CommentNode.svelte';
+    import DefinitionNode from './nodes/definition/DefinitionNode.svelte';
+    import EvidenceNode from './nodes/evidence/EvidenceNode.svelte';
     import StatementNode from './nodes/statement/StatementNode.svelte';
     import OpenQuestionNode from './nodes/openquestion/OpenQuestionNode.svelte';
+    import QuantityNode from './nodes/quantity/QuantityNode.svelte';
+    import WordNode from './nodes/word/WordNode.svelte';
     import NavigationNode from './nodes/navigation/NavigationNode.svelte';
     import ControlNode from './nodes/controlNode/ControlNode.svelte';
     import { isStatementNode, isOpenQuestionNode, isNavigationNode, isStatementData, isOpenQuestionData } from '$lib/types/graph/enhanced';
+	
+
     
     const DEBUG_MODE = false;
 
@@ -857,6 +866,21 @@
                             {node}
                             on:modeChange={handleModeChange}
                         />
+                        {:else if node.type === 'answer'}
+                            <AnswerNode
+                                {node}
+                                on:modeChange={handleModeChange}
+                            />
+                        {:else if node.type === 'quantity'}
+                            <QuantityNode
+                                {node}
+                                on:modeChange={handleModeChange}
+                            />
+                        {:else if node.type === 'evidence'}
+                            <EvidenceNode
+                                {node}
+                                on:modeChange={handleModeChange}
+                            />
                     {:else if isNavigationNode(node)}
                         <NavigationNode 
                             {node}

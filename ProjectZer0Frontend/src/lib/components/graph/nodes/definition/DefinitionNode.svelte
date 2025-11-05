@@ -63,17 +63,26 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/definitions/${id}/inclusion-vote`,
-			getRemoveVoteEndpoint: (id) => `/definitions/${id}/inclusion-vote/remove`,
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,  // Separate endpoint
+			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				definitionData = { ...definitionData };
+			},
+			onMetadataUpdate: () => {
+				node = node;
 			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
+			// NO voteKind - uses separate endpoint instead
 		});
 
 		contentVoting = createVoteBehaviour(node.id, 'definition', {
@@ -83,17 +92,26 @@
 				positiveVotesKey: 'contentPositiveVotes',
 				negativeVotesKey: 'contentNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/definitions/${id}/content-vote`,
-			getRemoveVoteEndpoint: (id) => `/definitions/${id}/content-vote/remove`,
+			apiResponseKeys: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,
+			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,  // Separate endpoint
+			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				definitionData = { ...definitionData };
+			},
+			onMetadataUpdate: () => {
+				node = node;
 			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'contentVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
+			// NO voteKind - uses separate endpoint instead
 		});
 
 		await Promise.all([

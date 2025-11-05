@@ -60,8 +60,8 @@
 	}>();
 
 	
-	// UPDATED v2: OpenQuestionNode.svelte onMount section
-	// Added apiResponseKeys to map API response property names
+	// UPDATED v3: OpenQuestionNode.svelte onMount section
+	// Added onMetadataUpdate callback to trigger Svelte reactivity for node metadata changes
 
 	onMount(async () => {
 		inclusionVoting = createVoteBehaviour(node.id, 'openquestion', {
@@ -71,7 +71,6 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			// NEW: Tell voteBehaviour which properties to read from API response
 			apiResponseKeys: {
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
@@ -82,6 +81,10 @@
 			graphStore,
 			onDataUpdate: () => {
 				questionData = { ...questionData };
+			},
+			// NEW: Trigger Svelte reactivity for node metadata updates
+			onMetadataUpdate: () => {
+				node = node;
 			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
@@ -134,7 +137,7 @@
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
-			<NodeHeader title="Open Question" {radius} mode="detail" />
+			<NodeHeader title="Question" {radius} mode="detail" />
 		</svelte:fragment>
 
 		<svelte:fragment slot="categoryTags" let:radius>
@@ -160,12 +163,12 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<foreignObject {x} {y} {width} height={height - 80}>
+			<foreignObject {x} {y} {width} height={height - 30}>
 				<TextContent text={displayQuestion} mode="detail" />
 			</foreignObject>
-
+			
 			{#if answerCount > 0}
-				<foreignObject {x} y={y + height - 70} {width} height="60">
+				<foreignObject {x} y={y + height - 25} {width} height="20">
 					<div class="answer-count">
 						{answerCount} answer{answerCount !== 1 ? 's' : ''}
 					</div>

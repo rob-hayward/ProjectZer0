@@ -1,4 +1,4 @@
-// src/lib/services/graph/UniversalGraphManager.ts - CLEANED VERSION
+// src/lib/services/graph/UniversalGraphManager.ts - UPDATED FOR 5 NODE TYPES
 // Central orchestrator with enhanced opacity controller integration
 
 import * as d3 from 'd3';
@@ -282,7 +282,7 @@ export class UniversalGraphManager {
             
             // Calculate average velocity for content nodes
             const contentNodes = nodes.filter(n => 
-                (n.type === 'statement' || n.type === 'openquestion') && !n.fixed
+                ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type) && !n.fixed
             );
             
             if (contentNodes.length === 0) {
@@ -354,7 +354,7 @@ export class UniversalGraphManager {
 
     private temporarilySleepSimulationForCentering(): void {
         // Put the simulation to sleep temporarily to avoid interfering with centering
-        console.log('[UniversalGraphManager] 😴 SLEEPING simulation for centering - current state:', {
+        console.log('[UniversalGraphManager] ðŸ˜´ SLEEPING simulation for centering - current state:', {
             simulationActive: this.simulationActive,
             isDormant: this.d3Simulation?.isDormantState?.(),
             isSettling: this.d3Simulation?.isSettling?.()
@@ -364,13 +364,13 @@ export class UniversalGraphManager {
             this.d3Simulation.sleepSimulation();
             this.simulationActive = false;
             
-            console.log('[UniversalGraphManager] 😴 SLEEP COMPLETE - new state:', {
+            console.log('[UniversalGraphManager] ðŸ˜´ SLEEP COMPLETE - new state:', {
                 simulationActive: this.simulationActive,
                 isDormant: this.d3Simulation?.isDormantState?.(),
                 alpha: this.d3Simulation.getSimulation().alpha()
             });
         } else {
-            console.log('[UniversalGraphManager] ⚠️ SLEEP SKIPPED - simulation not active or missing');
+            console.log('[UniversalGraphManager] âš ï¸ SLEEP SKIPPED - simulation not active or missing');
         }
     }
 
@@ -462,7 +462,7 @@ export class UniversalGraphManager {
                 this.d3Simulation.startSettlementPhase();
                 
                 const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
-                const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
+                const contentNodes = nodes.filter(n => ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type));
                 
                 if (contentNodes.length > 0) {
                     this.opacityController.startRevealSequence(nodes);
@@ -682,7 +682,7 @@ export class UniversalGraphManager {
         let changedCount = 0;
         
         nodes.forEach(node => {
-            if (node.mode === 'detail' && (node.type === 'statement' || node.type === 'openquestion')) {
+            if (node.mode === 'detail' && ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) {
                 this.nodeModes.set(node.id, 'preview');
                 node.mode = 'preview';
                 node.expanded = false;
@@ -969,7 +969,7 @@ export class UniversalGraphManager {
 
     private transformSingleNode(node: GraphNode): EnhancedNode {
         const netVotes = this.positioning.getNodeVotes(node);
-        const isHidden = (node.type === 'statement' || node.type === 'openquestion') && netVotes < 0;
+        const isHidden = (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) && netVotes < 0;
         
         let nodeMode: NodeMode | undefined = node.mode;
         if (node.group === 'central' && !node.mode) {
@@ -987,6 +987,7 @@ export class UniversalGraphManager {
             id: node.id
         };
         
+        // UPDATED: Handle all 5 content node types
         if (node.type === 'statement') {
             const votes = node.metadata?.votes as any;
             nodeData = {
@@ -1005,6 +1006,43 @@ export class UniversalGraphManager {
                 questionText: node.data && 'content' in node.data ? node.data.content : 
                             node.data && 'questionText' in node.data ? (node.data as any).questionText : '',
                 answerCount: answerCount
+            };
+        } else if (node.type === 'answer') {
+            const votes = node.metadata?.votes as any;
+            nodeData = {
+                ...nodeData,
+                answerText: node.data && 'content' in node.data ? node.data.content :
+                            node.data && 'answerText' in node.data ? (node.data as any).answerText : '',
+                parentQuestion: node.metadata?.parentQuestion,
+                positiveVotes: votes?.positive || 0,
+                negativeVotes: votes?.negative || 0,
+                netVotes: votes?.net || 0,
+                votes: votes
+            };
+        } else if (node.type === 'quantity') {
+            const votes = node.metadata?.votes as any;
+            nodeData = {
+                ...nodeData,
+                question: node.data && 'content' in node.data ? node.data.content :
+                          node.data && 'question' in node.data ? (node.data as any).question : '',
+                positiveVotes: votes?.positive || 0,
+                negativeVotes: votes?.negative || 0,
+                netVotes: votes?.net || 0,
+                votes: votes
+            };
+        } else if (node.type === 'evidence') {
+            const votes = node.metadata?.votes as any;
+            nodeData = {
+                ...nodeData,
+                title: node.data && 'content' in node.data ? node.data.content :
+                       node.data && 'title' in node.data ? (node.data as any).title : '',
+                sourceUrl: node.metadata?.sourceUrl,
+                parentNode: node.metadata?.parentNode,
+                evidenceType: node.metadata?.evidenceType,
+                positiveVotes: votes?.positive || 0,
+                negativeVotes: votes?.negative || 0,
+                netVotes: votes?.net || 0,
+                votes: votes
             };
         }
         
@@ -1050,8 +1088,9 @@ export class UniversalGraphManager {
             const netVotes = this.positioning.getNodeVotes(node);
             
             const visibilityPref = visibilityStore.getPreference(node.id);
+            // UPDATED: Include all 5 content node types in isHidden logic
             const isHidden = visibilityPref !== undefined ? !visibilityPref : 
-                            ((node.type === 'statement' || node.type === 'openquestion') && netVotes < 0);
+                            (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && netVotes < 0);
             const hiddenReason = visibilityPref !== undefined ? 'user' : 
                                 (isHidden ? 'community' : undefined);
             
@@ -1062,7 +1101,8 @@ export class UniversalGraphManager {
                 this.nodeModes.set(node.id, nodeMode);
             }
             
-            if ((node.type === 'statement' || node.type === 'openquestion') && !this.nodeModes.has(node.id)) {
+            // UPDATED: Include all 5 content node types in mode initialization
+            if (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && !this.nodeModes.has(node.id)) {
                 nodeMode = 'preview';
                 this.nodeModes.set(node.id, nodeMode);
             }
@@ -1078,6 +1118,7 @@ export class UniversalGraphManager {
                 id: node.id
             };
             
+            // UPDATED: Handle all 5 content node types
             if (node.type === 'statement') {
                 const votes = node.metadata?.votes as any;
                 nodeData = {
@@ -1100,6 +1141,93 @@ export class UniversalGraphManager {
                     positiveVotes: getNeo4jNumber(votes?.positive) || 0,
                     negativeVotes: getNeo4jNumber(votes?.negative) || 0,
                     netVotes: getNeo4jNumber(votes?.net) || (getNeo4jNumber(votes?.positive) - getNeo4jNumber(votes?.negative)) || 0,
+                    votes: votes
+                };
+            } else if (node.type === 'answer') {
+                // NEW: Answer node data extraction
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                const contentVotes = votes?.content || votes || {};
+                nodeData = {
+                    ...nodeData,
+                    answerText: node.data && 'content' in node.data ? node.data.content :
+                                node.data && 'answerText' in node.data ? (node.data as any).answerText : '',
+                    questionId: node.data && 'questionId' in node.data ? (node.data as any).questionId :
+                               node.metadata?.discussionId || '',
+                    parentQuestion: node.metadata?.parentQuestion,
+                    discussionId: node.metadata?.discussionId,
+                    // Inclusion votes
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    // Content votes
+                    contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
+                    contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
+                    contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
+                    // Categories and keywords
+                    categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                    keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                    votes: votes
+                };
+            } else if (node.type === 'quantity') {
+                // NEW: Quantity node data extraction
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                const contentVotes = votes?.content || votes || {};
+                nodeData = {
+                    ...nodeData,
+                    question: node.data && 'content' in node.data ? node.data.content :
+                              node.data && 'question' in node.data ? (node.data as any).question : '',
+                    unitCategoryId: node.data && 'unitCategoryId' in node.data ? (node.data as any).unitCategoryId : 
+                                   node.metadata?.unitCategoryId || '',
+                    defaultUnitId: node.data && 'defaultUnitId' in node.data ? (node.data as any).defaultUnitId :
+                                  node.metadata?.defaultUnitId || '',
+                    discussionId: node.metadata?.discussionId,
+                    // Inclusion votes
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    // Content votes (same as inclusion for quantity)
+                    contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    contentNetVotes: getNeo4jNumber(contentVotes?.net) || getNeo4jNumber(inclusionVotes?.net) || 0,
+                    // Categories and keywords
+                    categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                    keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                    votes: votes
+                };
+            } else if (node.type === 'evidence') {
+                // NEW: Evidence node data extraction
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                const contentVotes = votes?.content || votes || {};
+                nodeData = {
+                    ...nodeData,
+                    title: node.data && 'content' in node.data ? node.data.content :
+                           node.data && 'title' in node.data ? (node.data as any).title : '',
+                    url: node.data && 'url' in node.data ? (node.data as any).url :
+                        node.metadata?.sourceUrl || '',
+                    parentNodeId: node.data && 'parentNodeId' in node.data ? (node.data as any).parentNodeId :
+                                 node.metadata?.parentNode || '',
+                    evidenceType: node.data && 'evidenceType' in node.data ? (node.data as any).evidenceType :
+                                 node.metadata?.evidenceType || '',
+                    description: node.data && 'description' in node.data ? (node.data as any).description : '',
+                    authors: node.data && 'authors' in node.data ? (node.data as any).authors : [],
+                    publicationDate: node.data && 'publicationDate' in node.data ? (node.data as any).publicationDate : undefined,
+                    sourceUrl: node.metadata?.sourceUrl,
+                    parentNode: node.metadata?.parentNode,
+                    discussionId: node.metadata?.discussionId,
+                    // Inclusion votes
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    // Content votes (same as inclusion for evidence)
+                    contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    contentNetVotes: getNeo4jNumber(contentVotes?.net) || getNeo4jNumber(inclusionVotes?.net) || 0,
+                    // Categories and keywords
+                    categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                    keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                     votes: votes
                 };
             } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
@@ -1183,6 +1311,9 @@ export class UniversalGraphManager {
                 relationshipType = 'direct';
             } else if (link.type === 'related_to') {
                 strength = 0.6;
+                relationshipType = 'direct';
+            } else if (link.type === 'evidence_for') {
+                strength = 0.7;
                 relationshipType = 'direct';
             }
             
@@ -1452,6 +1583,7 @@ export class UniversalGraphManager {
         }
         
         let radius = 0;
+        // UPDATED: Handle all 5 content node types
         switch(node.type) {
             case 'statement':
                 radius = node.mode === 'detail' ?
@@ -1462,6 +1594,21 @@ export class UniversalGraphManager {
                 radius = node.mode === 'detail' ?
                     COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.DETAIL / 2 :
                     COORDINATE_SPACE.NODES.SIZES.OPENQUESTION.PREVIEW / 2;
+                break;
+            case 'answer':
+                radius = node.mode === 'detail' ?
+                    (COORDINATE_SPACE.NODES.SIZES.ANSWER?.DETAIL || 400) / 2 :
+                    (COORDINATE_SPACE.NODES.SIZES.ANSWER?.PREVIEW || 160) / 2;
+                break;
+            case 'quantity':
+                radius = node.mode === 'detail' ?
+                    (COORDINATE_SPACE.NODES.SIZES.QUANTITY?.DETAIL || 400) / 2 :
+                    (COORDINATE_SPACE.NODES.SIZES.QUANTITY?.PREVIEW || 160) / 2;
+                break;
+            case 'evidence':
+                radius = node.mode === 'detail' ?
+                    (COORDINATE_SPACE.NODES.SIZES.EVIDENCE?.DETAIL || 400) / 2 :
+                    (COORDINATE_SPACE.NODES.SIZES.EVIDENCE?.PREVIEW || 160) / 2;
                 break;
             case 'navigation':
                 radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
@@ -1490,11 +1637,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeColor(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
             case 'openquestion':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+            case 'answer':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER || { border: '#64c8ff' });
+            case 'quantity':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY || { border: '#ffc864' });
+            case 'evidence':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE || { border: '#c864ff' });
             case 'navigation':
                 return 'transparent';
             case 'dashboard':
@@ -1512,11 +1666,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeBackground(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.background;
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.background;
+            case 'answer':
+                return NODE_CONSTANTS.COLORS.ANSWER?.background || 'rgba(100, 200, 255, 0.1)';
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY?.background || 'rgba(255, 200, 100, 0.1)';
+            case 'evidence':
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.background || 'rgba(200, 100, 255, 0.1)';
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.background;
             default:
@@ -1525,11 +1686,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeBorder(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.border;
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.border;
+            case 'answer':
+                return NODE_CONSTANTS.COLORS.ANSWER?.border || 'rgba(100, 200, 255, 1)';
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY?.border || 'rgba(255, 200, 100, 1)';
+            case 'evidence':
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.border || 'rgba(200, 100, 255, 1)';
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.border;
             default:
@@ -1538,11 +1706,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeHover(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.hover;
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.hover;
+            case 'answer':
+                return NODE_CONSTANTS.COLORS.ANSWER?.hover || 'rgba(100, 200, 255, 0.3)';
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY?.hover || 'rgba(255, 200, 100, 0.3)';
+            case 'evidence':
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.hover || 'rgba(200, 100, 255, 0.3)';
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
             default:
@@ -1551,11 +1726,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeGradientStart(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.start;
+            case 'answer':
+                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.start || 'rgba(100, 200, 255, 0.2)';
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.start || 'rgba(255, 200, 100, 0.2)';
+            case 'evidence':
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.start || 'rgba(200, 100, 255, 0.2)';
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
             default:
@@ -1564,11 +1746,18 @@ export class UniversalGraphManager {
     }
 
     private getNodeGradientEnd(node: EnhancedNode): string {
+        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.end;
+            case 'answer':
+                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.end || 'rgba(100, 200, 255, 0.05)';
+            case 'quantity':
+                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.end || 'rgba(255, 200, 100, 0.05)';
+            case 'evidence':
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.end || 'rgba(200, 100, 255, 0.05)';
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
             default:

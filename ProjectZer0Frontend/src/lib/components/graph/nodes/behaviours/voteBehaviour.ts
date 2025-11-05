@@ -1,5 +1,5 @@
 // src/lib/components/graph/nodes/behaviours/voteBehaviour.ts
-// FIXED v2: Added API response property mapping for proper UI updates
+// FIXED v3: Added onMetadataUpdate callback to trigger Svelte reactivity for nested metadata changes
 
 import { writable, derived, get, type Writable, type Readable } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
@@ -25,35 +25,30 @@ export interface VoteBehaviourOptions {
   getVoteEndpoint?: (id: string) => string;
   getRemoveVoteEndpoint?: (id: string) => string;
   getVoteStatusEndpoint?: (id: string) => string;
-  // Custom identifier for API calls (e.g., word text instead of node ID)
   apiIdentifier?: string;
-  // Data object to update directly for reactivity
   dataObject?: any;
-  // Properties to update in data object
   dataProperties?: {
     positiveVotesKey?: string;
     negativeVotesKey?: string;
   };
-  // NEW: Properties to read from API response
   apiResponseKeys?: {
     positiveVotesKey?: string;
     negativeVotesKey?: string;
   };
-  // Callback to trigger reactivity in parent component
   onDataUpdate?: () => void;
-  // Support for pre-loaded batch data
+  onMetadataUpdate?: () => void;
   initialVoteData?: {
     userVoteStatus?: VoteStatus;
     positiveVotes?: number;
     negativeVotes?: number;
     votedAt?: string;
   };
-  // Metadata configuration for updating node.metadata
   metadataConfig?: {
     nodeMetadata: any;
     voteStatusKey: 'inclusionVoteStatus' | 'contentVoteStatus' | 'userVoteStatus';
     metadataGroup?: string;
   };
+  voteKind?: 'INCLUSION' | 'CONTENT';  // NEW: For dual voting systems
 }
 
 export interface VoteBehaviour {
@@ -101,12 +96,13 @@ export function createVoteBehaviour(
     positiveVotesKey: 'positiveVotes',
     negativeVotesKey: 'negativeVotes'
   };
-  // NEW: API response keys default to data property keys
+  // API response keys default to data property keys
   const apiResponseKeys = options.apiResponseKeys || {
     positiveVotesKey: dataProperties.positiveVotesKey || 'positiveVotes',
     negativeVotesKey: dataProperties.negativeVotesKey || 'negativeVotes'
   };
   const onDataUpdate = options.onDataUpdate || null;
+  const onMetadataUpdate = options.onMetadataUpdate || null; // NEW
   const initialVoteData = options.initialVoteData || null;
   const metadataConfig = options.metadataConfig || null;
   
@@ -149,7 +145,7 @@ export function createVoteBehaviour(
   // Private helper functions
   
   /**
-   * FIXED: Updates vote counts from API response using configured property names
+   * Updates vote counts from API response using configured property names
    */
   function updateVoteCounts(apiResponse: any): void {
     // Read from API response using configured keys
@@ -223,6 +219,12 @@ export function createVoteBehaviour(
       voteStatusKey,
       newStatus: voteType === 'none' ? null : voteType
     });
+    
+    // NEW: Trigger reactivity callback for metadata updates
+    // This is crucial for Svelte to detect nested object changes
+    if (onMetadataUpdate && typeof onMetadataUpdate === 'function') {
+      onMetadataUpdate();
+    }
   }
 
   /**
@@ -236,25 +238,23 @@ export function createVoteBehaviour(
       let result;
       
       if (voteType === 'none') {
+        const body = options.voteKind ? { kind: options.voteKind } : undefined;
         result = await fetchWithAuth(getRemoveVoteEndpoint(apiIdentifier), {
-          method: 'POST'
+          method: 'DELETE',
+          headers: body ? { 'Content-Type': 'application/json' } : undefined,
+          body: body ? JSON.stringify(body) : undefined
         });
       } else {
         result = await fetchWithAuth(getVoteEndpoint(apiIdentifier), {
           method: 'POST',
-          body: JSON.stringify({
-            isPositive: voteType === 'agree'
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ isPositive: voteType === 'agree' })  // FIXED: 'agree' not 'positive'
         });
       }
-
-      if (!result) {
-        throw new Error('No response from vote endpoint');
-      }
-
+      
       return result;
-    } catch (err) {
-      if (retryCount < MAX_RETRIES) {
+    } catch (err: any) {
+      if (retryCount < MAX_RETRIES && err?.message?.includes('network')) {
         await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
         return performVoteAction(voteType, retryCount + 1);
       }
@@ -307,40 +307,7 @@ export function createVoteBehaviour(
     initialData: Partial<VoteBehaviourState> & { skipVoteStatusFetch?: boolean } = {}
   ): Promise<void> {
     try {
-      // Check if we have pre-loaded initial vote data
-      if (initialVoteData) {
-        console.log(`[VoteBehaviour] Using pre-loaded vote data for ${nodeId}:`, initialVoteData);
-        
-        if (initialVoteData.userVoteStatus !== undefined) {
-          userVoteStatus.set(initialVoteData.userVoteStatus);
-        }
-        
-        if (initialVoteData.positiveVotes !== undefined && initialVoteData.negativeVotes !== undefined) {
-          positiveVotes.set(getNeo4jNumber(initialVoteData.positiveVotes));
-          negativeVotes.set(getNeo4jNumber(initialVoteData.negativeVotes));
-          
-          if (dataObject && dataProperties) {
-            if (dataProperties.positiveVotesKey) {
-              dataObject[dataProperties.positiveVotesKey] = getNeo4jNumber(initialVoteData.positiveVotes);
-            }
-            if (dataProperties.negativeVotesKey) {
-              dataObject[dataProperties.negativeVotesKey] = getNeo4jNumber(initialVoteData.negativeVotes);
-            }
-          }
-        }
-        
-        error.set(null);
-        return;
-      }
-
-      // Initialize from external store if available
-      if (voteStore && typeof voteStore.getVoteData === 'function') {
-        const storeData = voteStore.getVoteData(nodeId);
-        positiveVotes.set(storeData.positiveVotes || 0);
-        negativeVotes.set(storeData.negativeVotes || 0);
-      }
-
-      // Initialize from initial data if provided
+      // Set initial vote counts if provided
       if (initialData.positiveVotes !== undefined) {
         const pos = getNeo4jNumber(initialData.positiveVotes);
         positiveVotes.set(pos);
@@ -349,6 +316,7 @@ export function createVoteBehaviour(
           dataObject[dataProperties.positiveVotesKey] = pos;
         }
       }
+      
       if (initialData.negativeVotes !== undefined) {
         const neg = getNeo4jNumber(initialData.negativeVotes);
         negativeVotes.set(neg);

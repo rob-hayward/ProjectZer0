@@ -65,74 +65,77 @@
 		keywordClick: { word: string };
 	}>();
 
-	// UPDATED v2: StatementNode.svelte onMount section
-	// Added apiResponseKeys to map API response property names for both vote types
-
 	onMount(async () => {
-		inclusionVoting = createVoteBehaviour(node.id, 'statement', {
-			apiIdentifier: statementData.id,
-			dataObject: statementData,
-			dataProperties: {
-				positiveVotesKey: 'inclusionPositiveVotes',
-				negativeVotesKey: 'inclusionNegativeVotes'
-			},
-			// NEW: Tell voteBehaviour which properties to read from API response
-			apiResponseKeys: {
-				positiveVotesKey: 'inclusionPositiveVotes',
-				negativeVotesKey: 'inclusionNegativeVotes'
-			},
-			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
-			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
-			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
-			graphStore,
-			onDataUpdate: () => {
-				statementData = { ...statementData };
-			},
-			metadataConfig: {
-				nodeMetadata: node.metadata,
-				voteStatusKey: 'inclusionVoteStatus',
-				metadataGroup: getMetadataGroup()
-			}
-		});
+	inclusionVoting = createVoteBehaviour(node.id, 'statement', {
+		apiIdentifier: statementData.id,
+		dataObject: statementData,
+		dataProperties: {
+		positiveVotesKey: 'inclusionPositiveVotes',
+		negativeVotesKey: 'inclusionNegativeVotes'
+		},
+		apiResponseKeys: {
+		positiveVotesKey: 'inclusionPositiveVotes',
+		negativeVotesKey: 'inclusionNegativeVotes'
+		},
+		getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
+		getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+		getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
+		graphStore,
+		onDataUpdate: () => {
+		statementData = { ...statementData };
+		},
+		onMetadataUpdate: () => {
+		node = node;
+		},
+		metadataConfig: {
+		nodeMetadata: node.metadata,
+		voteStatusKey: 'inclusionVoteStatus',
+		metadataGroup: getMetadataGroup()
+		},
+		voteKind: 'INCLUSION'  // NEW
+	});
 
-		contentVoting = createVoteBehaviour(node.id, 'statement', {
-			apiIdentifier: statementData.id,
-			dataObject: statementData,
-			dataProperties: {
-				positiveVotesKey: 'contentPositiveVotes',
-				negativeVotesKey: 'contentNegativeVotes'
-			},
-			// NEW: Tell voteBehaviour which properties to read from API response
-			apiResponseKeys: {
-				positiveVotesKey: 'contentPositiveVotes',
-				negativeVotesKey: 'contentNegativeVotes'
-			},
-			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
-			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
-			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
-			graphStore,
-			onDataUpdate: () => {
-				statementData = { ...statementData };
-			},
-			metadataConfig: {
-				nodeMetadata: node.metadata,
-				voteStatusKey: 'contentVoteStatus',
-				metadataGroup: getMetadataGroup()
-			}
-		});
+	contentVoting = createVoteBehaviour(node.id, 'statement', {
+		apiIdentifier: statementData.id,
+		dataObject: statementData,
+		dataProperties: {
+		positiveVotesKey: 'contentPositiveVotes',
+		negativeVotesKey: 'contentNegativeVotes'
+		},
+		apiResponseKeys: {
+		positiveVotesKey: 'contentPositiveVotes',
+		negativeVotesKey: 'contentNegativeVotes'
+		},
+		getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
+		getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+		getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
+		graphStore,
+		onDataUpdate: () => {
+		statementData = { ...statementData };
+		},
+		onMetadataUpdate: () => {
+		node = node;
+		},
+		metadataConfig: {
+		nodeMetadata: node.metadata,
+		voteStatusKey: 'contentVoteStatus',
+		metadataGroup: getMetadataGroup()
+		},
+		voteKind: 'CONTENT'  // NEW
+	});
 
-		await Promise.all([
-			inclusionVoting.initialize({
-				positiveVotes: inclusionPositiveVotes,
-				negativeVotes: inclusionNegativeVotes,
-				skipVoteStatusFetch: false
-			}),
-			contentVoting.initialize({
-				positiveVotes: contentPositiveVotes,
-				negativeVotes: contentNegativeVotes,
-				skipVoteStatusFetch: false
-			})
-		]);
+	await Promise.all([
+		inclusionVoting.initialize({
+		positiveVotes: inclusionPositiveVotes,
+		negativeVotes: inclusionNegativeVotes,
+		skipVoteStatusFetch: false
+		}),
+		contentVoting.initialize({
+		positiveVotes: contentPositiveVotes,
+		negativeVotes: contentNegativeVotes,
+		skipVoteStatusFetch: false
+		})
+	]);
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {

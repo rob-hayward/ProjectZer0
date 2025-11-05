@@ -161,6 +161,24 @@ export const NODE_CONSTANTS = {
                 end: `${COLORS.PRIMARY.MAGENTA}33`
             }
         },
+        ANSWER: {
+            background: 'rgba(100, 200, 255, 0.1)',
+            border: 'rgba(100, 200, 255, 1)',
+            hover: 'rgba(100, 200, 255, 0.3)',
+            gradient: {
+                start: 'rgba(100, 200, 255, 0.2)',
+                end: 'rgba(100, 200, 255, 0.05)'
+            }
+        },
+        EVIDENCE: {
+            background: 'rgba(200, 100, 255, 0.1)',
+            border: 'rgba(200, 100, 255, 1)',
+            hover: 'rgba(200, 100, 255, 0.3)',
+            gradient: {
+                start: 'rgba(200, 100, 255, 0.2)',
+                end: 'rgba(200, 100, 255, 0.05)'
+            }
+        },
         EDIT_PROFILE: {
             background: '#FFFFFF33',      // White with 20% opacity
             border: '#FFFFFFFF',         // Solid white

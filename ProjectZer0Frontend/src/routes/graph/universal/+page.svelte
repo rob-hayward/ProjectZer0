@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - UPDATED WITH MODE ROUTING -->
+<!-- src/routes/graph/universal/+page.svelte - UPDATED WITH ALL 5 NODE TYPES -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -7,6 +7,9 @@
     import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
+    import AnswerNode from '$lib/components/graph/nodes/answer/AnswerNode.svelte';
+    import QuantityNode from '$lib/components/graph/nodes/quantity/QuantityNode.svelte';
+    import EvidenceNode from '$lib/components/graph/nodes/evidence/EvidenceNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     
@@ -31,9 +34,15 @@
     import { 
         isStatementNode,
         isOpenQuestionNode,
+        isAnswerNode,
+        isQuantityNode,
+        isEvidenceNode,
         isNavigationNode,
         isStatementData,
         isOpenQuestionData,
+        isAnswerData,
+        isQuantityData,
+        isEvidenceData,
     } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
 	import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
@@ -81,12 +90,16 @@
     let keywordOperator: FilterOperator = 'OR';
     let showOnlyMyItems = false;
     let availableKeywords: string[] = [];
-    let selectedNodeTypes: Set<'openquestion' | 'statement'> = new Set(['openquestion', 'statement']);
+    
+    // UPDATED: Support all 5 content node types
+    let selectedNodeTypes: Set<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'> = 
+        new Set(['openquestion', 'statement', 'answer', 'quantity', 'evidence']);
     let minNetVotes = -50;
     let maxNetVotes = 50;
     
     // Loading state
     let nodesLoading = true;
+    let universalDataProcessed = false;  // Track if we've processed universal data
     
     // Graph data - SINGLE SOURCE OF TRUTH
     let graphData: GraphData = { nodes: [], links: [] };
@@ -102,9 +115,17 @@
     $: relationships = $universalGraphStore?.relationships || [];
     $: isReady = authInitialized && dataInitialized;
     
-    // Typed helper functions for node filtering
+    // UPDATED: Typed helper functions for node filtering - all 5 types
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
+    $: answerNodes = nodes.filter((n: any) => n.type === 'answer');
+    $: quantityNodes = nodes.filter((n: any) => n.type === 'quantity');
+    $: evidenceNodes = nodes.filter((n: any) => n.type === 'evidence');
+    
+    // Combined content nodes for overall stats
+    $: contentNodes = nodes.filter((n: any) => 
+        ['openquestion', 'statement', 'answer', 'quantity', 'evidence'].includes(n.type)
+    );
     
     // Update phantom links status when graph store is ready
     $: if (graphStore && typeof graphStore.getShouldRenderLinks === 'function') {
@@ -123,7 +144,7 @@
         updateBatchRenderingStatus();
         
         // Only process data when graph store is fully ready and we haven't processed it yet
-        if (nodesLoaded && graphData.nodes.length <= navigationNodes.length + 1) {
+        if (nodesLoaded && !universalDataProcessed) {
             console.log('[UNIVERSAL-PAGE] Graph store bound and ready, processing data');
             updateGraphWithUniversalData();
         }
@@ -214,7 +235,7 @@
                     linksCount: state.linksCount,
                     revealState: state.revealState
                 };
-                console.log('[UNIVERSAL-PAGE] 🔗 Phantom links state updated:', phantomLinksStatus);
+                console.log('[UNIVERSAL-PAGE] ðŸ”— Phantom links state updated:', phantomLinksStatus);
             }) as EventListener;
             
             modeChangeListener = ((event: CustomEvent) => {
@@ -455,7 +476,7 @@
         // Transform universal nodes to graph nodes
         const universalGraphNodes: GraphNode[] = nodesToProcess.map((node: any) => {
             
-            // Extract common properties
+            // Extract common properties (same for all node types)
             const commonProperties = {
                 id: node.id,
                 participant_count: node.participant_count,
@@ -470,29 +491,74 @@
                 userVisibilityPreference: node.metadata.userVisibilityPreference
             };
             
-            // Build type-specific node data
+            // UPDATED: Build type-specific node data using switch statement
             let nodeData: any;
             
-            if (node.type === 'openquestion') {
-                nodeData = {
-                    ...commonProperties,
-                    questionText: node.content,
-                    answerCount: getNeo4jNumber(node.metadata.answer_count) || 0
-                };
-            } else if (node.type === 'statement') {
-                nodeData = {
-                    ...commonProperties,
-                    statement: node.content,
-                    relatedStatements: node.metadata.relatedStatements || [],
-                    parentQuestion: node.metadata.parentQuestion,
-                    discussionId: node.metadata.discussionId,
-                    initialComment: node.metadata.initialComment || ''
-                };
-            } else {
-                nodeData = {
-                    ...commonProperties,
-                    content: node.content
-                };
+            switch (node.type) {
+                case 'openquestion':
+                    nodeData = {
+                        ...commonProperties,
+                        questionText: node.content,
+                        answerCount: getNeo4jNumber(node.metadata.answer_count) || 0,
+                        categories: node.metadata.categories || []
+                    };
+                    break;
+                    
+                case 'statement':
+                    nodeData = {
+                        ...commonProperties,
+                        statement: node.content,
+                        relatedStatements: node.metadata.relatedStatements || [],
+                        parentQuestion: node.metadata.parentQuestion,
+                        discussionId: node.metadata.discussionId,
+                        initialComment: node.metadata.initialComment || '',
+                        categories: node.metadata.categories || []
+                    };
+                    break;
+                    
+                case 'answer':
+                    nodeData = {
+                        ...commonProperties,
+                        answerText: node.content,
+                        questionId: node.metadata?.parentQuestion?.nodeId || node.metadata?.discussionId || '',
+                        parentQuestion: node.metadata.parentQuestion,
+                        discussionId: node.metadata.discussionId,
+                        categories: node.metadata.categories || []
+                    };
+                    break;
+                    
+                case 'quantity':
+                    nodeData = {
+                        ...commonProperties,
+                        question: node.content,
+                        unitCategoryId: node.unitCategoryId || node.metadata?.unitCategoryId || '',
+                        defaultUnitId: node.defaultUnitId || node.metadata?.defaultUnitId || '',
+                        discussionId: node.metadata.discussionId,
+                        categories: node.metadata.categories || []
+                    };
+                    break;
+                    
+                case 'evidence':
+                    nodeData = {
+                        ...commonProperties,
+                        title: node.content,
+                        url: node.metadata?.sourceUrl || '',
+                        parentNodeId: node.metadata?.parentNode?.nodeId || node.metadata?.parentNode || '',
+                        evidenceType: node.metadata?.evidenceType || '',
+                        sourceUrl: node.metadata.sourceUrl,
+                        parentNode: node.metadata.parentNode,
+                        discussionId: node.metadata.discussionId,
+                        categories: node.metadata.categories || []
+                    };
+                    break;
+                    
+                default:
+                    // Fallback for unknown types
+                    console.warn(`[UNIVERSAL-PAGE] Unknown node type: ${node.type}`);
+                    nodeData = {
+                        ...commonProperties,
+                        content: node.content
+                    };
             }
             
             return {
@@ -506,8 +572,15 @@
                     participant_count: node.participant_count,
                     net_votes: node.metadata.votes?.net,
                     createdAt: node.created_at,
+                    
+                    // Type-specific metadata
                     answer_count: node.type === 'openquestion' ? getNeo4jNumber(node.metadata.answer_count) || 0 : undefined,
                     related_statements_count: node.type === 'statement' ? (node.metadata.relatedStatements?.length || 0) : undefined,
+                    parent_question: node.type === 'answer' ? node.metadata.parentQuestion : undefined,
+                    parent_node: node.type === 'evidence' ? node.metadata.parentNode : undefined,
+                    source_url: node.type === 'evidence' ? node.metadata.sourceUrl : undefined,
+                    
+                    // User context
                     userVoteStatus: node.metadata.userVoteStatus,
                     userVisibilityPreference: node.metadata.userVisibilityPreference,
                     votes: node.metadata.votes
@@ -540,6 +613,10 @@
         console.log('[UNIVERSAL-PAGE] Graph data prepared:', {
             totalNodes: graphData.nodes.length,
             contentNodes: universalGraphNodes.length,
+            nodeTypes: universalGraphNodes.reduce((acc: any, n) => {
+                acc[n.type] = (acc[n.type] || 0) + 1;
+                return acc;
+            }, {}),
             links: graphData.links.length,
             hasGraphStore: !!graphStore
         });
@@ -577,6 +654,7 @@
         setTimeout(() => {
             updateBatchRenderingStatus();
             isUpdatingGraph = false;
+            universalDataProcessed = true;  // Mark as processed
         }, 100);
     }
 
@@ -584,6 +662,7 @@
     async function handleControlChange() {
         if (!$userStore) return;
         
+        universalDataProcessed = false;  // Reset flag to allow reprocessing
         nodesLoading = true;
         await loadUniversalGraphData();
     }
@@ -633,8 +712,8 @@
         // The Graph component handles the actual visibility change via its store
     }
 
-    // Toggle node type function
-    function toggleNodeType(nodeType: 'openquestion' | 'statement') {
+    // UPDATED: Toggle node type function - supports all 5 types
+    function toggleNodeType(nodeType: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence') {
         if (selectedNodeTypes.has(nodeType)) {
             selectedNodeTypes.delete(nodeType);
         } else {
@@ -662,7 +741,7 @@
     // Force reveal all phantom links (for debugging)
     function forceRevealPhantomLinks() {
         if (graphStore && typeof graphStore.forceRevealAll === 'function') {
-            console.log('[UNIVERSAL-PAGE] 🚀 Forcing phantom links reveal');
+            console.log('[UNIVERSAL-PAGE] ðŸš€ Forcing phantom links reveal');
             graphStore.forceRevealAll();
         }
     }
@@ -736,7 +815,7 @@
         </div>
     {/if}
 
-   <!-- Graph visualization - CORRECTED VERSION -->
+   <!-- Graph visualization -->
 <Graph 
     data={graphData}
     viewType={viewType}
@@ -753,6 +832,18 @@
             <OpenQuestionNode
                 {node}
             />
+        {:else if isAnswerNode(node)}
+            <AnswerNode
+                {node}
+            />
+        {:else if isQuantityNode(node)}
+            <QuantityNode
+                {node}
+            />
+        {:else if isEvidenceNode(node)}
+            <EvidenceNode
+                {node}
+            />
         {:else if isNavigationNode(node)}
             <NavigationNode 
                 {node}
@@ -763,11 +854,11 @@
             >
                     <!-- Universal Graph Controls -->
                     <div class="control-content">
-                        <h3>Universal Graph Controls - Phase 2.2</h3>
+                        <h3>Universal Graph Controls</h3>
                         
                         <!-- Phantom Links status section -->
                         <div class="control-section phantom-links-section">
-                            <h4>🔗 Phantom Links System</h4>
+                            <h4>ðŸ”— Phantom Links System</h4>
                             <div class="phantom-status">
                                 <div class="status-item">
                                     <span class="status-label">Status:</span>
@@ -793,7 +884,7 @@
                                     class="force-reveal-btn"
                                     on:click={forceRevealPhantomLinks}
                                 >
-                                    🚀 Force Reveal Links (Debug)
+                                    ðŸš€ Force Reveal Links (Debug)
                                 </button>
                             {/if}
                         </div>
@@ -816,7 +907,7 @@
                                         <strong>Sequential Mode:</strong> 
                                         {enableSequentialRendering ? 'ON' : 'OFF'}<br>
                                         {#if enableSequentialRendering}
-                                            Batches render progressively: Batch 1 → wait → Batch 2<br>
+                                            Batches render progressively: Batch 1 â†’ wait â†’ Batch 2<br>
                                             Prevents performance issues with large node sets<br>
                                         {:else}
                                             All {maxBatchesToRender * batchSize} nodes render simultaneously<br>
@@ -827,7 +918,7 @@
                             {/if}
                         </div>
                         
-                        <!-- Node Type Filter -->
+                        <!-- UPDATED: Node Type Filter - All 5 Types -->
                         <div class="control-section">
                             <h4>Node Types</h4>
                             <div class="checkbox-group">
@@ -837,7 +928,7 @@
                                         checked={selectedNodeTypes.has('openquestion')}
                                         on:change={() => toggleNodeType('openquestion')}
                                     />
-                                    Questions
+                                    Questions ({questionNodes.length})
                                 </label>
                                 <label>
                                     <input 
@@ -845,7 +936,31 @@
                                         checked={selectedNodeTypes.has('statement')}
                                         on:change={() => toggleNodeType('statement')}
                                     />
-                                    Statements
+                                    Statements ({statementNodes.length})
+                                </label>
+                                <label>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedNodeTypes.has('answer')}
+                                        on:change={() => toggleNodeType('answer')}
+                                    />
+                                    Answers ({answerNodes.length})
+                                </label>
+                                <label>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedNodeTypes.has('quantity')}
+                                        on:change={() => toggleNodeType('quantity')}
+                                    />
+                                    Quantities ({quantityNodes.length})
+                                </label>
+                                <label>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedNodeTypes.has('evidence')}
+                                        on:change={() => toggleNodeType('evidence')}
+                                    />
+                                    Evidence ({evidenceNodes.length})
                                 </label>
                             </div>
                         </div>
@@ -916,13 +1031,18 @@
                             <div class="loading-indicator">Loading content...</div>
                         {/if}
                         
-                        <!-- Phase 2.2 DEBUG INFO with phantom links -->
+                        <!-- UPDATED: Debug Info with all 5 node types -->
                         <div class="debug-section">
-                            <h4>Phase 2.2 Debug Info</h4>
+                            <h4>Debug Info - All 5 Node Types</h4>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Nodes: {nodes.length} | 
+                                Total Nodes: {contentNodes.length} | 
                                 Questions: {questionNodes.length} |
                                 Statements: {statementNodes.length} |
+                                Answers: {answerNodes.length} |
+                                Quantities: {quantityNodes.length} |
+                                Evidence: {evidenceNodes.length}
+                            </p>
+                            <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Relationships: {relationships.length} |
                                 Batch Mode: {enableBatchRendering ? 'ON' : 'OFF'}
                                 {#if enableBatchRendering}
@@ -930,35 +1050,14 @@
                                 {/if}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                🔗 Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
+                                ðŸ”— Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
                                 Links: {phantomLinksStatus.linksCount} | 
                                 State: {phantomLinksStatus.revealState}
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                MODE ROUTING: UniversalGraphManager Authority | 
-                                Control Mode: {controlNodeMode} | 
-                                Local State Sync: Active
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                {#if enableBatchRendering && enableSequentialRendering}
-                                    Sequential Mode: Batches render progressively → Links reveal post-settlement
-                                {:else if enableBatchRendering}
-                                    Static Mode: {navigationNodes.length + 1 + (maxBatchesToRender * batchSize)} total nodes 
-                                    ({navigationNodes.length + 1} system + {maxBatchesToRender * batchSize} content)
-                                {:else}
-                                    Standard rendering: All {nodes.length} nodes simultaneously
-                                {/if}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
                                 Graph Store: {graphStore ? 'Connected' : 'Not Ready'} | 
                                 Data Nodes: {graphData.nodes.length} | 
                                 Data Links: {graphData.links.length}
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Phantom Links Architecture: Links included in physics but conditionally rendered to DOM
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Mode Management: Page maintains UI state, Manager handles visual state, Store handles data
                             </p>
                         </div>
                     </div>

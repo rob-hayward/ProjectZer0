@@ -37,9 +37,11 @@ export class UniversalPositioning {
     
     /**
      * Get net votes for a node
+     * UPDATED: Support all 5 content node types
      */
     public getNodeVotes(node: GraphNode): number {
-        if (node.type === 'statement' || node.type === 'openquestion') {
+        if (node.type === 'statement' || node.type === 'openquestion' || 
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
             const votes = node.metadata?.votes as any;
             if (votes) {
                 const positiveVotes = getNeo4jNumber(votes.positive);
@@ -53,13 +55,15 @@ export class UniversalPositioning {
     /**
      * Calculate positions for single-node sequential rendering
      * Uses global index to maintain continuity across batches
+     * UPDATED: Filter for all 5 content node types
      */
     public calculateSingleNodePositions(
         nodes: EnhancedNode[],
         globalStartIndex: number = 0
     ): void {
         const contentNodes = nodes.filter(node => 
-            node.type === 'statement' || node.type === 'openquestion'
+            node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
         );
         
         // Sort by votes
@@ -100,6 +104,7 @@ export class UniversalPositioning {
     
     /**
      * Calculate positions for batch rendering with continuity
+     * UPDATED: Filter for all 5 content node types
      */
     public calculateBatchPositions(
         nodes: EnhancedNode[],
@@ -107,7 +112,8 @@ export class UniversalPositioning {
         nodesPerBatch: number
     ): void {
         const contentNodes = nodes.filter(node => 
-            node.type === 'statement' || node.type === 'openquestion'
+            node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
         );
         
         // Sort by votes
@@ -173,6 +179,7 @@ export class UniversalPositioning {
     
     /**
      * Get initial position for a new node being added dynamically
+     * UPDATED: Filter for all 5 content node types
      */
     public getInitialNodePosition(
         existingNodes: EnhancedNode[],
@@ -180,7 +187,8 @@ export class UniversalPositioning {
     ): { x: number; y: number; angle: number; distance: number } {
         // Sort existing nodes by votes to find where new node fits
         const sortedNodes = [...existingNodes]
-            .filter(n => n.type === 'statement' || n.type === 'openquestion')
+            .filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+                        n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence')
             .sort((a, b) => {
                 const votesA = (a as any).netVotes || 0;
                 const votesB = (b as any).netVotes || 0;

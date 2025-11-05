@@ -68,6 +68,7 @@ export class UniversalRenderingStrategy {
     
     /**
      * Start rendering process
+     * UPDATED: Filter for all 5 content node types
      */
     public startRendering(
         data: GraphData,
@@ -76,9 +77,10 @@ export class UniversalRenderingStrategy {
     ): void {
         this.clearAllTimers();
         
-        // Separate system and content nodes
+        // Separate system and content nodes - UPDATED for all 5 types
         const contentNodes = data.nodes.filter(node => 
-            node.type === 'statement' || node.type === 'openquestion'
+            node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
         );
         const systemNodes = data.nodes.filter(node => 
             node.type === 'navigation' || node.type === 'dashboard' || node.type === 'control'
@@ -129,6 +131,7 @@ export class UniversalRenderingStrategy {
     
     /**
      * Render next single node (sequential mode)
+     * UPDATED: Filter for all 5 content node types
      */
     private renderNextSingleNode(
         transformNodes: (nodes: GraphNode[]) => EnhancedNode[],
@@ -153,9 +156,10 @@ export class UniversalRenderingStrategy {
         // Position nodes with global index for continuity
         this.positioning.calculateSingleNodePositions(enhancedNodes, 0);
         
-        // Pin newly added node during drop
+        // Pin newly added node during drop - UPDATED for all 5 types
         const newNode = enhancedNodes[enhancedNodes.length - 1];
-        if (newNode.type === 'statement' || newNode.type === 'openquestion') {
+        if (newNode.type === 'statement' || newNode.type === 'openquestion' ||
+            newNode.type === 'answer' || newNode.type === 'quantity' || newNode.type === 'evidence') {
             newNode.fx = newNode.x;
             newNode.fy = newNode.y;
             

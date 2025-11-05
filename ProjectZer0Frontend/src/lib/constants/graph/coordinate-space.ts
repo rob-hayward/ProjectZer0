@@ -34,6 +34,14 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,
                 PREVIEW: 320
             },
+            ANSWER: {
+                PREVIEW: 160,
+                DETAIL: 400
+            },
+            EVIDENCE: {
+                PREVIEW: 160,
+                DETAIL: 400
+            },
             QUANTITY: {
                 DETAIL: 1300,    // 3x larger than standard nodes
                 PREVIEW: 320     // Keep the same preview size

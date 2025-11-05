@@ -73,17 +73,26 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/answers/${id}/inclusion-vote`,
-			getRemoveVoteEndpoint: (id) => `/answers/${id}/inclusion-vote/remove`,
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/answer/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/nodes/answer/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/answer/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				answerData = { ...answerData };
+			},
+			onMetadataUpdate: () => {
+				node = node;
 			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus',
 				metadataGroup: getMetadataGroup()
-			}
+			},
+			voteKind: 'INCLUSION'  // NEW
 		});
 
 		contentVoting = createVoteBehaviour(node.id, 'answer', {
@@ -93,32 +102,41 @@
 				positiveVotesKey: 'contentPositiveVotes',
 				negativeVotesKey: 'contentNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/answers/${id}/content-vote`,
-			getRemoveVoteEndpoint: (id) => `/answers/${id}/content-vote/remove`,
+			apiResponseKeys: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/answer/${id}/vote-content`,
+			getRemoveVoteEndpoint: (id) => `/nodes/answer/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/answer/${id}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				answerData = { ...answerData };
+			},
+			onMetadataUpdate: () => {
+				node = node;
 			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'contentVoteStatus',
 				metadataGroup: getMetadataGroup()
-			}
+			},
+			voteKind: 'CONTENT'  // NEW
 		});
 
-		await Promise.all([
-			inclusionVoting.initialize({
-				positiveVotes: inclusionPositiveVotes,
-				negativeVotes: inclusionNegativeVotes,
-				skipVoteStatusFetch: false
-			}),
-			contentVoting.initialize({
-				positiveVotes: contentPositiveVotes,
-				negativeVotes: contentNegativeVotes,
-				skipVoteStatusFetch: false
-			})
-		]);
-	});
+	await Promise.all([
+		inclusionVoting.initialize({
+			positiveVotes: inclusionPositiveVotes,
+			negativeVotes: inclusionNegativeVotes,
+			skipVoteStatusFetch: false
+		}),
+		contentVoting.initialize({
+			positiveVotes: contentPositiveVotes,
+			negativeVotes: contentNegativeVotes,
+			skipVoteStatusFetch: false
+		})
+	]);
+});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
 		if (!inclusionVoting) return;
