@@ -449,7 +449,8 @@ export class UniversalOpacityController {
      * Set initial opacity for nodes during creation
      */
     public setInitialNodeOpacity(node: EnhancedNode): void {
-        if (node.type === 'statement' || node.type === 'openquestion') {
+        if (node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
             if (this.nodeOpacityState === 'hidden') {
                 (node as any).opacity = 0;
             } else {
@@ -552,9 +553,10 @@ export class UniversalOpacityController {
             (node as any).opacity = opacity;
         });
         
-        // Keep system nodes visible
+       // Keep system nodes visible
         nodes.forEach(node => {
-            if (node.type !== 'statement' && node.type !== 'openquestion') {
+            if (node.type !== 'statement' && node.type !== 'openquestion' &&
+                node.type !== 'answer' && node.type !== 'quantity' && node.type !== 'evidence') {
                 (node as any).opacity = 1;
             }
         });

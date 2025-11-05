@@ -116,7 +116,8 @@ export class UniversalD3Simulation {
      */
     private checkIfSettled(nodes: EnhancedNode[]): void {
         const contentNodes = nodes.filter(n => 
-            n.type === 'statement' || n.type === 'openquestion'
+            n.type === 'statement' || n.type === 'openquestion' ||
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence'
         );
         
         const totalMovement = contentNodes.reduce((sum, n) => {
@@ -162,7 +163,8 @@ export class UniversalD3Simulation {
      */
     private logSettlementProgress(nodes: EnhancedNode[]): void {
         const contentNodes = nodes.filter(n => 
-            n.type === 'statement' || n.type === 'openquestion'
+            n.type === 'statement' || n.type === 'openquestion' ||
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence'
         );
         
         const movingNodes = contentNodes.filter(n => 
@@ -192,7 +194,8 @@ export class UniversalD3Simulation {
         console.log(`[D3Simulation] Settlement phase ended after ${this.settlementTickCounter} ticks`);
         
         const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion');
+        const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence');
         
         const distances = contentNodes.map(n => Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2));
         const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
@@ -323,7 +326,8 @@ export class UniversalD3Simulation {
             const nodes = this.simulation.nodes() as EnhancedNode[];
             
             nodes.forEach(node => {
-                if (node.type === 'statement' || node.type === 'openquestion') {
+                if (node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
                     const targetDistance = (node as any).voteBasedDistance || 400;
                     const x = node.x ?? 0;
                     const y = node.y ?? 0;
@@ -354,7 +358,8 @@ export class UniversalD3Simulation {
             
             // Group nodes by similar angles
             nodes.forEach(node => {
-                if (node.type === 'statement' || node.type === 'openquestion') {
+                if (node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
                     const angle = Math.atan2(node.y ?? 0, node.x ?? 0);
                     const angleKey = Math.round(angle * UNIVERSAL_FORCES.SETTLEMENT_PHASE.ANGULAR_SPREADING.ANGLE_BUCKETS) / 
                                    UNIVERSAL_FORCES.SETTLEMENT_PHASE.ANGULAR_SPREADING.ANGLE_BUCKETS;
@@ -409,7 +414,8 @@ export class UniversalD3Simulation {
         
         // Unpin ALL content nodes
         nodes.forEach(node => {
-            if (node.type === 'statement' || node.type === 'openquestion') {
+            if (node.type === 'statement' || node.type === 'openquestion' ||
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
                 node.fx = null;
                 node.fy = null;
                 
@@ -534,7 +540,8 @@ export class UniversalD3Simulation {
         
         // REDUCED: Only log sample positions in development mode
         if (import.meta.env.DEV) {
-            const beforeSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
+            const beforeSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence').slice(0, 3);
             console.log('[D3Simulation] Positions BEFORE stop:', 
                 beforeSample.map(n => ({
                     id: n.id.substring(0, 8),
@@ -566,7 +573,8 @@ export class UniversalD3Simulation {
         
         // REDUCED: Only log after positions in development mode
         if (import.meta.env.DEV) {
-            const afterSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion').slice(0, 3);
+            const afterSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence').slice(0, 3);
             console.log('[D3Simulation] Positions AFTER stop:', 
                 afterSample.map(n => ({
                     id: n.id.substring(0, 8),
