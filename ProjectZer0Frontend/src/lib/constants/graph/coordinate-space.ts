@@ -35,12 +35,12 @@ export const COORDINATE_SPACE = {
                 PREVIEW: 320
             },
             ANSWER: {
-                PREVIEW: 160,
-                DETAIL: 400
+                PREVIEW: 320,
+                DETAIL: 600
             },
             EVIDENCE: {
-                PREVIEW: 160,
-                DETAIL: 400
+                PREVIEW: 320,
+                DETAIL: 600
             },
             QUANTITY: {
                 DETAIL: 1300,    // 3x larger than standard nodes
@@ -52,7 +52,7 @@ export const COORDINATE_SPACE = {
             },
             CONTROL: {           // New control node specific sizes
                 DETAIL: 450,     // Smaller detail view for control node
-                PREVIEW: 250     // Smaller preview for control node
+                PREVIEW: 100     // Minimal preview - just shows icon (similar to navigation nodes)
             },
             COMMENT: {
                 DETAIL: 600,    
@@ -72,7 +72,8 @@ export const COORDINATE_SPACE = {
                 OPENQUESTION: 150, // NEW: Same as statement collision padding
                 QUANTITY: 200,     // Larger collision padding for quantity nodes
                 DASHBOARD: 150,    // Same as definition collision padding
-                COMMENT: 10        // Small collision padding for comment nodes
+                COMMENT: 10,       // Small collision padding for comment nodes
+                CONTROL: 10        // Small collision padding for control node preview
             }
         }
     },
@@ -110,7 +111,7 @@ export const COORDINATE_SPACE = {
         },
         CONTROL: {
             DETAIL: 318,        // (450÷2) × √2 = 318.20
-            PREVIEW: 177        // (250÷2) × √2 = 176.78
+            PREVIEW: 71         // (100÷2) × √2 = 70.71 - minimal size for icon
         },
         COMMENT: {
             DETAIL: 424,        // (600÷2) × √2 = 424.26
@@ -174,6 +175,7 @@ export const COORDINATE_SPACE = {
                     OPENQUESTION: -300, // NEW: Same as statement
                     QUANTITY: -400,     // New strength for quantity nodes
                     DASHBOARD: -300,    // Same as definition and statement
+                    CONTROL: -50,       // Weak repulsion for control node
                     NAVIGATION: -20,    // Reduced from -50
                     COMMENT: -100       // Weak repulsion for comment nodes
                 },

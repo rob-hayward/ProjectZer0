@@ -972,8 +972,8 @@ export class UniversalGraphManager {
         const isHidden = (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) && netVotes < 0;
         
         let nodeMode: NodeMode | undefined = node.mode;
-        if (node.group === 'central' && !node.mode) {
-            nodeMode = 'detail';
+        if (node.group === 'central') {
+            nodeMode = node.mode ?? 'detail';  // Respect explicit mode or default to detail
         }
         
         const nodeRadius = this.getNodeRadius({
@@ -1096,8 +1096,8 @@ export class UniversalGraphManager {
             
             let nodeMode: NodeMode = this.nodeModes.get(node.id) ?? node.mode ?? this.defaultNodeMode;
             
-            if (node.group === 'central' && !this.nodeModes.has(node.id)) {
-                nodeMode = 'detail';
+           if (node.group === 'central' && !this.nodeModes.has(node.id)) {
+                nodeMode = node.mode ?? 'detail';  // Respect explicit mode or default to detail
                 this.nodeModes.set(node.id, nodeMode);
             }
             

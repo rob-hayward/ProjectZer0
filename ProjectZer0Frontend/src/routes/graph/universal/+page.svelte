@@ -52,7 +52,7 @@
     
     // Control node settings
     const controlNodeId = 'universal-graph-controls';
-    let controlNodeMode: NodeMode = 'detail'; 
+    let controlNodeMode: NodeMode = 'preview'; 
     
     // Sequential batch rendering settings
     let enableBatchRendering = true;

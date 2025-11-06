@@ -39,7 +39,7 @@
     
     // Control node settings
     const controlNodeId = 'graph-controls';
-    let controlNodeMode: NodeMode = 'detail'; 
+    let controlNodeMode: NodeMode = 'preview'; 
     
     // Initialization states
     let authInitialized = false;

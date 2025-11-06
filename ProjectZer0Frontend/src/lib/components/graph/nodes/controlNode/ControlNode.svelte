@@ -29,6 +29,9 @@
     let keywordError: string | null = null;
     let keywordExists = false;
     
+    // Hover state for preview mode
+    let isHovering = false;
+    
     // Control node has special sizes
     $: controlRadius = isDetail 
         ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
@@ -270,6 +273,14 @@
         }
     }
     
+    // Handle keyboard events for the preview node button
+    function handlePreviewKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleModeChange();
+        }
+    }
+    
     onMount(async () => {
         console.debug('[ControlNode] Mounted with:', {
             id: node.id,
@@ -299,600 +310,221 @@
 </script>
 
 {#if isDetail}
-    <!-- DETAIL MODE -->
+    <!-- DETAIL MODE - Keep existing implementation for now -->
     <BaseDetailNode node={nodeWithCorrectSize} on:modeChange={handleModeChange}>
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Graph Controls" {radius} mode="detail" />
         </svelte:fragment>
         
         <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-            <!-- Sort Controls Section -->
-            <foreignObject
-                x={x}
-                y={y - 20}
-                width={width}
-                height="120"
+            <!-- We'll implement the full detail view in the next step -->
+            <text 
+                x={0}
+                y={0}
+                class="detail-placeholder"
+                text-anchor="middle"
+                fill="var(--color-text-primary)"
+                font-size="16"
             >
-                <div class="control-container">
-                    <h3 class="section-title">Sort and Filter Statements</h3>
-                    
-                    <div class="control-row">
-                        <div class="control-section">
-                            <label for="sort-type">Sort by</label>
-                            <select 
-                                id="sort-type"
-                                bind:value={editSortType}
-                                on:change={markPendingChanges}
-                            >
-                                {#each Object.entries(sortOptions) as [value, label]}
-                                    <option {value}>{label}</option>
-                                {/each}
-                            </select>
-                        </div>
-                        
-                        <div class="control-section">
-                            <label for="sort-direction">Direction</label>
-                            <select 
-                                id="sort-direction"
-                                bind:value={editSortDirection}
-                                on:change={markPendingChanges}
-                            >
-                                {#each Object.entries(directionOptions) as [value, label]}
-                                    <option {value}>{label}</option>
-                                {/each}
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </foreignObject>
-            
-            <!-- Keyword Filter Section -->
-            <foreignObject
-                x={x}
-                y={y + 100}
-                width={width}
-                height={editKeywords.length > 0 ? 200 : 120}
+                Detail Mode
+            </text>
+            <text 
+                x={0}
+                y={25}
+                class="detail-placeholder"
+                text-anchor="middle"
+                fill="var(--color-text-secondary)"
+                font-size="12"
             >
-                <div class="control-container">
-                    <h3 class="section-title">Filter by Keywords</h3>
-                    
-                    <div class="keyword-input-container">
-                        <div class="autocomplete-wrapper">
-                            <input
-                                type="text"
-                                placeholder="Add keyword..."
-                                bind:value={keywordInput}
-                                on:input={handleKeywordInputChange}
-                                on:keydown={handleKeywordInputKeydown}
-                                autocomplete="off"
-                                class={keywordError ? "has-error" : ""}
-                            />
-                            
-                            {#if keywordError}
-                                <div class="keyword-error">{keywordError}</div>
-                            {/if}
-                            
-                            {#if keywordSearchResults.length > 0 && keywordInput}
-                                <div class="autocomplete-dropdown" role="listbox">
-                                    {#each keywordSearchResults as suggestion}
-                                        <button 
-                                            class="autocomplete-item"
-                                            role="option"
-                                            aria-selected="false"
-                                            on:click={() => addKeyword(suggestion)}
-                                            on:keydown={(e) => e.key === 'Enter' && addKeyword(suggestion)}
-                                        >
-                                            <span class="suggestion-text">
-                                                {suggestion}
-                                            </span>
-                                            {#if suggestion.toLowerCase() === keywordInput.toLowerCase().trim()}
-                                                <span class="exact-match">(exact match)</span>
-                                            {/if}
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                        </div>
-                        
-                        <button 
-                            class="add-keyword"
-                            on:click={() => addKeyword(keywordInput)}
-                            disabled={!keywordInput || (keywordInput.trim() !== '' && !keywordExists)}
-                            title={keywordExists ? "Add this keyword" : "This keyword doesn't exist in the database"}
-                        >
-                            Add
-                        </button>
-                    </div>
-                    
-                    <!-- Selected Keywords Display -->
-                    {#if editKeywords.length > 0}
-                        <div class="selected-keywords">
-                            {#each editKeywords as keyword, index}
-                                <div class="keyword-chip">
-                                    <span>{keyword}</span>
-                                    <button 
-                                        class="remove-keyword"
-                                        on:click={() => removeKeyword(keyword)}
-                                        aria-label={`Remove ${keyword} filter`}
-                                    >
-                                        <span class="material-symbols-outlined">close</span>
-                                    </button>
-                                </div>
-                                
-                                <!-- Add operator between keywords -->
-                                {#if index < editKeywords.length - 1}
-                                    <button 
-                                        class="keyword-operator" 
-                                        on:click={toggleKeywordOperator}
-                                        on:keydown={(e) => e.key === 'Enter' && toggleKeywordOperator()}
-                                        aria-label="Toggle filter operator"
-                                    >
-                                        {editKeywordOperator}
-                                    </button>
-                                {/if}
-                            {/each}
-                            
-                            <!-- Operator explanation -->
-                            {#if editKeywords.length > 1}
-                                <div class="operator-info">
-                                    <button 
-                                        class="operator-toggle"
-                                        on:click={toggleKeywordOperator}
-                                        aria-label="Toggle between AND and OR operators"
-                                    >
-                                        {editKeywordOperator === 'AND' ? 'Match ALL keywords' : 'Match ANY keyword'}
-                                    </button>
-                                    <span class="operator-hint">
-                                        (click to change)
-                                    </span>
-                                </div>
-                            {/if}
-                        </div>
-                    {/if}
-                </div>
-            </foreignObject>
-            
-            <!-- Action Buttons - positioned at bottom of content area -->
-            <foreignObject 
-                x={x} 
-                y={y + (editKeywords.length > 0 ? 310 : 230)} 
-                width={width} 
-                height={60}
-            >
-                <div class="button-group">
-                    <button 
-                        class="clear-filters"
-                        on:click={clearAllFilters}
-                        disabled={editKeywords.length === 0 && !editShowOnlyMyItems}
-                    >
-                        Clear All Filters
-                    </button>
-                    <button 
-                        class="apply-filters"
-                        on:click={applyChanges}
-                        disabled={!pendingChanges}
-                    >
-                        Apply Changes
-                    </button>
-                </div>
-            </foreignObject>
+                (Full controls coming next)
+            </text>
         </svelte:fragment>
     </BaseDetailNode>
 {:else}
-    <!-- PREVIEW MODE -->
-    <BasePreviewNode node={nodeWithCorrectSize} on:modeChange={handleModeChange}>
-        <svelte:fragment slot="title" let:radius>
-            <NodeHeader title="Graph Controls" {radius} size="small" mode="preview" />
-        </svelte:fragment>
-
+    <!-- PREVIEW MODE - New minimal icon design -->
+    <BasePreviewNode node={nodeWithCorrectSize} canExpand={false} on:modeChange={handleModeChange}>
         <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-            <text 
-                x={0}
-                y={y + 80}
-                class="preview-setting"
-                text-anchor="middle"
-            >
-                Sort: {sortOptions[sortType] || sortType}
-            </text>
+            <!-- Glow filter definition (exact pattern from NavigationNode) -->
+            <defs>
+                <filter id="control-icon-glow" x="-100%" y="-100%" width="300%" height="300%">
+                    <!-- Strong outer glow -->
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="18" result="blur1"/>
+                    <feFlood flood-color="var(--color-accent-primary)" flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+         
+                    <!-- Medium glow -->
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="blur2"/>
+                    <feFlood flood-color="var(--color-accent-primary)" flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+         
+                    <!-- Sharp inner glow -->
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="6" result="blur3"/>
+                    <feFlood flood-color="var(--color-accent-primary)" flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+         
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
             
-            <text 
-                x={0}
-                y={y + 100}
-                class="preview-setting"
-                text-anchor="middle"
-            >
-                Order: {directionOptions[sortDirection] || sortDirection}
-            </text>
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+            <!-- Invisible hover detection area with proper accessibility -->
+            <circle
+                cx={0}
+                cy={0}
+                r={controlRadius}
+                fill="transparent"
+                class="hover-detection"
+                on:mouseenter={() => isHovering = true}
+                on:mouseleave={() => isHovering = false}
+                on:click={handleModeChange}
+                on:keydown={handlePreviewKeydown}
+                tabindex="0"
+                role="button"
+                aria-label="Expand Controls"
+                aria-pressed="false"
+                style="cursor: pointer;"
+            />
             
-            {#if keywords.length > 0}
-                <text 
-                    x={0}
-                    y={y + 120}
-                    class="preview-setting"
-                    text-anchor="middle"
-                >
-                    Filters: {keywords.length} keyword{keywords.length > 1 ? 's' : ''}
-                </text>
-                
-                <!-- Display up to 3 keywords in preview mode -->
-                <foreignObject 
-                    x={x}
-                    y={y + 140} 
-                    width={width} 
-                    height={60}
-                >
-                    <div class="preview-keywords">
-                        {#each keywords.slice(0, 3) as keyword}
-                            <div class="preview-keyword-chip">
-                                {keyword}
-                            </div>
-                        {/each}
-                        {#if keywords.length > 3}
-                            <div class="preview-keyword-more">
-                                +{keywords.length - 3} more
-                            </div>
-                        {/if}
-                    </div>
-                </foreignObject>
+            <!-- Background circle for icon (outside the glow group) -->
+            <circle
+                cx={0}
+                cy={0}
+                r={controlRadius * 0.75}
+                fill="var(--color-background-secondary)"
+                stroke="var(--color-border-primary)"
+                stroke-width="2"
+                class="icon-background"
+                class:hovered={isHovering}
+            />
+            
+            <!-- Material Icon with glow filter applied to foreignObject (exact NavigationNode pattern) -->
+            <foreignObject 
+                x={-controlRadius * 0.5} 
+                y={-controlRadius * 0.5} 
+                width={controlRadius} 
+                height={controlRadius}
+                class="icon-container"
+                style:filter={isHovering ? 'url(#control-icon-glow)' : 'none'}
+            >
+                <div class="icon-wrapper" {...{"xmlns": "http://www.w3.org/1999/xhtml"}}>
+                    <span 
+                        class="material-symbols-outlined control-icon"
+                        class:hovered={isHovering}
+                        style:color={isHovering ? 'var(--color-accent-primary)' : 'white'}
+                    >
+                        graph_5
+                    </span>
+                </div>
+            </foreignObject>
+            
+            <!-- Hover tooltip -->
+            {#if isHovering}
+                <g transform="translate(0, {controlRadius + 20})">
+                    <rect
+                        x={-50}
+                        y={-10}
+                        width="100"
+                        height="20"
+                        rx="4"
+                        fill="rgba(0, 0, 0, 0.9)"
+                        stroke="var(--color-border-primary)"
+                        stroke-width="1"
+                        class="tooltip-background"
+                    />
+                    <text
+                        x={0}
+                        y={3}
+                        text-anchor="middle"
+                        dominant-baseline="middle"
+                        fill="white"
+                        font-size="11"
+                        font-weight="500"
+                        font-family="Inter, system-ui, sans-serif"
+                        class="tooltip-text"
+                    >
+                        Expand Controls
+                    </text>
+                </g>
             {/if}
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
 
 <style>
-    .section-title {
-        font-size: 14px;
-        font-weight: 500;
-        color: rgba(255, 255, 255, 0.9);
-        font-family: Inter;
-        margin-bottom: 10px;
-    }
-    
-    .preview-setting {
-        font-size: 12px;
-        font-weight: 400;
-        fill: rgba(255, 255, 255, 0.9);
-        font-family: Inter;
-    }
-    
-    .control-container {
-        padding: 10px;
-    }
-    
-    .control-row {
-        display: flex;
-        gap: 15px;
-    }
-
-    :global(.control-section) {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-        flex: 1;
-    }
-    
-    :global(.control-section label) {
-        font-size: 12px;
-        color: rgba(255, 255, 255, 0.6);
-        font-family: Inter;
-    }
-    
-    :global(select) {
-        background: rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        color: white;
-        padding: 8px;
-        font-family: Inter;
-        font-size: 12px;
-        appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 8px center;
-        background-size: 16px;
-        padding-right: 30px;
-    }
-    
-    :global(select:focus) {
+    /* Preview mode styles */
+    .hover-detection {
+        transition: all 0.2s ease;
         outline: none;
-        border-color: rgba(255, 255, 255, 0.4);
     }
     
-    :global(.selected-keywords) {
+    .hover-detection:focus {
+        outline: 2px solid rgba(255, 255, 255, 0.3);
+        outline-offset: 4px;
+    }
+    
+    .icon-background {
+        transition: all 0.2s ease;
+        pointer-events: none;
+    }
+    
+    .icon-background.hovered {
+        fill: var(--color-background-tertiary);
+        stroke-width: 2.5;
+    }
+    
+    /* Icon container styling - critical for Material Icons */
+    .icon-container {
+        overflow: visible;
+        pointer-events: none;
+    }
+    
+    .icon-wrapper {
+        width: 100%;
+        height: 100%;
         display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 8px 0;
-    }
-    
-    :global(.keyword-chip) {
-        display: flex;
-        align-items: center;
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
-        border-radius: 16px;
-        padding: 4px 10px;
-        font-size: 12px;
-        color: white;
-        font-family: Inter;
-    }
-    
-    :global(.remove-keyword) {
-        background: none;
-        border: none;
-        color: rgba(255, 255, 255, 0.8);
-        cursor: pointer;
-        padding: 0;
-        margin-left: 5px;
-        font-size: 12px;
-        display: flex;
-        align-items: center;
-    }
-    
-    :global(.remove-keyword:hover) {
-        color: white;
-    }
-    
-    :global(.keyword-operator) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-        border-radius: 16px;
-        color: white;
-        padding: 2px 8px;
-        font-size: 10px;
-        cursor: pointer;
-        font-family: Inter;
-        margin: 0 4px;
-        display: inline-flex;
         align-items: center;
         justify-content: center;
-        transition: all 0.2s ease;
+        pointer-events: none;
     }
     
-    :global(.keyword-operator:hover) {
-        background: rgba(52, 152, 219, 0.3);
-        border-color: rgba(52, 152, 219, 0.4);
-    }
-    
-    :global(.operator-info) {
+    /* Material Icons styling - exact pattern from NavigationNode */
+    :global(.material-symbols-outlined.control-icon) {
+        font-size: 28px;
+        /* Only transition color, not filter */
+        transition: color 0.3s ease;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
         display: flex;
-        flex-direction: column;
         align-items: center;
-        margin-top: 8px;
-        width: 100%;
-    }
-    
-    :global(.operator-toggle) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-        border-radius: 16px;
-        color: white;
-        padding: 4px 12px;
-        font-size: 11px;
-        cursor: pointer;
-        font-family: Inter;
-        transition: all 0.2s ease;
-    }
-    
-    :global(.operator-toggle:hover) {
-        background: rgba(52, 152, 219, 0.3);
-        border-color: rgba(52, 152, 219, 0.4);
-    }
-    
-    :global(.operator-hint) {
-        font-size: 9px;
-        color: rgba(255, 255, 255, 0.5);
-        margin-top: 4px;
-        font-family: Inter;
-    }
-    
-    :global(.keyword-input-container) {
-        display: flex;
-        gap: 8px;
-    }
-    
-    :global(.autocomplete-wrapper) {
-        position: relative;
-        flex: 1;
-    }
-    
-    :global(input[type="text"]) {
-        width: 100%;
-        background: rgba(0, 0, 0, 0.5);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        color: white;
-        padding: 8px;
-        font-family: Inter;
-        font-size: 12px;
-        transition: all 0.2s ease;
-    }
-    
-    :global(input[type="text"]:focus) {
-        outline: none;
-        border-color: rgba(255, 255, 255, 0.4);
-    }
-    
-    :global(.has-error) {
-        border-color: rgba(231, 76, 60, 0.5) !important;
-    }
-    
-    :global(.keyword-error) {
-        color: rgba(231, 76, 60, 0.9);
-        font-size: 11px;
-        margin-top: 4px;
-        font-family: Inter;
-    }
-    
-    :global(.autocomplete-dropdown) {
-        position: absolute;
-        width: 100%;
-        max-height: 200px;
-        overflow-y: auto;
-        background: rgba(0, 0, 0, 0.95);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 4px;
-        z-index: 10;
-        margin-top: 2px;
-    }
-    
-    :global(.autocomplete-item) {
-        width: 100%;
-        padding: 8px 12px;
-        cursor: pointer;
-        font-size: 12px;
-        transition: background 0.2s ease;
-        background: transparent;
-        border: none;
-        color: white;
-        text-align: left;
-        font-family: Inter;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    
-    :global(.suggestion-text) {
-        flex: 1;
-    }
-    
-    :global(.exact-match) {
-        color: rgba(46, 204, 113, 0.8);
-        font-size: 10px;
-        font-style: italic;
-        margin-left: 8px;
-    }
-    
-    :global(.autocomplete-item:hover),
-    :global(.autocomplete-item:focus) {
-        background: rgba(52, 152, 219, 0.2);
-        outline: none;
-    }
-    
-    :global(.add-keyword) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-        border-radius: 4px;
-        color: white;
-        padding: 8px 12px;
-        font-size: 12px;
-        cursor: pointer;
-        font-family: Inter;
-        transition: all 0.2s ease;
-    }
-    
-    :global(.add-keyword:hover:not(:disabled)) {
-        background: rgba(52, 152, 219, 0.3);
-        border-color: rgba(52, 152, 219, 0.4);
-    }
-    
-    :global(.add-keyword:disabled) {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    
-    :global(.button-group) {
-        display: flex;
-        gap: 10px;
-        width: 100%;
-        padding: 0 10px;
-    }
-    
-    :global(.clear-filters) {
-        background: rgba(231, 76, 60, 0.2);
-        border: 1px solid rgba(231, 76, 60, 0.3);
-        border-radius: 4px;
-        color: white;
-        padding: 8px 12px;
-        font-size: 14px;
-        cursor: pointer;
-        font-family: Inter;
-        text-align: center;
-        flex: 1;
-        transition: all 0.2s ease;
-    }
-    
-    :global(.clear-filters:hover:not(:disabled)) {
-        background: rgba(231, 76, 60, 0.3);
-        border-color: rgba(231, 76, 60, 0.4);
-    }
-    
-    :global(.clear-filters:disabled) {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    
-    :global(.apply-filters) {
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
-        border-radius: 4px;
-        color: white;
-        padding: 8px 12px;
-        font-size: 14px;
-        cursor: pointer;
-        font-family: Inter;
-        text-align: center;
-        flex: 1;
-        transition: all 0.2s ease;
-    }
-    
-    :global(.apply-filters:hover:not(:disabled)) {
-        background: rgba(46, 204, 113, 0.3);
-        border-color: rgba(46, 204, 113, 0.4);
-    }
-    
-    :global(.apply-filters:disabled) {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    
-    /* Material Icons */
-    :global(.material-symbols-outlined) {
-        font-family: 'Material Symbols Outlined';
-        font-weight: normal;
-        font-style: normal;
-        font-size: 18px;
-        line-height: 1;
-        letter-spacing: normal;
-        text-transform: none;
-        display: inline-block;
-        white-space: nowrap;
-        word-wrap: normal;
-        direction: ltr;
-        font-feature-settings: 'liga';
-        -webkit-font-feature-settings: 'liga';
-        -webkit-font-smoothing: antialiased;
-    }
-    
-    /* Preview mode keyword chips */
-    :global(.preview-keywords) {
-        display: flex;
-        flex-wrap: wrap;
         justify-content: center;
-        gap: 5px;
     }
     
-    :global(.preview-keyword-chip) {
-        background: rgba(46, 204, 113, 0.2);
-        border: 1px solid rgba(46, 204, 113, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 10px;
-        color: white;
-        font-family: Inter;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 100px;
+    :global(.material-symbols-outlined.control-icon.hovered) {
+        /* Keep same size on hover - only color changes */
+        font-size: 28px;
+        font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 48;
     }
     
-    :global(.preview-keyword-more) {
-        background: rgba(52, 152, 219, 0.2);
-        border: 1px solid rgba(52, 152, 219, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.7);
-        font-family: Inter;
+    .tooltip-background {
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+        pointer-events: none;
+    }
+    
+    .tooltip-text {
+        pointer-events: none;
+        user-select: none;
+        letter-spacing: 0.02em;
+    }
+    
+    /* Detail mode placeholder styles */
+    .detail-placeholder {
+        pointer-events: none;
+        user-select: none;
     }
 </style>
