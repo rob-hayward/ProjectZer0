@@ -10,8 +10,16 @@
     // Props
     export let node: RenderableNode;
     
+    // Extract position from node for event handling
+    $: nodeX = node.position?.x;
+    $: nodeY = node.position?.y;
+    
     const dispatch = createEventDispatcher<{
-        modeChange: { mode: NodeMode };
+        modeChange: { 
+            mode: NodeMode;
+            position?: { x: number; y: number };
+            nodeId?: string;
+        };
     }>();
     
     // Internal state - Track mode reactively
@@ -38,7 +46,30 @@
     
     function handleModeChange() {
         const newMode: NodeMode = isDetail ? 'preview' : 'detail';
-        dispatch('modeChange', { mode: newMode });
+        
+        console.log('[ControlNode] Mode change clicked:', {
+            currentMode: node.mode,
+            newMode,
+            nodeId: node.id,
+            position: { x: nodeX, y: nodeY }
+        });
+        
+        // Prepare event data with position and nodeId (like ExpandCollapseButton)
+        const eventData: { 
+            mode: NodeMode; 
+            position?: { x: number; y: number };
+            nodeId?: string;
+        } = { mode: newMode };
+        
+        // Include position if available
+        if (nodeX !== undefined && nodeY !== undefined) {
+            eventData.position = { x: nodeX, y: nodeY };
+        }
+        
+        // Include node ID
+        eventData.nodeId = node.id;
+        
+        dispatch('modeChange', eventData);
     }
     
     function handlePreviewKeydown(event: KeyboardEvent) {
@@ -82,7 +113,13 @@
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE - New minimal icon design -->
-    <BasePreviewNode node={nodeWithCorrectSize} canExpand={false} on:modeChange={handleModeChange}>
+    <BasePreviewNode 
+        node={nodeWithCorrectSize} 
+        canExpand={false} 
+        {nodeX}
+        {nodeY}
+        on:modeChange={handleModeChange}
+    >
         <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
             <!-- Filter definition at content slot level (like InclusionVoteButtons) -->
             <defs>
