@@ -29,14 +29,15 @@
 		}
 	};
 
-	// NEW: Position override props for special cases (e.g., larger nodes like Quantity)
+	// FIXED: Position override props for proper vertical stacking
 	// These are multipliers of radius for vertical positioning
-	// Positive values = below center, Negative values = above center
-	export let titleYOffset: number = 0.90; // Distance above ContentBox for title
-	export let categoryTagsYOffset: number = 0.78; // Distance above ContentBox for category tags
-	export let keywordTagsYOffset: number = 0.66; // Distance above ContentBox for keyword tags
-	export let metadataYOffset: number = 0.78; // Distance below ContentBox for metadata
-	export let creditsYOffset: number = 0.90; // Distance below ContentBox for credits
+	// Negative values = above center (above ContentBox)
+	// Positive values = below center (below ContentBox)
+	export let titleYOffset: number = 0; // FIXED: Distance above ContentBox for title (was 0.90)
+	export let categoryTagsYOffset: number = 0.58; // FIXED: Below title (was 0.78)
+	export let keywordTagsYOffset: number = 0.50; // FIXED: Below categories (was 0.66)
+	export let metadataYOffset: number = 0.75; // Distance below ContentBox for metadata (was 0.78)
+	export let creditsYOffset: number = 0.85; // Distance below ContentBox for credits (was 0.90)
 
 	const baseOpacity = spring(0, {
 		stiffness: 0.3,

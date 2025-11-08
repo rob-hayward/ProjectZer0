@@ -21,7 +21,7 @@
 
 	// NEW: Position override props for special cases (e.g., larger nodes like Quantity)
 	// These are multipliers of radius for vertical positioning
-	export let titleYOffset: number = 0.85; // Distance above ContentBox for title
+	export let titleYOffset: number = 0; // FIXED: Distance above ContentBox for title (was 0.85)
 
 	export let voteBasedStyles = {
 		glow: { intensity: 8, opacity: 0.6 },

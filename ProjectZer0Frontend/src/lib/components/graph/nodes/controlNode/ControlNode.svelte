@@ -6,6 +6,8 @@
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import NodeHeader from '../ui/NodeHeader.svelte';
+    import { fetchWithAuth } from '$lib/services/api';
+    import { userStore } from '$lib/stores/userStore';
     
     // Props
     export let node: RenderableNode;
@@ -22,13 +24,8 @@
         };
         filterChange: {
             nodeTypes: string[];
-            includeNodeTypes: boolean;
             categories: string[];
-            categoryMode: 'any' | 'all';
-            includeCategoriesFilter: boolean;
             keywords: string[];
-            keywordMode: 'any' | 'all';
-            includeKeywordsFilter: boolean;
             sortBy: string;
             sortDirection: 'asc' | 'desc';
             showOnlyMyItems: boolean;
@@ -39,31 +36,30 @@
     // Internal state - Track mode reactively
     $: isDetail = node.mode === 'detail';
     
-    // Node type selection state
+    // Node type selection state (checked = included) - default all deselected
     let selectedNodeTypes = {
-        statement: true,
-        openquestion: true,
-        answer: true,
-        quantity: true,
-        evidence: true
+        statement: false,
+        openquestion: false,
+        answer: false,
+        quantity: false,
+        evidence: false
     };
-    let includeNodeTypes = true;
     
-    // Category filter state
+    // Category filter state - SIMPLIFIED: selected = required
     let selectedCategories: Array<{id: string; name: string}> = [];
     let categorySearch = '';
     let filteredCategories: Array<{id: string; name: string}> = [];
     let availableCategories: Array<{id: string; name: string}> = [];
-    let categoryMode: 'any' | 'all' = 'any';
-    let includeCategoriesFilter = true;
+    let categoryDropdownOpen = false;
+    let loadingCategories = false;
     
-    // Keyword filter state
+    // Keyword filter state - SIMPLIFIED: selected = required
     let selectedKeywords: string[] = [];
     let keywordSearch = '';
     let filteredKeywords: string[] = [];
     let availableKeywords: string[] = [];
-    let keywordMode: 'any' | 'all' = 'any';
-    let includeKeywordsFilter = true;
+    let keywordDropdownOpen = false;
+    let loadingKeywords = false;
     
     // Sort state
     let sortBy = 'inclusion_votes';
@@ -84,67 +80,99 @@
     
     // Control node has special sizes
     $: controlRadius = isDetail 
-        ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
+        ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2
         : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
     
-    // Create node with correct size (reactive)
-    $: nodeWithCorrectSize = ({
+    // Create a modified node with correct size
+    $: nodeWithCorrectSize = {
         ...node,
-        radius: isDetail 
-            ? COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 
-            : COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2
-    });
+        radius: controlRadius
+    } as RenderableNode;
     
-    // Load available categories and keywords on mount
-    onMount(async () => {
-        await loadAvailableFilters();
-    });
-    
-    async function loadAvailableFilters() {
-        try {
-            // TODO: Replace with actual API calls
-            // const categoriesResponse = await fetch('/graph/universal/filters/categories');
-            // availableCategories = await categoriesResponse.json();
-            
-            // const keywordsResponse = await fetch('/graph/universal/filters/keywords');
-            // const keywordsData = await keywordsResponse.json();
-            // availableKeywords = keywordsData.map((k: any) => k.word);
-            
-            // Placeholder data for testing
-            availableCategories = [
-                { id: 'cat-1', name: 'Technology' },
-                { id: 'cat-2', name: 'Science' },
-                { id: 'cat-3', name: 'Philosophy' },
-                { id: 'cat-4', name: 'Ethics' },
-                { id: 'cat-5', name: 'Politics' }
-            ];
-            
-            availableKeywords = ['AI', 'ethics', 'climate', 'health', 'education', 'economy'];
-        } catch (error) {
-            console.error('[ControlNode] Failed to load filters:', error);
-        }
+    // Load available filters when entering detail mode
+    $: if (isDetail) {
+        loadAvailableFilters();
     }
     
-    function handleCategorySearch() {
-        if (!categorySearch.trim()) {
-            filteredCategories = [];
+    // Load available categories and keywords from API
+    async function loadAvailableFilters() {
+        const user = $userStore;
+        if (!user) {
+            console.warn('[ControlNode] No user available for loading filters');
             return;
         }
         
-        const search = categorySearch.toLowerCase();
-        filteredCategories = availableCategories
-            .filter(cat => 
-                !selectedCategories.some(selected => selected.id === cat.id) &&
-                cat.name.toLowerCase().includes(search)
-            )
-            .slice(0, 10); // Limit dropdown results
+        // Load categories
+        loadingCategories = true;
+        try {
+            const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories', user);
+            if (categoriesResponse) {
+                availableCategories = categoriesResponse.map((cat: any) => ({
+                    id: cat.id,
+                    name: cat.name
+                }));
+                console.log('[ControlNode] Loaded categories:', availableCategories.length);
+            }
+        } catch (error) {
+            console.error('[ControlNode] Error loading categories:', error);
+        } finally {
+            loadingCategories = false;
+        }
+        
+        // Load keywords
+        loadingKeywords = true;
+        try {
+            const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords', user);
+            if (keywordsResponse) {
+                availableKeywords = keywordsResponse.map((kw: any) => kw.word);
+                console.log('[ControlNode] Loaded keywords:', availableKeywords.length);
+            }
+        } catch (error) {
+            console.error('[ControlNode] Error loading keywords:', error);
+        } finally {
+            loadingKeywords = false;
+        }
     }
     
-    function addCategory(category: {id: string; name: string}) {
-        if (selectedCategories.length < 5 && !selectedCategories.some(c => c.id === category.id)) {
+    // Filter categories based on search - show ALL matches, sorted alphabetically
+    $: {
+        if (categorySearch.trim()) {
+            const searchLower = categorySearch.toLowerCase();
+            filteredCategories = availableCategories
+                .filter(cat => 
+                    cat.name.toLowerCase().includes(searchLower) &&
+                    !selectedCategories.some(sel => sel.id === cat.id)
+                )
+                .sort((a, b) => a.name.localeCompare(b.name));
+        } else {
+            filteredCategories = availableCategories
+                .filter(cat => !selectedCategories.some(sel => sel.id === cat.id))
+                .sort((a, b) => a.name.localeCompare(b.name));
+        }
+    }
+    
+    // Filter keywords based on search - show ALL matches, sorted alphabetically
+    $: {
+        if (keywordSearch.trim()) {
+            const searchLower = keywordSearch.toLowerCase();
+            filteredKeywords = availableKeywords
+                .filter(kw => 
+                    kw.toLowerCase().includes(searchLower) &&
+                    !selectedKeywords.includes(kw)
+                )
+                .sort((a, b) => a.localeCompare(b));
+        } else {
+            filteredKeywords = availableKeywords
+                .filter(kw => !selectedKeywords.includes(kw))
+                .sort((a, b) => a.localeCompare(b));
+        }
+    }
+    
+    function selectCategory(category: {id: string; name: string}) {
+        if (selectedCategories.length < 5) {
             selectedCategories = [...selectedCategories, category];
             categorySearch = '';
-            filteredCategories = [];
+            categoryDropdownOpen = false;
             triggerFilterUpdate();
         }
     }
@@ -154,26 +182,11 @@
         triggerFilterUpdate();
     }
     
-    function handleKeywordSearch() {
-        if (!keywordSearch.trim()) {
-            filteredKeywords = [];
-            return;
-        }
-        
-        const search = keywordSearch.toLowerCase();
-        filteredKeywords = availableKeywords
-            .filter(kw => 
-                !selectedKeywords.includes(kw) &&
-                kw.toLowerCase().includes(search)
-            )
-            .slice(0, 10); // Limit dropdown results
-    }
-    
-    function addKeyword(keyword: string) {
-        if (selectedKeywords.length < 5 && !selectedKeywords.includes(keyword)) {
+    function selectKeyword(keyword: string) {
+        if (selectedKeywords.length < 5) {
             selectedKeywords = [...selectedKeywords, keyword];
             keywordSearch = '';
-            filteredKeywords = [];
+            keywordDropdownOpen = false;
             triggerFilterUpdate();
         }
     }
@@ -184,7 +197,7 @@
     }
     
     function triggerFilterUpdate() {
-        // Debounce filter changes
+        // Debounce filter changes for searches
         if (filterDebounceTimer) {
             clearTimeout(filterDebounceTimer);
         }
@@ -199,15 +212,18 @@
             .filter(([_, isSelected]) => isSelected)
             .map(([type]) => type);
         
+        console.log('[ControlNode] Dispatching filter change:', {
+            nodeTypes: activeNodeTypes,
+            categories: selectedCategories.map(c => c.id),
+            keywords: selectedKeywords,
+            sortBy,
+            sortDirection
+        });
+        
         dispatch('filterChange', {
             nodeTypes: activeNodeTypes,
-            includeNodeTypes,
             categories: selectedCategories.map(c => c.id),
-            categoryMode,
-            includeCategoriesFilter,
             keywords: selectedKeywords,
-            keywordMode,
-            includeKeywordsFilter,
             sortBy,
             sortDirection,
             showOnlyMyItems,
@@ -218,7 +234,6 @@
     // Immediate dispatch for node types and sorting (no API call, just reorder)
     $: {
         selectedNodeTypes;
-        includeNodeTypes;
         sortBy;
         sortDirection;
         
@@ -277,199 +292,214 @@
         
         <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
             <foreignObject {x} {y} {width} {height}>
-                <div class="control-panel" {...{"xmlns": "http://www.w3.org/1999/xhtml"}}>
-                    <!-- Section 1: Node Types -->
-                    <div class="filter-section node-types">
+                <div class="control-panel" {...{"xmlns": "http://www.w3.org/1999/xhtml"}} style="width: {width}px; height: {height}px; padding-top: {height * 0.15}px;">
+                    <div class="control-panel-inner">
+                        <!-- Section 1: Node Types (Circular buttons in 2 rows, condensed spacing) -->
+                        <div class="filter-section node-types">
                         <div class="section-header">Node Types</div>
                         <div class="node-type-circles">
-                            <button 
-                                class="circle-button"
-                                class:selected={selectedNodeTypes.statement}
-                                on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
-                                title="Statement"
-                            >
-                                <span class="circle-label">S</span>
-                            </button>
-                            <button 
-                                class="circle-button"
-                                class:selected={selectedNodeTypes.openquestion}
-                                on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
-                                title="Question"
-                            >
-                                <span class="circle-label">Q</span>
-                            </button>
-                            <button 
-                                class="circle-button"
-                                class:selected={selectedNodeTypes.answer}
-                                on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
-                                title="Answer"
-                            >
-                                <span class="circle-label">A</span>
-                            </button>
-                            <button 
-                                class="circle-button"
-                                class:selected={selectedNodeTypes.quantity}
-                                on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
-                                title="Quantity"
-                            >
-                                <span class="circle-label">Qty</span>
-                            </button>
-                            <button 
-                                class="circle-button"
-                                class:selected={selectedNodeTypes.evidence}
-                                on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
-                                title="Evidence"
-                            >
-                                <span class="circle-label">E</span>
-                            </button>
-                        </div>
-                        <div class="mode-toggle-inline">
-                            <label class="toggle-label-small">
-                                <input type="checkbox" bind:checked={includeNodeTypes} />
-                                <span>{includeNodeTypes ? 'Include' : 'Exclude'}</span>
-                            </label>
+                            <div class="circle-wrapper">
+                                <button 
+                                    class="circle-button"
+                                    class:selected={selectedNodeTypes.statement}
+                                    on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
+                                    aria-label="Statement"
+                                >
+                                    <span class="circle-label">ST</span>
+                                </button>
+                                <span class="circle-tooltip">Statement</span>
+                            </div>
+                            <div class="circle-wrapper">
+                                <button 
+                                    class="circle-button"
+                                    class:selected={selectedNodeTypes.openquestion}
+                                    on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
+                                    aria-label="Question"
+                                >
+                                    <span class="circle-label">Q</span>
+                                </button>
+                                <span class="circle-tooltip">Question</span>
+                            </div>
+                            <div class="circle-wrapper">
+                                <button 
+                                    class="circle-button"
+                                    class:selected={selectedNodeTypes.answer}
+                                    on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
+                                    aria-label="Answer"
+                                >
+                                    <span class="circle-label">A</span>
+                                </button>
+                                <span class="circle-tooltip">Answer</span>
+                            </div>
+                            <div class="circle-wrapper">
+                                <button 
+                                    class="circle-button"
+                                    class:selected={selectedNodeTypes.quantity}
+                                    on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
+                                    aria-label="Quantity"
+                                >
+                                    <span class="circle-label">QT</span>
+                                </button>
+                                <span class="circle-tooltip">Quantity</span>
+                            </div>
+                            <div class="circle-wrapper">
+                                <button 
+                                    class="circle-button"
+                                    class:selected={selectedNodeTypes.evidence}
+                                    on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
+                                    aria-label="Evidence"
+                                >
+                                    <span class="circle-label">EV</span>
+                                </button>
+                                <span class="circle-tooltip">Evidence</span>
+                            </div>
                         </div>
                     </div>
-
-                    <!-- Section 2: Categories -->
+                    
+                    <!-- Section 2: Categories (Searchable dropdown showing all options) -->
                     <div class="filter-section">
-                        <div class="section-header">Categories (max 5)</div>
-                        <div class="tag-input-container">
-                            {#if selectedCategories.length < 5}
-                                <input 
-                                    type="text"
-                                    class="search-input"
-                                    placeholder="Search categories..."
-                                    bind:value={categorySearch}
-                                    on:input={handleCategorySearch}
-                                />
-                            {/if}
-                            {#if categorySearch && filteredCategories.length > 0}
-                                <div class="dropdown">
-                                    {#each filteredCategories as category}
-                                        <button 
-                                            class="dropdown-item"
-                                            on:click={() => addCategory(category)}
-                                        >
-                                            {category.name}
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                            <div class="tags">
+                        <div class="section-header">Categories {selectedCategories.length > 0 ? `(${selectedCategories.length}/5)` : ''}</div>
+                        
+                        <!-- Selected categories as tags -->
+                        {#if selectedCategories.length > 0}
+                            <div class="tag-list">
                                 {#each selectedCategories as category}
                                     <span class="tag">
                                         {category.name}
-                                        <button class="tag-remove" on:click={() => removeCategory(category.id)}>×</button>
+                                        <button 
+                                            class="tag-remove"
+                                            on:click={() => removeCategory(category.id)}
+                                            aria-label="Remove {category.name}"
+                                        >×</button>
                                     </span>
                                 {/each}
                             </div>
-                        </div>
-                        {#if selectedCategories.length > 1}
-                            <div class="mode-toggle">
-                                <label class="toggle-label">
-                                    <input type="radio" bind:group={categoryMode} value="any" />
-                                    <span>ANY</span>
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="radio" bind:group={categoryMode} value="all" />
-                                    <span>ALL</span>
-                                </label>
-                            </div>
                         {/if}
-                        <div class="mode-toggle">
-                            <label class="toggle-label">
-                                <input type="checkbox" bind:checked={includeCategoriesFilter} />
-                                <span>{includeCategoriesFilter ? 'Include' : 'Exclude'}</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Section 3: Keywords -->
-                    <div class="filter-section">
-                        <div class="section-header">Keywords (max 5)</div>
-                        <div class="tag-input-container">
-                            {#if selectedKeywords.length < 5}
+                        
+                        <!-- Category search and dropdown (always show when less than 5 selected) -->
+                        {#if selectedCategories.length < 5}
+                            <div class="dropdown-container">
                                 <input 
                                     type="text"
-                                    class="search-input"
-                                    placeholder="Search keywords..."
-                                    bind:value={keywordSearch}
-                                    on:input={handleKeywordSearch}
+                                    class="search-input-standard"
+                                    placeholder="Search or select..."
+                                    bind:value={categorySearch}
+                                    on:focus={() => categoryDropdownOpen = true}
+                                    on:blur={() => setTimeout(() => categoryDropdownOpen = false, 200)}
+                                    disabled={loadingCategories}
                                 />
-                            {/if}
-                            {#if keywordSearch && filteredKeywords.length > 0}
-                                <div class="dropdown">
-                                    {#each filteredKeywords as keyword}
-                                        <button 
-                                            class="dropdown-item"
-                                            on:click={() => addKeyword(keyword)}
-                                        >
-                                            {keyword}
-                                        </button>
-                                    {/each}
-                                </div>
-                            {/if}
-                            <div class="tags">
+                                
+                                {#if categoryDropdownOpen}
+                                    <div class="dropdown-full">
+                                        {#if loadingCategories}
+                                            <div class="dropdown-item loading">Loading categories...</div>
+                                        {:else if filteredCategories.length === 0}
+                                            <div class="dropdown-item loading">No categories found</div>
+                                        {:else}
+                                            {#each filteredCategories as category}
+                                                <button 
+                                                    class="dropdown-item"
+                                                    on:click={() => selectCategory(category)}
+                                                >
+                                                    {category.name}
+                                                </button>
+                                            {/each}
+                                        {/if}
+                                    </div>
+                                {/if}
+                            </div>
+                        {/if}
+                    </div>
+                    
+                    <!-- Section 3: Keywords (Searchable dropdown showing all options) -->
+                    <div class="filter-section">
+                        <div class="section-header">Keywords {selectedKeywords.length > 0 ? `(${selectedKeywords.length}/5)` : ''}</div>
+                        
+                        <!-- Selected keywords as tags -->
+                        {#if selectedKeywords.length > 0}
+                            <div class="tag-list">
                                 {#each selectedKeywords as keyword}
                                     <span class="tag">
                                         {keyword}
-                                        <button class="tag-remove" on:click={() => removeKeyword(keyword)}>×</button>
+                                        <button 
+                                            class="tag-remove"
+                                            on:click={() => removeKeyword(keyword)}
+                                            aria-label="Remove {keyword}"
+                                        >×</button>
                                     </span>
                                 {/each}
                             </div>
-                        </div>
-                        {#if selectedKeywords.length > 1}
-                            <div class="mode-toggle">
-                                <label class="toggle-label">
-                                    <input type="radio" bind:group={keywordMode} value="any" />
-                                    <span>ANY</span>
-                                </label>
-                                <label class="toggle-label">
-                                    <input type="radio" bind:group={keywordMode} value="all" />
-                                    <span>ALL</span>
-                                </label>
+                        {/if}
+                        
+                        <!-- Keyword search and dropdown (always show when less than 5 selected) -->
+                        {#if selectedKeywords.length < 5}
+                            <div class="dropdown-container">
+                                <input 
+                                    type="text"
+                                    class="search-input-standard"
+                                    placeholder="Search or select..."
+                                    bind:value={keywordSearch}
+                                    on:focus={() => keywordDropdownOpen = true}
+                                    on:blur={() => setTimeout(() => keywordDropdownOpen = false, 200)}
+                                    disabled={loadingKeywords}
+                                />
+                                
+                                {#if keywordDropdownOpen}
+                                    <div class="dropdown-full">
+                                        {#if loadingKeywords}
+                                            <div class="dropdown-item loading">Loading keywords...</div>
+                                        {:else if filteredKeywords.length === 0}
+                                            <div class="dropdown-item loading">No keywords found</div>
+                                        {:else}
+                                            {#each filteredKeywords as keyword}
+                                                <button 
+                                                    class="dropdown-item"
+                                                    on:click={() => selectKeyword(keyword)}
+                                                >
+                                                    {keyword}
+                                                </button>
+                                            {/each}
+                                        {/if}
+                                    </div>
+                                {/if}
                             </div>
                         {/if}
-                        <div class="mode-toggle">
-                            <label class="toggle-label">
-                                <input type="checkbox" bind:checked={includeKeywordsFilter} />
-                                <span>{includeKeywordsFilter ? 'Include' : 'Exclude'}</span>
-                            </label>
-                        </div>
                     </div>
-
-                    <!-- Section 4: Sorting -->
+                    
+                    <!-- Section 4: Sort Options -->
                     <div class="filter-section">
                         <div class="section-header">Sort By</div>
-                        <select class="sort-select" bind:value={sortBy}>
-                            <option value="inclusion_votes">Inclusion Votes</option>
-                            <option value="content_votes">Content Votes</option>
-                            <option value="chronological">Date Created</option>
-                            <option value="latest_activity">Latest Activity</option>
-                            <option value="participants">Participants</option>
-                            <option value="total_votes">Total Votes</option>
-                        </select>
-                        <div class="mode-toggle">
-                            <label class="toggle-label">
-                                <input type="radio" bind:group={sortDirection} value="desc" />
-                                <span>↓ Desc</span>
-                            </label>
-                            <label class="toggle-label">
-                                <input type="radio" bind:group={sortDirection} value="asc" />
-                                <span>↑ Asc</span>
-                            </label>
+                        <div class="sort-controls">
+                            <select class="sort-dropdown" bind:value={sortBy}>
+                                <option value="inclusion_votes">Inclusion Votes</option>
+                                <option value="content_votes">Content Votes</option>
+                                <option value="chronological">Date Created</option>
+                                <option value="latest_activity">Latest Activity</option>
+                                <option value="participants">Participants</option>
+                            </select>
+                            <button 
+                                class="direction-toggle"
+                                on:click={() => sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'}
+                                aria-label="Toggle sort direction"
+                            >
+                                {sortDirection === 'asc' ? '↑' : '↓'}
+                            </button>
                         </div>
                     </div>
-
+                    
                     <!-- Section 5: User Filter -->
                     <div class="filter-section">
-                        <label class="toggle-label">
-                            <input type="checkbox" bind:checked={showOnlyMyItems} />
+                        <div class="section-header">User Filter</div>
+                        <label class="checkbox-label">
+                            <input 
+                                type="checkbox" 
+                                bind:checked={showOnlyMyItems}
+                            />
                             <span>Show only my items</span>
                         </label>
+                        
                         {#if showOnlyMyItems}
-                            <select class="sort-select" bind:value={userFilterMode}>
+                            <select class="user-mode-dropdown" bind:value={userFilterMode}>
                                 <option value="all">All interactions</option>
                                 <option value="created">Created by me</option>
                                 <option value="voted">Voted on by me</option>
@@ -477,6 +507,7 @@
                             </select>
                         {/if}
                     </div>
+                </div>
                 </div>
             </foreignObject>
         </svelte:fragment>
@@ -668,16 +699,21 @@
         letter-spacing: 0.02em;
     }
     
-    /* Detail mode control panel styles */
+    /* Detail mode control panel styles - uses ContentBox dimensions */
     .control-panel {
-        width: 100%;
-        height: 100%;
-        padding: 6px;
+        padding: 6px 10px;
         font-family: 'Inter', sans-serif;
-        font-size: 10px;
+        font-size: 11px;
         color: white;
         overflow-y: auto;
         overflow-x: hidden;
+        box-sizing: border-box;
+    }
+    
+    /* Inner wrapper to reduce content width with side padding */
+    .control-panel-inner {
+        padding: 0 25px;
+        box-sizing: border-box;
     }
     
     .filter-section {
@@ -686,35 +722,42 @@
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     }
     
-    .filter-section.node-types {
-        margin-bottom: 6px;
-        padding-bottom: 4px;
-    }
-    
     .filter-section:last-child {
         border-bottom: none;
         margin-bottom: 0;
+        padding-bottom: 0;
     }
     
     .section-header {
-        font-size: 9px;
+        font-size: 10px;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        color: rgba(255, 255, 255, 0.7);
-        margin-bottom: 4px;
+        color: rgba(255, 255, 255, 0.8);
+        margin-bottom: 6px;
     }
     
+    /* Node type circles - condensed 2-row layout */
     .node-type-circles {
         display: flex;
-        gap: 6px;
-        margin-bottom: 4px;
+        flex-wrap: wrap;
+        gap: 4px;
         justify-content: space-between;
+        max-width: 100%;
+    }
+    
+    /* Wrapper for circle + tooltip */
+    .circle-wrapper {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
     }
     
     .circle-button {
-        width: 32px;
-        height: 32px;
+        width: 28px;
+        height: 28px;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.05);
         border: 2px solid rgba(255, 255, 255, 0.2);
@@ -725,6 +768,7 @@
         cursor: pointer;
         transition: all 0.2s;
         padding: 0;
+        flex-shrink: 0;
     }
     
     .circle-button:hover {
@@ -739,136 +783,76 @@
     }
     
     .circle-label {
-        font-size: 9px;
-        font-weight: 600;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
     }
     
-    .mode-toggle-inline {
-        display: flex;
-        gap: 6px;
-        margin-top: 3px;
+    /* Hover tooltip for node type circles */
+    .circle-tooltip {
+        font-size: 8px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.5);
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+        text-align: center;
     }
     
-    .toggle-label-small {
-        display: flex;
-        align-items: center;
-        gap: 3px;
-        cursor: pointer;
-        font-size: 9px;
+    .circle-wrapper:hover .circle-tooltip {
+        opacity: 1;
     }
     
-    .toggle-label-small input {
-        cursor: pointer;
+    /* Compact node types section */
+    .filter-section.node-types {
+        margin-bottom: 8px;
+        padding-bottom: 6px;
     }
     
-    .node-type-checkboxes {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 4px;
-        margin-bottom: 6px;
-    }
-    
+    /* Checkbox label for user filter */
     .checkbox-label {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 6px;
         cursor: pointer;
-        padding: 2px;
+        padding: 3px 4px;
+        border-radius: 3px;
+        transition: background 0.2s;
     }
     
-    .checkbox-label input[type="checkbox"],
-    .checkbox-label input[type="radio"] {
+    .checkbox-label:hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .checkbox-label input[type="checkbox"] {
         cursor: pointer;
+        width: 14px;
+        height: 14px;
     }
     
     .checkbox-label span {
-        font-size: 10px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.9);
     }
     
-    .mode-toggle {
+    /* Tag system for categories and keywords */
+    .tag-list {
         display: flex;
-        gap: 8px;
-        margin-top: 4px;
         flex-wrap: wrap;
-    }
-    
-    .toggle-label {
-        display: flex;
-        align-items: center;
         gap: 4px;
-        cursor: pointer;
-        font-size: 10px;
-    }
-    
-    .tag-input-container {
-        position: relative;
-        max-width: 280px;
-    }
-    
-    .search-input {
-        width: 100%;
-        max-width: 280px;
-        padding: 3px 5px;
-        font-size: 9px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-        color: white;
-        margin-bottom: 3px;
-    }
-    
-    .search-input::placeholder {
-        color: rgba(255, 255, 255, 0.4);
-    }
-    
-    .dropdown {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        max-width: 280px;
-        max-height: 100px;
-        overflow-y: auto;
-        background: rgba(20, 20, 20, 0.95);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-        z-index: 1000;
-        margin-top: 2px;
-    }
-    
-    .dropdown-item {
-        width: 100%;
-        padding: 3px 6px;
-        font-size: 9px;
-        text-align: left;
-        background: none;
-        border: none;
-        color: white;
-        cursor: pointer;
-        transition: background 0.15s;
-    }
-    
-    .dropdown-item:hover {
-        background: rgba(255, 255, 255, 0.1);
-    }
-    
-    .tags {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 3px;
-        margin-top: 3px;
-        min-height: 18px;
+        margin-bottom: 6px;
     }
     
     .tag {
         display: inline-flex;
         align-items: center;
-        gap: 3px;
-        padding: 2px 5px;
+        gap: 4px;
+        padding: 3px 8px;
         background: rgba(66, 153, 225, 0.3);
-        border: 1px solid rgba(66, 153, 225, 0.5);
-        border-radius: 3px;
-        font-size: 8px;
+        border: 1px solid rgba(66, 153, 225, 0.6);
+        border-radius: 12px;
+        font-size: 10px;
         color: white;
     }
     
@@ -876,34 +860,198 @@
         background: none;
         border: none;
         color: white;
-        font-size: 12px;
-        line-height: 1;
         cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
         padding: 0;
-        margin: 0;
-        opacity: 0.7;
-        transition: opacity 0.15s;
+        width: 16px;
+        height: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        transition: background 0.2s;
     }
     
     .tag-remove:hover {
-        opacity: 1;
+        background: rgba(255, 255, 255, 0.2);
     }
     
-    .sort-select {
+    /* Search input and dropdown container */
+    .dropdown-container {
+        position: relative;
         width: 100%;
-        max-width: 280px;
-        padding: 3px;
-        font-size: 9px;
+    }
+    
+    /* Standardized search input - full width within container */
+    .search-input-standard {
+        width: 100%;
+        padding: 5px 8px;
+        font-size: 10px;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
+        border-radius: 4px;
         color: white;
-        margin-bottom: 3px;
-        cursor: pointer;
+        outline: none;
+        transition: all 0.2s;
+        box-sizing: border-box;
     }
     
-    .sort-select option {
-        background: #1a1a1a;
+    .search-input-standard:focus {
+        background: rgba(255, 255, 255, 0.08);
+        border-color: rgba(66, 153, 225, 0.6);
+    }
+    
+    .search-input-standard::placeholder {
+        color: rgba(255, 255, 255, 0.4);
+    }
+    
+    .search-input-standard:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    
+    /* Full dropdown showing all options with scrolling */
+    .dropdown-full {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 2px;
+        background: rgba(20, 20, 30, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        max-height: 180px;
+        overflow-y: auto;
+        z-index: 1000;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+    
+    .dropdown-item {
+        width: 100%;
+        padding: 6px 8px;
+        text-align: left;
+        background: none;
+        border: none;
         color: white;
+        font-size: 10px;
+        cursor: pointer;
+        transition: background 0.2s;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    
+    .dropdown-item:last-child {
+        border-bottom: none;
+    }
+    
+    .dropdown-item:hover {
+        background: rgba(66, 153, 225, 0.3);
+    }
+    
+    .dropdown-item.loading {
+        color: rgba(255, 255, 255, 0.5);
+        cursor: default;
+    }
+    
+    .dropdown-item.loading:hover {
+        background: none;
+    }
+    
+    /* Sort controls - standardized width */
+    .sort-controls {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        width: 100%;
+    }
+    
+    .sort-dropdown {
+        flex: 1;
+        padding: 5px 8px;
+        font-size: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        outline: none;
+        box-sizing: border-box;
+    }
+    
+    .sort-dropdown:focus {
+        border-color: rgba(66, 153, 225, 0.6);
+    }
+    
+    .direction-toggle {
+        width: 32px;
+        height: 28px;
+        padding: 0;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        font-size: 16px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+    }
+    
+    .direction-toggle:hover {
+        background: rgba(255, 255, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+    
+    /* User mode dropdown - standardized width */
+    .user-mode-dropdown {
+        width: 100%;
+        margin-top: 6px;
+        padding: 5px 8px;
+        font-size: 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        cursor: pointer;
+        outline: none;
+        box-sizing: border-box;
+    }
+    
+    .user-mode-dropdown:focus {
+        border-color: rgba(66, 153, 225, 0.6);
+    }
+    
+    /* Scrollbar styling for control panel */
+    .control-panel::-webkit-scrollbar {
+        width: 6px;
+    }
+    
+    .control-panel::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 3px;
+    }
+    
+    .control-panel::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 3px;
+    }
+    
+    .control-panel::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
+    }
+    
+    /* Dropdown scrollbar */
+    .dropdown-full::-webkit-scrollbar {
+        width: 4px;
+    }
+    
+    .dropdown-full::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.05);
+    }
+    
+    .dropdown-full::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
     }
 </style>
