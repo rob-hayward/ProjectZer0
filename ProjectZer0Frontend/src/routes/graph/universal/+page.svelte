@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - UPDATED WITH ALL 5 NODE TYPES -->
+<!-- src/routes/graph/universal/+page.svelte - PHASE 2: Added filterChange handler for Control Node -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -235,7 +235,7 @@
                     linksCount: state.linksCount,
                     revealState: state.revealState
                 };
-                console.log('[UNIVERSAL-PAGE] ðŸ”— Phantom links state updated:', phantomLinksStatus);
+                console.log('[UNIVERSAL-PAGE] 🔗 Phantom links state updated:', phantomLinksStatus);
             }) as EventListener;
             
             modeChangeListener = ((event: CustomEvent) => {
@@ -667,6 +667,52 @@
         await loadUniversalGraphData();
     }
 
+    // ============================================================================
+    // PHASE 2: FILTER CHANGE HANDLER - Handle filterChange events from Control Node
+    // ============================================================================
+    function handleFilterChange(event: CustomEvent) {
+        const filters = event.detail;
+        
+        console.log('[UNIVERSAL-PAGE] 🎯 Filter change received from Control Node:', filters);
+        
+        let needsReload = false;
+        
+        // Handle node type filter
+        if (filters.nodeTypes !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Processing node type filter:', filters.nodeTypes);
+            
+            if (filters.nodeTypes.length > 0) {
+                // User selected specific node types
+                selectedNodeTypes = new Set(filters.nodeTypes);
+                universalGraphStore.setNodeTypeFilter(filters.nodeTypes);
+                needsReload = true;
+                console.log('[UNIVERSAL-PAGE] ✅ Node types set to:', filters.nodeTypes);
+            } else {
+                // No node types selected = show all types (default behavior)
+                const allTypes: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'> = 
+                    ['openquestion', 'statement', 'answer', 'quantity', 'evidence'];
+                selectedNodeTypes = new Set(allTypes);
+                universalGraphStore.setNodeTypeFilter(allTypes);
+                needsReload = true;
+                console.log('[UNIVERSAL-PAGE] ✅ Node types reset to all 5 types (default)');
+            }
+        }
+        
+        // Reload data if anything changed
+        if (needsReload && $userStore) {
+            console.log('[UNIVERSAL-PAGE] 🔄 Reloading graph data with new filters...');
+            universalDataProcessed = false;  // Reset flag to allow reprocessing
+            nodesLoading = true;
+            universalGraphStore.loadNodes($userStore).then(() => {
+                nodesLoading = false;
+                console.log('[UNIVERSAL-PAGE] ✅ Graph data reloaded successfully');
+            }).catch(error => {
+                console.error('[UNIVERSAL-PAGE] ❌ Error reloading graph data:', error);
+                nodesLoading = false;
+            });
+        }
+    }
+
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode; radius?: number }>) {
         const { nodeId, mode } = event.detail;
         
@@ -741,7 +787,7 @@
     // Force reveal all phantom links (for debugging)
     function forceRevealPhantomLinks() {
         if (graphStore && typeof graphStore.forceRevealAll === 'function') {
-            console.log('[UNIVERSAL-PAGE] ðŸš€ Forcing phantom links reveal');
+            console.log('[UNIVERSAL-PAGE] 🚀 Forcing phantom links reveal');
             graphStore.forceRevealAll();
         }
     }
@@ -816,12 +862,14 @@
     {/if}
 
    <!-- Graph visualization -->
+   <!-- PHASE 2: Added on:filterchange event handler -->
 <Graph 
     data={graphData}
     viewType={viewType}
     bind:graphStore={graphStore}
     on:modechange={handleNodeModeChange}
     on:visibilitychange={handleVisibilityChange}
+    on:filterchange={handleFilterChange}
 >
     <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}
@@ -858,7 +906,7 @@
                         
                         <!-- Phantom Links status section -->
                         <div class="control-section phantom-links-section">
-                            <h4>ðŸ”— Phantom Links System</h4>
+                            <h4>🔗 Phantom Links System</h4>
                             <div class="phantom-status">
                                 <div class="status-item">
                                     <span class="status-label">Status:</span>
@@ -884,7 +932,7 @@
                                     class="force-reveal-btn"
                                     on:click={forceRevealPhantomLinks}
                                 >
-                                    ðŸš€ Force Reveal Links (Debug)
+                                    🚀 Force Reveal Links (Debug)
                                 </button>
                             {/if}
                         </div>
@@ -907,7 +955,7 @@
                                         <strong>Sequential Mode:</strong> 
                                         {enableSequentialRendering ? 'ON' : 'OFF'}<br>
                                         {#if enableSequentialRendering}
-                                            Batches render progressively: Batch 1 â†’ wait â†’ Batch 2<br>
+                                            Batches render progressively: Batch 1 → wait → Batch 2<br>
                                             Prevents performance issues with large node sets<br>
                                         {:else}
                                             All {maxBatchesToRender * batchSize} nodes render simultaneously<br>
@@ -1050,7 +1098,7 @@
                                 {/if}
                             </p>
                             <p style="font-size: 0.7rem; opacity: 0.6;">
-                                ðŸ”— Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
+                                🔗 Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
                                 Links: {phantomLinksStatus.linksCount} | 
                                 State: {phantomLinksStatus.revealState}
                             </p>

@@ -33,7 +33,6 @@
     import NavigationNode from './nodes/navigation/NavigationNode.svelte';
     import ControlNode from './nodes/controlNode/ControlNode.svelte';
     import { isStatementNode, isOpenQuestionNode, isNavigationNode, isStatementData, isOpenQuestionData } from '$lib/types/graph/enhanced';
-	
 
     
     const DEBUG_MODE = false;
@@ -55,6 +54,15 @@
         visibilitychange: { nodeId: string; isHidden: boolean };
         reply: { commentId: string };
         answerQuestion: { questionId: string };
+        filterChange: {
+            nodeTypes: string[];
+            categories: string[];
+            keywords: string[];
+            sortBy: string;
+            sortDirection: 'asc' | 'desc';
+            showOnlyMyItems: boolean;
+            userFilterMode: string;
+        };
     }>();
 
     // DOM references
@@ -375,7 +383,7 @@
             
             try {
                 graphStore.updateNodeMode(nodeId, mode);
-                console.log('[Graph] MODE ROUTING - ✅ Successfully called updateNodeMode()');
+                console.log('[Graph] MODE ROUTING - âœ… Successfully called updateNodeMode()');
                 
                 // Handle centering for detail mode expansions
                 if (mode === 'detail' && position) {
@@ -414,7 +422,7 @@
                 }
                 
             } catch (error) {
-                console.error('[Graph] MODE ROUTING - ❌ Error calling updateNodeMode():', error);
+                console.error('[Graph] MODE ROUTING - âŒ Error calling updateNodeMode():', error);
             }
             
         } else if (graphStore && typeof (graphStore as any).updateNodeMode === 'function') {
@@ -438,7 +446,7 @@
                 }, 50);
             }
         } else {
-            console.error('[Graph] MODE ROUTING - ❌ Cannot route mode change:', {
+            console.error('[Graph] MODE ROUTING - âŒ Cannot route mode change:', {
                 hasGraphStore: !!graphStore,
                 updateNodeModeExists: typeof graphStore?.updateNodeMode === 'function',
                 graphStoreKeys: graphStore ? Object.getOwnPropertyNames(Object.getPrototypeOf(graphStore)) : [],
@@ -497,6 +505,32 @@
         dispatch('visibilitychange', event.detail);
         
         console.log('[Graph] Visibility change handling complete - visibilityBehaviour should handle backend save');
+    }
+
+    function handleFilterChange(event: CustomEvent<{
+        nodeTypes: string[];
+        categories: string[];
+        keywords: string[];
+        sortBy: string;
+        sortDirection: 'asc' | 'desc';
+        showOnlyMyItems: boolean;
+        userFilterMode: string;
+    }>) {
+        console.log('[Graph] handleFilterChange received event from ControlNode:', {
+            nodeTypes: event.detail.nodeTypes,
+            categories: event.detail.categories,
+            keywords: event.detail.keywords,
+            sortBy: event.detail.sortBy,
+            sortDirection: event.detail.sortDirection,
+            showOnlyMyItems: event.detail.showOnlyMyItems,
+            userFilterMode: event.detail.userFilterMode,
+            timestamp: Date.now()
+        });
+        
+        // Bubble the event up to the parent page
+        dispatch('filterChange', event.detail);
+        
+        console.log('[Graph] Filter change event bubbled to parent page');
     }
 
     function toggleDebug() {
@@ -888,6 +922,7 @@
                                             <ControlNode 
                                                 {node}
                                                 on:modeChange={handleModeChange}
+                                                on:filterChange={handleFilterChange}
                                             />
                                         {:else}
                                             <!-- Fallback for other node types -->

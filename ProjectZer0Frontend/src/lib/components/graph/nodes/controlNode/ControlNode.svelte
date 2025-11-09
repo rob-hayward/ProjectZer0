@@ -105,7 +105,7 @@
         // Load categories
         loadingCategories = true;
         try {
-            const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories', user);
+            const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories');
             if (categoriesResponse) {
                 availableCategories = categoriesResponse.map((cat: any) => ({
                     id: cat.id,
@@ -122,7 +122,7 @@
         // Load keywords
         loadingKeywords = true;
         try {
-            const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords', user);
+            const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords');
             if (keywordsResponse) {
                 availableKeywords = keywordsResponse.map((kw: any) => kw.word);
                 console.log('[ControlNode] Loaded keywords:', availableKeywords.length);
