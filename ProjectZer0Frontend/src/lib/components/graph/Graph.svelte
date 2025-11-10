@@ -54,7 +54,7 @@
         visibilitychange: { nodeId: string; isHidden: boolean };
         reply: { commentId: string };
         answerQuestion: { questionId: string };
-        filterChange: {
+        filterchange: {
             nodeTypes: string[];
             categories: string[];
             keywords: string[];
@@ -528,7 +528,7 @@
         });
         
         // Bubble the event up to the parent page
-        dispatch('filterChange', event.detail);
+        dispatch('filterchange', event.detail);
         
         console.log('[Graph] Filter change event bubbled to parent page');
     }

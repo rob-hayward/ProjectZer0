@@ -1,5 +1,6 @@
 // src/lib/stores/universalGraphStore.ts
 // Universal Graph Store - Central state management for Universal Graph
+// UPDATED: Fixed buildQueryParams to use correct backend parameter names
 
 import { writable, derived, get, type Writable } from 'svelte/store';
 import type { NodeMode } from '$lib/types/graph/enhanced';
@@ -116,12 +117,15 @@ interface UniversalGraphState {
         relationship_density: number;
         consolidation_ratio: number;
     };
+    
+    // BULLETPROOF: Request tracking to prevent stale updates
+    currentRequestId: number;
 }
 
 export interface UniversalGraphStore {
     subscribe: (run: (value: UniversalGraphState) => void) => () => void;
     user_data: any;
-    loadNodes: (user: any) => Promise<void>;
+    loadNodes: (user: any, requestId?: number) => Promise<void>;
     loadMore: (user: any) => Promise<void>;
     reset: () => void;
     setNodeTypeFilter: (types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'>) => void;
@@ -164,7 +168,9 @@ function createUniversalGraphStore(): UniversalGraphStore {
             keyword_operator: 'OR',
             net_votes_min: -50,
             net_votes_max: 50,
-        }
+        },
+        
+        currentRequestId: 0
     };
 
     const { subscribe, set, update }: Writable<UniversalGraphState> = writable(initialState);
@@ -208,47 +214,29 @@ function createUniversalGraphStore(): UniversalGraphStore {
         return voteData;
     }
 
-    // Helper function to safely extract number from Neo4j integer
-    function getNeo4jNumber(value: any): number {
-        if (value === null || value === undefined) return 0;
-        if (typeof value === 'object' && value !== null && 'low' in value) {
-            return Number(value.low);
-        }
-        return Number(value || 0);
-    }
-
-    // Extract vote data from node - supports all 5 content node types
+    // Helper to extract vote data from node
     function extractVoteDataFromNode(node: UniversalNodeData): VoteData {
-        let positiveVotes = 0;
-        let negativeVotes = 0;
+        const positiveVotes = node.metadata.votes?.positive || 0;
+        const negativeVotes = node.metadata.votes?.negative || 0;
+        const netVotes = node.metadata.net_votes || positiveVotes - negativeVotes;
         
-        // First check metadata.votes - standardized location
-        if (node.metadata?.votes && typeof node.metadata.votes === 'object') {
-            const votes = node.metadata.votes as any;
-            positiveVotes = getNeo4jNumber(votes.positive);
-            negativeVotes = getNeo4jNumber(votes.negative);
-        }
-        // Fallback to node.data for compatibility
-        else if (node.data) {
-            positiveVotes = getNeo4jNumber(node.data.positiveVotes);
-            negativeVotes = getNeo4jNumber(node.data.negativeVotes);
-        }
-        
-        const netVotes = positiveVotes - negativeVotes;
-        const shouldBeHidden = netVotes < 0;
-        
-        return { positiveVotes, negativeVotes, netVotes, shouldBeHidden };
+        return {
+            positiveVotes,
+            negativeVotes,
+            netVotes,
+            shouldBeHidden: netVotes < 0
+        };
     }
 
-    // Process and cache vote data for all nodes
-    function processAndCacheVoteData(nodes: UniversalNodeData[]): void {
+    // Helper to process and cache vote data for multiple nodes
+    function processAndCacheVoteData(nodes: UniversalNodeData[]) {
         nodes.forEach(node => {
             const voteData = extractVoteDataFromNode(node);
             cacheVoteData(node.id, voteData.positiveVotes, voteData.negativeVotes);
         });
     }
 
-    // Build query parameters for API
+    // FIXED: Build query params with correct backend parameter names
     function buildQueryParams(state: UniversalGraphState): URLSearchParams {
         const params = new URLSearchParams();
         
@@ -256,8 +244,13 @@ function createUniversalGraphStore(): UniversalGraphStore {
         params.append('limit', state.limit.toString());
         params.append('offset', state.offset.toString());
         
-        // Sorting
-        params.append('sort_by', state.sortBy);
+        // Sorting - map frontend sortBy to backend expected values
+        const sortByMapping: Record<UniversalSortType, string> = {
+            'netVotes': 'inclusion_votes',  // Backend expects 'inclusion_votes'
+            'chronological': 'chronological',
+            'participants': 'participants'
+        };
+        params.append('sort_by', sortByMapping[state.sortBy] || 'inclusion_votes');
         params.append('sort_direction', state.sortDirection);
         
         // Node type filters - supports all 5 content node types
@@ -274,12 +267,15 @@ function createUniversalGraphStore(): UniversalGraphStore {
             state.filters.keywords.forEach(keyword => {
                 params.append('keywords', keyword);
             });
-            params.append('keyword_operator', state.filters.keyword_operator);
+            // Map to backend expected parameter name
+            const keywordMode = state.filters.keyword_operator === 'AND' ? 'all' : 'any';
+            params.append('keywordMode', keywordMode);
         }
         
         // User filter
         if (state.filters.user_id) {
             params.append('user_id', state.filters.user_id);
+            // Note: userFilterMode parameter will need to be added when backend supports it
         }
         
         // Date filters
@@ -291,24 +287,38 @@ function createUniversalGraphStore(): UniversalGraphStore {
             params.append('date_to', state.filters.date_to);
         }
         
+        // Always include relationships for universal graph
+        params.append('include_relationships', 'true');
+        
         return params;
     }
 
     // ENHANCED: Load nodes from the API with consolidated relationship support
-    async function loadNodes(user: any) {
+    // BULLETPROOF: Now accepts requestId to prevent stale updates
+    async function loadNodes(user: any, requestId?: number) {
         if (!user) {
             console.error('[UniversalGraphStore] No user provided');
             return;
         }
 
-        update(state => ({ ...state, loading: true, error: null }));
+        // Increment and store request ID
+        update(state => ({ 
+            ...state, 
+            loading: true, 
+            error: null,
+            currentRequestId: requestId ?? state.currentRequestId + 1
+        }));
+        
+        // Get the request ID we'll check against
+        const state = get({ subscribe });
+        const thisRequestId = state.currentRequestId;
 
         try {
-            const state = get({ subscribe });
             const params = buildQueryParams(state);
             const url = `/graph/universal/nodes?${params.toString()}`;
             
             console.log('[UniversalGraphStore] Loading nodes with params:', {
+                requestId: thisRequestId,
                 sortBy: state.sortBy,
                 sortDirection: state.sortDirection,
                 nodeTypes: state.filters.node_types,
@@ -322,6 +332,13 @@ function createUniversalGraphStore(): UniversalGraphStore {
             }
             
             const data: UniversalGraphResponse = response;
+            
+            // CRITICAL: Check if this request is still current before updating
+            const currentState = get({ subscribe });
+            if (thisRequestId !== currentState.currentRequestId) {
+                console.warn(`[UniversalGraphStore] ⛔ Discarding stale response #${thisRequestId}, current is #${currentState.currentRequestId}`);
+                return;
+            }
             
             // Process and cache vote data for all nodes
             processAndCacheVoteData(data.nodes);
@@ -337,6 +354,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
             }));
             
             console.log('[UniversalGraphStore] Loaded nodes:', {
+                requestId: thisRequestId,
                 count: data.nodes.length,
                 total: data.total_count,
                 hasMore: data.has_more,
@@ -633,7 +651,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         setDateFilter,
         setSortType,
         setSortDirection,
-setLimit,
+        setLimit,
         
         // Vote management methods - matching other store interfaces
         getVoteData,

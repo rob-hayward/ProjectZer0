@@ -11,6 +11,8 @@
     
     // Props
     export let node: RenderableNode;
+    export let isLoading: boolean = false;  // Track if filters are currently loading
+    export let applyMode: 'auto' | 'manual' = 'auto';  // Auto-apply or manual apply with button
     
     // Extract position from node for event handling
     $: nodeX = node.position?.x;
@@ -36,13 +38,13 @@
     // Internal state - Track mode reactively
     $: isDetail = node.mode === 'detail';
     
-    // Node type selection state (checked = included) - default all deselected
+    // Node type selection state (checked = included) - default all selected to match initial graph state
     let selectedNodeTypes = {
-        statement: false,
-        openquestion: false,
-        answer: false,
-        quantity: false,
-        evidence: false
+        statement: true,
+        openquestion: true,
+        answer: true,
+        quantity: true,
+        evidence: true
     };
     
     // Category filter state - SIMPLIFIED: selected = required
@@ -71,6 +73,10 @@
     
     // Debounce timer for filter changes
     let filterDebounceTimer: NodeJS.Timeout | null = null;
+    let isDebouncing = false;  // Track if we're in the settling period
+    let hasPendingChanges = false;  // Track if user has made changes (for manual mode)
+    const DEBOUNCE_DELAY = 1000;  // 1 second to allow multiple selections
+    const SETTLING_PERIOD = 200;  // Final 200ms where no new inputs accepted
     
     // Hover state for preview mode
     let isHovering = false;
@@ -197,14 +203,61 @@
     }
     
     function triggerFilterUpdate() {
-        // Debounce filter changes for searches
+        // Don't trigger updates while a load is in progress
+        if (isLoading) {
+            console.log('[ControlNode] Skipping filter update - load in progress');
+            return;
+        }
+        
+        // Clear any existing timer
         if (filterDebounceTimer) {
             clearTimeout(filterDebounceTimer);
         }
         
+        // Set debouncing state
+        isDebouncing = true;
+        
+        // Start debounce timer with settling period check
         filterDebounceTimer = setTimeout(() => {
-            dispatchFilterChange();
-        }, 500);
+            // Check one more time that we're not loading (in case load started during debounce)
+            if (isLoading) {
+                console.log('[ControlNode] Aborting filter dispatch - load started during debounce');
+                isDebouncing = false;
+                return;
+            }
+            
+            // Enter settling period - no new inputs accepted
+            const settlingTimer = setTimeout(() => {
+                isDebouncing = false;
+                dispatchFilterChange();
+            }, SETTLING_PERIOD);
+            
+            // Store settling timer for potential cancellation
+            filterDebounceTimer = settlingTimer;
+        }, DEBOUNCE_DELAY - SETTLING_PERIOD);
+    }
+    
+    // Cancel any pending filter updates (called when loading starts)
+    function cancelPendingUpdates() {
+        if (filterDebounceTimer) {
+            clearTimeout(filterDebounceTimer);
+            filterDebounceTimer = null;
+        }
+        isDebouncing = false;
+        console.log('[ControlNode] Cancelled pending filter updates');
+    }
+    
+    // Expose cancel function to parent via event
+    export function cancelPending() {
+        cancelPendingUpdates();
+    }
+    
+    // Manual apply function for manual mode
+    function applyFiltersManually() {
+        if (isLoading || !hasPendingChanges) return;
+        
+        hasPendingChanges = false;
+        dispatchFilterChange();
     }
     
     function dispatchFilterChange() {
@@ -220,6 +273,8 @@
             sortDirection
         });
         
+        hasPendingChanges = false;  // Clear pending changes flag
+        
         dispatch('filterChange', {
             nodeTypes: activeNodeTypes,
             categories: selectedCategories.map(c => c.id),
@@ -231,14 +286,19 @@
         });
     }
     
-    // Immediate dispatch for node types and sorting (no API call, just reorder)
+    // Debounced dispatch for node types and sorting to prevent rapid-fire API calls
     $: {
         selectedNodeTypes;
         sortBy;
         sortDirection;
         
         if (isDetail) {
-            dispatchFilterChange();
+            if (applyMode === 'auto') {
+                triggerFilterUpdate();
+            } else {
+                // Manual mode - just mark as having pending changes
+                hasPendingChanges = true;
+            }
         }
     }
     
@@ -296,12 +356,21 @@
                     <div class="control-panel-inner">
                         <!-- Section 1: Node Types (Circular buttons in 2 rows, condensed spacing) -->
                         <div class="filter-section node-types">
-                        <div class="section-header">Node Types</div>
+                        <div class="section-header">
+                            Node Types
+                            {#if isDebouncing}
+                                <span class="pending-indicator">⏱ Changes pending...</span>
+                            {:else if isLoading}
+                                <span class="loading-indicator-inline">🔄 Applying...</span>
+                            {/if}
+                        </div>
                         <div class="node-type-circles">
                             <div class="circle-wrapper">
                                 <button 
                                     class="circle-button"
                                     class:selected={selectedNodeTypes.statement}
+                                    class:disabled={isLoading || isDebouncing}
+                                    disabled={isLoading || isDebouncing}
                                     on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
                                     aria-label="Statement"
                                 >
@@ -313,6 +382,8 @@
                                 <button 
                                     class="circle-button"
                                     class:selected={selectedNodeTypes.openquestion}
+                                    class:disabled={isLoading || isDebouncing}
+                                    disabled={isLoading || isDebouncing}
                                     on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
                                     aria-label="Question"
                                 >
@@ -324,6 +395,8 @@
                                 <button 
                                     class="circle-button"
                                     class:selected={selectedNodeTypes.answer}
+                                    class:disabled={isLoading || isDebouncing}
+                                    disabled={isLoading || isDebouncing}
                                     on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
                                     aria-label="Answer"
                                 >
@@ -335,6 +408,8 @@
                                 <button 
                                     class="circle-button"
                                     class:selected={selectedNodeTypes.quantity}
+                                    class:disabled={isLoading || isDebouncing}
+                                    disabled={isLoading || isDebouncing}
                                     on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
                                     aria-label="Quantity"
                                 >
@@ -346,6 +421,8 @@
                                 <button 
                                     class="circle-button"
                                     class:selected={selectedNodeTypes.evidence}
+                                    class:disabled={isLoading || isDebouncing}
+                                    disabled={isLoading || isDebouncing}
                                     on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
                                     aria-label="Evidence"
                                 >
@@ -355,6 +432,36 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Manual Apply Button (only shown in manual mode) -->
+                    {#if applyMode === 'manual'}
+                        <div class="apply-controls">
+                            <button 
+                                class="apply-button"
+                                class:has-changes={hasPendingChanges}
+                                class:loading={isLoading}
+                                disabled={isLoading || !hasPendingChanges}
+                                on:click={applyFiltersManually}
+                            >
+                                {#if isLoading}
+                                    <span class="spinner">⏳</span>
+                                    Applying...
+                                {:else if hasPendingChanges}
+                                    <span class="icon">✓</span>
+                                    Apply Filters
+                                {:else}
+                                    <span class="icon">✓</span>
+                                    No Changes
+                                {/if}
+                            </button>
+                            
+                            {#if hasPendingChanges && !isLoading}
+                                <div class="changes-hint">
+                                    Click to apply your filter changes
+                                </div>
+                            {/if}
+                        </div>
+                    {/if}
                     
                     <!-- Section 2: Categories (Searchable dropdown showing all options) -->
                     <div class="filter-section">
@@ -735,6 +842,37 @@
         letter-spacing: 0.5px;
         color: rgba(255, 255, 255, 0.8);
         margin-bottom: 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .pending-indicator {
+        font-size: 9px;
+        font-weight: 500;
+        text-transform: none;
+        color: rgba(255, 200, 100, 0.9);
+        letter-spacing: 0;
+        animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    .loading-indicator-inline {
+        font-size: 9px;
+        font-weight: 500;
+        text-transform: none;
+        color: rgba(66, 153, 225, 0.9);
+        letter-spacing: 0;
+        animation: spin-emoji 2s linear infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    
+    @keyframes spin-emoji {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
     }
     
     /* Node type circles - condensed 2-row layout */
@@ -782,6 +920,17 @@
         color: white;
     }
     
+    .circle-button.disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        pointer-events: none;
+    }
+    
+    .circle-button.disabled.selected {
+        background: rgba(66, 153, 225, 0.15);
+        border-color: rgba(66, 153, 225, 0.4);
+    }
+    
     .circle-label {
         font-size: 8px;
         font-weight: 700;
@@ -802,6 +951,88 @@
     
     .circle-wrapper:hover .circle-tooltip {
         opacity: 1;
+    }
+    
+    /* Manual Apply Button Section */
+    .apply-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+        margin: 8px 0;
+    }
+    
+    .apply-button {
+        width: 100%;
+        padding: 8px 16px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        
+        /* Default state - no changes */
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: rgba(255, 255, 255, 0.5);
+    }
+    
+    .apply-button.has-changes {
+        /* Has changes - ready to apply */
+        background: rgba(66, 153, 225, 0.2);
+        border: 1px solid rgba(66, 153, 225, 0.6);
+        color: white;
+        box-shadow: 0 0 12px rgba(66, 153, 225, 0.3);
+    }
+    
+    .apply-button.has-changes:hover:not(:disabled) {
+        background: rgba(66, 153, 225, 0.3);
+        border-color: rgba(66, 153, 225, 0.8);
+        box-shadow: 0 0 16px rgba(66, 153, 225, 0.4);
+        transform: translateY(-1px);
+    }
+    
+    .apply-button.loading {
+        /* Loading state */
+        background: rgba(100, 200, 100, 0.2);
+        border: 1px solid rgba(100, 200, 100, 0.6);
+        color: rgba(255, 255, 255, 0.8);
+        cursor: wait;
+    }
+    
+    .apply-button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+    
+    .apply-button .icon {
+        font-size: 14px;
+    }
+    
+    .apply-button .spinner {
+        display: inline-block;
+        animation: spin-button 1s linear infinite;
+    }
+    
+    @keyframes spin-button {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    
+    .changes-hint {
+        font-size: 9px;
+        color: rgba(255, 200, 100, 0.8);
+        text-align: center;
+        font-style: italic;
+        animation: pulse 1.5s ease-in-out infinite;
     }
     
     /* Compact node types section */

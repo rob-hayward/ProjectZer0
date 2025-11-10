@@ -1,36 +1,44 @@
 // ProjectZer0Frontend/src/lib/constants/colors.ts
 export const COLORS = {
-    // Primary colors - Updated with Newton's Color Wheel (bright versions)
+    // Synthwave / Space Theme — luminous colours for dark backgrounds, all supporting white text
     PRIMARY: {
-        // Newton's Color Wheel - Content Node Colors (6 colors, avoiding red/green for voting)
-        INDIGO: '#4f46e5',      // Word nodes (240° - foundational content)
-        BLUE_VIOLET: '#7c3aed', // Definition nodes (270° - related to words)  
-        CYAN: '#06b6d4',        // OpenQuestion nodes (180° - questions, attention-getting)
-        YELLOW: '#f59e0b',      // Statement nodes (60° - bright, central statements)
-        ORANGE: '#ea580c',      // Quantity nodes (30° - data/metrics)
-        MAGENTA: '#ec4899',     // Comment nodes (300° - meta-content)
-        
-        // Voting Colors (preserved as specified)
-        GREEN: '#2ecc71',       // Positive vote buttons (120°)
-        RED: '#e74c3c',         // Negative vote buttons (0°)
-        
-        // Legacy colors (keeping for backward compatibility if needed)
-        BLUE: '#3498db',        // Vibrant blue (legacy)
-        PURPLE: '#9b59b6',      // Royal purple (legacy)
-        TURQUOISE: '#1abc9c',   // Turquoise (legacy)
-        FOREST: '#27ae60',      // Forest green (legacy)
+        // === Core Content Nodes ===
+        STATEMENT: '#FF9E00',     // Bright amber — confident, central assertions
+        OPEN_QUESTION: '#00B4D8', // Cyan — inquisitive, cool, invites exploration
+        ANSWER: '#8338EC',        // Electric violet — intellectual, pairs naturally with question cyan
+        QUANTITY: '#FF4D6D',      // Neon pink-red — energetic, numeric, grabs focus
+
+        // === Supporting Nodes ===
+        WORD: '#7B2CBF',          // Deep purple — foundational concepts
+        DEFINITION: '#9D4EDD',    // Medium violet — ties closely to Word, but more luminous
+        EVIDENCE: '#4361EE',      // Vibrant blue — reliable, precise, supportive
+        COMMENT: '#F72585',       // Hot magenta — expressive, social, conversational
+
+        // === Functional / Utility ===
+        HIDDEN: '#0F172A',        // Deep space navy
+        CENTRAL_UTILITY: '#FFFFFF', // White — neutral anchor, black text on this one
+
+        // === Voting Colors (unchanged) ===
+        GREEN: '#2ECC71',         // Positive vote
+        RED: '#E74C3C',           // Negative vote
+
+        // === Legacy (retain for compatibility) ===
+        BLUE: '#3498db',
+        PURPLE: '#9b59b6',
+        TURQUOISE: '#1abc9c',
+        FOREST: '#27ae60',
     },
 
     // UI colors
     UI: {
-        BACKGROUND: '#000000',
+        BACKGROUND: '#030014',  // Deep cosmic black-violet
         TEXT: {
             PRIMARY: '#FFFFFF',
-            SECONDARY: 'rgba(255, 255, 255, 0.7)',
+            SECONDARY: 'rgba(255, 255, 255, 0.75)',
             TERTIARY: 'rgba(255, 255, 255, 0.5)'
         },
         BORDER: {
-            LIGHT: 'rgba(255, 255, 255, 0.2)',
+            LIGHT: 'rgba(255, 255, 255, 0.25)',
             LIGHTER: 'rgba(255, 255, 255, 0.4)'
         }
     },
@@ -38,14 +46,14 @@ export const COLORS = {
     // Graph specific colors
     GRAPH: {
         NODE: {
-            BACKGROUND: 'rgba(0, 0, 0, 0.7)',
+            BACKGROUND: 'rgba(10, 10, 25, 0.8)',
             BORDER: 'rgba(255, 255, 255, 0.2)',
-            HOVER_BORDER: 'rgba(255, 255, 255, 0.4)',
+            HOVER_BORDER: 'rgba(255, 255, 255, 0.45)',
             GLOW: 'rgba(255, 255, 255, 0.15)'
         },
         EDGE: {
             DEFAULT: 'rgba(255, 255, 255, 0.2)',
-            HIGHLIGHT: 'rgba(255, 255, 255, 0.4)'
+            HIGHLIGHT: 'rgba(255, 255, 255, 0.5)'
         }
     }
 } as const;

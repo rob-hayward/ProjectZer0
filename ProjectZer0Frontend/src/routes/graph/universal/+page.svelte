@@ -53,6 +53,7 @@
     // Control node settings
     const controlNodeId = 'universal-graph-controls';
     let controlNodeMode: NodeMode = 'preview'; 
+    let controlNodeRef: any = null;  // Reference to ControlNode component for calling methods 
     
     // Sequential batch rendering settings
     let enableBatchRendering = true;
@@ -101,6 +102,11 @@
     let nodesLoading = true;
     let universalDataProcessed = false;  // Track if we've processed universal data
     
+    // BULLETPROOF: Request management
+    let currentAbortController: AbortController | null = null;
+    let requestSequence = 0;  // Track request order
+    let isFilterOperationLocked = false;  // Complete lock during filter operations
+    
     // Graph data - SINGLE SOURCE OF TRUTH
     let graphData: GraphData = { nodes: [], links: [] };
     
@@ -140,12 +146,16 @@
     }
     
     // Wait for graph store to be properly bound AND initialized before processing data
-    $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph) {
+    $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph && !nodesLoading) {
         updateBatchRenderingStatus();
         
         // Only process data when graph store is fully ready and we haven't processed it yet
         if (nodesLoaded && !universalDataProcessed) {
-            console.log('[UNIVERSAL-PAGE] Graph store bound and ready, processing data');
+            console.log('[UNIVERSAL-PAGE] Graph store bound and ready, processing data', {
+                nodeCount: nodes.length,
+                nodesLoading,
+                universalDataProcessed
+            });
             updateGraphWithUniversalData();
         }
     }
@@ -668,49 +678,155 @@
     }
 
     // ============================================================================
-    // PHASE 2: FILTER CHANGE HANDLER - Handle filterChange events from Control Node
+    // BULLETPROOF FILTER CHANGE HANDLER - Eliminates ALL race conditions
     // ============================================================================
     function handleFilterChange(event: CustomEvent) {
+        console.log('[UNIVERSAL-PAGE] 🔥 Filter change received');
+        
+        // CRITICAL: Immediately lock to prevent any other operations
+        if (isFilterOperationLocked) {
+            console.warn('[UNIVERSAL-PAGE] ⛔ Filter operation already in progress - BLOCKING');
+            return;
+        }
+        
+        isFilterOperationLocked = true;
+        console.log('[UNIVERSAL-PAGE] 🔒 Filter operation LOCKED');
+        
         const filters = event.detail;
         
-        console.log('[UNIVERSAL-PAGE] 🎯 Filter change received from Control Node:', filters);
+        // CRITICAL: Cancel any pending debounced updates in ControlNode
+        if (controlNodeRef && typeof controlNodeRef.cancelPending === 'function') {
+            controlNodeRef.cancelPending();
+            console.log('[UNIVERSAL-PAGE] Cancelled pending control node updates');
+        }
         
-        let needsReload = false;
+        // CRITICAL: Abort any in-flight API request
+        if (currentAbortController) {
+            currentAbortController.abort();
+            console.log('[UNIVERSAL-PAGE] ⛔ Aborted previous API request');
+        }
         
-        // Handle node type filter
+        // Create new AbortController for this request
+        currentAbortController = new AbortController();
+        
+        // Increment sequence number for this request
+        requestSequence++;
+        const thisRequestSequence = requestSequence;
+        console.log('[UNIVERSAL-PAGE] 🎯 Starting request #', thisRequestSequence);
+        
+        console.log('[UNIVERSAL-PAGE] Filter details:', filters);
+        
+        if (!$userStore) {
+            console.warn('[UNIVERSAL-PAGE] No user available, skipping filter update');
+            return;
+        }
+        
+        // Update ALL filter settings in the store
+        
+        // 1. Node Types Filter
         if (filters.nodeTypes !== undefined) {
-            console.log('[UNIVERSAL-PAGE] Processing node type filter:', filters.nodeTypes);
+            console.log('[UNIVERSAL-PAGE] Updating node type filter:', filters.nodeTypes);
             
             if (filters.nodeTypes.length > 0) {
-                // User selected specific node types
                 selectedNodeTypes = new Set(filters.nodeTypes);
                 universalGraphStore.setNodeTypeFilter(filters.nodeTypes);
-                needsReload = true;
-                console.log('[UNIVERSAL-PAGE] ✅ Node types set to:', filters.nodeTypes);
             } else {
                 // No node types selected = show all types (default behavior)
                 const allTypes: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'> = 
                     ['openquestion', 'statement', 'answer', 'quantity', 'evidence'];
                 selectedNodeTypes = new Set(allTypes);
                 universalGraphStore.setNodeTypeFilter(allTypes);
-                needsReload = true;
-                console.log('[UNIVERSAL-PAGE] ✅ Node types reset to all 5 types (default)');
             }
         }
         
-        // Reload data if anything changed
-        if (needsReload && $userStore) {
-            console.log('[UNIVERSAL-PAGE] 🔄 Reloading graph data with new filters...');
-            universalDataProcessed = false;  // Reset flag to allow reprocessing
-            nodesLoading = true;
-            universalGraphStore.loadNodes($userStore).then(() => {
-                nodesLoading = false;
-                console.log('[UNIVERSAL-PAGE] ✅ Graph data reloaded successfully');
-            }).catch(error => {
-                console.error('[UNIVERSAL-PAGE] ❌ Error reloading graph data:', error);
-                nodesLoading = false;
-            });
+        // 2. Sort Options
+        if (filters.sortBy !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Updating sort by:', filters.sortBy);
+            // Map frontend sortBy to backend sort field names
+            const sortByMapping: Record<string, UniversalSortType> = {
+                'inclusion_votes': 'netVotes',
+                'content_votes': 'netVotes', // Backend handles content vote fallback
+                'chronological': 'chronological',
+                'latest_activity': 'chronological',
+                'participants': 'participants'
+            };
+            sortType = sortByMapping[filters.sortBy] || 'netVotes';
+            universalGraphStore.setSortType(sortType);
         }
+        
+        if (filters.sortDirection !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Updating sort direction:', filters.sortDirection);
+            sortDirection = filters.sortDirection;
+            universalGraphStore.setSortDirection(sortDirection);
+        }
+        
+        // 3. Keyword Filter
+        if (filters.keywords !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Updating keyword filter:', filters.keywords);
+            filterKeywords = filters.keywords;
+            // Note: ControlNode doesn't currently expose keywordMode, defaulting to 'OR'
+            universalGraphStore.setKeywordFilter(filterKeywords, keywordOperator);
+        }
+        
+        // 4. Category Filter
+        if (filters.categories !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Updating category filter:', filters.categories);
+            // Categories filter will be implemented when backend support is added
+            // For now, just log the values
+        }
+        
+        // 5. User Filter
+        if (filters.showOnlyMyItems !== undefined) {
+            console.log('[UNIVERSAL-PAGE] Updating user filter:', {
+                showOnlyMyItems: filters.showOnlyMyItems,
+                userFilterMode: filters.userFilterMode
+            });
+            
+            showOnlyMyItems = filters.showOnlyMyItems;
+            
+            if (showOnlyMyItems) {
+                universalGraphStore.setUserFilter($userStore.sub);
+                // Note: userFilterMode ('created', 'voted', 'interacted') 
+                // will need backend API parameter support
+            } else {
+                universalGraphStore.setUserFilter(undefined);
+            }
+        }
+        
+        // Now trigger a reload of the data from the backend
+        console.log('[UNIVERSAL-PAGE] 🔄 Reloading graph data with new filters...');
+        universalDataProcessed = false;  // Reset flag to allow reprocessing
+        nodesLoading = true;
+        
+        universalGraphStore.loadNodes($userStore, thisRequestSequence)
+            .then(() => {
+                // CRITICAL: Check if this is still the latest request
+                if (thisRequestSequence !== requestSequence) {
+                    console.warn(`[UNIVERSAL-PAGE] ⛔ Discarding stale response #${thisRequestSequence}, latest is #${requestSequence}`);
+                    return;
+                }
+                
+                nodesLoading = false;
+                isFilterOperationLocked = false;
+                console.log('[UNIVERSAL-PAGE] ✅ Graph data reloaded successfully');
+                console.log('[UNIVERSAL-PAGE] 🔓 Filter operation UNLOCKED');
+            })
+            .catch(error => {
+                // Check if this was an abort (which is expected)
+                if (error?.name === 'AbortError') {
+                    console.log('[UNIVERSAL-PAGE] Request aborted (expected)');
+                    return;
+                }
+                
+                console.error('[UNIVERSAL-PAGE] ❌ Error reloading graph data:', error);
+                
+                // Only unlock if this is still the latest request
+                if (thisRequestSequence === requestSequence) {
+                    nodesLoading = false;
+                    isFilterOperationLocked = false;
+                    console.log('[UNIVERSAL-PAGE] 🔓 Filter operation UNLOCKED (error)');
+                }
+            });
     }
 
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode; radius?: number }>) {
@@ -861,8 +977,18 @@
         </div>
     {/if}
 
+    <!-- BULLETPROOF: Blocking overlay during filter operations -->
+    {#if isFilterOperationLocked && nodesLoading}
+        <div class="filter-blocking-overlay">
+            <div class="blocking-content">
+                <div class="blocking-spinner"></div>
+                <div class="blocking-text">Applying filters...</div>
+                <div class="blocking-subtext">Please wait</div>
+            </div>
+        </div>
+    {/if}
+
    <!-- Graph visualization -->
-   <!-- PHASE 2: Added on:filterchange event handler -->
 <Graph 
     data={graphData}
     viewType={viewType}
@@ -898,7 +1024,9 @@
             />
         {:else if node.id === controlNodeId}
             <ControlNode 
+                bind:this={controlNodeRef}
                 {node}
+                isLoading={nodesLoading}
             >
                     <!-- Universal Graph Controls -->
                     <div class="control-content">
@@ -1327,5 +1455,65 @@
         border-top: 1px solid rgba(255, 255, 255, 0.2);
         padding-top: 1rem;
         margin-top: 1rem;
+    }
+    
+    /* BULLETPROOF: Blocking overlay for filter operations */
+    .filter-blocking-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 20, 0.85);
+        backdrop-filter: blur(8px);
+        z-index: 99999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        animation: fadeIn 0.2s ease-out;
+    }
+    
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+    
+    .blocking-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 2rem;
+        background: rgba(20, 20, 40, 0.9);
+        border: 2px solid rgba(66, 153, 225, 0.5);
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    }
+    
+    .blocking-spinner {
+        width: 60px;
+        height: 60px;
+        border: 4px solid rgba(66, 153, 225, 0.2);
+        border-top-color: rgba(66, 153, 225, 1);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    .blocking-text {
+        font-family: 'Orbitron', sans-serif;
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: white;
+        letter-spacing: 0.5px;
+    }
+    
+    .blocking-subtext {
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+        color: rgba(255, 255, 255, 0.6);
     }
 </style>
