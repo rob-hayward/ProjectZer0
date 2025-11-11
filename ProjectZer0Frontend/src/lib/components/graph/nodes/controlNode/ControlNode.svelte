@@ -12,7 +12,7 @@
     // Props
     export let node: RenderableNode;
     export let isLoading: boolean = false;  // Track if filters are currently loading
-    export let applyMode: 'auto' | 'manual' = 'auto';  // Auto-apply or manual apply with button
+    export let applyMode: 'auto' | 'manual' = 'manual';  // Manual apply is now default
     
     // Extract position from node for event handling
     $: nodeX = node.position?.x;
@@ -71,12 +71,12 @@
     let showOnlyMyItems = false;
     let userFilterMode = 'all';
     
-    // Debounce timer for filter changes
+    // Auto-apply debounce state (only used in auto mode)
     let filterDebounceTimer: NodeJS.Timeout | null = null;
-    let isDebouncing = false;  // Track if we're in the settling period
-    let hasPendingChanges = false;  // Track if user has made changes (for manual mode)
-    const DEBOUNCE_DELAY = 1000;  // 1 second to allow multiple selections
-    const SETTLING_PERIOD = 200;  // Final 200ms where no new inputs accepted
+    const DEBOUNCE_DELAY = 1000;  // 1 second
+    
+    // Manual apply state (only used in manual mode)
+    let hasPendingChanges = false;
     
     // Hover state for preview mode
     let isHovering = false;
@@ -202,64 +202,41 @@
         triggerFilterUpdate();
     }
     
+    // UPDATED: Simplified to handle both auto and manual modes
     function triggerFilterUpdate() {
-        // Don't trigger updates while a load is in progress
+        // Manual mode: just mark as having pending changes
+        if (applyMode === 'manual') {
+            hasPendingChanges = true;
+            return;
+        }
+        
+        // Auto mode: debounce and dispatch after delay
         if (isLoading) {
             console.log('[ControlNode] Skipping filter update - load in progress');
             return;
         }
         
-        // Clear any existing timer
+        // Clear any existing debounce timer
         if (filterDebounceTimer) {
             clearTimeout(filterDebounceTimer);
         }
         
-        // Set debouncing state
-        isDebouncing = true;
-        
-        // Start debounce timer with settling period check
+        // Start new debounce timer
         filterDebounceTimer = setTimeout(() => {
-            // Check one more time that we're not loading (in case load started during debounce)
-            if (isLoading) {
-                console.log('[ControlNode] Aborting filter dispatch - load started during debounce');
-                isDebouncing = false;
-                return;
-            }
-            
-            // Enter settling period - no new inputs accepted
-            const settlingTimer = setTimeout(() => {
-                isDebouncing = false;
-                dispatchFilterChange();
-            }, SETTLING_PERIOD);
-            
-            // Store settling timer for potential cancellation
-            filterDebounceTimer = settlingTimer;
-        }, DEBOUNCE_DELAY - SETTLING_PERIOD);
+            dispatchFilterChange();
+        }, DEBOUNCE_DELAY);
     }
     
-    // Cancel any pending filter updates (called when loading starts)
-    function cancelPendingUpdates() {
-        if (filterDebounceTimer) {
-            clearTimeout(filterDebounceTimer);
-            filterDebounceTimer = null;
-        }
-        isDebouncing = false;
-        console.log('[ControlNode] Cancelled pending filter updates');
-    }
-    
-    // Expose cancel function to parent via event
-    export function cancelPending() {
-        cancelPendingUpdates();
-    }
-    
-    // Manual apply function for manual mode
+    // Manual apply function
     function applyFiltersManually() {
         if (isLoading || !hasPendingChanges) return;
         
+        console.log('[ControlNode] Applying filters manually');
         hasPendingChanges = false;
         dispatchFilterChange();
     }
     
+    // Dispatch filter change event to parent
     function dispatchFilterChange() {
         const activeNodeTypes = Object.entries(selectedNodeTypes)
             .filter(([_, isSelected]) => isSelected)
@@ -273,8 +250,6 @@
             sortDirection
         });
         
-        hasPendingChanges = false;  // Clear pending changes flag
-        
         dispatch('filterChange', {
             nodeTypes: activeNodeTypes,
             categories: selectedCategories.map(c => c.id),
@@ -286,19 +261,14 @@
         });
     }
     
-    // Debounced dispatch for node types and sorting to prevent rapid-fire API calls
+    // Reactive update for node types and sorting changes
     $: {
         selectedNodeTypes;
         sortBy;
         sortDirection;
         
         if (isDetail) {
-            if (applyMode === 'auto') {
-                triggerFilterUpdate();
-            } else {
-                // Manual mode - just mark as having pending changes
-                hasPendingChanges = true;
-            }
+            triggerFilterUpdate();
         }
     }
     
@@ -312,7 +282,7 @@
             position: { x: nodeX, y: nodeY }
         });
         
-        // Prepare event data with position and nodeId (like ExpandCollapseButton)
+        // Prepare event data with position and nodeId
         const eventData: { 
             mode: NodeMode; 
             position?: { x: number; y: number };
@@ -356,265 +326,268 @@
                     <div class="control-panel-inner">
                         <!-- Section 1: Node Types (Circular buttons in 2 rows, condensed spacing) -->
                         <div class="filter-section node-types">
-                        <div class="section-header">
-                            Node Types
-                            {#if isDebouncing}
-                                <span class="pending-indicator">⏱ Changes pending...</span>
-                            {:else if isLoading}
-                                <span class="loading-indicator-inline">🔄 Applying...</span>
-                            {/if}
-                        </div>
-                        <div class="node-type-circles">
-                            <div class="circle-wrapper">
-                                <button 
-                                    class="circle-button"
-                                    class:selected={selectedNodeTypes.statement}
-                                    class:disabled={isLoading || isDebouncing}
-                                    disabled={isLoading || isDebouncing}
-                                    on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
-                                    aria-label="Statement"
-                                >
-                                    <span class="circle-label">ST</span>
-                                </button>
-                                <span class="circle-tooltip">Statement</span>
-                            </div>
-                            <div class="circle-wrapper">
-                                <button 
-                                    class="circle-button"
-                                    class:selected={selectedNodeTypes.openquestion}
-                                    class:disabled={isLoading || isDebouncing}
-                                    disabled={isLoading || isDebouncing}
-                                    on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
-                                    aria-label="Question"
-                                >
-                                    <span class="circle-label">Q</span>
-                                </button>
-                                <span class="circle-tooltip">Question</span>
-                            </div>
-                            <div class="circle-wrapper">
-                                <button 
-                                    class="circle-button"
-                                    class:selected={selectedNodeTypes.answer}
-                                    class:disabled={isLoading || isDebouncing}
-                                    disabled={isLoading || isDebouncing}
-                                    on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
-                                    aria-label="Answer"
-                                >
-                                    <span class="circle-label">A</span>
-                                </button>
-                                <span class="circle-tooltip">Answer</span>
-                            </div>
-                            <div class="circle-wrapper">
-                                <button 
-                                    class="circle-button"
-                                    class:selected={selectedNodeTypes.quantity}
-                                    class:disabled={isLoading || isDebouncing}
-                                    disabled={isLoading || isDebouncing}
-                                    on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
-                                    aria-label="Quantity"
-                                >
-                                    <span class="circle-label">QT</span>
-                                </button>
-                                <span class="circle-tooltip">Quantity</span>
-                            </div>
-                            <div class="circle-wrapper">
-                                <button 
-                                    class="circle-button"
-                                    class:selected={selectedNodeTypes.evidence}
-                                    class:disabled={isLoading || isDebouncing}
-                                    disabled={isLoading || isDebouncing}
-                                    on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
-                                    aria-label="Evidence"
-                                >
-                                    <span class="circle-label">EV</span>
-                                </button>
-                                <span class="circle-tooltip">Evidence</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- Manual Apply Button (only shown in manual mode) -->
-                    {#if applyMode === 'manual'}
-                        <div class="apply-controls">
-                            <button 
-                                class="apply-button"
-                                class:has-changes={hasPendingChanges}
-                                class:loading={isLoading}
-                                disabled={isLoading || !hasPendingChanges}
-                                on:click={applyFiltersManually}
-                            >
+                            <div class="section-header">
+                                Node Types
                                 {#if isLoading}
-                                    <span class="spinner">⏳</span>
-                                    Applying...
-                                {:else if hasPendingChanges}
-                                    <span class="icon">✓</span>
-                                    Apply Filters
-                                {:else}
-                                    <span class="icon">✓</span>
-                                    No Changes
+                                    <span class="loading-indicator-inline">🔄 Applying...</span>
                                 {/if}
-                            </button>
+                            </div>
+                            <div class="node-type-circles">
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.statement}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
+                                        aria-label="Statement"
+                                        data-node-type="statement"
+                                    >
+                                        <span class="circle-label">ST</span>
+                                    </button>
+                                    <span class="circle-tooltip">Statement</span>
+                                </div>
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.openquestion}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
+                                        aria-label="Question"
+                                        data-node-type="openquestion"
+                                    >
+                                        <span class="circle-label">Q</span>
+                                    </button>
+                                    <span class="circle-tooltip">Question</span>
+                                </div>
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.answer}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
+                                        aria-label="Answer"
+                                        data-node-type="answer"
+                                    >
+                                        <span class="circle-label">A</span>
+                                    </button>
+                                    <span class="circle-tooltip">Answer</span>
+                                </div>
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.quantity}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
+                                        aria-label="Quantity"
+                                        data-node-type="quantity"
+                                    >
+                                        <span class="circle-label">QT</span>
+                                    </button>
+                                    <span class="circle-tooltip">Quantity</span>
+                                </div>
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.evidence}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
+                                        aria-label="Evidence"
+                                        data-node-type="evidence"
+                                    >
+                                        <span class="circle-label">EV</span>
+                                    </button>
+                                    <span class="circle-tooltip">Evidence</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Manual Apply Button (only shown in manual mode) -->
+                        {#if applyMode === 'manual'}
+                            <div class="apply-controls">
+                                <button 
+                                    class="apply-button"
+                                    class:has-changes={hasPendingChanges}
+                                    class:loading={isLoading}
+                                    disabled={isLoading || !hasPendingChanges}
+                                    on:click={applyFiltersManually}
+                                >
+                                    {#if isLoading}
+                                        <span class="spinner">⏳</span>
+                                        Applying...
+                                    {:else if hasPendingChanges}
+                                        <span class="icon">✓</span>
+                                        Apply Filters
+                                    {:else}
+                                        <span class="icon">✓</span>
+                                        No Changes
+                                    {/if}
+                                </button>
+                                
+                                {#if hasPendingChanges && !isLoading}
+                                    <div class="changes-hint">
+                                        Click to apply your filter changes
+                                    </div>
+                                {/if}
+                            </div>
+                        {/if}
+                        
+                        <!-- Section 2: Categories (Searchable dropdown showing all options) -->
+                        <div class="filter-section">
+                            <div class="section-header">Categories {selectedCategories.length > 0 ? `(${selectedCategories.length}/5)` : ''}</div>
                             
-                            {#if hasPendingChanges && !isLoading}
-                                <div class="changes-hint">
-                                    Click to apply your filter changes
+                            <!-- Selected categories as tags -->
+                            {#if selectedCategories.length > 0}
+                                <div class="tag-list">
+                                    {#each selectedCategories as category}
+                                        <span class="tag">
+                                            {category.name}
+                                            <button 
+                                                class="tag-remove"
+                                                on:click={() => removeCategory(category.id)}
+                                                aria-label="Remove {category.name}"
+                                            >×</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                            {/if}
+                            
+                            <!-- Category search and dropdown (always show when less than 5 selected) -->
+                            {#if selectedCategories.length < 5}
+                                <div class="dropdown-container">
+                                    <input 
+                                        type="text"
+                                        class="search-input-standard"
+                                        placeholder="Search or select..."
+                                        bind:value={categorySearch}
+                                        on:focus={() => categoryDropdownOpen = true}
+                                        on:blur={() => setTimeout(() => categoryDropdownOpen = false, 200)}
+                                        disabled={loadingCategories}
+                                    />
+                                    
+                                    {#if categoryDropdownOpen}
+                                        <div class="dropdown-full">
+                                            {#if loadingCategories}
+                                                <div class="dropdown-item loading">Loading categories...</div>
+                                            {:else if filteredCategories.length === 0}
+                                                <div class="dropdown-item loading">No categories found</div>
+                                            {:else}
+                                                {#each filteredCategories as category}
+                                                    <button 
+                                                        class="dropdown-item"
+                                                        on:click={() => selectCategory(category)}
+                                                    >
+                                                        {category.name}
+                                                    </button>
+                                                {/each}
+                                            {/if}
+                                        </div>
+                                    {/if}
                                 </div>
                             {/if}
                         </div>
-                    {/if}
-                    
-                    <!-- Section 2: Categories (Searchable dropdown showing all options) -->
-                    <div class="filter-section">
-                        <div class="section-header">Categories {selectedCategories.length > 0 ? `(${selectedCategories.length}/5)` : ''}</div>
                         
-                        <!-- Selected categories as tags -->
-                        {#if selectedCategories.length > 0}
-                            <div class="tag-list">
-                                {#each selectedCategories as category}
-                                    <span class="tag">
-                                        {category.name}
-                                        <button 
-                                            class="tag-remove"
-                                            on:click={() => removeCategory(category.id)}
-                                            aria-label="Remove {category.name}"
-                                        >×</button>
-                                    </span>
-                                {/each}
+                        <!-- Section 3: Keywords (Searchable dropdown showing all options) -->
+                        <div class="filter-section">
+                            <div class="section-header">Keywords {selectedKeywords.length > 0 ? `(${selectedKeywords.length}/5)` : ''}</div>
+                            
+                            <!-- Selected keywords as tags -->
+                            {#if selectedKeywords.length > 0}
+                                <div class="tag-list">
+                                    {#each selectedKeywords as keyword}
+                                        <span class="tag">
+                                            {keyword}
+                                            <button 
+                                                class="tag-remove"
+                                                on:click={() => removeKeyword(keyword)}
+                                                aria-label="Remove {keyword}"
+                                            >×</button>
+                                        </span>
+                                    {/each}
+                                </div>
+                            {/if}
+                            
+                            <!-- Keyword search and dropdown (always show when less than 5 selected) -->
+                            {#if selectedKeywords.length < 5}
+                                <div class="dropdown-container">
+                                    <input 
+                                        type="text"
+                                        class="search-input-standard"
+                                        placeholder="Search or select..."
+                                        bind:value={keywordSearch}
+                                        on:focus={() => keywordDropdownOpen = true}
+                                        on:blur={() => setTimeout(() => keywordDropdownOpen = false, 200)}
+                                        disabled={loadingKeywords}
+                                    />
+                                    
+                                    {#if keywordDropdownOpen}
+                                        <div class="dropdown-full">
+                                            {#if loadingKeywords}
+                                                <div class="dropdown-item loading">Loading keywords...</div>
+                                            {:else if filteredKeywords.length === 0}
+                                                <div class="dropdown-item loading">No keywords found</div>
+                                            {:else}
+                                                {#each filteredKeywords as keyword}
+                                                    <button 
+                                                        class="dropdown-item"
+                                                        on:click={() => selectKeyword(keyword)}
+                                                    >
+                                                        {keyword}
+                                                    </button>
+                                                {/each}
+                                            {/if}
+                                        </div>
+                                    {/if}
+                                </div>
+                            {/if}
+                        </div>
+                        
+                        <!-- Section 4: Sort Options -->
+                        <div class="filter-section">
+                            <div class="section-header">Sort By</div>
+                            <div class="sort-controls">
+                                <select class="sort-dropdown" bind:value={sortBy}>
+                                    <option value="inclusion_votes">Inclusion Votes</option>
+                                    <option value="content_votes">Content Votes</option>
+                                    <option value="chronological">Date Created</option>
+                                    <option value="latest_activity">Latest Activity</option>
+                                    <option value="participants">Participants</option>
+                                </select>
+                                <button 
+                                    class="direction-toggle"
+                                    on:click={() => sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'}
+                                    aria-label="Toggle sort direction"
+                                >
+                                    {sortDirection === 'asc' ? '↑' : '↓'}
+                                </button>
                             </div>
-                        {/if}
+                        </div>
                         
-                        <!-- Category search and dropdown (always show when less than 5 selected) -->
-                        {#if selectedCategories.length < 5}
-                            <div class="dropdown-container">
+                        <!-- Section 5: User Filter -->
+                        <div class="filter-section">
+                            <div class="section-header">User Filter</div>
+                            <label class="checkbox-label">
                                 <input 
-                                    type="text"
-                                    class="search-input-standard"
-                                    placeholder="Search or select..."
-                                    bind:value={categorySearch}
-                                    on:focus={() => categoryDropdownOpen = true}
-                                    on:blur={() => setTimeout(() => categoryDropdownOpen = false, 200)}
-                                    disabled={loadingCategories}
+                                    type="checkbox" 
+                                    bind:checked={showOnlyMyItems}
                                 />
-                                
-                                {#if categoryDropdownOpen}
-                                    <div class="dropdown-full">
-                                        {#if loadingCategories}
-                                            <div class="dropdown-item loading">Loading categories...</div>
-                                        {:else if filteredCategories.length === 0}
-                                            <div class="dropdown-item loading">No categories found</div>
-                                        {:else}
-                                            {#each filteredCategories as category}
-                                                <button 
-                                                    class="dropdown-item"
-                                                    on:click={() => selectCategory(category)}
-                                                >
-                                                    {category.name}
-                                                </button>
-                                            {/each}
-                                        {/if}
-                                    </div>
-                                {/if}
-                            </div>
-                        {/if}
-                    </div>
-                    
-                    <!-- Section 3: Keywords (Searchable dropdown showing all options) -->
-                    <div class="filter-section">
-                        <div class="section-header">Keywords {selectedKeywords.length > 0 ? `(${selectedKeywords.length}/5)` : ''}</div>
-                        
-                        <!-- Selected keywords as tags -->
-                        {#if selectedKeywords.length > 0}
-                            <div class="tag-list">
-                                {#each selectedKeywords as keyword}
-                                    <span class="tag">
-                                        {keyword}
-                                        <button 
-                                            class="tag-remove"
-                                            on:click={() => removeKeyword(keyword)}
-                                            aria-label="Remove {keyword}"
-                                        >×</button>
-                                    </span>
-                                {/each}
-                            </div>
-                        {/if}
-                        
-                        <!-- Keyword search and dropdown (always show when less than 5 selected) -->
-                        {#if selectedKeywords.length < 5}
-                            <div class="dropdown-container">
-                                <input 
-                                    type="text"
-                                    class="search-input-standard"
-                                    placeholder="Search or select..."
-                                    bind:value={keywordSearch}
-                                    on:focus={() => keywordDropdownOpen = true}
-                                    on:blur={() => setTimeout(() => keywordDropdownOpen = false, 200)}
-                                    disabled={loadingKeywords}
-                                />
-                                
-                                {#if keywordDropdownOpen}
-                                    <div class="dropdown-full">
-                                        {#if loadingKeywords}
-                                            <div class="dropdown-item loading">Loading keywords...</div>
-                                        {:else if filteredKeywords.length === 0}
-                                            <div class="dropdown-item loading">No keywords found</div>
-                                        {:else}
-                                            {#each filteredKeywords as keyword}
-                                                <button 
-                                                    class="dropdown-item"
-                                                    on:click={() => selectKeyword(keyword)}
-                                                >
-                                                    {keyword}
-                                                </button>
-                                            {/each}
-                                        {/if}
-                                    </div>
-                                {/if}
-                            </div>
-                        {/if}
-                    </div>
-                    
-                    <!-- Section 4: Sort Options -->
-                    <div class="filter-section">
-                        <div class="section-header">Sort By</div>
-                        <div class="sort-controls">
-                            <select class="sort-dropdown" bind:value={sortBy}>
-                                <option value="inclusion_votes">Inclusion Votes</option>
-                                <option value="content_votes">Content Votes</option>
-                                <option value="chronological">Date Created</option>
-                                <option value="latest_activity">Latest Activity</option>
-                                <option value="participants">Participants</option>
-                            </select>
-                            <button 
-                                class="direction-toggle"
-                                on:click={() => sortDirection = sortDirection === 'asc' ? 'desc' : 'asc'}
-                                aria-label="Toggle sort direction"
-                            >
-                                {sortDirection === 'asc' ? '↑' : '↓'}
-                            </button>
+                                <span>Show only my items</span>
+                            </label>
+                            
+                            {#if showOnlyMyItems}
+                                <select class="user-mode-dropdown" bind:value={userFilterMode}>
+                                    <option value="all">All interactions</option>
+                                    <option value="created">Created by me</option>
+                                    <option value="voted">Voted on by me</option>
+                                    <option value="interacted">Interacted with</option>
+                                </select>
+                            {/if}
                         </div>
                     </div>
-                    
-                    <!-- Section 5: User Filter -->
-                    <div class="filter-section">
-                        <div class="section-header">User Filter</div>
-                        <label class="checkbox-label">
-                            <input 
-                                type="checkbox" 
-                                bind:checked={showOnlyMyItems}
-                            />
-                            <span>Show only my items</span>
-                        </label>
-                        
-                        {#if showOnlyMyItems}
-                            <select class="user-mode-dropdown" bind:value={userFilterMode}>
-                                <option value="all">All interactions</option>
-                                <option value="created">Created by me</option>
-                                <option value="voted">Voted on by me</option>
-                                <option value="interacted">Interacted with</option>
-                            </select>
-                        {/if}
-                    </div>
-                </div>
                 </div>
             </foreignObject>
         </svelte:fragment>
@@ -629,7 +602,7 @@
         on:modeChange={handleModeChange}
     >
         <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
-            <!-- Filter definition at content slot level (like InclusionVoteButtons) -->
+            <!-- Filter definition at content slot level -->
             <defs>
                 <filter id={glowFilterId} x="-100%" y="-100%" width="300%" height="300%">
                     <!-- Strong outer glow -->
@@ -689,7 +662,7 @@
                 class:hovered={isHovering}
             />
             
-            <!-- CRITICAL: Apply filter to parent <g>, not foreignObject (like InclusionVoteButtons) -->
+            <!-- Apply filter to parent <g>, not foreignObject -->
             <g style:filter={isHovering ? `url(#${glowFilterId})` : 'none'}>
                 <foreignObject 
                     x={-controlRadius * 0.5} 
@@ -806,7 +779,7 @@
         letter-spacing: 0.02em;
     }
     
-    /* Detail mode control panel styles - uses ContentBox dimensions */
+    /* Detail mode control panel styles */
     .control-panel {
         padding: 6px 10px;
         font-family: 'Inter', sans-serif;
@@ -847,15 +820,6 @@
         gap: 8px;
     }
     
-    .pending-indicator {
-        font-size: 9px;
-        font-weight: 500;
-        text-transform: none;
-        color: rgba(255, 200, 100, 0.9);
-        letter-spacing: 0;
-        animation: pulse 1.5s ease-in-out infinite;
-    }
-    
     .loading-indicator-inline {
         font-size: 9px;
         font-weight: 500;
@@ -863,11 +827,6 @@
         color: rgba(66, 153, 225, 0.9);
         letter-spacing: 0;
         animation: spin-emoji 2s linear infinite;
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
     }
     
     @keyframes spin-emoji {
@@ -909,17 +868,105 @@
         flex-shrink: 0;
     }
     
-    .circle-button:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(255, 255, 255, 0.4);
+    /* Node-type-specific colors - default state */
+    .circle-button[data-node-type="statement"] {
+        background: rgba(255, 158, 0, 0.1);
+        border-color: rgba(255, 158, 0, 0.3);
+        color: rgba(255, 158, 0, 0.8);
     }
     
-    .circle-button.selected {
-        background: rgba(66, 153, 225, 0.3);
-        border-color: rgba(66, 153, 225, 0.8);
+    .circle-button[data-node-type="openquestion"] {
+        background: rgba(0, 180, 216, 0.1);
+        border-color: rgba(0, 180, 216, 0.3);
+        color: rgba(0, 180, 216, 0.8);
+    }
+    
+    .circle-button[data-node-type="answer"] {
+        background: rgba(131, 56, 236, 0.1);
+        border-color: rgba(131, 56, 236, 0.3);
+        color: rgba(131, 56, 236, 0.8);
+    }
+    
+    .circle-button[data-node-type="quantity"] {
+        background: rgba(255, 77, 109, 0.1);
+        border-color: rgba(255, 77, 109, 0.3);
+        color: rgba(255, 77, 109, 0.8);
+    }
+    
+    .circle-button[data-node-type="evidence"] {
+        background: rgba(67, 97, 238, 0.1);
+        border-color: rgba(67, 97, 238, 0.3);
+        color: rgba(67, 97, 238, 0.8);
+    }
+    
+    /* Hover states with node-specific colors */
+    .circle-button[data-node-type="statement"]:hover {
+        background: rgba(255, 158, 0, 0.2);
+        border-color: rgba(255, 158, 0, 0.5);
+        color: rgba(255, 158, 0, 1);
+    }
+    
+    .circle-button[data-node-type="openquestion"]:hover {
+        background: rgba(0, 180, 216, 0.2);
+        border-color: rgba(0, 180, 216, 0.5);
+        color: rgba(0, 180, 216, 1);
+    }
+    
+    .circle-button[data-node-type="answer"]:hover {
+        background: rgba(131, 56, 236, 0.2);
+        border-color: rgba(131, 56, 236, 0.5);
+        color: rgba(131, 56, 236, 1);
+    }
+    
+    .circle-button[data-node-type="quantity"]:hover {
+        background: rgba(255, 77, 109, 0.2);
+        border-color: rgba(255, 77, 109, 0.5);
+        color: rgba(255, 77, 109, 1);
+    }
+    
+    .circle-button[data-node-type="evidence"]:hover {
+        background: rgba(67, 97, 238, 0.2);
+        border-color: rgba(67, 97, 238, 0.5);
+        color: rgba(67, 97, 238, 1);
+    }
+    
+    /* Selected states with node-specific colors - vibrant and glowing */
+    .circle-button[data-node-type="statement"].selected {
+        background: rgba(255, 158, 0, 0.3);
+        border-color: rgba(255, 158, 0, 0.8);
         color: white;
+        box-shadow: 0 0 8px rgba(255, 158, 0, 0.4);
     }
     
+    .circle-button[data-node-type="openquestion"].selected {
+        background: rgba(0, 180, 216, 0.3);
+        border-color: rgba(0, 180, 216, 0.8);
+        color: white;
+        box-shadow: 0 0 8px rgba(0, 180, 216, 0.4);
+    }
+    
+    .circle-button[data-node-type="answer"].selected {
+        background: rgba(131, 56, 236, 0.3);
+        border-color: rgba(131, 56, 236, 0.8);
+        color: white;
+        box-shadow: 0 0 8px rgba(131, 56, 236, 0.4);
+    }
+    
+    .circle-button[data-node-type="quantity"].selected {
+        background: rgba(255, 77, 109, 0.3);
+        border-color: rgba(255, 77, 109, 0.8);
+        color: white;
+        box-shadow: 0 0 8px rgba(255, 77, 109, 0.4);
+    }
+    
+    .circle-button[data-node-type="evidence"].selected {
+        background: rgba(67, 97, 238, 0.3);
+        border-color: rgba(67, 97, 238, 0.8);
+        color: white;
+        box-shadow: 0 0 8px rgba(67, 97, 238, 0.4);
+    }
+    
+    /* Disabled states - maintain node colors but reduce opacity */
     .circle-button.disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -927,8 +974,7 @@
     }
     
     .circle-button.disabled.selected {
-        background: rgba(66, 153, 225, 0.15);
-        border-color: rgba(66, 153, 225, 0.4);
+        opacity: 0.5;
     }
     
     .circle-label {
@@ -951,6 +997,27 @@
     
     .circle-wrapper:hover .circle-tooltip {
         opacity: 1;
+    }
+    
+    /* Node-type-specific tooltip colors */
+    .circle-wrapper:has([data-node-type="statement"]) .circle-tooltip {
+        color: rgba(255, 158, 0, 0.9);
+    }
+    
+    .circle-wrapper:has([data-node-type="openquestion"]) .circle-tooltip {
+        color: rgba(0, 180, 216, 0.9);
+    }
+    
+    .circle-wrapper:has([data-node-type="answer"]) .circle-tooltip {
+        color: rgba(131, 56, 236, 0.9);
+    }
+    
+    .circle-wrapper:has([data-node-type="quantity"]) .circle-tooltip {
+        color: rgba(255, 77, 109, 0.9);
+    }
+    
+    .circle-wrapper:has([data-node-type="evidence"]) .circle-tooltip {
+        color: rgba(67, 97, 238, 0.9);
     }
     
     /* Manual Apply Button Section */
@@ -1033,6 +1100,11 @@
         text-align: center;
         font-style: italic;
         animation: pulse 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
     }
     
     /* Compact node types section */

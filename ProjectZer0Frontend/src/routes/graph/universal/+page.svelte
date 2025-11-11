@@ -1,4 +1,4 @@
-<!-- src/routes/graph/universal/+page.svelte - PHASE 2: Added filterChange handler for Control Node -->
+<!-- src/routes/graph/universal/+page.svelte -->
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
     import * as auth0 from '$lib/services/auth0';
@@ -53,7 +53,7 @@
     // Control node settings
     const controlNodeId = 'universal-graph-controls';
     let controlNodeMode: NodeMode = 'preview'; 
-    let controlNodeRef: any = null;  // Reference to ControlNode component for calling methods 
+    let controlNodeRef: any = null;
     
     // Sequential batch rendering settings
     let enableBatchRendering = true;
@@ -100,18 +100,18 @@
     
     // Loading state
     let nodesLoading = true;
-    let universalDataProcessed = false;  // Track if we've processed universal data
+    let universalDataProcessed = false;
     
-    // BULLETPROOF: Request management
+    // BULLETPROOF: Request management for filter operations
     let currentAbortController: AbortController | null = null;
-    let requestSequence = 0;  // Track request order
-    let isFilterOperationLocked = false;  // Complete lock during filter operations
+    let requestSequence = 0;
+    let isFilterOperationLocked = false;
     
     // Graph data - SINGLE SOURCE OF TRUTH
     let graphData: GraphData = { nodes: [], links: [] };
     
-    // CRITICAL: Single graph store instance - managed by Graph component
-    let graphStore: any = null; // Will be set by Graph component via binding
+    // Graph store instance - managed by Graph component
+    let graphStore: any = null;
     
     // Data processing state
     let isUpdatingGraph = false;
@@ -138,7 +138,6 @@
         phantomLinksStatus.enabled = graphStore.getShouldRenderLinks();
         phantomLinksStatus.linksCount = graphData.links.length;
         
-        // Get reveal status if available
         if (typeof graphStore.getRevealStatus === 'function') {
             const revealStatus = graphStore.getRevealStatus();
             phantomLinksStatus.revealState = revealStatus.linkRenderingEnabled ? 'revealed' : 'hidden';
@@ -149,7 +148,6 @@
     $: if (graphStore && typeof graphStore.getPerformanceMetrics === 'function' && nodes.length > 0 && !isUpdatingGraph && !nodesLoading) {
         updateBatchRenderingStatus();
         
-        // Only process data when graph store is fully ready and we haven't processed it yet
         if (nodesLoaded && !universalDataProcessed) {
             console.log('[UNIVERSAL-PAGE] Graph store bound and ready, processing data', {
                 nodeCount: nodes.length,
@@ -252,7 +250,6 @@
                 const { nodeId, mode, position } = event.detail;
                 console.log('[UNIVERSAL-PAGE] Manager mode change event:', { nodeId, mode, position });
                 
-                // Update local state if needed (e.g., for control node)
                 if (nodeId === controlNodeId) {
                     controlNodeMode = mode;
                     controlNode = { ...controlNode, mode };
@@ -664,17 +661,8 @@
         setTimeout(() => {
             updateBatchRenderingStatus();
             isUpdatingGraph = false;
-            universalDataProcessed = true;  // Mark as processed
+            universalDataProcessed = true;
         }, 100);
-    }
-
-    // Handle control changes (filters, sorting)
-    async function handleControlChange() {
-        if (!$userStore) return;
-        
-        universalDataProcessed = false;  // Reset flag to allow reprocessing
-        nodesLoading = true;
-        await loadUniversalGraphData();
     }
 
     // ============================================================================
@@ -694,12 +682,6 @@
         
         const filters = event.detail;
         
-        // CRITICAL: Cancel any pending debounced updates in ControlNode
-        if (controlNodeRef && typeof controlNodeRef.cancelPending === 'function') {
-            controlNodeRef.cancelPending();
-            console.log('[UNIVERSAL-PAGE] Cancelled pending control node updates');
-        }
-        
         // CRITICAL: Abort any in-flight API request
         if (currentAbortController) {
             currentAbortController.abort();
@@ -718,6 +700,7 @@
         
         if (!$userStore) {
             console.warn('[UNIVERSAL-PAGE] No user available, skipping filter update');
+            isFilterOperationLocked = false;
             return;
         }
         
@@ -745,7 +728,7 @@
             // Map frontend sortBy to backend sort field names
             const sortByMapping: Record<string, UniversalSortType> = {
                 'inclusion_votes': 'netVotes',
-                'content_votes': 'netVotes', // Backend handles content vote fallback
+                'content_votes': 'netVotes',
                 'chronological': 'chronological',
                 'latest_activity': 'chronological',
                 'participants': 'participants'
@@ -764,7 +747,6 @@
         if (filters.keywords !== undefined) {
             console.log('[UNIVERSAL-PAGE] Updating keyword filter:', filters.keywords);
             filterKeywords = filters.keywords;
-            // Note: ControlNode doesn't currently expose keywordMode, defaulting to 'OR'
             universalGraphStore.setKeywordFilter(filterKeywords, keywordOperator);
         }
         
@@ -772,7 +754,6 @@
         if (filters.categories !== undefined) {
             console.log('[UNIVERSAL-PAGE] Updating category filter:', filters.categories);
             // Categories filter will be implemented when backend support is added
-            // For now, just log the values
         }
         
         // 5. User Filter
@@ -786,8 +767,6 @@
             
             if (showOnlyMyItems) {
                 universalGraphStore.setUserFilter($userStore.sub);
-                // Note: userFilterMode ('created', 'voted', 'interacted') 
-                // will need backend API parameter support
             } else {
                 universalGraphStore.setUserFilter(undefined);
             }
@@ -795,7 +774,7 @@
         
         // Now trigger a reload of the data from the backend
         console.log('[UNIVERSAL-PAGE] 🔄 Reloading graph data with new filters...');
-        universalDataProcessed = false;  // Reset flag to allow reprocessing
+        universalDataProcessed = false;
         nodesLoading = true;
         
         universalGraphStore.loadNodes($userStore, thisRequestSequence)
@@ -852,7 +831,6 @@
         }
         
         // The UniversalGraphManager handles all the visual changes
-        // No need to do anything else here - just maintain local state consistency
         console.log('[UNIVERSAL-PAGE] Mode change handled by UniversalGraphManager');
     }
 
@@ -870,8 +848,6 @@
         visibilityStore.setPreference(nodeId, !isHidden, 'user');
         
         console.log('[UNIVERSAL-PAGE] Visibility changed:', { nodeId, isHidden });
-        
-        // The Graph component handles the actual visibility change via its store
     }
 
     // UPDATED: Toggle node type function - supports all 5 types
@@ -882,7 +858,6 @@
             selectedNodeTypes.add(nodeType);
         }
         selectedNodeTypes = new Set(selectedNodeTypes);
-        handleControlChange();
     }
 
     // Toggle batch rendering mode
@@ -988,256 +963,48 @@
         </div>
     {/if}
 
-   <!-- Graph visualization -->
-<Graph 
-    data={graphData}
-    viewType={viewType}
-    bind:graphStore={graphStore}
-    on:modechange={handleNodeModeChange}
-    on:visibilitychange={handleVisibilityChange}
-    on:filterchange={handleFilterChange}
->
-    <svelte:fragment slot="default" let:node let:handleModeChange>
-        {#if isStatementNode(node)}
-            <StatementNode 
-                {node}
-            />
-        {:else if isOpenQuestionNode(node)}
-            <OpenQuestionNode
-                {node}
-            />
-        {:else if isAnswerNode(node)}
-            <AnswerNode
-                {node}
-            />
-        {:else if isQuantityNode(node)}
-            <QuantityNode
-                {node}
-            />
-        {:else if isEvidenceNode(node)}
-            <EvidenceNode
-                {node}
-            />
-        {:else if isNavigationNode(node)}
-            <NavigationNode 
-                {node}
-            />
-        {:else if node.id === controlNodeId}
-            <ControlNode 
-                bind:this={controlNodeRef}
-                {node}
-                isLoading={nodesLoading}
-            >
-                    <!-- Universal Graph Controls -->
-                    <div class="control-content">
-                        <h3>Universal Graph Controls</h3>
-                        
-                        <!-- Phantom Links status section -->
-                        <div class="control-section phantom-links-section">
-                            <h4>🔗 Phantom Links System</h4>
-                            <div class="phantom-status">
-                                <div class="status-item">
-                                    <span class="status-label">Status:</span>
-                                    <span class="status-value {phantomLinksStatus.enabled ? 'enabled' : 'disabled'}">
-                                        {phantomLinksStatus.enabled ? 'ENABLED' : 'DISABLED'}
-                                    </span>
-                                </div>
-                                <div class="status-item">
-                                    <span class="status-label">Links Count:</span>
-                                    <span class="status-value">{phantomLinksStatus.linksCount}</span>
-                                </div>
-                                <div class="status-item">
-                                    <span class="status-label">Reveal State:</span>
-                                    <span class="status-value state-{phantomLinksStatus.revealState}">
-                                        {phantomLinksStatus.revealState.toUpperCase()}
-                                    </span>
-                                </div>
-                            </div>
-                            
-                            <!-- DEBUG: Force reveal button -->
-                            {#if !phantomLinksStatus.enabled}
-                                <button 
-                                    class="force-reveal-btn"
-                                    on:click={forceRevealPhantomLinks}
-                                >
-                                    🚀 Force Reveal Links (Debug)
-                                </button>
-                            {/if}
-                        </div>
-                        
-                        <!-- Enhanced rendering mode controls -->
-                        <div class="control-section">
-                            <h4>Rendering Mode</h4>
-                            <label class="batch-toggle">
-                                <input 
-                                    type="checkbox" 
-                                    bind:checked={enableBatchRendering}
-                                    on:change={toggleBatchRendering}
-                                />
-                                Enable Batch Rendering ({maxBatchesToRender} batches of {batchSize} nodes)
-                            </label>
-                            
-                            {#if enableBatchRendering}
-                                <div class="batch-info-detail">
-                                    <small>
-                                        <strong>Sequential Mode:</strong> 
-                                        {enableSequentialRendering ? 'ON' : 'OFF'}<br>
-                                        {#if enableSequentialRendering}
-                                            Batches render progressively: Batch 1 → wait → Batch 2<br>
-                                            Prevents performance issues with large node sets<br>
-                                        {:else}
-                                            All {maxBatchesToRender * batchSize} nodes render simultaneously<br>
-                                        {/if}
-                                        Currently: {batchRenderingStatus.renderedNodes} nodes rendered
-                                    </small>
-                                </div>
-                            {/if}
-                        </div>
-                        
-                        <!-- UPDATED: Node Type Filter - All 5 Types -->
-                        <div class="control-section">
-                            <h4>Node Types</h4>
-                            <div class="checkbox-group">
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('openquestion')}
-                                        on:change={() => toggleNodeType('openquestion')}
-                                    />
-                                    Questions ({questionNodes.length})
-                                </label>
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('statement')}
-                                        on:change={() => toggleNodeType('statement')}
-                                    />
-                                    Statements ({statementNodes.length})
-                                </label>
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('answer')}
-                                        on:change={() => toggleNodeType('answer')}
-                                    />
-                                    Answers ({answerNodes.length})
-                                </label>
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('quantity')}
-                                        on:change={() => toggleNodeType('quantity')}
-                                    />
-                                    Quantities ({quantityNodes.length})
-                                </label>
-                                <label>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedNodeTypes.has('evidence')}
-                                        on:change={() => toggleNodeType('evidence')}
-                                    />
-                                    Evidence ({evidenceNodes.length})
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <!-- Sort Options -->
-                        <div class="control-section">
-                            <h4>Sort By</h4>
-                            <select bind:value={sortType} on:change={handleControlChange}>
-                                <option value="netVotes">Net Votes</option>
-                                <option value="participants">Participants</option>
-                                <option value="chronological">Date Created</option>
-                            </select>
-                            
-                            <select bind:value={sortDirection} on:change={handleControlChange}>
-                                <option value="desc">Descending</option>
-                                <option value="asc">Ascending</option>
-                            </select>
-                        </div>
-                        
-                        <!-- Net Votes Filter -->
-                        <div class="control-section">
-                            <h4>Net Votes Range</h4>
-                            <div class="range-inputs">
-                                <label>
-                                    Min: 
-                                    <input 
-                                        type="number" 
-                                        min="-100" 
-                                        max="100" 
-                                        step="1"
-                                        bind:value={minNetVotes}
-                                        on:change={handleControlChange}
-                                    />
-                                </label>
-                                <label>
-                                    Max: 
-                                    <input 
-                                        type="number" 
-                                        min="-100" 
-                                        max="100" 
-                                        step="1"
-                                        bind:value={maxNetVotes}
-                                        on:change={handleControlChange}
-                                    />
-                                </label>
-                            </div>
-                        </div>
-                        
-                        <!-- Keyword Filter -->
-                        <div class="control-section">
-                            <h4>Keywords</h4>
-                            <p style="font-size: 0.8rem; opacity: 0.7;">Keyword filtering coming soon...</p>
-                        </div>
-                        
-                        <!-- User Filter -->
-                        <div class="control-section">
-                            <label>
-                                <input 
-                                    type="checkbox" 
-                                    bind:checked={showOnlyMyItems}
-                                    on:change={handleControlChange}
-                                />
-                                Show only my content
-                            </label>
-                        </div>
-                        
-                        {#if nodesLoading}
-                            <div class="loading-indicator">Loading content...</div>
-                        {/if}
-                        
-                        <!-- UPDATED: Debug Info with all 5 node types -->
-                        <div class="debug-section">
-                            <h4>Debug Info - All 5 Node Types</h4>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Total Nodes: {contentNodes.length} | 
-                                Questions: {questionNodes.length} |
-                                Statements: {statementNodes.length} |
-                                Answers: {answerNodes.length} |
-                                Quantities: {quantityNodes.length} |
-                                Evidence: {evidenceNodes.length}
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Relationships: {relationships.length} |
-                                Batch Mode: {enableBatchRendering ? 'ON' : 'OFF'}
-                                {#if enableBatchRendering}
-                                    | Sequential: {enableSequentialRendering ? 'ON' : 'OFF'} | Max Batches: {maxBatchesToRender}
-                                {/if}
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                🔗 Phantom Links: {phantomLinksStatus.enabled ? 'ACTIVE' : 'INACTIVE'} | 
-                                Links: {phantomLinksStatus.linksCount} | 
-                                State: {phantomLinksStatus.revealState}
-                            </p>
-                            <p style="font-size: 0.7rem; opacity: 0.6;">
-                                Graph Store: {graphStore ? 'Connected' : 'Not Ready'} | 
-                                Data Nodes: {graphData.nodes.length} | 
-                                Data Links: {graphData.links.length}
-                            </p>
-                        </div>
-                    </div>
-                </ControlNode>
+    <!-- Graph visualization -->
+    <Graph 
+        data={graphData}
+        viewType={viewType}
+        bind:graphStore={graphStore}
+        on:modechange={handleNodeModeChange}
+        on:visibilitychange={handleVisibilityChange}
+        on:filterchange={handleFilterChange}
+    >
+        <svelte:fragment slot="default" let:node let:handleModeChange>
+            {#if isStatementNode(node)}
+                <StatementNode 
+                    {node}
+                />
+            {:else if isOpenQuestionNode(node)}
+                <OpenQuestionNode
+                    {node}
+                />
+            {:else if isAnswerNode(node)}
+                <AnswerNode
+                    {node}
+                />
+            {:else if isQuantityNode(node)}
+                <QuantityNode
+                    {node}
+                />
+            {:else if isEvidenceNode(node)}
+                <EvidenceNode
+                    {node}
+                />
+            {:else if isNavigationNode(node)}
+                <NavigationNode 
+                    {node}
+                />
+            {:else if node.id === controlNodeId}
+                <!-- CRITICAL: Added applyMode="manual" prop -->
+                <ControlNode 
+                    bind:this={controlNodeRef}
+                    {node}
+                    isLoading={nodesLoading}
+                    applyMode="manual"
+                />
             {/if}
         </svelte:fragment>
     </Graph>
@@ -1309,152 +1076,6 @@
 
     .batch-progress {
         opacity: 0.8;
-    }
-
-    /* Control styles */
-    .control-content {
-        padding: 1rem;
-        color: white;
-        font-family: 'Orbitron', sans-serif;
-    }
-
-    .control-content h3 {
-        margin: 0 0 1rem 0;
-        font-size: 1.2rem;
-    }
-
-    .control-section {
-        margin-bottom: 1.5rem;
-    }
-
-    .control-section h4 {
-        margin: 0 0 0.5rem 0;
-        font-size: 0.9rem;
-        opacity: 0.8;
-    }
-
-    /* ENHANCED: Phantom links section styles */
-    .phantom-links-section {
-        background: rgba(0, 188, 212, 0.1);
-        border: 1px solid rgba(0, 188, 212, 0.3);
-        border-radius: 6px;
-        padding: 1rem;
-        margin-bottom: 2rem;
-    }
-
-    .phantom-status {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-    }
-
-    .status-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    .status-label {
-        font-size: 0.8rem;
-        opacity: 0.8;
-    }
-
-    .status-value {
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
-
-    .status-value.enabled {
-        color: #00ff88;
-    }
-
-    .status-value.disabled {
-        color: #ff6b6b;
-    }
-
-    .status-value.state-hidden {
-        color: #ff6b6b;
-    }
-
-    .status-value.state-revealing {
-        color: #ffa500;
-    }
-
-    .status-value.state-revealed {
-        color: #00ff88;
-    }
-
-    .force-reveal-btn {
-        background: rgba(255, 107, 107, 0.2);
-        border: 1px solid rgba(255, 107, 107, 0.5);
-        color: white;
-        padding: 0.5rem 1rem;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 0.8rem;
-        transition: all 0.2s ease;
-    }
-
-    .force-reveal-btn:hover {
-        background: rgba(255, 107, 107, 0.3);
-        border-color: rgba(255, 107, 107, 0.7);
-    }
-
-    .checkbox-group {
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-    }
-
-    .checkbox-group label, .batch-toggle {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        cursor: pointer;
-    }
-
-    .batch-info-detail {
-        margin-top: 0.5rem;
-        padding: 0.5rem;
-        background: rgba(0, 188, 212, 0.1);
-        border-radius: 4px;
-        border-left: 3px solid rgba(0, 188, 212, 0.5);
-    }
-
-    select {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 4px;
-        margin-right: 0.5rem;
-    }
-
-    .range-inputs {
-        display: flex;
-        gap: 1rem;
-    }
-
-    .range-inputs input[type="number"] {
-        background: rgba(255, 255, 255, 0.1);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        color: white;
-        padding: 0.25rem;
-        border-radius: 4px;
-        width: 60px;
-    }
-
-    .loading-indicator {
-        text-align: center;
-        opacity: 0.7;
-        font-style: italic;
-    }
-
-    .debug-section {
-        border-top: 1px solid rgba(255, 255, 255, 0.2);
-        padding-top: 1rem;
-        margin-top: 1rem;
     }
     
     /* BULLETPROOF: Blocking overlay for filter operations */
