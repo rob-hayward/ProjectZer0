@@ -1,4 +1,5 @@
 // src/lib/stores/wordListStore.ts
+// UPDATED: Fixed to use correct /graph/universal/filters/keywords endpoint
 import { writable, get } from 'svelte/store';
 import { fetchWithAuth } from '$lib/services/api';
 
@@ -23,6 +24,7 @@ function createWordListStore() {
         /**
          * Load all words from the backend
          * Uses caching to prevent excessive API calls
+         * FIXED: Now uses correct universal graph endpoint
          */
         async loadAllWords(forceRefresh = false) {
             const state = get({ subscribe });
@@ -41,8 +43,8 @@ function createWordListStore() {
             update(state => ({ ...state, isLoading: true, error: null }));
             
             try {
-                // Fetch words from the backend
-                const response = await fetchWithAuth('/nodes/word/all');
+                // FIXED: Use correct universal graph endpoint
+                const response = await fetchWithAuth('/graph/universal/filters/keywords');
                 
                 let words: string[] = [];
                 
@@ -58,7 +60,8 @@ function createWordListStore() {
                     ];
                 }
                 else if (Array.isArray(response)) {
-                    // Extract word strings from the response (which might be an array of objects)
+                    // UPDATED: Handle universal graph response format
+                    // Response is array of objects with 'word' property
                     words = response.map((item: any) => {
                         if (typeof item === 'string') return item;
                         if (item && typeof item === 'object' && 'word' in item) {
@@ -67,11 +70,16 @@ function createWordListStore() {
                         return null;
                     }).filter(Boolean) as string[];
                 }
-                // Handle new response format with words property
                 else if (typeof response === 'object' && response !== null) {
+                    // Handle alternative response formats
                     if ('words' in response && Array.isArray(response.words)) {
-                        // Extract words from the response.words array
                         words = response.words.map((item: any) => {
+                            if (typeof item === 'string') return item;
+                            if (item && typeof item === 'object' && 'word' in item) return item.word;
+                            return null;
+                        }).filter(Boolean) as string[];
+                    } else if ('keywords' in response && Array.isArray(response.keywords)) {
+                        words = response.keywords.map((item: any) => {
                             if (typeof item === 'string') return item;
                             if (item && typeof item === 'object' && 'word' in item) return item.word;
                             return null;
@@ -110,6 +118,8 @@ function createWordListStore() {
                 // Save to localStorage for faster access next time
                 saveToLocalStorage(words);
                 
+                console.log('[WordListStore] Successfully loaded words:', words.length);
+                
                 return words;
             } catch (error) {
                 console.error('[WordListStore] Error fetching words:', error);
@@ -124,6 +134,8 @@ function createWordListStore() {
                         error: `Error fetching words: ${error}. Using cached data.`,
                         lastLoaded: Date.now() - 86400000 // Set to 24h ago to encourage refresh on next load
                     }));
+                    
+                    console.log('[WordListStore] Using cached words:', cachedWords.length);
                     
                     return cachedWords;
                 }
@@ -143,6 +155,8 @@ function createWordListStore() {
                     error: `Error fetching words: ${error}. Using sample data.`,
                     lastLoaded: Date.now()
                 }));
+                
+                console.log('[WordListStore] Using sample words');
                 
                 return sampleWords;
             }

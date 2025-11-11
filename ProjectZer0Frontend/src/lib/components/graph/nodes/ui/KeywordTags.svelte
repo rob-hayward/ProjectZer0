@@ -1,6 +1,8 @@
 <!-- src/lib/components/graph/nodes/ui/KeywordTags.svelte -->
+<!-- UPDATED: Using WORD color from new color scheme -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { COLORS } from '$lib/constants/colors';
 
   export let keywords: Array<{
     word: string;
@@ -9,7 +11,9 @@
   }> = [];
   export let radius: number;
   export let maxDisplay: number = 8;
-  export let wordColor: string = 'rgba(79, 70, 229, 0.8)'; // INDIGO - Word node color
+  
+  // UPDATED: Use WORD color from new synthwave palette
+  export let wordColor: string = `${COLORS.PRIMARY.WORD}CC`; // #7B2CBF with 80% opacity
 
   const dispatch = createEventDispatcher<{
     keywordClick: { word: string };
@@ -143,7 +147,7 @@
         <text
           x={width / 2}
           y={pillHeight / 2}
-          style:font-family="Inter"
+          style:font-family="Orbitron"
           style:font-size="11px"
           style:font-weight="500"
           style:fill="rgba(255, 255, 255, 0.95)"
@@ -167,7 +171,7 @@
       <text
         x={moreTextX}
         y={pillHeight / 2}
-        style:font-family="Inter"
+        style:font-family="Orbitron"
         style:font-size="11px"
         style:font-weight="400"
         style:fill="rgba(255, 255, 255, 0.6)"

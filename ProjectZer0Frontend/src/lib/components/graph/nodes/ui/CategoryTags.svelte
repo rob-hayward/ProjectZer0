@@ -1,6 +1,8 @@
 <!-- src/lib/components/graph/nodes/ui/CategoryTags.svelte -->
+<!-- UPDATED: Using DEFINITION color from new color scheme -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { COLORS } from '$lib/constants/colors';
 
   export let categories: Array<{
     id: string;
@@ -8,7 +10,9 @@
   }> = [];
   export let radius: number;
   export let maxDisplay: number = 3;
-  export let pillColor: string = 'rgba(156, 89, 182, 0.8)'; // Purple placeholder, configurable
+  
+  // UPDATED: Use DEFINITION color from new synthwave palette
+  export let pillColor: string = `${COLORS.PRIMARY.DEFINITION}CC`; // #9D4EDD with 80% opacity
 
   const dispatch = createEventDispatcher<{
     categoryClick: { categoryId: string; categoryName: string };
@@ -125,7 +129,7 @@
         <text
           x={width / 2}
           y={pillHeight / 2}
-          style:font-family="Inter"
+          style:font-family="Orbitron"
           style:font-size="11px"
           style:font-weight="500"
           style:fill="rgba(255, 255, 255, 0.95)"
@@ -149,7 +153,7 @@
       <text
         x={moreTextX}
         y={pillHeight / 2}
-        style:font-family="Inter"
+        style:font-family="Orbitron"
         style:font-size="11px"
         style:font-weight="400"
         style:fill="rgba(255, 255, 255, 0.6)"

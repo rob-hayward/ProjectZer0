@@ -1,13 +1,19 @@
 <!-- src/lib/components/graph/nodes/controlNode/ControlNode.svelte -->
+
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
+    import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import NodeHeader from '../ui/NodeHeader.svelte';
     import { fetchWithAuth } from '$lib/services/api';
     import { userStore } from '$lib/stores/userStore';
+    
+    // UPDATED: Import the stores for keywords and categories
+    import { wordListStore } from '$lib/stores/wordListStore';
+    import { categoryListStore, type Category } from '$lib/stores/categoryListStore';
     
     // Props
     export let node: RenderableNode;
@@ -48,10 +54,10 @@
     };
     
     // Category filter state - SIMPLIFIED: selected = required
-    let selectedCategories: Array<{id: string; name: string}> = [];
+    let selectedCategories: Category[] = [];
     let categorySearch = '';
-    let filteredCategories: Array<{id: string; name: string}> = [];
-    let availableCategories: Array<{id: string; name: string}> = [];
+    let filteredCategories: Category[] = [];
+    let availableCategories: Category[] = [];
     let categoryDropdownOpen = false;
     let loadingCategories = false;
     
@@ -100,7 +106,41 @@
         loadAvailableFilters();
     }
     
-    // Load available categories and keywords from API
+    // Helper function to get node type colors from constants
+    function getNodeTypeColors(nodeType: string): {
+        background: string;
+        border: string;
+        text: string;
+        hover: string;
+        gradient: { start: string; end: string };
+    } {
+        const typeMap: { [key: string]: 'STATEMENT' | 'OPENQUESTION' | 'ANSWER' | 'QUANTITY' | 'EVIDENCE' } = {
+            'statement': 'STATEMENT',
+            'openquestion': 'OPENQUESTION',
+            'answer': 'ANSWER',
+            'quantity': 'QUANTITY',
+            'evidence': 'EVIDENCE'
+        };
+        
+        const constantKey = typeMap[nodeType];
+        return NODE_CONSTANTS.COLORS[constantKey] as {
+            background: string;
+            border: string;
+            text: string;
+            hover: string;
+            gradient: { start: string; end: string };
+        };
+    }
+    
+    // Helper function to increase opacity of a hex color for selected state
+    function getSelectedBackground(backgroundColor: string): string {
+        // Replace the last 2 characters (opacity) with a higher value
+        // Original: XX (e.g., 33 ≈ 20% opacity)
+        // Selected: 80 (≈ 50% opacity) for a noticeable but not overwhelming increase
+        return backgroundColor.slice(0, -2) + '80';
+    }
+    
+    // UPDATED: Load available categories and keywords using stores with API fallback
     async function loadAvailableFilters() {
         const user = $userStore;
         if (!user) {
@@ -108,33 +148,69 @@
             return;
         }
         
-        // Load categories
+        // Load categories using store (with caching)
         loadingCategories = true;
         try {
-            const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories');
-            if (categoriesResponse) {
-                availableCategories = categoriesResponse.map((cat: any) => ({
-                    id: cat.id,
-                    name: cat.name
-                }));
-                console.log('[ControlNode] Loaded categories:', availableCategories.length);
+            console.log('[ControlNode] Loading categories from store...');
+            
+            // Try to get from store first (may have cache)
+            const categories = await categoryListStore.loadAllCategories();
+            
+            if (categories && categories.length > 0) {
+                availableCategories = categories;
+                console.log('[ControlNode] Loaded categories from store:', availableCategories.length);
+            } else {
+                // Fallback to direct API call if store returns empty
+                console.log('[ControlNode] Store returned empty, trying direct API call...');
+                const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories');
+                if (categoriesResponse && Array.isArray(categoriesResponse)) {
+                    availableCategories = categoriesResponse.map((cat: any) => ({
+                        id: cat.id,
+                        name: cat.name
+                    }));
+                    console.log('[ControlNode] Loaded categories from API:', availableCategories.length);
+                } else {
+                    console.warn('[ControlNode] No categories available from API');
+                    availableCategories = [];
+                }
             }
         } catch (error) {
             console.error('[ControlNode] Error loading categories:', error);
+            availableCategories = [];
         } finally {
             loadingCategories = false;
         }
         
-        // Load keywords
+        // Load keywords using store (with caching)
         loadingKeywords = true;
         try {
-            const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords');
-            if (keywordsResponse) {
-                availableKeywords = keywordsResponse.map((kw: any) => kw.word);
-                console.log('[ControlNode] Loaded keywords:', availableKeywords.length);
+            console.log('[ControlNode] Loading keywords from store...');
+            
+            // Try to get from store first (may have cache)
+            const keywords = await wordListStore.loadAllWords();
+            
+            if (keywords && keywords.length > 0) {
+                availableKeywords = keywords;
+                console.log('[ControlNode] Loaded keywords from store:', availableKeywords.length);
+            } else {
+                // Fallback to direct API call if store returns empty
+                console.log('[ControlNode] Store returned empty, trying direct API call...');
+                const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords');
+                if (keywordsResponse && Array.isArray(keywordsResponse)) {
+                    availableKeywords = keywordsResponse.map((kw: any) => {
+                        if (typeof kw === 'string') return kw;
+                        if (kw && typeof kw === 'object' && 'word' in kw) return kw.word;
+                        return null;
+                    }).filter(Boolean) as string[];
+                    console.log('[ControlNode] Loaded keywords from API:', availableKeywords.length);
+                } else {
+                    console.warn('[ControlNode] No keywords available from API');
+                    availableKeywords = [];
+                }
             }
         } catch (error) {
             console.error('[ControlNode] Error loading keywords:', error);
+            availableKeywords = [];
         } finally {
             loadingKeywords = false;
         }
@@ -174,7 +250,7 @@
         }
     }
     
-    function selectCategory(category: {id: string; name: string}) {
+    function selectCategory(category: Category) {
         if (selectedCategories.length < 5) {
             selectedCategories = [...selectedCategories, category];
             categorySearch = '';
@@ -342,6 +418,12 @@
                                         on:click={() => selectedNodeTypes.statement = !selectedNodeTypes.statement}
                                         aria-label="Statement"
                                         data-node-type="statement"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('statement').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('statement').background)};
+                                            --node-border: {getNodeTypeColors('statement').border};
+                                            --node-text: {getNodeTypeColors('statement').text};
+                                        "
                                     >
                                         <span class="circle-label">ST</span>
                                     </button>
@@ -356,6 +438,12 @@
                                         on:click={() => selectedNodeTypes.openquestion = !selectedNodeTypes.openquestion}
                                         aria-label="Question"
                                         data-node-type="openquestion"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('openquestion').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('openquestion').background)};
+                                            --node-border: {getNodeTypeColors('openquestion').border};
+                                            --node-text: {getNodeTypeColors('openquestion').text};
+                                        "
                                     >
                                         <span class="circle-label">Q</span>
                                     </button>
@@ -370,6 +458,12 @@
                                         on:click={() => selectedNodeTypes.answer = !selectedNodeTypes.answer}
                                         aria-label="Answer"
                                         data-node-type="answer"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('answer').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('answer').background)};
+                                            --node-border: {getNodeTypeColors('answer').border};
+                                            --node-text: {getNodeTypeColors('answer').text};
+                                        "
                                     >
                                         <span class="circle-label">A</span>
                                     </button>
@@ -384,6 +478,12 @@
                                         on:click={() => selectedNodeTypes.quantity = !selectedNodeTypes.quantity}
                                         aria-label="Quantity"
                                         data-node-type="quantity"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('quantity').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('quantity').background)};
+                                            --node-border: {getNodeTypeColors('quantity').border};
+                                            --node-text: {getNodeTypeColors('quantity').text};
+                                        "
                                     >
                                         <span class="circle-label">QT</span>
                                     </button>
@@ -398,6 +498,12 @@
                                         on:click={() => selectedNodeTypes.evidence = !selectedNodeTypes.evidence}
                                         aria-label="Evidence"
                                         data-node-type="evidence"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('evidence').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('evidence').background)};
+                                            --node-border: {getNodeTypeColors('evidence').border};
+                                            --node-text: {getNodeTypeColors('evidence').text};
+                                        "
                                     >
                                         <span class="circle-label">EV</span>
                                     </button>
@@ -785,8 +891,7 @@
         font-family: 'Inter', sans-serif;
         font-size: 11px;
         color: white;
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow: hidden;
         box-sizing: border-box;
     }
     
@@ -856,9 +961,10 @@
         width: 28px;
         height: 28px;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.05);
-        border: 2px solid rgba(255, 255, 255, 0.2);
-        color: rgba(255, 255, 255, 0.6);
+        /* Use CSS variables set from NODE_CONSTANTS */
+        background: var(--node-bg);
+        border: 2px solid var(--node-border);
+        color: rgba(255, 255, 255, 0.4);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -866,107 +972,25 @@
         transition: all 0.2s;
         padding: 0;
         flex-shrink: 0;
+        opacity: 0.4;
     }
     
-    /* Node-type-specific colors - default state */
-    .circle-button[data-node-type="statement"] {
-        background: rgba(255, 158, 0, 0.1);
-        border-color: rgba(255, 158, 0, 0.3);
-        color: rgba(255, 158, 0, 0.8);
+    /* Hover states - increase opacity and border thickness */
+    .circle-button:hover {
+        opacity: 1;
+        border-width: 2.5px;
     }
     
-    .circle-button[data-node-type="openquestion"] {
-        background: rgba(0, 180, 216, 0.1);
-        border-color: rgba(0, 180, 216, 0.3);
-        color: rgba(0, 180, 216, 0.8);
-    }
-    
-    .circle-button[data-node-type="answer"] {
-        background: rgba(131, 56, 236, 0.1);
-        border-color: rgba(131, 56, 236, 0.3);
-        color: rgba(131, 56, 236, 0.8);
-    }
-    
-    .circle-button[data-node-type="quantity"] {
-        background: rgba(255, 77, 109, 0.1);
-        border-color: rgba(255, 77, 109, 0.3);
-        color: rgba(255, 77, 109, 0.8);
-    }
-    
-    .circle-button[data-node-type="evidence"] {
-        background: rgba(67, 97, 238, 0.1);
-        border-color: rgba(67, 97, 238, 0.3);
-        color: rgba(67, 97, 238, 0.8);
-    }
-    
-    /* Hover states with node-specific colors */
-    .circle-button[data-node-type="statement"]:hover {
-        background: rgba(255, 158, 0, 0.2);
-        border-color: rgba(255, 158, 0, 0.5);
-        color: rgba(255, 158, 0, 1);
-    }
-    
-    .circle-button[data-node-type="openquestion"]:hover {
-        background: rgba(0, 180, 216, 0.2);
-        border-color: rgba(0, 180, 216, 0.5);
-        color: rgba(0, 180, 216, 1);
-    }
-    
-    .circle-button[data-node-type="answer"]:hover {
-        background: rgba(131, 56, 236, 0.2);
-        border-color: rgba(131, 56, 236, 0.5);
-        color: rgba(131, 56, 236, 1);
-    }
-    
-    .circle-button[data-node-type="quantity"]:hover {
-        background: rgba(255, 77, 109, 0.2);
-        border-color: rgba(255, 77, 109, 0.5);
-        color: rgba(255, 77, 109, 1);
-    }
-    
-    .circle-button[data-node-type="evidence"]:hover {
-        background: rgba(67, 97, 238, 0.2);
-        border-color: rgba(67, 97, 238, 0.5);
-        color: rgba(67, 97, 238, 1);
-    }
-    
-    /* Selected states with node-specific colors - vibrant and glowing */
-    .circle-button[data-node-type="statement"].selected {
-        background: rgba(255, 158, 0, 0.3);
-        border-color: rgba(255, 158, 0, 0.8);
+    /* Selected states - vibrant and glowing */
+    .circle-button.selected {
+        opacity: 1;
+        border-width: 2.5px;
+        box-shadow: 0 0 8px var(--node-border);
         color: white;
-        box-shadow: 0 0 8px rgba(255, 158, 0, 0.4);
+        background: var(--node-bg-selected);
     }
     
-    .circle-button[data-node-type="openquestion"].selected {
-        background: rgba(0, 180, 216, 0.3);
-        border-color: rgba(0, 180, 216, 0.8);
-        color: white;
-        box-shadow: 0 0 8px rgba(0, 180, 216, 0.4);
-    }
-    
-    .circle-button[data-node-type="answer"].selected {
-        background: rgba(131, 56, 236, 0.3);
-        border-color: rgba(131, 56, 236, 0.8);
-        color: white;
-        box-shadow: 0 0 8px rgba(131, 56, 236, 0.4);
-    }
-    
-    .circle-button[data-node-type="quantity"].selected {
-        background: rgba(255, 77, 109, 0.3);
-        border-color: rgba(255, 77, 109, 0.8);
-        color: white;
-        box-shadow: 0 0 8px rgba(255, 77, 109, 0.4);
-    }
-    
-    .circle-button[data-node-type="evidence"].selected {
-        background: rgba(67, 97, 238, 0.3);
-        border-color: rgba(67, 97, 238, 0.8);
-        color: white;
-        box-shadow: 0 0 8px rgba(67, 97, 238, 0.4);
-    }
-    
-    /* Disabled states - maintain node colors but reduce opacity */
+    /* Disabled states */
     .circle-button.disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -987,7 +1011,7 @@
     .circle-tooltip {
         font-size: 8px;
         font-weight: 500;
-        color: rgba(255, 255, 255, 0.5);
+        color: white;
         white-space: nowrap;
         opacity: 0;
         transition: opacity 0.2s;
@@ -997,27 +1021,6 @@
     
     .circle-wrapper:hover .circle-tooltip {
         opacity: 1;
-    }
-    
-    /* Node-type-specific tooltip colors */
-    .circle-wrapper:has([data-node-type="statement"]) .circle-tooltip {
-        color: rgba(255, 158, 0, 0.9);
-    }
-    
-    .circle-wrapper:has([data-node-type="openquestion"]) .circle-tooltip {
-        color: rgba(0, 180, 216, 0.9);
-    }
-    
-    .circle-wrapper:has([data-node-type="answer"]) .circle-tooltip {
-        color: rgba(131, 56, 236, 0.9);
-    }
-    
-    .circle-wrapper:has([data-node-type="quantity"]) .circle-tooltip {
-        color: rgba(255, 77, 109, 0.9);
-    }
-    
-    .circle-wrapper:has([data-node-type="evidence"]) .circle-tooltip {
-        color: rgba(67, 97, 238, 0.9);
     }
     
     /* Manual Apply Button Section */
@@ -1323,25 +1326,6 @@
     
     .user-mode-dropdown:focus {
         border-color: rgba(66, 153, 225, 0.6);
-    }
-    
-    /* Scrollbar styling for control panel */
-    .control-panel::-webkit-scrollbar {
-        width: 6px;
-    }
-    
-    .control-panel::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.05);
-        border-radius: 3px;
-    }
-    
-    .control-panel::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.2);
-        border-radius: 3px;
-    }
-    
-    .control-panel::-webkit-scrollbar-thumb:hover {
-        background: rgba(255, 255, 255, 0.3);
     }
     
     /* Dropdown scrollbar */
