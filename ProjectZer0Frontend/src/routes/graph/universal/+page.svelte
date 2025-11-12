@@ -634,7 +634,8 @@
         // Set data on graph store
         if (graphStore) {
             console.log('[UNIVERSAL-PAGE] Setting data on bound graph store');
-            graphStore.setData(graphData);
+            // Force restart to ensure nodes reposition when sort/filter changes
+            graphStore.setData(graphData, { forceRestart: true });
             
             // Apply visibility preferences after setting data
             if (visibilityPreferencesLoaded) {
