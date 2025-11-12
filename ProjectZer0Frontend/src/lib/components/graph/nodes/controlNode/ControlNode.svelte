@@ -756,18 +756,6 @@
                 style="cursor: pointer;"
             />
             
-            <!-- Background circle for icon -->
-            <circle
-                cx={0}
-                cy={0}
-                r={controlRadius * 0.75}
-                fill="var(--color-background-secondary)"
-                stroke="var(--color-border-primary)"
-                stroke-width="2"
-                class="icon-background"
-                class:hovered={isHovering}
-            />
-            
             <!-- Apply filter to parent <g>, not foreignObject -->
             <g style:filter={isHovering ? `url(#${glowFilterId})` : 'none'}>
                 <foreignObject 
@@ -1341,4 +1329,4 @@
         background: rgba(255, 255, 255, 0.3);
         border-radius: 2px;
     }
-</style>
+</style> 

@@ -1,5 +1,6 @@
 // ProjectZer0Frontend/src/lib/constants/graph/universal-graph.ts
 // PHASE 2.7: D3-Native Implementation with forceRadial
+// UPDATED: Adjusted positioning distances for smaller control node
 
 export const BATCH_RENDERING = {
   MAX_BATCHES: 4,           // For batch mode
@@ -12,9 +13,12 @@ export const BATCH_RENDERING = {
   
   // PHASE 2.7: Single-node rendering configuration with D3 settlement
   SINGLE_NODE_MODE: {
-    BASE_DISTANCE: 250,     // Starting distance from center for first node
-    DISTANCE_INCREMENT: 40, // Distance increase per vote rank (guaranteed ordering)
-    NODE_DELAY: 50,        // Delay between individual nodes (ms)
+    BASE_DISTANCE: 120,     // UPDATED: Starting distance from center for first node (was 250)
+                            // Reduced to account for smaller control node (50 radius)
+                            // Creates ~70 unit gap from control node edge
+    DISTANCE_INCREMENT: 30, // UPDATED: Distance increase per vote rank (was 40)
+                            // Slightly tighter spiral for better density
+    NODE_DELAY: 50,         // Delay between individual nodes (ms)
     QUICK_SETTLE_TIME: 200, // Fast settling time per node
     MAX_NODES: 40,          // Maximum nodes to render
     USE_GOLDEN_ANGLE: true, // Use golden angle for natural distribution

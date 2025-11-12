@@ -1,5 +1,6 @@
 // src/lib/services/graph/universal/UniversalPositioning.ts
 // Vote-based positioning calculations for Universal Graph
+// UPDATED: Supports 3 rings for ultra-close configuration with smooth progression
 
 import type { EnhancedNode, GraphNode } from '$lib/types/graph/enhanced';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
@@ -23,6 +24,12 @@ export class UniversalPositioning {
     private readonly goldenAngle = UNIVERSAL_LAYOUT.POSITIONING.GOLDEN_ANGLE;
     private readonly baseDistance = UNIVERSAL_LAYOUT.POSITIONING.BASE_DISTANCE;
     private readonly distanceIncrement = UNIVERSAL_LAYOUT.POSITIONING.DISTANCE_INCREMENT;
+    
+    // Ring-based positioning for natural distribution
+    private readonly FIRST_RING_SIZE = UNIVERSAL_LAYOUT.POSITIONING.FIRST_RING_SIZE;
+    private readonly SECOND_RING_SIZE = UNIVERSAL_LAYOUT.POSITIONING.SECOND_RING_SIZE;
+    private readonly THIRD_RING_SIZE = UNIVERSAL_LAYOUT.POSITIONING.THIRD_RING_SIZE || 0;
+    private readonly RING_DISTANCE_INCREMENT = UNIVERSAL_LAYOUT.POSITIONING.RING_DISTANCE_INCREMENT;
     
     /**
      * Sort nodes by net votes (highest first)
@@ -53,9 +60,63 @@ export class UniversalPositioning {
     }
     
     /**
+     * Calculate target distance for a node based on its index
+     * Uses ring-based approach for first nodes, then transitions to spiral
+     * UPDATED: Supports 3 rings
+     */
+    private calculateTargetDistance(globalIndex: number): number {
+        if (globalIndex < this.FIRST_RING_SIZE) {
+            // First ring: all nodes at base distance
+            return this.baseDistance;
+        } else if (globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE) {
+            // Second ring: all nodes at base + one increment
+            return this.baseDistance + this.RING_DISTANCE_INCREMENT;
+        } else if (this.THIRD_RING_SIZE > 0 && 
+                   globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE) {
+            // Third ring (if configured): all nodes at base + two increments
+            return this.baseDistance + (2 * this.RING_DISTANCE_INCREMENT);
+        } else {
+            // Subsequent nodes: use smooth spiral
+            const ringsTotal = this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE;
+            const spiralIndex = globalIndex - ringsTotal;
+            const ringsCount = this.THIRD_RING_SIZE > 0 ? 3 : 2;
+            
+            return this.baseDistance + 
+                   (ringsCount * this.RING_DISTANCE_INCREMENT) + 
+                   (Math.sqrt(spiralIndex) * this.distanceIncrement);
+        }
+    }
+    
+    /**
+     * Calculate angle for a node with even distribution
+     * Uses different strategies for rings vs spiral
+     * UPDATED: Supports 3 rings
+     */
+    private calculateAngle(globalIndex: number): number {
+        if (globalIndex < this.FIRST_RING_SIZE) {
+            // First ring: evenly distribute nodes in a circle
+            return (globalIndex / this.FIRST_RING_SIZE) * 2 * Math.PI;
+        } else if (globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE) {
+            // Second ring: evenly distribute with offset from first ring
+            const secondRingIndex = globalIndex - this.FIRST_RING_SIZE;
+            const angleOffset = Math.PI / this.SECOND_RING_SIZE; // Offset for visual variation
+            return (secondRingIndex / this.SECOND_RING_SIZE) * 2 * Math.PI + angleOffset;
+        } else if (this.THIRD_RING_SIZE > 0 && 
+                   globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE) {
+            // Third ring: evenly distribute with different offset
+            const thirdRingIndex = globalIndex - this.FIRST_RING_SIZE - this.SECOND_RING_SIZE;
+            const angleOffset = Math.PI / (this.THIRD_RING_SIZE * 2); // Different offset
+            return (thirdRingIndex / this.THIRD_RING_SIZE) * 2 * Math.PI + angleOffset;
+        } else {
+            // Spiral nodes: golden angle for natural distribution
+            return globalIndex * this.goldenAngle;
+        }
+    }
+    
+    /**
      * Calculate positions for single-node sequential rendering
      * Uses global index to maintain continuity across batches
-     * UPDATED: Filter for all 5 content node types
+     * UPDATED: Ring-based positioning for first nodes with 3 rings support
      */
     public calculateSingleNodePositions(
         nodes: EnhancedNode[],
@@ -84,12 +145,9 @@ export class UniversalPositioning {
                 id: node.id, type: node.type, data: node.data, group: node.group, metadata: node.metadata 
             });
             
-            // Smoother distance progression using square root
-            const targetDistance = this.baseDistance + 
-                                 (Math.sqrt(globalIndex) * this.distanceIncrement * 2);
-            
-            // Use global index for angle calculation to maintain spiral continuity
-            const angle = this.calculateSpiralAngle(globalIndex);
+            // Calculate distance and angle based on ring strategy
+            const targetDistance = this.calculateTargetDistance(globalIndex);
+            const angle = this.calculateAngle(globalIndex);
             
             node.x = Math.cos(angle) * targetDistance;
             node.y = Math.sin(angle) * targetDistance;
@@ -104,7 +162,7 @@ export class UniversalPositioning {
     
     /**
      * Calculate positions for batch rendering with continuity
-     * UPDATED: Filter for all 5 content node types
+     * UPDATED: Ring-based positioning for first nodes with 3 rings support
      */
     public calculateBatchPositions(
         nodes: EnhancedNode[],
@@ -132,54 +190,32 @@ export class UniversalPositioning {
                 id: node.id, type: node.type, data: node.data, group: node.group, metadata: node.metadata 
             });
             
-            // Use continuous index calculation for batch continuity
-            const globalIndex = index; // Already includes all nodes up to this point
-            
-            let targetDistance: number;
-            
-            if (globalIndex === 0) {
-                targetDistance = 220; // Closest node slightly out from center
-            } else {
-                const maxVotes = this.getNodeVotes({ 
-                    id: contentNodes[0].id, type: contentNodes[0].type, 
-                    data: contentNodes[0].data, group: contentNodes[0].group, 
-                    metadata: contentNodes[0].metadata 
-                });
-                
-                const voteDeficit = Math.max(0, maxVotes - netVotes);
-                targetDistance = UNIVERSAL_LAYOUT.POSITIONING.BASE_BATCH_DISTANCE + 
-                               (voteDeficit * UNIVERSAL_LAYOUT.POSITIONING.VOTE_DISTANCE_MULTIPLIER) + 
-                               (globalIndex * UNIVERSAL_LAYOUT.POSITIONING.INDEX_DISTANCE_MULTIPLIER);
-            }
-            
-            // Calculate angle with optional jitter
-            const angle = this.calculateSpiralAngle(globalIndex) + 
-                         (Math.random() - 0.5) * UNIVERSAL_LAYOUT.POSITIONING.ANGLE_JITTER;
+            // Calculate distance and angle based on ring strategy
+            const targetDistance = this.calculateTargetDistance(index);
+            const angle = this.calculateAngle(index);
             
             node.x = Math.cos(angle) * targetDistance;
             node.y = Math.sin(angle) * targetDistance;
             
+            // Store positioning data for forces
             (node as any).voteBasedDistance = targetDistance;
             (node as any).netVotes = netVotes;
-            (node as any).voteRank = globalIndex;
+            (node as any).voteRank = index;
+            (node as any).initialAngle = angle;
         });
     }
     
     /**
-     * Calculate spiral angle using golden angle or Fibonacci spiral
+     * Calculate spiral angle using golden angle
      */
     private calculateSpiralAngle(index: number): number {
         // Golden angle spiral for even distribution
         return index * this.goldenAngle;
-        
-        // Alternative: Fibonacci spiral (can be toggled via constants)
-        // const phi = (1 + Math.sqrt(5)) / 2;
-        // return 2 * Math.PI * index / phi;
     }
     
     /**
      * Get initial position for a new node being added dynamically
-     * UPDATED: Filter for all 5 content node types
+     * UPDATED: Ring-based positioning for first nodes with 3 rings support
      */
     public getInitialNodePosition(
         existingNodes: EnhancedNode[],
@@ -204,10 +240,9 @@ export class UniversalPositioning {
             insertIndex = sortedNodes.length;
         }
         
-        // Calculate position
-        const targetDistance = this.baseDistance + 
-                             (Math.sqrt(insertIndex) * this.distanceIncrement * 2);
-        const angle = this.calculateSpiralAngle(insertIndex);
+        // Calculate position using ring strategy
+        const targetDistance = this.calculateTargetDistance(insertIndex);
+        const angle = this.calculateAngle(insertIndex);
         
         return {
             x: Math.cos(angle) * targetDistance,

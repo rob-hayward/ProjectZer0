@@ -22,7 +22,6 @@ import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { statementNetworkStore } from '$lib/stores/statementNetworkStore';
 import { DiscussionLayout } from './layouts/DiscussionLayout';
 import { OpenQuestionAnswerLayout } from './layouts/OpenQuestionAnswerLayout';
-import { UniversalGraphLayout } from './layouts/UniversalGraphLayout';
 
 export class GraphManager {
     private simulation: d3.Simulation<any, any>;
@@ -31,7 +30,7 @@ export class GraphManager {
     private _viewType: ViewType;
     private managerId: string;
     private simulationActive = false;
-    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | OpenQuestionAnswerLayout | UniversalGraphLayout | null = null;
+    private currentLayoutStrategy: SingleNodeLayout | WordDefinitionLayout | StatementNetworkLayout | DiscussionLayout | OpenQuestionAnswerLayout | null = null;
     private isUpdatingStore = writable(false);
     
     // Caches for better performance
@@ -709,20 +708,6 @@ export class GraphManager {
                 COORDINATE_SPACE.WORLD.HEIGHT,
                 this._viewType
             );
-        }
-        else if (this._viewType === 'universal') {
-            // NEW: Universal Graph Layout
-            this.currentLayoutStrategy = new UniversalGraphLayout(
-                COORDINATE_SPACE.WORLD.WIDTH,
-                COORDINATE_SPACE.WORLD.HEIGHT,
-                this._viewType
-            );
-            
-            // Apply appropriate settings for universal graph
-            this.simulation.velocityDecay(0.4);
-            
-            // Remove any fixed position handlers from other views
-            this.simulation.on('tick.fixedPosition', null);
         }
         else if (this._viewType === 'dashboard' || 
             this._viewType === 'edit-profile' || 

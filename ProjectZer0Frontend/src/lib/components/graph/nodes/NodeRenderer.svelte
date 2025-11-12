@@ -271,7 +271,6 @@
     
     // ENHANCED: Update community visibility when votes change
     $: if (visibilityBehaviour && netVotes !== undefined) {
-        console.log('[NodeRenderer] Updating community visibility for', node.id, 'netVotes:', netVotes);
         visibilityBehaviour.updateCommunityVisibility(netVotes);
     }
     
