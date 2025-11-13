@@ -79,3 +79,46 @@ comment
 
 
 
+#3624ff
+#4d2ee5
+#682ae5
+#802acf
+#9a2ecc
+#a63bb0
+#cb34b2
+#e13d9a
+#fd3a98
+
+
+| Base      | Complement | Description                  |
+| --------- | ---------- | ---------------------------- |
+| #3624ff | #ffeb24  | Deep blue → vibrant yellow   |
+| #4d2ee5 | #e5d02e  | Purple-blue → warm gold      |
+| #682ae5 | #e5b02a  | Violet → amber               |
+| #802acf | #cf9a2a  | Purple → mustard gold        |
+| #9a2ecc | #cca32e  | Soft purple → ochre          |
+| #a63bb0 | #b0a63b  | Lilac → muted olive          |
+| #cb34b2 | #34cb4d  | Magenta → emerald green      |
+| #e13d9a | #3de16c  | Hot pink → mint green        |
+| #fd3a98 | #3afd95  | Neon pink → bright turquoise |
+
+
+
+
+| Category             | Colours (White-Text Safe)                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------- |
+| **Original Core**    | #3624ff, #4d2ee5, #682ae5, #802acf, #9a2ecc, #a63bb0, #cb34b2                       |
+| **Deep Complements** | #cc8a00, #d88a00, #d87400, #d85a00, #d8452a, #d8344f, #34b26e, #2ab26e, #00886e |
+
+
+| Pair | Base Color | Complementary | White Text Safe                                  |
+| ---- | ---------- | ------------- | ------------------------------------------------ |
+| 1    | #3624FF  | #FF9A24     | ✅ both                                           |
+| 2    | #4D2EE5  | #E59A2E     | ✅ both                                           |
+| 3    | #682AE5  | #E5A72A     | ✅ both                                           |
+| 4    | #802ACF  | #CF9A2A     | ✅ both                                           |
+| 5    | #9A2ECC  | #CCA02E     | ✅ both                                           |
+| 6    | #A63BB0  | #B08F3B     | ✅ both                                           |
+| 7    | #CB34B2  | #B27B34     | ✅ both                                           |
+| 8    | #E13D9A  | #9A5E3D     | ✅ both                                           |
+| 9    | #FD3A98  | #98443A     | ✅ base only (complement too dark for white text) |

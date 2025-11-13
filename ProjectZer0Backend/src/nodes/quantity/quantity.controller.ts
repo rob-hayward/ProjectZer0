@@ -211,7 +211,7 @@ export class QuantityController {
    * Vote on quantity node inclusion
    * POST /nodes/quantity/:id/vote-inclusion
    */
-  @Post(':id/vote-inclusion')
+  @Post(':id/vote')
   async voteInclusion(
     @Param('id') id: string,
     @Body() voteDto: VoteDto,

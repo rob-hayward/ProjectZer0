@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/statement/StatementNode.svelte -->
+<!-- FIXED: Vote reactivity now reads from voteBehaviour stores for BOTH voting systems -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -26,18 +27,73 @@
 
 	$: displayStatement = statementData.statement;
 
-	$: inclusionPositiveVotes = getNeo4jNumber(statementData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(statementData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(statementData.inclusionNetVotes) || 
-		(inclusionPositiveVotes - inclusionNegativeVotes);
+	let inclusionVoting: VoteBehaviour;
+	let contentVoting: VoteBehaviour;
+
+	// CRITICAL: Extract INCLUSION store references for Svelte's $ auto-subscription
+	$: inclusionPositiveVotesStore = inclusionVoting?.positiveVotes;
+	$: inclusionNegativeVotesStore = inclusionVoting?.negativeVotes;
+	$: inclusionNetVotesStore = inclusionVoting?.netVotes;
+	$: inclusionUserVoteStatusStore = inclusionVoting?.userVoteStatus;
+	$: inclusionIsVotingStore = inclusionVoting?.isVoting;
+	$: inclusionVoteSuccessStore = inclusionVoting?.voteSuccess;
+	$: inclusionLastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+	// CRITICAL: Extract CONTENT store references for Svelte's $ auto-subscription
+	$: contentPositiveVotesStore = contentVoting?.positiveVotes;
+	$: contentNegativeVotesStore = contentVoting?.negativeVotes;
+	$: contentNetVotesStore = contentVoting?.netVotes;
+	$: contentUserVoteStatusStore = contentVoting?.userVoteStatus;
+	$: contentIsVotingStore = contentVoting?.isVoting;
+	$: contentVoteSuccessStore = contentVoting?.voteSuccess;
+	$: contentLastVoteTypeStore = contentVoting?.lastVoteType;
+
+	// FIXED: Subscribe to INCLUSION stores (reactive), fallback to data
+	$: inclusionPositiveVotes = inclusionPositiveVotesStore 
+		? $inclusionPositiveVotesStore
+		: (getNeo4jNumber(statementData.inclusionPositiveVotes) || 0);
 	
-	$: contentPositiveVotes = getNeo4jNumber(statementData.contentPositiveVotes) || 0;
-	$: contentNegativeVotes = getNeo4jNumber(statementData.contentNegativeVotes) || 0;
-	$: contentNetVotes = getNeo4jNumber(statementData.contentNetVotes) || 
-		(contentPositiveVotes - contentNegativeVotes);
+	$: inclusionNegativeVotes = inclusionNegativeVotesStore 
+		? $inclusionNegativeVotesStore
+		: (getNeo4jNumber(statementData.inclusionNegativeVotes) || 0);
 	
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
-	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
+	$: inclusionNetVotes = inclusionNetVotesStore 
+		? $inclusionNetVotesStore
+		: (getNeo4jNumber(statementData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+	
+	$: inclusionUserVoteStatus = (inclusionUserVoteStatusStore 
+		? $inclusionUserVoteStatusStore
+		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+
+	// FIXED: Subscribe to CONTENT stores (reactive), fallback to data
+	$: contentPositiveVotes = contentPositiveVotesStore 
+		? $contentPositiveVotesStore
+		: (getNeo4jNumber(statementData.contentPositiveVotes) || 0);
+	
+	$: contentNegativeVotes = contentNegativeVotesStore 
+		? $contentNegativeVotesStore
+		: (getNeo4jNumber(statementData.contentNegativeVotes) || 0);
+	
+	$: contentNetVotes = contentNetVotesStore 
+		? $contentNetVotesStore
+		: (getNeo4jNumber(statementData.contentNetVotes) || (contentPositiveVotes - contentNegativeVotes));
+	
+	$: contentUserVoteStatus = (contentUserVoteStatusStore 
+		? $contentUserVoteStatusStore
+		: (node.metadata?.contentVoteStatus?.status || 'none')) as VoteStatus;
+
+	// FIXED: Create votingState objects from store subscriptions
+	$: inclusionVotingState = {
+		isVoting: inclusionIsVotingStore ? $inclusionIsVotingStore : false,
+		voteSuccess: inclusionVoteSuccessStore ? $inclusionVoteSuccessStore : false,
+		lastVoteType: inclusionLastVoteTypeStore ? $inclusionLastVoteTypeStore : null
+	};
+
+	$: contentVotingState = {
+		isVoting: contentIsVotingStore ? $contentIsVotingStore : false,
+		voteSuccess: contentVoteSuccessStore ? $contentVoteSuccessStore : false,
+		lastVoteType: contentLastVoteTypeStore ? $contentLastVoteTypeStore : null
+	};
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
@@ -52,9 +108,6 @@
 
 	$: keywords = statementData.keywords || [];
 
-	let inclusionVoting: VoteBehaviour;
-	let contentVoting: VoteBehaviour;
-
 	$: isDetail = node.mode === 'detail';
 
 	const dispatch = createEventDispatcher<{
@@ -66,99 +119,100 @@
 	}>();
 
 	onMount(async () => {
-	inclusionVoting = createVoteBehaviour(node.id, 'statement', {
-		apiIdentifier: statementData.id,
-		dataObject: statementData,
-		dataProperties: {
-		positiveVotesKey: 'inclusionPositiveVotes',
-		negativeVotesKey: 'inclusionNegativeVotes'
-		},
-		apiResponseKeys: {
-		positiveVotesKey: 'inclusionPositiveVotes',
-		negativeVotesKey: 'inclusionNegativeVotes'
-		},
-		getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
-		getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
-		getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
-		graphStore,
-		onDataUpdate: () => {
-		statementData = { ...statementData };
-		},
-		onMetadataUpdate: () => {
-		node = node;
-		},
-		metadataConfig: {
-		nodeMetadata: node.metadata,
-		voteStatusKey: 'inclusionVoteStatus',
-		metadataGroup: getMetadataGroup()
-		},
-		voteKind: 'INCLUSION'  // NEW
-	});
+		console.log('[StatementNode] Initializing vote behaviours for', node.id);
+		
+		// Initialize INCLUSION voting
+		inclusionVoting = createVoteBehaviour(node.id, 'statement', {
+			apiIdentifier: statementData.id,
+			dataObject: statementData,
+			dataProperties: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
+			graphStore,
+			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
+			// We're now subscribed directly to voteBehaviour's reactive stores
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'inclusionVoteStatus',
+				metadataGroup: getMetadataGroup()
+			},
+			voteKind: 'INCLUSION'
+		});
 
-	contentVoting = createVoteBehaviour(node.id, 'statement', {
-		apiIdentifier: statementData.id,
-		dataObject: statementData,
-		dataProperties: {
-		positiveVotesKey: 'contentPositiveVotes',
-		negativeVotesKey: 'contentNegativeVotes'
-		},
-		apiResponseKeys: {
-		positiveVotesKey: 'contentPositiveVotes',
-		negativeVotesKey: 'contentNegativeVotes'
-		},
-		getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
-		getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
-		getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
-		graphStore,
-		onDataUpdate: () => {
-		statementData = { ...statementData };
-		},
-		onMetadataUpdate: () => {
-		node = node;
-		},
-		metadataConfig: {
-		nodeMetadata: node.metadata,
-		voteStatusKey: 'contentVoteStatus',
-		metadataGroup: getMetadataGroup()
-		},
-		voteKind: 'CONTENT'  // NEW
-	});
+		// Initialize CONTENT voting
+		contentVoting = createVoteBehaviour(node.id, 'statement', {
+			apiIdentifier: statementData.id,
+			dataObject: statementData,
+			dataProperties: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
+			apiResponseKeys: {
+				positiveVotesKey: 'contentPositiveVotes',
+				negativeVotesKey: 'contentNegativeVotes'
+			},
+			getVoteEndpoint: (id) => `/nodes/statement/${id}/vote-content`,
+			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
+			graphStore,
+			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
+			// We're now subscribed directly to voteBehaviour's reactive stores
+			metadataConfig: {
+				nodeMetadata: node.metadata,
+				voteStatusKey: 'contentVoteStatus',
+				metadataGroup: getMetadataGroup()
+			},
+			voteKind: 'CONTENT'
+		});
 
-	await Promise.all([
-		inclusionVoting.initialize({
-		positiveVotes: inclusionPositiveVotes,
-		negativeVotes: inclusionNegativeVotes,
-		skipVoteStatusFetch: false
-		}),
-		contentVoting.initialize({
-		positiveVotes: contentPositiveVotes,
-		negativeVotes: contentNegativeVotes,
-		skipVoteStatusFetch: false
-		})
-	]);
+		// Initialize both in parallel
+		await Promise.all([
+			inclusionVoting.initialize({
+				positiveVotes: inclusionPositiveVotes,
+				negativeVotes: inclusionNegativeVotes,
+				skipVoteStatusFetch: false
+			}),
+			contentVoting.initialize({
+				positiveVotes: contentPositiveVotes,
+				negativeVotes: contentNegativeVotes,
+				skipVoteStatusFetch: false
+			})
+		]);
+		
+		console.log('[StatementNode] Vote behaviours initialized:', {
+			nodeId: node.id,
+			inclusionVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
+			contentVotes: { contentPositiveVotes, contentNegativeVotes, contentNetVotes },
+			inclusionStatus: inclusionUserVoteStatus,
+			contentStatus: contentUserVoteStatus
+		});
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!inclusionVoting) return;
+		if (!inclusionVoting) {
+			console.error('[StatementNode] Inclusion vote behaviour not initialized');
+			return;
+		}
+		console.log('[StatementNode] Handling inclusion vote:', event.detail.voteType);
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
 	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!contentVoting) return;
+		if (!contentVoting) {
+			console.error('[StatementNode] Content vote behaviour not initialized');
+			return;
+		}
+		console.log('[StatementNode] Handling content vote:', event.detail.voteType);
 		await contentVoting.handleVote(event.detail.voteType);
 	}
-
-	$: inclusionVotingState = inclusionVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
-
-	$: contentVotingState = contentVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
 
 	function handleModeChange(event: CustomEvent) {
 		dispatch('modeChange', {
@@ -226,6 +280,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
@@ -254,6 +309,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="stats" let:width let:y>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<VoteStats
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
@@ -320,6 +376,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}

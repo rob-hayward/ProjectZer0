@@ -1,4 +1,6 @@
-<!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
+<!-- QuantityNode.svelte - FIXED SCRIPT SECTION -->
+<!-- Copy this entire script block to replace your current one -->
+
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
@@ -59,12 +61,40 @@
         return 'quantity';
     }
     
-    $: inclusionPositiveVotes = getNeo4jNumber(quantityData.inclusionPositiveVotes) || 0;
-    $: inclusionNegativeVotes = getNeo4jNumber(quantityData.inclusionNegativeVotes) || 0;
-    $: inclusionNetVotes = getNeo4jNumber(quantityData.inclusionNetVotes) || 
-        (inclusionPositiveVotes - inclusionNegativeVotes);
+    let inclusionVoting: VoteBehaviour;
+
+    // CRITICAL: Extract store references for Svelte's $ auto-subscription
+    $: positiveVotesStore = inclusionVoting?.positiveVotes;
+    $: negativeVotesStore = inclusionVoting?.negativeVotes;
+    $: netVotesStore = inclusionVoting?.netVotes;
+    $: userVoteStatusStore = inclusionVoting?.userVoteStatus;
+    $: isVotingStore = inclusionVoting?.isVoting;
+    $: voteSuccessStore = inclusionVoting?.voteSuccess;
+    $: lastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+    // FIXED: Subscribe to stores (reactive), fallback to data
+    $: inclusionPositiveVotes = positiveVotesStore 
+        ? $positiveVotesStore
+        : (getNeo4jNumber(quantityData.inclusionPositiveVotes) || 0);
     
-    $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+    $: inclusionNegativeVotes = negativeVotesStore 
+        ? $negativeVotesStore
+        : (getNeo4jNumber(quantityData.inclusionNegativeVotes) || 0);
+    
+    $: inclusionNetVotes = netVotesStore 
+        ? $netVotesStore
+        : (getNeo4jNumber(quantityData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+    
+    $: inclusionUserVoteStatus = (userVoteStatusStore 
+        ? $userVoteStatusStore
+        : (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+
+    // FIXED: Create votingState from store subscriptions
+    $: votingState = {
+        isVoting: isVotingStore ? $isVotingStore : false,
+        voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
+        lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
+    };
     
     $: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
@@ -80,8 +110,6 @@
     })();
 
     $: keywords = quantityData.keywords || [];
-
-    let inclusionVoting: VoteBehaviour;
 
     $: isDetail = node.mode === 'detail';
     
@@ -111,6 +139,9 @@
     }>();
 
     onMount(async () => {
+        console.log('[QuantityNode] Initializing vote behaviour for', node.id);
+        
+        // FIXED: Correct endpoints + store subscriptions (no onDataUpdate callback needed)
         inclusionVoting = createVoteBehaviour(node.id, 'quantity', {
             apiIdentifier: quantityData.id,
             dataObject: quantityData,
@@ -118,12 +149,17 @@
                 positiveVotesKey: 'inclusionPositiveVotes',
                 negativeVotesKey: 'inclusionNegativeVotes'
             },
-            getVoteEndpoint: (id) => `/quantities/${id}/inclusion-vote`,
-            getRemoveVoteEndpoint: (id) => `/quantities/${id}/inclusion-vote/remove`,
-            graphStore,
-            onDataUpdate: () => {
-                quantityData = { ...quantityData };
+            apiResponseKeys: {
+                positiveVotesKey: 'inclusionPositiveVotes',
+                negativeVotesKey: 'inclusionNegativeVotes'
             },
+            // FIXED: Correct endpoints for single-voting nodes
+            getVoteEndpoint: (id) => `/nodes/quantity/${id}/vote`,
+            getRemoveVoteEndpoint: (id) => `/nodes/quantity/${id}/vote`,
+            getVoteStatusEndpoint: (id) => `/nodes/quantity/${id}/vote-status`,
+            graphStore,
+            // NOTE: No onDataUpdate callback needed!
+            // We're now subscribed directly to voteBehaviour's reactive stores
             metadataConfig: {
                 nodeMetadata: node.metadata,
                 voteStatusKey: 'inclusionVoteStatus'
@@ -134,6 +170,12 @@
             positiveVotes: inclusionPositiveVotes,
             negativeVotes: inclusionNegativeVotes,
             skipVoteStatusFetch: false
+        });
+
+        console.log('[QuantityNode] Vote behaviour initialized:', {
+            nodeId: node.id,
+            initialVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
+            initialStatus: inclusionUserVoteStatus
         });
 
         unitPreferenceStore.initialize();
@@ -147,12 +189,6 @@
         if (!inclusionVoting) return;
         await inclusionVoting.handleVote(event.detail.voteType);
     }
-
-    $: votingState = inclusionVoting?.getCurrentState() || {
-        isVoting: false,
-        voteSuccess: false,
-        lastVoteType: null
-    };
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
         dispatch('modeChange', {

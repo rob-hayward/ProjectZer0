@@ -77,14 +77,40 @@
     $: parentNodeType = evidenceData.parentNodeType;
     $: parentInfo = evidenceData.parentInfo;
 
-    // INCLUSION voting extraction
-    $: inclusionPositiveVotes = getNeo4jNumber(evidenceData.inclusionPositiveVotes) || 0;
-    $: inclusionNegativeVotes = getNeo4jNumber(evidenceData.inclusionNegativeVotes) || 0;
-    $: inclusionNetVotes = getNeo4jNumber(evidenceData.inclusionNetVotes) || 
-        (inclusionPositiveVotes - inclusionNegativeVotes);
+     let inclusionVoting: VoteBehaviour;
+
+    // CRITICAL: Extract store references for Svelte's $ auto-subscription
+    $: positiveVotesStore = inclusionVoting?.positiveVotes;
+    $: negativeVotesStore = inclusionVoting?.negativeVotes;
+    $: netVotesStore = inclusionVoting?.netVotes;
+    $: userVoteStatusStore = inclusionVoting?.userVoteStatus;
+    $: isVotingStore = inclusionVoting?.isVoting;
+    $: voteSuccessStore = inclusionVoting?.voteSuccess;
+    $: lastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+    // FIXED: Subscribe to stores (reactive), fallback to data
+    $: inclusionPositiveVotes = positiveVotesStore 
+        ? $positiveVotesStore
+        : (getNeo4jNumber(evidenceData.inclusionPositiveVotes) || 0);
     
-    // User vote status from metadata
-    $: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+    $: inclusionNegativeVotes = negativeVotesStore 
+        ? $negativeVotesStore
+        : (getNeo4jNumber(evidenceData.inclusionNegativeVotes) || 0);
+    
+    $: inclusionNetVotes = netVotesStore 
+        ? $netVotesStore
+        : (getNeo4jNumber(evidenceData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+    
+    $: inclusionUserVoteStatus = (userVoteStatusStore 
+        ? $userVoteStatusStore
+        : (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+
+    // FIXED: Create votingState from store subscriptions
+    $: votingState = {
+        isVoting: isVotingStore ? $isVotingStore : false,
+        voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
+        lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
+    };
 
     // Threshold check for expansion
     $: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
@@ -114,9 +140,6 @@
     // User's own peer review
     $: userReview = node.metadata?.userReview || null;
     $: hasUserReview = userReview !== null && userReview !== undefined;
-
-    // Voting behaviour instance
-    let inclusionVoting: VoteBehaviour;
 
     // Peer review state (NOT voting - separate quality assessment system)
     let isSubmittingReview = false;
@@ -153,6 +176,8 @@
 
     // Initialize voting behaviour on mount
     onMount(async () => {
+        console.log('[EvidenceNode] Initializing vote behaviour for', node.id);
+        
         // Create voting behaviour for inclusion votes
         inclusionVoting = createVoteBehaviour(node.id, 'evidence', {
             apiIdentifier: evidenceData.id,
@@ -161,13 +186,16 @@
                 positiveVotesKey: 'inclusionPositiveVotes',
                 negativeVotesKey: 'inclusionNegativeVotes'
             },
-            getVoteEndpoint: (id) => `/evidence/${id}/inclusion-vote`,
-            getRemoveVoteEndpoint: (id) => `/evidence/${id}/inclusion-vote/remove`,
-            graphStore,
-            onDataUpdate: () => {
-                // Trigger reactivity
-                evidenceData = { ...evidenceData };
+            apiResponseKeys: {
+                positiveVotesKey: 'inclusionPositiveVotes',
+                negativeVotesKey: 'inclusionNegativeVotes'
             },
+            getVoteEndpoint: (id) => `/nodes/evidence/${id}/vote`,
+            getRemoveVoteEndpoint: (id) => `/nodes/evidence/${id}/vote`,
+            getVoteStatusEndpoint: (id) => `/nodes/evidence/${id}/vote-status`,
+            graphStore,
+            // NOTE: No onDataUpdate callback needed!
+            // We're now subscribed directly to voteBehaviour's reactive stores
             metadataConfig: {
                 nodeMetadata: node.metadata,
                 voteStatusKey: 'inclusionVoteStatus'
@@ -180,20 +208,23 @@
             negativeVotes: inclusionNegativeVotes,
             skipVoteStatusFetch: false
         });
+        
+        console.log('[EvidenceNode] Vote behaviour initialized:', {
+            nodeId: node.id,
+            initialVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
+            initialStatus: inclusionUserVoteStatus
+        });
     });
 
     // Vote handler - now uses behaviour
     async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-        if (!inclusionVoting) return;
+        if (!inclusionVoting) {
+            console.error('[EvidenceNode] Vote behaviour not initialized');
+            return;
+        }
+        console.log('[EvidenceNode] Handling vote:', event.detail.voteType);
         await inclusionVoting.handleVote(event.detail.voteType);
     }
-
-    // Get reactive state from behaviour
-    $: votingState = inclusionVoting?.getCurrentState() || {
-        isVoting: false,
-        voteSuccess: false,
-        lastVoteType: null
-    };
 
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
         dispatch('modeChange', {

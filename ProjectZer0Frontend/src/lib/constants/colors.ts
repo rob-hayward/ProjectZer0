@@ -1,33 +1,34 @@
 // ProjectZer0Frontend/src/lib/constants/colors.ts
 export const COLORS = {
     // Synthwave / Space Theme — luminous colours for dark backgrounds, all supporting white text
-    PRIMARY: {
-        // === Core Content Nodes ===
-        STATEMENT: '#FF9E00',     // Bright amber — confident, central assertions
-        OPEN_QUESTION: '#00B4D8', // Cyan — inquisitive, cool, invites exploration
-        ANSWER: '#8338EC',        // Electric violet — intellectual, pairs naturally with question cyan
-        QUANTITY: '#FF4D6D',      // Neon pink-red — energetic, numeric, grabs focus
+PRIMARY: {
+    // === Core Content Nodes (Cool Neons, Optimized for White Text) ===
+    OPEN_QUESTION: '#00B8FF',  // Bright sky cyan — inviting, readable
+    ANSWER: '#5A2CFF',         // Royal violet — intellectual contrast
+    STATEMENT: '#E300D6',      // Electric fuchsia — bold, assertive
+    QUANTITY: '#A445FF',       // Vivid purple — analytical, balanced
 
-        // === Supporting Nodes ===
-        WORD: '#7B2CBF',          // Deep purple — foundational concepts
-        DEFINITION: '#9D4EDD',    // Medium violet — ties closely to Word, but more luminous
-        EVIDENCE: '#4361EE',      // Vibrant blue — reliable, precise, supportive
-        COMMENT: '#F72585',       // Hot magenta — expressive, social, conversational
+    // === Supporting Nodes (Warm Neons, Optimized for White Text) ===
+    WORD: '#FFC400',           // Golden amber — foundational
+    DEFINITION: '#A4FF00',     // Neon lime — conceptual clarity
+    CATEGORY: '#00FFB0',       // Bright aqua-mint — organizational
+    EVIDENCE: '#00E060',       // Emerald-teal — supportive precision
+    COMMENT: '#FF5E1F',        // Fiery orange — expressive, conversational
 
-        // === Functional / Utility ===
-        HIDDEN: '#0F172A',        // Deep space navy
-        CENTRAL_UTILITY: '#FFFFFF', // White — neutral anchor, black text on this one
+    // === Functional / Utility ===
+    HIDDEN: '#0B0B1F',
+    CENTRAL_UTILITY: '#FFFFFF',
 
-        // === Voting Colors (unchanged) ===
-        GREEN: '#2ECC71',         // Positive vote
-        RED: '#E74C3C',           // Negative vote
+    // === Voting Colors (harmonized for contrast) ===
+    GREEN: '#00D46A',
+    RED: '#FF3B30',
 
-        // === Legacy (retain for compatibility) ===
-        BLUE: '#3498db',
-        PURPLE: '#9b59b6',
-        TURQUOISE: '#1abc9c',
-        FOREST: '#27ae60',
-    },
+    // === Legacy ===
+    BLUE: '#3498db',
+    PURPLE: '#9b59b6',
+    TURQUOISE: '#1abc9c',
+    FOREST: '#27ae60',
+},
 
     // UI colors
     UI: {

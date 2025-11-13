@@ -261,7 +261,7 @@ export class EvidenceController {
    * Vote on evidence inclusion
    * POST /nodes/evidence/:id/vote-inclusion
    */
-  @Post(':id/vote-inclusion')
+  @Post(':id/vote')
   async voteInclusion(
     @Param('id') id: string,
     @Body() voteDto: VoteDto,

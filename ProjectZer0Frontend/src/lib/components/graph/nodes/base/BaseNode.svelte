@@ -104,13 +104,13 @@
     <!-- 4 background layers for depth effect -->
     <circle 
         class="background-layer-1" 
-        r={radius * 0.95} 
+        r={radius * 1.0} 
         fill="url(#{gradientId})" 
-        opacity="0.5"
+        opacity="1.0"
     />
     <circle 
         class="background-layer-2" 
-        r={radius * 0.90} 
+        r={radius * 0.95} 
         fill="url(#{gradientId})" 
         opacity="0.8"
     />
@@ -118,13 +118,13 @@
         class="background-layer-3" 
         r={radius * 0.85} 
         fill="url(#{gradientId})" 
-        opacity="0.9"
+        opacity="0.7"
     />
     <circle 
         class="content-background" 
-        r={radius * 0.80} 
+        r={radius * 1} 
         fill={style.colors?.background || '#1a1a1a'} 
-        opacity="0.95"
+        opacity="0.6"
     />
     
     <!-- Decorative rings -->
