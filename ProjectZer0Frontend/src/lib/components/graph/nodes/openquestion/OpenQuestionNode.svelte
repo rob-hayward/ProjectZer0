@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte -->
+<!-- FIXED: Vote reactivity now reads from voteBehaviour stores -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -26,12 +27,41 @@
 
 	$: displayQuestion = questionData.questionText;
 
-	$: inclusionPositiveVotes = getNeo4jNumber(questionData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(questionData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(questionData.inclusionNetVotes) || 
-		(inclusionPositiveVotes - inclusionNegativeVotes);
+	let inclusionVoting: VoteBehaviour;
+
+	// CRITICAL: Extract store references for Svelte's $ auto-subscription
+	// These will be undefined until inclusionVoting is initialized in onMount
+	$: positiveVotesStore = inclusionVoting?.positiveVotes;
+	$: negativeVotesStore = inclusionVoting?.negativeVotes;
+	$: netVotesStore = inclusionVoting?.netVotes;
+	$: userVoteStatusStore = inclusionVoting?.userVoteStatus;
+	$: isVotingStore = inclusionVoting?.isVoting;
+	$: voteSuccessStore = inclusionVoting?.voteSuccess;
+	$: lastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+	// FIXED: Use Svelte's $ auto-subscription on store properties
+	// These will reactively update when the stores change
+	$: inclusionPositiveVotes = positiveVotesStore 
+		? $positiveVotesStore
+		: (getNeo4jNumber(questionData.inclusionPositiveVotes) || 0);
 	
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+	$: inclusionNegativeVotes = negativeVotesStore 
+		? $negativeVotesStore
+		: (getNeo4jNumber(questionData.inclusionNegativeVotes) || 0);
+	
+	$: inclusionNetVotes = netVotesStore 
+		? $netVotesStore
+		: (getNeo4jNumber(questionData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+	
+	$: inclusionUserVoteStatus = (userVoteStatusStore 
+		? $userVoteStatusStore
+		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+	
+	$: votingState = {
+		isVoting: isVotingStore ? $isVotingStore : false,
+		voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
+		lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
+	};
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
@@ -47,8 +77,6 @@
 	$: keywords = questionData.keywords || [];
 	$: answerCount = questionData.answerCount || 0;
 
-	let inclusionVoting: VoteBehaviour;
-
 	$: isDetail = node.mode === 'detail';
 
 	const dispatch = createEventDispatcher<{
@@ -60,10 +88,9 @@
 	}>();
 
 	
-	// UPDATED v3: OpenQuestionNode.svelte onMount section
-	// Added onMetadataUpdate callback to trigger Svelte reactivity for node metadata changes
-
 	onMount(async () => {
+		console.log('[OpenQuestionNode] Initializing vote behaviour for', node.id);
+		
 		inclusionVoting = createVoteBehaviour(node.id, 'openquestion', {
 			apiIdentifier: questionData.id,
 			dataObject: questionData,
@@ -79,13 +106,8 @@
 			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote`,
 			getVoteStatusEndpoint: (id) => `/nodes/openquestion/${id}/vote-status`,
 			graphStore,
-			onDataUpdate: () => {
-				questionData = { ...questionData };
-			},
-			// NEW: Trigger Svelte reactivity for node metadata updates
-			onMetadataUpdate: () => {
-				node = node;
-			},
+			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
+			// We're now subscribed directly to voteBehaviour's reactive stores
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus'
@@ -97,18 +119,23 @@
 			negativeVotes: inclusionNegativeVotes,
 			skipVoteStatusFetch: false
 		});
+		
+		console.log('[OpenQuestionNode] Vote behaviour initialized:', {
+			nodeId: node.id,
+			initialVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
+			initialStatus: inclusionUserVoteStatus
+		});
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!inclusionVoting) return;
+		if (!inclusionVoting) {
+			console.error('[OpenQuestionNode] Vote behaviour not initialized');
+			return;
+		}
+		
+		console.log('[OpenQuestionNode] Handling vote:', event.detail.voteType);
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
-
-	$: votingState = inclusionVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
 
 	function handleModeChange(event: CustomEvent) {
 		dispatch('modeChange', {
@@ -177,6 +204,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="voting" let:width let:height let:y>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
@@ -192,6 +220,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="stats" let:width let:y>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<VoteStats
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
@@ -246,6 +275,7 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="voting" let:x let:y let:width let:height>
+			<!-- Store subscriptions automatically trigger reactivity -->
 			<InclusionVoteButtons
 				userVoteStatus={inclusionUserVoteStatus}
 				positiveVotes={inclusionPositiveVotes}
