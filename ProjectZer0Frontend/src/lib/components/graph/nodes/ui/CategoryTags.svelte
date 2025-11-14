@@ -1,6 +1,5 @@
 <!-- src/lib/components/graph/nodes/ui/CategoryTags.svelte -->
-<!-- UPDATED: Removed internal Y-offset, now relies on parent positioning -->
-<!-- UPDATED: Using CATEGORY color from new color scheme -->
+<!-- UPDATED: Simple text-based links instead of pills -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { COLORS } from '$lib/constants/colors';
@@ -10,36 +9,21 @@
     name: string;
   }> = [];
   export let radius: number;
-  export let maxDisplay: number = 3;
+  export let maxDisplay: number = 8;
   
-  // UPDATED: Use CATEGORY color from new synthwave palette
-  export let pillColor: string = `${COLORS.PRIMARY.CATEGORY}CC`; // #00FFB0 with 80% opacity
+  // Use CATEGORY color from synthwave palette
+  export let categoryColor: string = COLORS.PRIMARY.CATEGORY; // #00FFB0
 
   const dispatch = createEventDispatcher<{
     categoryClick: { categoryId: string; categoryName: string };
   }>();
 
-  // Pill dimensions and spacing
-  const pillHeight = 24;
-  const pillPadding = 12;
-  const pillSpacing = 8;
-  const maxNameLength = 20; // Truncate after 20 chars
+  // Get approximate content box width for wrapping
+  // Statement detail node has ~400px content box, use 75% of that
+  $: maxWidth = radius * 1.2; // Approximate width constraint based on circle radius
 
   $: displayedCategories = categories.slice(0, maxDisplay);
   $: remainingCount = Math.max(0, categories.length - maxDisplay);
-
-  // Calculate pill width based on text length
-  function getPillWidth(name: string): number {
-    const displayName = truncateName(name);
-    // Approximate: 7 pixels per character + padding
-    return displayName.length * 7 + (pillPadding * 2);
-  }
-
-  function truncateName(name: string): string {
-    return name.length > maxNameLength 
-      ? name.slice(0, maxNameLength) + '...' 
-      : name;
-  }
 
   function handleCategoryClick(category: { id: string; name: string }) {
     dispatch('categoryClick', {
@@ -48,141 +32,106 @@
     });
   }
 
-  // Calculate cumulative x positions for pills
-  $: pillPositions = displayedCategories.reduce((acc, category, i) => {
-    const prevX = i > 0 ? acc[i - 1].x + acc[i - 1].width + pillSpacing : 0;
-    return [
-      ...acc,
-      {
-        x: prevX,
-        width: getPillWidth(category.name),
-        category
-      }
-    ];
-  }, [] as Array<{ x: number; width: number; category: typeof displayedCategories[0] }>);
+  let hoveredId: string | null = null;
 
-  // Position for "+N more" text
-  $: moreTextX = pillPositions.length > 0 
-    ? pillPositions[pillPositions.length - 1].x + pillPositions[pillPositions.length - 1].width + pillSpacing 
-    : 0;
-
-  // Center the entire group horizontally
-  $: totalWidth = moreTextX + (remainingCount > 0 ? 60 : 0);
-  $: groupOffsetX = -totalWidth / 2;
-
-  // Generate unique filter IDs
-  const glowFilterId = `category-glow-${Math.random().toString(36).slice(2)}`;
-
-  let hoveredIndex: number | null = null;
-
-  function handleMouseEnter(index: number) {
-    hoveredIndex = index;
+  function handleMouseEnter(id: string) {
+    hoveredId = id;
   }
 
   function handleMouseLeave() {
-    hoveredIndex = null;
+    hoveredId = null;
   }
+
+  // Build formatted text with manual wrapping
+  $: formattedText = (() => {
+    const titleText = 'Category Tags: ';
+    const charWidth = 6; // Approximate character width in pixels
+    const titleWidth = titleText.length * charWidth;
+    
+    let currentLine = titleText;
+    let lines = [];
+    let currentWidth = titleWidth;
+    
+    displayedCategories.forEach((category, i) => {
+      const separator = i > 0 ? ', ' : '';
+      const text = separator + category.name;
+      const textWidth = text.length * charWidth;
+      
+      // Check if adding this text would exceed max width
+      if (currentWidth + textWidth > maxWidth && currentLine.length > titleText.length) {
+        lines.push({ text: currentLine, isFirstLine: lines.length === 0 });
+        currentLine = category.name;
+        currentWidth = category.name.length * charWidth;
+      } else {
+        currentLine += text;
+        currentWidth += textWidth;
+      }
+    });
+    
+    if (currentLine.length > 0) {
+      lines.push({ text: currentLine, isFirstLine: lines.length === 0 });
+    }
+    
+    return lines;
+  })();
+
 </script>
 
-<defs>
-  <filter id={glowFilterId} x="-50%" y="-50%" width="200%" height="200%">
-    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur"/>
-    <feFlood flood-color={pillColor} flood-opacity="0.8" result="color"/>
-    <feComposite in="color" in2="blur" operator="in" result="glow"/>
-    <feMerge>
-      <feMergeNode in="glow"/>
-      <feMergeNode in="SourceGraphic"/>
-    </feMerge>
-  </filter>
-</defs>
-
 {#if categories.length > 0}
-  <!-- FIXED: Removed internal Y-offset (was: translate({groupOffsetX}, -{radius + 25})) -->
-  <!-- Now only handles horizontal centering, parent handles Y positioning -->
-  <g class="category-tags" transform="translate({groupOffsetX}, 0)">
-    {#each pillPositions as { x, width, category }, i}
-      <!-- svelte-ignore a11y-click-events-have-key-events -->
-      <!-- svelte-ignore a11y-no-static-element-interactions -->
-      <!-- svelte-ignore a11y-mouse-events-have-key-events -->
-      <g
-        class="category-pill"
-        transform="translate({x}, 0) scale({hoveredIndex === i ? 1.1 : 1})"
-        style:transform-origin="center"
-        style:cursor="pointer"
-        on:click={() => handleCategoryClick(category)}
-        on:mouseenter={() => handleMouseEnter(i)}
-        on:mouseleave={handleMouseLeave}
+  <g class="category-tags">
+    {#each formattedText as line, lineIndex}
+      <text
+        x="0"
+        y={lineIndex * 14}
+        style:font-family="Inter"
+        style:font-size="10px"
+        style:text-anchor="middle"
+        style:dominant-baseline="hanging"
       >
-        <!-- Pill background -->
-        <rect
-          x="0"
-          y="0"
-          width={width}
-          height={pillHeight}
-          rx="12"
-          ry="12"
-          fill={pillColor}
-          stroke={hoveredIndex === i ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.2)'}
-          stroke-width="1"
-          filter={hoveredIndex === i ? `url(#${glowFilterId})` : 'none'}
-          class:hovered={hoveredIndex === i}
-        />
-
-        <!-- Category name text -->
-        <text
-          x={width / 2}
-          y={pillHeight / 2}
-          style:font-family="Orbitron"
-          style:font-size="11px"
-          style:font-weight="500"
-          style:fill="rgba(255, 255, 255, 0.95)"
-          style:text-anchor="middle"
-          style:dominant-baseline="middle"
-          style:pointer-events="none"
-          style:user-select="none"
-        >
-          {truncateName(category.name)}
-        </text>
-
-        <!-- Tooltip for full name if truncated -->
-        {#if hoveredIndex === i && category.name.length > maxNameLength}
-          <title>{category.name}</title>
+        {#if line.isFirstLine}
+          <!-- Title on first line -->
+          <tspan
+            style:fill="rgba(255, 255, 255, 0.5)"
+            style:font-size="9px"
+            style:font-weight="600"
+          >Category Tags: </tspan>
         {/if}
-      </g>
+        
+        <!-- Parse and render category names with individual hover -->
+        {#each line.text.replace('Category Tags: ', '').split(', ') as categoryName, i}
+          {#if categoryName.trim()}
+            {@const matchingCategory = displayedCategories.find(c => c.name === categoryName.trim())}
+            {#if matchingCategory}
+              {#if i > 0 || !line.isFirstLine}<tspan style:fill="rgba(255, 255, 255, 0.4)">, </tspan>{/if}
+              <!-- svelte-ignore a11y-click-events-have-key-events -->
+              <!-- svelte-ignore a11y-no-static-element-interactions -->
+              <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+              <tspan
+                style:fill={categoryColor}
+                style:text-decoration={hoveredId === matchingCategory.id ? 'underline' : 'none'}
+                style:cursor="pointer"
+                style:font-weight={hoveredId === matchingCategory.id ? '500' : '400'}
+                on:click={() => handleCategoryClick(matchingCategory)}
+                on:mouseenter={() => handleMouseEnter(matchingCategory.id)}
+                on:mouseleave={handleMouseLeave}
+              >{matchingCategory.name}</tspan>
+            {/if}
+          {/if}
+        {/each}
+      </text>
     {/each}
-
-    <!-- "+N more" text if categories exceed maxDisplay -->
+    
     {#if remainingCount > 0}
       <text
-        x={moreTextX}
-        y={pillHeight / 2}
-        style:font-family="Orbitron"
-        style:font-size="11px"
-        style:font-weight="400"
-        style:fill="rgba(255, 255, 255, 0.6)"
-        style:dominant-baseline="middle"
-        style:pointer-events="none"
+        x="0"
+        y={(formattedText.length) * 14}
+        style:font-family="Inter"
+        style:font-size="9px"
+        style:text-anchor="middle"
+        style:dominant-baseline="hanging"
       >
-        +{remainingCount} more
+        <tspan style:fill="rgba(255, 255, 255, 0.6)">+{remainingCount} more</tspan>
       </text>
     {/if}
   </g>
 {/if}
-
-<style>
-  .category-tags {
-    transition: transform 0.2s ease-out;
-  }
-
-  .category-pill {
-    transition: transform 0.2s ease-out;
-  }
-
-  .category-pill rect {
-    transition: stroke 0.2s ease-out, filter 0.2s ease-out;
-  }
-
-  .category-pill:active {
-    transform: scale(0.95);
-  }
-</style>

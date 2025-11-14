@@ -15,7 +15,7 @@
 	export let nodeY: number | undefined = undefined;
 
 	// ContentBox debugging
-	export let showContentBoxBorder: boolean = false;
+	export let showContentBoxBorder: boolean = true;
 
 	// Vote-based styling for enhanced visuals
 	export let voteBasedStyles = {
@@ -34,8 +34,8 @@
 	// Negative values = above center (above ContentBox)
 	// Positive values = below center (below ContentBox)
 	export let titleYOffset: number = 0; // FIXED: Distance above ContentBox for title (was 0.90)
-	export let categoryTagsYOffset: number = 0.58; // FIXED: Below title (was 0.78)
-	export let keywordTagsYOffset: number = 0.50; // FIXED: Below categories (was 0.66)
+	export let categoryTagsYOffset: number = 0.80; // RAISED: Was 0.68 - now higher above ContentBox
+	export let keywordTagsYOffset: number = 0.70; // POSITIONED: Was 0.50 - positioned below categories
 	export let metadataYOffset: number = 0.75; // Distance below ContentBox for metadata (was 0.78)
 	export let creditsYOffset: number = 0.85; // Distance below ContentBox for credits (was 0.90)
 

@@ -2,33 +2,35 @@
 export const COLORS = {
     // Synthwave / Space Theme — luminous colours for dark backgrounds, all supporting white text
 PRIMARY: {
-    // === Core Content Nodes (Cool Neons, Optimized for White Text) ===
-    OPEN_QUESTION: '#00B8FF',  // Bright sky cyan — inviting, readable
-    ANSWER: '#5A2CFF',         // Royal violet — intellectual contrast
-    STATEMENT: '#E300D6',      // Electric fuchsia — bold, assertive
-    QUANTITY: '#A445FF',       // Vivid purple — analytical, balanced
+    // === Core Content Nodes ===
+    OPEN_QUESTION: '#1468E8',   // Azure Neon Noir — exploratory, energetic
+    ANSWER:        '#7A2FD3',   // Ultra Violet Noir — intellectual, decisive
+    QUANTITY:      '#2C6C8C',   // Deep Teal Pulse — analytical, numerical
+    STATEMENT:     '#534B7B',   // Magenta Noir — declarative, confident
 
-    // === Supporting Nodes (Warm Neons, Optimized for White Text) ===
-    WORD: '#FFC400',           // Golden amber — foundational
-    DEFINITION: '#A4FF00',     // Neon lime — conceptual clarity
-    CATEGORY: '#00FFB0',       // Bright aqua-mint — organizational
-    EVIDENCE: '#00E060',       // Emerald-teal — supportive precision
-    COMMENT: '#FF5E1F',        // Fiery orange — expressive, conversational
+    // === Supporting Nodes ===
+    WORD:          '#009E87',   // Alpine Green Noir — foundational, grounded
+    DEFINITION:    '#0E6F4A',   // Blue Graphite — precise, technical
+    CATEGORY:      '#2F5D82',   // Muted Violet Carbon — organizational
+    EVIDENCE:      '#B4523A',   // Slate Cyan Noir — supportive, reliable
+    COMMENT:       '#D02B89',   // Ember Copper Noir — expressive, warm contrast
 
     // === Functional / Utility ===
-    HIDDEN: '#0B0B1F',
-    CENTRAL_UTILITY: '#FFFFFF',
+    HIDDEN:         '#0F172A',
+    CENTRAL_UTILITY:'#FFFFFF',
 
-    // === Voting Colors (harmonized for contrast) ===
-    GREEN: '#00D46A',
-    RED: '#FF3B30',
+    // === Voting Colors ===
+    GREEN: '#28D97E',
+    RED:   '#E03A2E',
 
-    // === Legacy ===
-    BLUE: '#3498db',
-    PURPLE: '#9b59b6',
+    // === Legacy (unchanged) ===
+    BLUE:      '#3498db',
+    PURPLE:    '#9b59b6',
     TURQUOISE: '#1abc9c',
-    FOREST: '#27ae60',
+    FOREST:    '#27ae60',
 },
+
+
 
     // UI colors
     UI: {
