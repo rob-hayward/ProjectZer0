@@ -125,7 +125,7 @@ interface UniversalGraphState {
 export interface UniversalGraphStore {
     subscribe: (run: (value: UniversalGraphState) => void) => () => void;
     user_data: any;
-    loadNodes: (user: any) => Promise<void>;
+    loadNodes: (user: any, requestId?: number) => Promise<void>;
     loadMore: (user: any) => Promise<void>;
     reset: () => void;
     setNodeTypeFilter: (types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'>) => void;

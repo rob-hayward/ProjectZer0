@@ -176,8 +176,6 @@
 
     // Initialize voting behaviour on mount
     onMount(async () => {
-        console.log('[EvidenceNode] Initializing vote behaviour for', node.id);
-        
         // Create voting behaviour for inclusion votes
         inclusionVoting = createVoteBehaviour(node.id, 'evidence', {
             apiIdentifier: evidenceData.id,
@@ -186,16 +184,13 @@
                 positiveVotesKey: 'inclusionPositiveVotes',
                 negativeVotesKey: 'inclusionNegativeVotes'
             },
-            apiResponseKeys: {
-                positiveVotesKey: 'inclusionPositiveVotes',
-                negativeVotesKey: 'inclusionNegativeVotes'
-            },
             getVoteEndpoint: (id) => `/nodes/evidence/${id}/vote`,
             getRemoveVoteEndpoint: (id) => `/nodes/evidence/${id}/vote`,
-            getVoteStatusEndpoint: (id) => `/nodes/evidence/${id}/vote-status`,
             graphStore,
-            // NOTE: No onDataUpdate callback needed!
-            // We're now subscribed directly to voteBehaviour's reactive stores
+            onDataUpdate: () => {
+                // Trigger reactivity
+                evidenceData = { ...evidenceData };
+            },
             metadataConfig: {
                 nodeMetadata: node.metadata,
                 voteStatusKey: 'inclusionVoteStatus'
@@ -208,21 +203,11 @@
             negativeVotes: inclusionNegativeVotes,
             skipVoteStatusFetch: false
         });
-        
-        console.log('[EvidenceNode] Vote behaviour initialized:', {
-            nodeId: node.id,
-            initialVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
-            initialStatus: inclusionUserVoteStatus
-        });
     });
 
     // Vote handler - now uses behaviour
     async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-        if (!inclusionVoting) {
-            console.error('[EvidenceNode] Vote behaviour not initialized');
-            return;
-        }
-        console.log('[EvidenceNode] Handling vote:', event.detail.voteType);
+        if (!inclusionVoting) return;
         await inclusionVoting.handleVote(event.detail.voteType);
     }
 

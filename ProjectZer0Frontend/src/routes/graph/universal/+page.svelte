@@ -484,14 +484,15 @@
         const universalGraphNodes: GraphNode[] = nodesToProcess.map((node: any) => {
             
             // Extract common properties (same for all node types)
-            const commonProperties = {
+         const commonProperties = {
                 id: node.id,
                 participant_count: node.participant_count,
                 created_at: node.created_at,
                 created_by: node.created_by,
                 public_credit: node.public_credit,
-                keywords: node.metadata.keywords || [],
-                positiveVotes: getNeo4jNumber(node.metadata.votes?.positive) || 0,
+                keywords: node.keywords || [],
+                categories: node.categories || [], 
+                positiveVotes: getNeo4jNumber(node.metadata?.votes?.positive) || 0,
                 negativeVotes: getNeo4jNumber(node.metadata.votes?.negative) || 0,
                 netVotes: getNeo4jNumber(node.metadata.votes?.net) || 0,
                 userVoteStatus: node.metadata.userVoteStatus?.status || 'none',
@@ -511,26 +512,24 @@
                     };
                     break;
                     
-                case 'statement':
-                    nodeData = {
-                        ...commonProperties,
-                        statement: node.content,
-                        relatedStatements: node.metadata.relatedStatements || [],
-                        parentQuestion: node.metadata.parentQuestion,
-                        discussionId: node.metadata.discussionId,
-                        initialComment: node.metadata.initialComment || '',
-                        categories: node.metadata.categories || []
-                    };
-                    break;
+              case 'statement':
+                nodeData = {
+                    ...commonProperties,
+                    statement: node.content,
+                    relatedStatements: node.metadata?.relatedStatements || [],
+                    parentQuestion: node.metadata?.parentQuestion,
+                    discussionId: node.discussionId,  // ✅ FIXED - top level
+                    initialComment: node.metadata?.initialComment || '',
+                };
+                break;
                     
-                case 'answer':
+               case 'answer':
                     nodeData = {
                         ...commonProperties,
                         answerText: node.content,
                         questionId: node.metadata?.parentQuestion?.nodeId || node.metadata?.discussionId || '',
-                        parentQuestion: node.metadata.parentQuestion,
-                        discussionId: node.metadata.discussionId,
-                        categories: node.metadata.categories || []
+                        parentQuestion: node.metadata?.parentQuestion,
+                        discussionId: node.discussionId,  // ✅ Top level
                     };
                     break;
                     
@@ -540,8 +539,7 @@
                         question: node.content,
                         unitCategoryId: node.unitCategoryId || node.metadata?.unitCategoryId || '',
                         defaultUnitId: node.defaultUnitId || node.metadata?.defaultUnitId || '',
-                        discussionId: node.metadata.discussionId,
-                        categories: node.metadata.categories || []
+                        discussionId: node.discussionId,  // ✅ Top level
                     };
                     break;
                     
@@ -552,10 +550,9 @@
                         url: node.metadata?.sourceUrl || '',
                         parentNodeId: node.metadata?.parentNode?.nodeId || node.metadata?.parentNode || '',
                         evidenceType: node.metadata?.evidenceType || '',
-                        sourceUrl: node.metadata.sourceUrl,
-                        parentNode: node.metadata.parentNode,
-                        discussionId: node.metadata.discussionId,
-                        categories: node.metadata.categories || []
+                        sourceUrl: node.metadata?.sourceUrl,
+                        parentNode: node.metadata?.parentNode,
+                        discussionId: node.discussionId,  // ✅ Top level
                     };
                     break;
                     

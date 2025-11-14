@@ -404,10 +404,46 @@ export class UniversalGraphService {
         includeKeywords: true,
         includeCategories: true,
         includeDiscussion: true,
-        limit: 10000, // Get all, we'll filter/paginate later in service
+        limit: 10000,
       });
 
       this.logger.debug(`Found ${statements.length} statements from schema`);
+
+      // 🔍 DEBUGGING: Log first few statements with their categories/keywords
+      statements.slice(0, 5).forEach((stmt, idx) => {
+        this.logger.debug(`Statement ${idx + 1}:`, {
+          id: stmt.id,
+          statement: stmt.statement?.substring(0, 50),
+          hasCategories: Array.isArray(stmt.categories),
+          categoriesLength: stmt.categories?.length || 0,
+          categories: stmt.categories,
+          hasKeywords: Array.isArray(stmt.keywords),
+          keywordsLength: stmt.keywords?.length || 0,
+          keywords: stmt.keywords,
+        });
+      });
+
+      // 🔍 Check specifically for your two nodes
+      const node1 = statements.find(
+        (s) => s.id === '2a1f877f-0192-427e-b12c-340e550bd89a',
+      );
+      const node2 = statements.find(
+        (s) => s.id === '13bafcd8-144d-439e-90f5-4992f824e8ba',
+      );
+
+      if (node1) {
+        this.logger.warn('🔍 Found target node 2a1f877f:', {
+          categories: node1.categories,
+          keywords: node1.keywords,
+        });
+      }
+
+      if (node2) {
+        this.logger.warn('🔍 Found target node 13bafcd8:', {
+          categories: node2.categories,
+          keywords: node2.keywords,
+        });
+      }
 
       return statements.map((stmt) =>
         this.transformStatementToUniversalNode(stmt),

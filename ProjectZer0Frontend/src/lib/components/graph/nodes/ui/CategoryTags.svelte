@@ -1,5 +1,6 @@
 <!-- src/lib/components/graph/nodes/ui/CategoryTags.svelte -->
-<!-- UPDATED: Using DEFINITION color from new color scheme -->
+<!-- UPDATED: Removed internal Y-offset, now relies on parent positioning -->
+<!-- UPDATED: Using CATEGORY color from new color scheme -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { COLORS } from '$lib/constants/colors';
@@ -11,8 +12,8 @@
   export let radius: number;
   export let maxDisplay: number = 3;
   
-  // UPDATED: Use DEFINITION color from new synthwave palette
-  export let pillColor: string = `${COLORS.PRIMARY.DEFINITION}CC`; // #9D4EDD with 80% opacity
+  // UPDATED: Use CATEGORY color from new synthwave palette
+  export let pillColor: string = `${COLORS.PRIMARY.CATEGORY}CC`; // #00FFB0 with 80% opacity
 
   const dispatch = createEventDispatcher<{
     categoryClick: { categoryId: string; categoryName: string };
@@ -96,7 +97,9 @@
 </defs>
 
 {#if categories.length > 0}
-  <g class="category-tags" transform="translate({groupOffsetX}, -{radius + 25})">
+  <!-- FIXED: Removed internal Y-offset (was: translate({groupOffsetX}, -{radius + 25})) -->
+  <!-- Now only handles horizontal centering, parent handles Y positioning -->
+  <g class="category-tags" transform="translate({groupOffsetX}, 0)">
     {#each pillPositions as { x, width, category }, i}
       <!-- svelte-ignore a11y-click-events-have-key-events -->
       <!-- svelte-ignore a11y-no-static-element-interactions -->

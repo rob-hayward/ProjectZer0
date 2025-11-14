@@ -1,5 +1,6 @@
 <!-- src/lib/components/graph/nodes/statement/StatementNode.svelte -->
 <!-- FIXED: Vote reactivity now reads from voteBehaviour stores for BOTH voting systems -->
+<!-- TEMPORARY: Added comprehensive debugging for node data inspection -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -20,6 +21,27 @@
 	}
 
 	let statementData = node.data;
+
+	// 🔍 DEBUGGING: Log complete node data structure
+	console.group(`[StatementNode] Node Data Debug - ID: ${node.id}`);
+	console.log('Full node object:', node);
+	console.log('node.data:', statementData);
+	console.log('node.data.categories:', statementData.categories);
+	console.log('categories type:', typeof statementData.categories);
+	console.log('categories is array?', Array.isArray(statementData.categories));
+	if (Array.isArray(statementData.categories)) {
+		console.log('categories length:', statementData.categories.length);
+		console.log('categories[0]:', statementData.categories[0]);
+	}
+	console.log('node.data.keywords:', statementData.keywords);
+	console.log('keywords type:', typeof statementData.keywords);
+	console.log('keywords is array?', Array.isArray(statementData.keywords));
+	if (Array.isArray(statementData.keywords)) {
+		console.log('keywords length:', statementData.keywords.length);
+		console.log('keywords[0]:', statementData.keywords[0]);
+	}
+	console.log('Raw JSON of statementData:', JSON.stringify(statementData, null, 2));
+	console.groupEnd();
 
 	function getMetadataGroup(): 'statement' {
 		return 'statement';
@@ -137,8 +159,6 @@
 			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
 			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
 			graphStore,
-			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
-			// We're now subscribed directly to voteBehaviour's reactive stores
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus',
@@ -163,8 +183,6 @@
 			getRemoveVoteEndpoint: (id) => `/nodes/statement/${id}/vote`,
 			getVoteStatusEndpoint: (id) => `/nodes/statement/${id}/vote-status`,
 			graphStore,
-			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
-			// We're now subscribed directly to voteBehaviour's reactive stores
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'contentVoteStatus',
@@ -252,6 +270,17 @@
 					maxDisplay={3}
 					on:categoryClick={handleCategoryClick}
 				/>
+			{:else}
+				<!-- 🔍 DEBUGGING: Visual indicator when no categories -->
+				<text
+					y="0"
+					style:font-family="Inter"
+					style:font-size="10px"
+					style:fill="rgba(255, 0, 0, 0.6)"
+					style:text-anchor="middle"
+				>
+					[NO CATEGORIES]
+				</text>
 			{/if}
 		</svelte:fragment>
 
@@ -263,6 +292,17 @@
 					maxDisplay={8}
 					on:keywordClick={handleKeywordClick}
 				/>
+			{:else}
+				<!-- 🔍 DEBUGGING: Visual indicator when no keywords -->
+				<text
+					y="0"
+					style:font-family="Inter"
+					style:font-size="10px"
+					style:fill="rgba(255, 0, 0, 0.6)"
+					style:text-anchor="middle"
+				>
+					[NO KEYWORDS]
+				</text>
 			{/if}
 		</svelte:fragment>
 

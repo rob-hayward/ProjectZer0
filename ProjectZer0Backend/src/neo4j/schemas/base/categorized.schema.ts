@@ -534,7 +534,7 @@ export abstract class CategorizedNodeSchema<
       includeDiscussion = true,
     } = options || {};
 
-    // Build WHERE clauses (includes parent class logic + category logic)
+    // Build WHERE clauses
     const whereConditions: string[] = [];
     const params: any = {};
 
@@ -542,7 +542,7 @@ export abstract class CategorizedNodeSchema<
     whereConditions.push('n.inclusionNetVotes >= $minInclusionVotes');
     params.minInclusionVotes = minInclusionVotes;
 
-    // Keyword filter (from parent)
+    // Keyword filter
     if (keywords.length > 0) {
       const keywordCondition =
         keywordMode === 'all'
@@ -552,7 +552,7 @@ export abstract class CategorizedNodeSchema<
       params.keywords = keywords;
     }
 
-    // ✅ NEW: Category filter (this is the extension)
+    // Category filter
     if (categories.length > 0) {
       const categoryCondition =
         categoryMode === 'all'
@@ -570,17 +570,40 @@ export abstract class CategorizedNodeSchema<
 
     const whereClause = `WHERE ${whereConditions.join(' AND ')}`;
 
-    // Build query - NOW includes category logic
+    // ✅ FIXED: Use WITH clauses between OPTIONAL MATCHes for proper aggregation
     const query = `
     MATCH (n:${this.nodeLabel})
     ${whereClause}
-    ${includeDiscussion ? 'OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)' : ''}
-    ${includeKeywords ? 'OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)' : ''}
-    ${includeCategories ? 'OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode) WHERE cat.inclusionNetVotes > 0' : ''}
-    RETURN n,
-       ${includeDiscussion ? 'head(collect(disc.id)) as discussionId' : 'null as discussionId'},
-       ${includeKeywords ? 'collect(DISTINCT {word: w.word, frequency: t.frequency, source: t.source}) as keywords' : '[] as keywords'},
-       ${includeCategories ? 'collect(DISTINCT {id: cat.id, name: cat.name, description: cat.description, inclusionNetVotes: cat.inclusionNetVotes}) as categories' : '[] as categories'}
+    
+    ${
+      includeDiscussion
+        ? `
+    OPTIONAL MATCH (n)-[:HAS_DISCUSSION]->(disc:DiscussionNode)
+    WITH n, head(collect(disc.id)) as discussionId
+    `
+        : 'WITH n, null as discussionId'
+    }
+    
+    ${
+      includeKeywords
+        ? `
+    OPTIONAL MATCH (n)-[t:TAGGED]->(w:WordNode)
+    WITH n, discussionId, collect(DISTINCT {word: w.word, frequency: t.frequency, source: t.source}) as keywords
+    `
+        : 'WITH n, discussionId, [] as keywords'
+    }
+    
+    ${
+      includeCategories
+        ? `
+    OPTIONAL MATCH (n)-[:CATEGORIZED_AS]->(cat:CategoryNode)
+    WHERE cat.inclusionNetVotes > 0
+    WITH n, discussionId, keywords, collect(DISTINCT {id: cat.id, name: cat.name, description: cat.description, inclusionNetVotes: cat.inclusionNetVotes}) as categories
+    `
+        : 'WITH n, discussionId, keywords, [] as categories'
+    }
+    
+    RETURN n, discussionId, keywords, categories
     ORDER BY n.${sortBy} ${sortDirection}
     SKIP $offset
     LIMIT $limit
@@ -594,6 +617,26 @@ export abstract class CategorizedNodeSchema<
     try {
       const result = await this.neo4jService.read(query, params);
 
+      // 🔍 DEBUGGING: Log query and first few results
+      this.logger.debug(`findAll query for ${this.nodeLabel}:`, query);
+      this.logger.debug(`findAll params:`, JSON.stringify(params, null, 2));
+      this.logger.debug(`findAll returned ${result.records.length} records`);
+
+      if (result.records.length > 0) {
+        const firstRecord = result.records[0];
+        this.logger.debug('First record structure:', {
+          nodeId: firstRecord.get('n')?.properties?.id,
+          hasDiscussionId: firstRecord.has('discussionId'),
+          discussionId: firstRecord.get('discussionId'),
+          hasKeywords: firstRecord.has('keywords'),
+          keywordsCount: firstRecord.get('keywords')?.length || 0,
+          keywords: firstRecord.get('keywords'),
+          hasCategories: firstRecord.has('categories'),
+          categoriesCount: firstRecord.get('categories')?.length || 0,
+          categories: firstRecord.get('categories'),
+        });
+      }
+
       return result.records.map((record) => {
         const nodeData = this.mapNodeFromRecord(record);
 
@@ -606,9 +649,15 @@ export abstract class CategorizedNodeSchema<
           nodeData.keywords = keywordsData.filter((k: any) => k.word);
         }
 
-        // ✅ NEW: Add categories
         if (includeCategories) {
           const categoriesData = record.get('categories');
+
+          // 🔍 DEBUGGING: Log category processing
+          this.logger.debug(`Processing categories for node ${nodeData.id}:`, {
+            rawCategoriesData: categoriesData,
+            filteredCount: categoriesData.filter((c: any) => c.id).length,
+          });
+
           nodeData.categories = categoriesData
             .filter((c: any) => c.id)
             .map((c: any) => ({
