@@ -1,5 +1,10 @@
 <!-- src/lib/components/graph/nodes/ui/VoteStats.svelte -->
 <!-- Enhanced with configurable labels for both inclusion and content voting -->
+<!-- 
+  NOTE: This component renders at (0, 0). 
+  Parent should wrap in <g transform="translate(0, {y})"> for positioning.
+  The containerY prop is deprecated and should always be 0.
+-->
 <script lang="ts">
   import type { VoteStatus } from '$lib/types/domain/nodes';
 
@@ -9,7 +14,6 @@
   export let userName: string = 'Anonymous';
   export let showUserStatus: boolean = true;
   export let availableWidth: number = 400;
-  export let containerY: number = 0;
   export let showBackground: boolean = true;
   
   // NEW: Configurable labels for different voting contexts
@@ -32,7 +36,7 @@
   }
 </script>
 
-<g class="vote-stats-container" transform="translate(0, {containerY})">
+<g class="vote-stats-container">
   {#if showBackground}
     <rect
       x={-availableWidth/2 + 10}

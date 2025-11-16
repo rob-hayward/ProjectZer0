@@ -78,9 +78,9 @@
 	// Slot interface - standardized positions managed by BasePreviewNode
 	interface $Slots {
 		title: { radius: number }; // Positioned above ContentBox
-		content: { x: number; y: number; width: number; height: number; layoutConfig: any };
-		voting: { x: number; y: number; width: number; height: number; layoutConfig: any };
-		stats: { x: number; y: number; width: number; height: number; layoutConfig: any };
+		content: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		voting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		stats: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
 	}
 </script>
 
@@ -104,22 +104,22 @@
 			<!-- ContentBox at center (0, 0) - handles all internal content layout -->
 			<!-- ContentBox manages content, voting, and stats sections with configurable ratios -->
 			<ContentBox nodeType={node.type} mode="preview" showBorder={showContentBoxBorder}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig let:positioning>
 					{#if $$slots.content}
-						<slot name="content" {x} {y} {width} {height} {layoutConfig} />
+						<slot name="content" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
-				<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig>
+				<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig let:positioning>
 					{#if $$slots.voting}
-						<slot name="voting" {x} {y} {width} {height} {layoutConfig} />
+						<slot name="voting" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
 				<!-- Stats slot exists but typically unused in preview mode (layoutConfig sets height to 0) -->
-				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig>
+				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig let:positioning>
 					{#if $$slots.stats}
-						<slot name="stats" {x} {y} {width} {height} {layoutConfig} />
+						<slot name="stats" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 			</ContentBox>

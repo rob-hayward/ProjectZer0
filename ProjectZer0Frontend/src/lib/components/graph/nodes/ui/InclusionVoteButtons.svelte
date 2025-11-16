@@ -1,5 +1,10 @@
 <!-- src/lib/components/graph/nodes/ui/InclusionVoteButtons.svelte -->
 <!-- Inclusion voting buttons using add/remove icons to distinguish from content voting -->
+<!-- 
+  NOTE: This component renders at (0, 0). 
+  Parent should wrap in <g transform="translate(0, {y})"> for positioning.
+  The containerY prop is deprecated and should always be 0.
+-->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import type { VoteStatus } from '$lib/types/domain/nodes';
@@ -14,7 +19,6 @@
   
   // Layout props
   export let availableWidth: number = 400;
-  export let containerY: number = 0;
   export let mode: 'preview' | 'detail' = 'detail';
   
   const dispatch = createEventDispatcher<{
@@ -170,7 +174,7 @@
   </filter>
 </defs>
 
-<g class="inclusion-vote-buttons" transform="translate(0, {containerY})">
+<g class="inclusion-vote-buttons">
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <!-- svelte-ignore a11y-no-static-element-interactions -->
   <!-- svelte-ignore a11y-mouse-events-have-key-events -->

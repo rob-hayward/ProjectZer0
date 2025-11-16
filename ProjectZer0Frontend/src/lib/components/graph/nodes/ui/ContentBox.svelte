@@ -99,16 +99,6 @@
             mainTextYOffset: 75
         },
         // Add missing node types
-        // navigation: {
-        //     horizontalPadding: 10,
-        //     verticalPadding: 20,
-        //     sectionSpacing: 10,
-        //     contentYOffset: 0,
-        //     votingYOffset: 0,
-        //     statsYOffset: 0,
-        //     titleYOffset: 45,
-        //     mainTextYOffset: 75
-        // },
         'edit-profile': {
             horizontalPadding: 10,
             verticalPadding: 20,
@@ -195,11 +185,100 @@
         }
     };
     
+    // ============================================================================
+    // NEW: POSITIONING CONFIGS - SINGLE SOURCE OF TRUTH FOR ELEMENT POSITIONS
+    // ============================================================================
+    // All positioning values are fractions (0-1) of section height
+    // This allows flexible layouts while maintaining consistent positioning
+    const POSITIONING_CONFIGS: Record<string, {
+        detail: {
+            content?: Record<string, number>;
+            voting?: Record<string, number>;
+            stats?: Record<string, number>;
+        };
+        preview: {
+            content?: Record<string, number>;
+            voting?: Record<string, number>;
+            stats?: Record<string, number>;
+        };
+    }> = {
+        statement: {
+            detail: {
+                content: {
+                    mainText: 0,           // Statement text at top (0%)
+                    mainTextHeight: 0.4,   // Statement takes 40% of content section
+                    prompt1: 0.55,         // Inclusion prompt at 55%
+                    buttons1: 0.73,        // Inclusion buttons at 73%
+                    stats1: 0.45           // Inclusion stats at 45%
+                },
+                voting: {
+                    prompt2: 0,            // Content prompt at top (0%)
+                    buttons2: 0.18,        // Content buttons at 18% (was 28px, ~18% of 154px)
+                    stats2: 0.46           // Content stats at 46% (was 70px, ~46% of 154px)
+                },
+                stats: {
+                    // Stats section currently unused in detail mode for statements
+                }
+            },
+            preview: {
+                content: {
+                    mainText: 0            // Text fills content section
+                },
+                voting: {
+                    buttons1: 0.5          // Inclusion buttons centered
+                },
+                stats: {}
+            }
+        },
+        answer: {
+            detail: {
+                content: {
+                    mainText: 0,           // Answer text at top
+                    mainTextHeight: 0.65,  // Answer takes 65% (was height - 100 out of ~154)
+                    instruction: 0.70      // Instruction text at 70% (was height - 90)
+                },
+                voting: {
+                    buttons1: 0,           // Inclusion buttons at top
+                    buttons2: 0.40         // Content buttons at 40% (was 60px out of ~150)
+                },
+                stats: {
+                    stats1: 0,             // Inclusion stats at top
+                    stats2: 0.53           // Content stats at 53% (was 80px out of ~150)
+                }
+            },
+            preview: {
+                content: {
+                    mainText: 0            // Text fills content section
+                },
+                voting: {
+                    buttons1: 0.5          // Inclusion buttons centered
+                },
+                stats: {}
+            }
+        },
+        // Default fallback - empty configs
+        default: {
+            detail: {
+                content: {},
+                voting: {},
+                stats: {}
+            },
+            preview: {
+                content: {},
+                voting: {},
+                stats: {}
+            }
+        }
+    };
+    
     // Get layout config for current node type
     $: layoutConfig = LAYOUT_CONFIGS[nodeType] || LAYOUT_CONFIGS.default;
     
     // Get ratios for current node type and mode
     $: currentRatios = (LAYOUT_RATIOS[nodeType] || LAYOUT_RATIOS.default)[mode];
+    
+    // NEW: Get positioning config for current node type and mode
+    $: currentPositioning = (POSITIONING_CONFIGS[nodeType] || POSITIONING_CONFIGS.default)[mode];
     
     // Allow overrides via props
     export let horizontalPadding: number | undefined = undefined;
@@ -263,6 +342,7 @@
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
+            positioning: Record<string, number>;  // NEW: Positioning config for this section
         };
         voting: {
             x: number;
@@ -270,6 +350,7 @@
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
+            positioning: Record<string, number>;  // NEW: Positioning config for this section
         };
         stats: {
             x: number; 
@@ -277,6 +358,7 @@
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
+            positioning: Record<string, number>;  // NEW: Positioning config for this section
         };
     }
 </script>
@@ -392,6 +474,7 @@
             width={sectionWidth}
             height={contentHeight}
             {layoutConfig}
+            positioning={currentPositioning.content || {}}
         />
     </g>
     
@@ -404,6 +487,7 @@
                 width={sectionWidth}
                 height={votingHeight}
                 {layoutConfig}
+                positioning={currentPositioning.voting || {}}
             />
         </g>
     {/if}
@@ -417,6 +501,7 @@
                 width={sectionWidth}
                 height={statsHeight}
                 {layoutConfig}
+                positioning={currentPositioning.stats || {}}
             />
         </g>
     {/if}

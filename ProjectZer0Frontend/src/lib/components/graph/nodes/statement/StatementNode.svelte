@@ -305,21 +305,21 @@
 			{/if}
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<!-- 4. Statement text at top (50% of content section) -->
-			<foreignObject {x} {y} {width} height={Math.floor(height * 0.4)}>
+		<svelte:fragment slot="content" let:x let:y let:width let:height let:positioning>
+			<!-- 4. Statement text at top (height determined by positioning.mainTextHeight) -->
+			<foreignObject {x} {y} {width} height={Math.floor(height * positioning.mainTextHeight)}>
 				<TextContent text={displayStatement} mode="detail" />
 			</foreignObject>
 
-			<!-- 5. Inclusion vote prompt -->
-			<foreignObject {x} y={y + Math.floor(height * 0.55)} {width} height="24">
+			<!-- 5. Inclusion vote prompt (position determined by positioning.prompt1) -->
+			<foreignObject {x} y={y + Math.floor(height * positioning.prompt1)} {width} height="24">
 				<div class="vote-prompt">
 					<strong>Include/Exclude:</strong> Should this exist in the graph?
 				</div>
 			</foreignObject>
 
-			<!-- 6. Inclusion vote buttons -->
-			<g transform="translate(0, {y + Math.floor(height * 0.73)})">
+			<!-- 6. Inclusion vote buttons (position determined by positioning.buttons1) -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons1)})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -328,14 +328,13 @@
 					voteSuccess={inclusionVotingState.voteSuccess}
 					lastVoteType={inclusionVotingState.lastVoteType}
 					availableWidth={width}
-					containerY={0}
 					mode="detail"
 					on:vote={handleInclusionVote}
 				/>
 			</g>
 
-			<!-- 7. Inclusion vote stats (compact) -->
-			<g transform="translate(0, {y + Math.floor(height * 0.45)})">
+			<!-- 7. Inclusion vote stats (position determined by positioning.stats1) -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats1)})">
 				<VoteStats
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -343,23 +342,22 @@
 					positiveLabel="Include"
 					negativeLabel="Exclude"
 					availableWidth={width}
-					containerY={0}
 					showUserStatus={false}
 					showBackground={false}
 				/>
 			</g>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y>
-			<!-- 8. Content vote prompt -->
+		<svelte:fragment slot="voting" let:width let:height let:y let:positioning>
+			<!-- 8. Content vote prompt (at top of voting section) -->
 			<foreignObject x={-width/2} {y} {width} height="24">
 				<div class="vote-prompt">
 					<strong>Agree/Disagree:</strong> Is this statement accurate?
 				</div>
 			</foreignObject>
 
-			<!-- 9. Content vote buttons -->
-			<g transform="translate(0, {y + 28})">
+			<!-- 9. Content vote buttons (position determined by positioning.buttons2) -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons2)})">
 				<ContentVoteButtons
 					userVoteStatus={contentUserVoteStatus}
 					positiveVotes={contentPositiveVotes}
@@ -368,14 +366,13 @@
 					voteSuccess={contentVotingState.voteSuccess}
 					lastVoteType={contentVotingState.lastVoteType}
 					availableWidth={width}
-					containerY={0}
 					mode="detail"
 					on:vote={handleContentVote}
 				/>
 			</g>
 
-			<!-- 10. Content vote stats (compact) -->
-			<g transform="translate(0, {y + 70})">
+			<!-- 10. Content vote stats (position determined by positioning.stats2) -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats2)})">
 				<VoteStats
 					userVoteStatus={contentUserVoteStatus}
 					positiveVotes={contentPositiveVotes}
@@ -383,16 +380,14 @@
 					positiveLabel="Agree"
 					negativeLabel="Disagree"
 					availableWidth={width}
-					containerY={0}
 					showUserStatus={false}
 					showBackground={false}
 				/>
 			</g>
 		</svelte:fragment>
 
-		<svelte:fragment slot="stats" let:width let:height let:y>
-			<!-- Stats section now available for item 11: metadata and credits -->
-			<!-- These will be added in next iteration -->
+		<svelte:fragment slot="stats" let:width let:height let:y let:positioning>
+			<!-- Stats section now available for future use -->
 		</svelte:fragment>
 
 		<svelte:fragment slot="metadata" let:radius>
@@ -429,26 +424,27 @@
 			<NodeHeader title="Statement" {radius} mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
+		<svelte:fragment slot="content" let:x let:y let:width let:height let:positioning>
 			<foreignObject {x} {y} {width} {height}>
 				<TextContent text={displayStatement} mode="preview" />
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y>
+		<svelte:fragment slot="voting" let:width let:height let:y let:positioning>
 			<!-- Store subscriptions automatically trigger reactivity -->
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={inclusionVotingState.isVoting}
-				voteSuccess={inclusionVotingState.voteSuccess}
-				lastVoteType={inclusionVotingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="preview"
-				on:vote={handleInclusionVote}
-			/>
+			<g transform="translate(0, {y})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={inclusionVotingState.isVoting}
+					voteSuccess={inclusionVotingState.voteSuccess}
+					lastVoteType={inclusionVotingState.lastVoteType}
+					availableWidth={width}
+					mode="preview"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
 		</svelte:fragment>
 	</BasePreviewNode>
 {/if}
