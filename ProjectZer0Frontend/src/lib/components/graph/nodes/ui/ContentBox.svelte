@@ -1,40 +1,41 @@
 <!-- src/lib/components/graph/nodes/ui/ContentBox.svelte -->
+<!-- REORGANIZED: Semantic 3-section structure - contentText / inclusionVoting / contentVoting -->
 <script lang="ts">
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import type { NodeType } from '$lib/types/graph/enhanced';
     
     export let nodeType: NodeType;
     export let mode: 'preview' | 'detail' = 'detail';
-    export let showBorder: boolean = true; // Changed from false to true for design work
+    export let showBorder: boolean = true; // Set to true for layout refinement
     
     // Layout configuration per node type (SINGLE SOURCE OF TRUTH)
     const LAYOUT_CONFIGS: Record<string, {
         horizontalPadding: number;
         verticalPadding: number;
         sectionSpacing: number;
-        contentYOffset: number;
-        votingYOffset: number;
-        statsYOffset: number;
+        contentTextYOffset: number;
+        inclusionVotingYOffset: number;
+        contentVotingYOffset: number;
         titleYOffset: number;
         mainTextYOffset: number;
     }> = {
         word: {
             horizontalPadding: 0,
-            verticalPadding: 0,  // Reduced from 20 to move content up
-            sectionSpacing: 0,    // Reduced from 10 for tighter layout
-            contentYOffset: 0,
-            votingYOffset: 0,   // Move voting section up slightly
-            statsYOffset: 0,     // Move stats up slightly
-            titleYOffset: 0,     // Reduced from 45 - move word display up
-            mainTextYOffset: 0   // Reduced from 75 - move instruction text up
+            verticalPadding: 0,
+            sectionSpacing: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
+            titleYOffset: 0,
+            mainTextYOffset: 0
         },
         definition: {
             horizontalPadding: 0,
             verticalPadding: 0,
             sectionSpacing: 0,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 0,
             mainTextYOffset: 0
         },
@@ -42,9 +43,9 @@
             horizontalPadding: 0,
             verticalPadding: 0,
             sectionSpacing: 0,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 0,
             mainTextYOffset: 0
         },
@@ -52,9 +53,9 @@
             horizontalPadding: 0,
             verticalPadding: 0,
             sectionSpacing: 0,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 0,
             mainTextYOffset: 0
         },
@@ -62,9 +63,9 @@
             horizontalPadding: 10,
             verticalPadding: 15,
             sectionSpacing: 8,
-            contentYOffset: 0,
-            votingYOffset: -5,
-            statsYOffset: -5,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: -5,
+            contentVotingYOffset: -5,
             titleYOffset: 30,
             mainTextYOffset: 60
         },
@@ -72,9 +73,9 @@
             horizontalPadding: 10,
             verticalPadding: 10,
             sectionSpacing: 5,
-            contentYOffset: 0,
-            votingYOffset: -5,
-            statsYOffset: -5,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: -5,
+            contentVotingYOffset: -5,
             titleYOffset: 20,
             mainTextYOffset: 40
         },
@@ -82,9 +83,9 @@
             horizontalPadding: 15,
             verticalPadding: 10,
             sectionSpacing: 5,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 20,
             mainTextYOffset: 40
         },
@@ -92,20 +93,19 @@
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 45,
             mainTextYOffset: 75
         },
-        // Add missing node types
         'edit-profile': {
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 45,
             mainTextYOffset: 75
         },
@@ -113,9 +113,9 @@
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 45,
             mainTextYOffset: 75
         },
@@ -123,150 +123,170 @@
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 45,
             mainTextYOffset: 75
         },
-        // Default fallback
         default: {
             horizontalPadding: 10,
             verticalPadding: 20,
             sectionSpacing: 10,
-            contentYOffset: 0,
-            votingYOffset: 0,
-            statsYOffset: 0,
+            contentTextYOffset: 0,
+            inclusionVotingYOffset: 0,
+            contentVotingYOffset: 0,
             titleYOffset: 45,
             mainTextYOffset: 75
         }
     };
     
-    // Layout ratios configuration - different for preview vs detail modes
+    // ============================================================================
+    // LAYOUT RATIOS - Semantic 3-section structure per node type and mode
+    // ============================================================================
+    // REORGANIZED: contentText / inclusionVoting / contentVoting
     const LAYOUT_RATIOS: Record<string, {
-        detail: { content: number; voting: number; stats: number };
-        preview: { content: number; voting: number; stats: number };
+        detail: { contentText: number; inclusionVoting: number; contentVoting: number };
+        preview: { contentText: number; inclusionVoting: number; contentVoting: number };
     }> = {
         word: {
-            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
-            preview: { content: 0.50, voting: 0.50, stats: 0 }  // Split evenly for centered voting
+            // Word node: Simple structure - word display + inclusion voting only
+            detail: { contentText: 0.60, inclusionVoting: 0.40, contentVoting: 0 },
+            preview: { contentText: 0.50, inclusionVoting: 0.50, contentVoting: 0 }
         },
         definition: {
-            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
-            preview: { content: 0.65, voting: 0.35, stats: 0 }
+            // Definition node: Text + both voting systems
+            detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
+            preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
+        // UPDATED: Statement with new semantic structure (Option B - More Content Text)
         statement: {
-            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
-            preview: { content: 0.65, voting: 0.35, stats: 0 }
+            detail: { 
+                contentText: 0.40,      // 40% = 170px for statement text (was 30%)
+                inclusionVoting: 0.30,  // 30% = 127px for Include/Exclude voting (was 35%)
+                contentVoting: 0.30     // 30% = 127px for Agree/Disagree voting (was 35%, still symmetric!)
+            },
+            preview: { 
+                contentText: 0.65,      // Preview: mostly text
+                inclusionVoting: 0.35,  // Just inclusion voting in preview
+                contentVoting: 0        // No content voting in preview
+            }
         },
         openquestion: {
-            detail: { content: 0.60, voting: 0.15, stats: 0.25 },
-            preview: { content: 0.65, voting: 0.35, stats: 0 }
+            // Open question: Similar to statement
+            detail: { contentText: 0.30, inclusionVoting: 0.35, contentVoting: 0.35 },
+            preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         quantity: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
-            preview: { content: 0.65, voting: 0.35, stats: 0 }
+            // Quantity node: Numeric response + voting
+            detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
+            preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         comment: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
-            preview: { content: 0.60, voting: 0.40, stats: 0 }
+            // Comment node: Text + content voting only (no inclusion voting)
+            detail: { contentText: 0.50, inclusionVoting: 0, contentVoting: 0.50 },
+            preview: { contentText: 0.60, inclusionVoting: 0, contentVoting: 0.40 }
         },
         control: {
-            detail: { content: 1.0, voting: 0, stats: 0 },  // Control node only needs content area
-            preview: { content: 1.0, voting: 0, stats: 0 }  // No voting or stats for control node
+            // Control node: Content only, no voting
+            detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
+            preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
         },
         dashboard: {
-            detail: { content: 1.0, voting: 0, stats: 0 },  // Dashboard node only needs content area
-            preview: { content: 1.0, voting: 0, stats: 0 }  // No voting or stats for dashboard node
+            // Dashboard node: Content only, no voting
+            detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
+            preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
         },
         default: {
-            detail: { content: 0.60, voting: 0.25, stats: 0.15 },
-            preview: { content: 0.70, voting: 0.30, stats: 0 }
+            detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
+            preview: { contentText: 0.70, inclusionVoting: 0.30, contentVoting: 0 }
         }
     };
     
     // ============================================================================
-    // NEW: POSITIONING CONFIGS - SINGLE SOURCE OF TRUTH FOR ELEMENT POSITIONS
+    // POSITIONING CONFIGS - Element positions within sections (0-1 fractions)
     // ============================================================================
-    // All positioning values are fractions (0-1) of section height
-    // This allows flexible layouts while maintaining consistent positioning
+    // REORGANIZED: Each section is now self-contained and symmetric
     const POSITIONING_CONFIGS: Record<string, {
         detail: {
-            content?: Record<string, number>;
-            voting?: Record<string, number>;
-            stats?: Record<string, number>;
+            contentText?: Record<string, number>;
+            inclusionVoting?: Record<string, number>;
+            contentVoting?: Record<string, number>;
         };
         preview: {
-            content?: Record<string, number>;
-            voting?: Record<string, number>;
-            stats?: Record<string, number>;
+            contentText?: Record<string, number>;
+            inclusionVoting?: Record<string, number>;
+            contentVoting?: Record<string, number>;
         };
     }> = {
+        // UPDATED: Statement with new semantic structure
         statement: {
             detail: {
-                content: {
-                    mainText: 0,           // Statement text at top (0%)
-                    mainTextHeight: 0.4,   // Statement takes 40% of content section
-                    prompt1: 0.55,         // Inclusion prompt at 55%
-                    buttons1: 0.73,        // Inclusion buttons at 73%
-                    stats1: 0.45           // Inclusion stats at 45%
+                // Section 1: Content Text (just the statement)
+                contentText: {
+                    text: 0,              // Text starts at top
+                    textHeight: 1.0       // Uses full section height
                 },
-                voting: {
-                    prompt2: 0,            // Content prompt at top (0%)
-                    buttons2: 0.18,        // Content buttons at 18% (was 28px, ~18% of 154px)
-                    stats2: 0.46           // Content stats at 46% (was 70px, ~46% of 154px)
+                // Section 2: Inclusion Voting (Should this exist in the graph?)
+                inclusionVoting: {
+                    prompt: 0.08,         // Prompt at 8% down (~10px spacing from top)
+                    buttons: 0.42,        // Buttons at 42% down (~53px) - moved down
+                    stats: 0.58           // Stats at 58% down (~74px) - moved up significantly
                 },
-                stats: {
-                    // Stats section currently unused in detail mode for statements
+                // Section 3: Content Voting (Is this statement accurate?)
+                // MIRROR of inclusion voting for perfect symmetry!
+                contentVoting: {
+                    prompt: 0.08,         // Same position as inclusion
+                    buttons: 0.42,        // Same position as inclusion - moved down
+                    stats: 0.58           // Same position as inclusion - moved up significantly
                 }
             },
             preview: {
-                content: {
-                    mainText: 0            // Text fills content section
+                contentText: {
+                    text: 0,
+                    textHeight: 1.0
                 },
-                voting: {
-                    buttons1: 0.5          // Inclusion buttons centered
+                inclusionVoting: {
+                    buttons: 0.5          // Buttons centered in preview
                 },
-                stats: {}
+                contentVoting: {}         // No content voting in preview
             }
         },
         answer: {
             detail: {
-                content: {
-                    mainText: 0,           // Answer text at top
-                    mainTextHeight: 0.65,  // Answer takes 65% (was height - 100 out of ~154)
-                    instruction: 0.70      // Instruction text at 70% (was height - 90)
+                contentText: {
+                    text: 0,
+                    textHeight: 0.65,
+                    instruction: 0.70
                 },
-                voting: {
-                    buttons1: 0,           // Inclusion buttons at top
-                    buttons2: 0.40         // Content buttons at 40% (was 60px out of ~150)
+                inclusionVoting: {
+                    buttons: 0
                 },
-                stats: {
-                    stats1: 0,             // Inclusion stats at top
-                    stats2: 0.53           // Content stats at 53% (was 80px out of ~150)
+                contentVoting: {
+                    buttons: 0.40,
+                    stats: 0.53
                 }
             },
             preview: {
-                content: {
-                    mainText: 0            // Text fills content section
+                contentText: {
+                    text: 0
                 },
-                voting: {
-                    buttons1: 0.5          // Inclusion buttons centered
+                inclusionVoting: {
+                    buttons: 0.5
                 },
-                stats: {}
+                contentVoting: {}
             }
         },
-        // Default fallback - empty configs
         default: {
             detail: {
-                content: {},
-                voting: {},
-                stats: {}
+                contentText: {},
+                inclusionVoting: {},
+                contentVoting: {}
             },
             preview: {
-                content: {},
-                voting: {},
-                stats: {}
+                contentText: {},
+                inclusionVoting: {},
+                contentVoting: {}
             }
         }
     };
@@ -277,24 +297,24 @@
     // Get ratios for current node type and mode
     $: currentRatios = (LAYOUT_RATIOS[nodeType] || LAYOUT_RATIOS.default)[mode];
     
-    // NEW: Get positioning config for current node type and mode
+    // Get positioning config for current node type and mode
     $: currentPositioning = (POSITIONING_CONFIGS[nodeType] || POSITIONING_CONFIGS.default)[mode];
     
     // Allow overrides via props
     export let horizontalPadding: number | undefined = undefined;
     export let verticalPadding: number | undefined = undefined;
     export let sectionSpacing: number | undefined = undefined;
-    export let contentYOffset: number | undefined = undefined;
-    export let votingYOffset: number | undefined = undefined;
-    export let statsYOffset: number | undefined = undefined;
+    export let contentTextYOffset: number | undefined = undefined;
+    export let inclusionVotingYOffset: number | undefined = undefined;
+    export let contentVotingYOffset: number | undefined = undefined;
     
     // Use prop overrides if provided, otherwise use config defaults
     $: finalHorizontalPadding = horizontalPadding ?? layoutConfig.horizontalPadding;
     $: finalVerticalPadding = verticalPadding ?? layoutConfig.verticalPadding;
     $: finalSectionSpacing = sectionSpacing ?? layoutConfig.sectionSpacing;
-    $: finalContentYOffset = contentYOffset ?? layoutConfig.contentYOffset;
-    $: finalVotingYOffset = votingYOffset ?? layoutConfig.votingYOffset;
-    $: finalStatsYOffset = statsYOffset ?? layoutConfig.statsYOffset;
+    $: finalContentTextYOffset = contentTextYOffset ?? layoutConfig.contentTextYOffset;
+    $: finalInclusionVotingYOffset = inclusionVotingYOffset ?? layoutConfig.inclusionVotingYOffset;
+    $: finalContentVotingYOffset = contentVotingYOffset ?? layoutConfig.contentVotingYOffset;
     
     // Get appropriate content box size
     $: boxSize = getContentBoxSize(nodeType, mode);
@@ -317,48 +337,48 @@
     }
     
     // Layout sections within the box using mode-specific ratios
-    $: contentHeight = Math.floor(boxSize * currentRatios.content);
-    $: votingHeight = Math.floor(boxSize * currentRatios.voting);
-    $: statsHeight = Math.floor(boxSize * currentRatios.stats);
+    $: contentTextHeight = Math.floor(boxSize * currentRatios.contentText);
+    $: inclusionVotingHeight = Math.floor(boxSize * currentRatios.inclusionVoting);
+    $: contentVotingHeight = Math.floor(boxSize * currentRatios.contentVoting);
     
-    // SINGLE SOURCE OF TRUTH for Y positioning - removed vertical padding for content and stats
-    $: contentBaseY = -halfBox; // Removed finalVerticalPadding
-    $: votingBaseY = contentBaseY + contentHeight + finalSectionSpacing;
-    $: statsBaseY = votingBaseY + votingHeight + finalSectionSpacing;
+    // SINGLE SOURCE OF TRUTH for Y positioning
+    $: contentTextBaseY = -halfBox;
+    $: inclusionVotingBaseY = contentTextBaseY + contentTextHeight + finalSectionSpacing;
+    $: contentVotingBaseY = inclusionVotingBaseY + inclusionVotingHeight + finalSectionSpacing;
     
-    // Final positions with offsets - removed offsets for content and stats
-    $: contentY = contentBaseY; // Removed finalContentYOffset
-    $: votingY = votingBaseY + finalVotingYOffset;
-    $: statsY = statsBaseY; // Removed finalStatsYOffset
+    // Final positions with offsets
+    $: contentTextY = contentTextBaseY + finalContentTextYOffset;
+    $: inclusionVotingY = inclusionVotingBaseY + finalInclusionVotingYOffset;
+    $: contentVotingY = contentVotingBaseY + finalContentVotingYOffset;
     
     // X positioning
     $: sectionX = -halfBox + finalHorizontalPadding;
     $: sectionWidth = boxSize - (finalHorizontalPadding * 2);
     
     interface $$Slots {
-        content: {
+        contentText: {
             x: number;
             y: number;
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
-            positioning: Record<string, number>;  // NEW: Positioning config for this section
+            positioning: Record<string, number>;
         };
-        voting: {
+        inclusionVoting: {
             x: number;
             y: number;
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
-            positioning: Record<string, number>;  // NEW: Positioning config for this section
+            positioning: Record<string, number>;
         };
-        stats: {
+        contentVoting: {
             x: number; 
             y: number;
             width: number;
             height: number;
             layoutConfig: typeof layoutConfig;
-            positioning: Record<string, number>;  // NEW: Positioning config for this section
+            positioning: Record<string, number>;
         };
     }
 </script>
@@ -377,82 +397,82 @@
             stroke-dasharray="8,4"
         />
         
-        <!-- Content section border - green, aligned with content box -->
+        <!-- Content Text section border - cyan -->
         <rect
             x={-halfBox}
-            y={contentY}
+            y={contentTextY}
             width={boxSize}
-            height={contentHeight}
+            height={contentTextHeight}
             fill="none"
-            stroke="rgba(46, 204, 113, 0.6)"
+            stroke="rgba(52, 152, 219, 0.6)"
             stroke-width="1"
         />
         
-        <!-- Voting section border - yellow, aligned with content box -->
-        {#if votingHeight > 0}
+        <!-- Inclusion Voting section border - green -->
+        {#if inclusionVotingHeight > 0}
             <rect
                 x={-halfBox}
-                y={votingY}
+                y={inclusionVotingY}
                 width={boxSize}
-                height={votingHeight}
+                height={inclusionVotingHeight}
+                fill="none"
+                stroke="rgba(46, 204, 113, 0.6)"
+                stroke-width="1"
+            />
+        {/if}
+        
+        <!-- Content Voting section border - yellow -->
+        {#if contentVotingHeight > 0}
+            <rect
+                x={-halfBox}
+                y={contentVotingY}
+                width={boxSize}
+                height={contentVotingHeight}
                 fill="none"
                 stroke="rgba(241, 196, 15, 0.6)"
                 stroke-width="1"
             />
         {/if}
         
-        <!-- Stats section border - red (only if stats section has height), aligned with content box -->
-        {#if statsHeight > 0}
-            <rect
-                x={-halfBox}
-                y={statsY}
-                width={boxSize}
-                height={statsHeight}
-                fill="none"
-                stroke="rgba(231, 76, 60, 0.6)"
-                stroke-width="1"
-            />
-        {/if}
-        
-        <!-- Add labels for each section to make it clear what's what -->
+        <!-- Section labels -->
         <text
             x={-halfBox + 5}
-            y={contentY + 12}
+            y={contentTextY + 12}
             style:font-family="Inter"
             style:font-size="10px"
-            style:fill="rgba(46, 204, 113, 0.8)"
+            style:fill="rgba(52, 152, 219, 0.8)"
             style:font-weight="500"
         >
-            CONTENT
+            CONTENT TEXT ({Math.round(currentRatios.contentText * 100)}% = {contentTextHeight}px)
         </text>
         
-        {#if votingHeight > 0}
+        {#if inclusionVotingHeight > 0}
             <text
                 x={-halfBox + 5}
-                y={votingY + 12}
+                y={inclusionVotingY + 12}
+                style:font-family="Inter"
+                style:font-size="10px"
+                style:fill="rgba(46, 204, 113, 0.8)"
+                style:font-weight="500"
+            >
+                INCLUSION VOTING ({Math.round(currentRatios.inclusionVoting * 100)}% = {inclusionVotingHeight}px)
+            </text>
+        {/if}
+        
+        {#if contentVotingHeight > 0}
+            <text
+                x={-halfBox + 5}
+                y={contentVotingY + 12}
                 style:font-family="Inter"
                 style:font-size="10px"
                 style:fill="rgba(241, 196, 15, 0.8)"
                 style:font-weight="500"
             >
-                VOTING
+                CONTENT VOTING ({Math.round(currentRatios.contentVoting * 100)}% = {contentVotingHeight}px)
             </text>
         {/if}
         
-        {#if statsHeight > 0}
-            <text
-                x={-halfBox + 5}
-                y={statsY + 12}
-                style:font-family="Inter"
-                style:font-size="10px"
-                style:fill="rgba(231, 76, 60, 0.8)"
-                style:font-weight="500"
-            >
-                STATS
-            </text>
-        {/if}
-        
-        <!-- Add dimensions text for reference -->
+        <!-- Dimensions text -->
         <text
             x="0"
             y={-halfBox - 5}
@@ -466,42 +486,42 @@
         </text>
     {/if}
     
-    <g class="content-section">
+    <g class="content-text-section">
         <slot 
-            name="content"
+            name="contentText"
             x={sectionX}
-            y={contentY}
+            y={contentTextY}
             width={sectionWidth}
-            height={contentHeight}
+            height={contentTextHeight}
             {layoutConfig}
-            positioning={currentPositioning.content || {}}
+            positioning={currentPositioning.contentText || {}}
         />
     </g>
     
-    {#if votingHeight > 0}
-        <g class="voting-section">
+    {#if inclusionVotingHeight > 0}
+        <g class="inclusion-voting-section">
             <slot
-                name="voting" 
+                name="inclusionVoting" 
                 x={sectionX}
-                y={votingY}
+                y={inclusionVotingY}
                 width={sectionWidth}
-                height={votingHeight}
+                height={inclusionVotingHeight}
                 {layoutConfig}
-                positioning={currentPositioning.voting || {}}
+                positioning={currentPositioning.inclusionVoting || {}}
             />
         </g>
     {/if}
     
-    {#if statsHeight > 0}
-        <g class="stats-section">
+    {#if contentVotingHeight > 0}
+        <g class="content-voting-section">
             <slot
-                name="stats"
+                name="contentVoting"
                 x={sectionX}
-                y={statsY}
+                y={contentVotingY}
                 width={sectionWidth}
-                height={statsHeight}
+                height={contentVotingHeight}
                 {layoutConfig}
-                positioning={currentPositioning.stats || {}}
+                positioning={currentPositioning.contentVoting || {}}
             />
         </g>
     {/if}

@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/base/BasePreviewNode.svelte -->
+<!-- REORGANIZED: Updated to use new semantic slot structure -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -21,7 +22,7 @@
 
 	// NEW: Position override props for special cases (e.g., larger nodes like Quantity)
 	// These are multipliers of radius for vertical positioning
-	export let titleYOffset: number = 0; // FIXED: Distance above ContentBox for title (was 0.85)
+	export let titleYOffset: number = 0; // Distance above ContentBox for title
 
 	export let voteBasedStyles = {
 		glow: { intensity: 8, opacity: 0.6 },
@@ -75,12 +76,12 @@
 	$: radius = node.radius;
 	$: titleY = -radius * titleYOffset;
 
-	// Slot interface - standardized positions managed by BasePreviewNode
+	// UPDATED: Slot interface with new semantic structure
 	interface $Slots {
 		title: { radius: number }; // Positioned above ContentBox
-		content: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
-		voting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
-		stats: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		contentText: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		inclusionVoting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		contentVoting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
 	}
 </script>
 
@@ -102,24 +103,23 @@
 			{/if}
 			
 			<!-- ContentBox at center (0, 0) - handles all internal content layout -->
-			<!-- ContentBox manages content, voting, and stats sections with configurable ratios -->
+			<!-- UPDATED: ContentBox with new semantic sections -->
 			<ContentBox nodeType={node.type} mode="preview" showBorder={showContentBoxBorder}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.content}
-						<slot name="content" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="contentText" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.contentText}
+						<slot name="contentText" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
-				<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.voting}
-						<slot name="voting" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.inclusionVoting}
+						<slot name="inclusionVoting" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
-				<!-- Stats slot exists but typically unused in preview mode (layoutConfig sets height to 0) -->
-				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.stats}
-						<slot name="stats" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.contentVoting}
+						<slot name="contentVoting" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 			</ContentBox>

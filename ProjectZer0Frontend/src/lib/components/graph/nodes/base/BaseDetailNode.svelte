@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/base/BaseDetailNode.svelte -->
+<!-- REORGANIZED: Updated to use new semantic slot structure -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { spring } from 'svelte/motion';
@@ -33,7 +34,7 @@
 	// These are multipliers of radius for vertical positioning
 	// Negative values = above center (above ContentBox)
 	// Positive values = below center (below ContentBox)
-	export let titleYOffset: number = 0; // FIXED: Distance above ContentBox for title (was 0.90)
+	export let titleYOffset: number = 0; // Distance above ContentBox for title
 	export let categoryTagsYOffset: number = 0.80; // RAISED: Was 0.68 - now higher above ContentBox
 	export let keywordTagsYOffset: number = 0.70; // POSITIONED: Was 0.50 - positioned below categories
 	export let metadataYOffset: number = 0.75; // Distance below ContentBox for metadata (was 0.78)
@@ -99,14 +100,14 @@
 	$: createChildX = radius * 0.7071; // NE corner (opposite collapse button)
 	$: createChildY = -radius * 0.7071;
 
-	// Slot interface - standardized positions managed by BaseDetailNode
+	// UPDATED: Slot interface with new semantic structure
 	interface $Slots {
 		title: { radius: number }; // Positioned above ContentBox
 		categoryTags: { radius: number }; // Positioned above ContentBox, below title
 		keywordTags: { radius: number }; // Positioned above ContentBox, below categoryTags
-		content: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
-		voting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
-		stats: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		contentText: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		inclusionVoting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
+		contentVoting: { x: number; y: number; width: number; height: number; layoutConfig: any; positioning: Record<string, number> };
 		metadata: { radius: number }; // Positioned below ContentBox
 		credits: { radius: number }; // Positioned below ContentBox, below metadata
 		createChild: { radius: number }; // Positioned at NE corner (opposite collapse)
@@ -150,23 +151,23 @@
 
 			<!-- SECTION 2: CONTENTBOX AT CENTER -->
 			<!-- ContentBox positioned at (0, 0) - the largest square that fits in the circle -->
-			<!-- ContentBox manages content, voting, and stats sections with configurable ratios -->
+			<!-- UPDATED: ContentBox with new semantic sections -->
 			<ContentBox nodeType={node.type} mode="detail" showBorder={showContentBoxBorder}>
-				<svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.content}
-						<slot name="content" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="contentText" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.contentText}
+						<slot name="contentText" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
-				<svelte:fragment slot="voting" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.voting}
-						<slot name="voting" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.inclusionVoting}
+						<slot name="inclusionVoting" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 
-				<svelte:fragment slot="stats" let:x let:y let:width let:height let:layoutConfig let:positioning>
-					{#if $$slots.stats}
-						<slot name="stats" {x} {y} {width} {height} {layoutConfig} {positioning} />
+				<svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:layoutConfig let:positioning>
+					{#if $$slots.contentVoting}
+						<slot name="contentVoting" {x} {y} {width} {height} {layoutConfig} {positioning} />
 					{/if}
 				</svelte:fragment>
 			</ContentBox>

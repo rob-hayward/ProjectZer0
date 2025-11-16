@@ -1,5 +1,5 @@
 <!-- src/lib/components/graph/nodes/statement/StatementNode.svelte -->
-<!-- REORGANIZED: Proper content ordering - prompts in content section, voting buttons in voting section, stats in stats section -->
+<!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / contentVoting -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -20,27 +20,6 @@
 	}
 
 	let statementData = node.data;
-
-	// 🔍 DEBUGGING: Log complete node data structure
-	console.group(`[StatementNode] Node Data Debug - ID: ${node.id}`);
-	console.log('Full node object:', node);
-	console.log('node.data:', statementData);
-	console.log('node.data.categories:', statementData.categories);
-	console.log('categories type:', typeof statementData.categories);
-	console.log('categories is array?', Array.isArray(statementData.categories));
-	if (Array.isArray(statementData.categories)) {
-		console.log('categories length:', statementData.categories.length);
-		console.log('categories[0]:', statementData.categories[0]);
-	}
-	console.log('node.data.keywords:', statementData.keywords);
-	console.log('keywords type:', typeof statementData.keywords);
-	console.log('keywords is array?', Array.isArray(statementData.keywords));
-	if (Array.isArray(statementData.keywords)) {
-		console.log('keywords length:', statementData.keywords.length);
-		console.log('keywords[0]:', statementData.keywords[0]);
-	}
-	console.log('Raw JSON of statementData:', JSON.stringify(statementData, null, 2));
-	console.groupEnd();
 
 	function getMetadataGroup(): 'statement' {
 		return 'statement';
@@ -269,17 +248,6 @@
 					maxDisplay={3}
 					on:categoryClick={handleCategoryClick}
 				/>
-			{:else}
-				<!-- 🔍 DEBUGGING: Visual indicator when no categories -->
-				<text
-					y="0"
-					style:font-family="Inter"
-					style:font-size="10px"
-					style:fill="rgba(255, 0, 0, 0.6)"
-					style:text-anchor="middle"
-				>
-					[NO CATEGORIES]
-				</text>
 			{/if}
 		</svelte:fragment>
 
@@ -291,35 +259,33 @@
 					maxDisplay={8}
 					on:keywordClick={handleKeywordClick}
 				/>
-			{:else}
-				<!-- 🔍 DEBUGGING: Visual indicator when no keywords -->
-				<text
-					y="0"
-					style:font-family="Inter"
-					style:font-size="10px"
-					style:fill="rgba(255, 0, 0, 0.6)"
-					style:text-anchor="middle"
-				>
-					[NO KEYWORDS]
-				</text>
 			{/if}
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height let:positioning>
-			<!-- 4. Statement text at top (height determined by positioning.mainTextHeight) -->
-			<foreignObject {x} {y} {width} height={Math.floor(height * positioning.mainTextHeight)}>
+		<!-- REORGANIZED: Section 1 - Content Text Only -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- Statement text fills the entire content text section -->
+			<foreignObject {x} {y} {width} {height}>
 				<TextContent text={displayStatement} mode="detail" />
 			</foreignObject>
+		</svelte:fragment>
 
-			<!-- 5. Inclusion vote prompt (position determined by positioning.prompt1) -->
-			<foreignObject {x} y={y + Math.floor(height * positioning.prompt1)} {width} height="24">
+		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Inclusion vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
 				<div class="vote-prompt">
 					<strong>Include/Exclude:</strong> Should this exist in the graph?
 				</div>
 			</foreignObject>
 
-			<!-- 6. Inclusion vote buttons (position determined by positioning.buttons1) -->
-			<g transform="translate(0, {y + Math.floor(height * positioning.buttons1)})">
+			<!-- Inclusion vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -333,8 +299,8 @@
 				/>
 			</g>
 
-			<!-- 7. Inclusion vote stats (position determined by positioning.stats1) -->
-			<g transform="translate(0, {y + Math.floor(height * positioning.stats1)})">
+			<!-- Inclusion vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -348,16 +314,22 @@
 			</g>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y let:positioning>
-			<!-- 8. Content vote prompt (at top of voting section) -->
-			<foreignObject x={-width/2} {y} {width} height="24">
+		<!-- REORGANIZED: Section 3 - Content Voting (Complete system, mirrors inclusion!) -->
+		<svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Content vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
 				<div class="vote-prompt">
 					<strong>Agree/Disagree:</strong> Is this statement accurate?
 				</div>
 			</foreignObject>
 
-			<!-- 9. Content vote buttons (position determined by positioning.buttons2) -->
-			<g transform="translate(0, {y + Math.floor(height * positioning.buttons2)})">
+			<!-- Content vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<ContentVoteButtons
 					userVoteStatus={contentUserVoteStatus}
 					positiveVotes={contentPositiveVotes}
@@ -371,8 +343,8 @@
 				/>
 			</g>
 
-			<!-- 10. Content vote stats (position determined by positioning.stats2) -->
-			<g transform="translate(0, {y + Math.floor(height * positioning.stats2)})">
+			<!-- Content vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={contentUserVoteStatus}
 					positiveVotes={contentPositiveVotes}
@@ -384,10 +356,6 @@
 					showBackground={false}
 				/>
 			</g>
-		</svelte:fragment>
-
-		<svelte:fragment slot="stats" let:width let:height let:y let:positioning>
-			<!-- Stats section now available for future use -->
 		</svelte:fragment>
 
 		<svelte:fragment slot="metadata" let:radius>
@@ -424,15 +392,16 @@
 			<NodeHeader title="Statement" {radius} mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height let:positioning>
+		<!-- REORGANIZED: Preview mode - simplified structure -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
 			<foreignObject {x} {y} {width} {height}>
 				<TextContent text={displayStatement} mode="preview" />
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y let:positioning>
-			<!-- Store subscriptions automatically trigger reactivity -->
-			<g transform="translate(0, {y})">
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Preview mode: just centered inclusion buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -446,6 +415,8 @@
 				/>
 			</g>
 		</svelte:fragment>
+
+		<!-- No content voting in preview mode -->
 	</BasePreviewNode>
 {/if}
 
