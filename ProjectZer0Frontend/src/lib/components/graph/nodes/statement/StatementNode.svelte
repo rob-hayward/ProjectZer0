@@ -265,8 +265,13 @@
 		<!-- REORGANIZED: Section 1 - Content Text Only -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
 			<!-- Statement text fills the entire content text section -->
-			<foreignObject {x} {y} {width} {height}>
-				<TextContent text={displayStatement} mode="detail" />
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 1.0))}
+			>
+				<TextContent text={displayStatement} mode="detail" verticalAlign="start" />
 			</foreignObject>
 		</svelte:fragment>
 
@@ -394,8 +399,13 @@
 
 		<!-- REORGANIZED: Preview mode - simplified structure -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-			<foreignObject {x} {y} {width} {height}>
-				<TextContent text={displayStatement} mode="preview" />
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 1.0))}
+			>
+				<TextContent text={displayStatement} mode="preview" verticalAlign="start" />
 			</foreignObject>
 		</svelte:fragment>
 

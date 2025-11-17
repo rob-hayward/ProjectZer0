@@ -2,12 +2,20 @@
 <script lang="ts">
   export let text: string;
   export let mode: 'preview' | 'detail' = 'detail';
+  export let verticalAlign: 'start' | 'center' | 'end' = 'start';
 
   // Mode-based font sizing (strict)
   $: fontSize = mode === 'detail' ? '16px' : '12px';
 </script>
 
-<div class="text-content" class:detail={mode === 'detail'} class:preview={mode === 'preview'}>
+<div 
+  class="text-content" 
+  class:detail={mode === 'detail'} 
+  class:preview={mode === 'preview'}
+  class:align-start={verticalAlign === 'start'}
+  class:align-center={verticalAlign === 'center'}
+  class:align-end={verticalAlign === 'end'}
+>
   {text}
 </div>
 
@@ -19,7 +27,6 @@
     text-align: center;
     line-height: 1.4;
     display: flex;
-    align-items: center;
     justify-content: center;
     width: 100%;
     height: 100%;

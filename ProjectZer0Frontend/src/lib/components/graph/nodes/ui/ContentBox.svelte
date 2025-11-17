@@ -206,7 +206,17 @@
     // ============================================================================
     // POSITIONING CONFIGS - Element positions within sections (0-1 fractions)
     // ============================================================================
-    // REORGANIZED: Each section is now self-contained and symmetric
+    // LOGICAL TOP-TO-BOTTOM ORDER: contentText → inclusionVoting → contentVoting
+    // Each section contains its elements in vertical order (prompt → buttons → stats)
+    //
+    // 🔧 FINE-TUNING GUIDE:
+    // - Values are fractions (0-1) of section height
+    // - For statement detail: inclusionVoting section = 127px tall
+    //   * 0.02 = ~2px from top
+    //   * 0.25 = ~32px from top
+    //   * 0.50 = ~64px from top
+    // - Adjust these values in increments of 0.02-0.05 for fine-tuning
+    // ============================================================================
     const POSITIONING_CONFIGS: Record<string, {
         detail: {
             contentText?: Record<string, number>;
@@ -219,43 +229,57 @@
             contentVoting?: Record<string, number>;
         };
     }> = {
-        // UPDATED: Statement with new semantic structure
+        // ========================================================================
+        // STATEMENT NODE - Primary reference implementation
+        // ========================================================================
         statement: {
             detail: {
-                // Section 1: Content Text (just the statement)
+                // SECTION 1: Content Text (40% = 170px) - Statement display
                 contentText: {
-                    text: 0,              // Text starts at top
+                    text: 0.2,              // Text starts at top of section
                     textHeight: 1.0       // Uses full section height
                 },
-                // Section 2: Inclusion Voting (Should this exist in the graph?)
+                
+                // SECTION 2: Inclusion Voting (30% = 127px) - "Should this exist in the graph?"
+                // 🔧 ADJUST THESE VALUES FOR FINE-TUNING:
                 inclusionVoting: {
-                    prompt: 0.08,         // Prompt at 8% down (~10px spacing from top)
-                    buttons: 0.42,        // Buttons at 42% down (~53px) - moved down
-                    stats: 0.58           // Stats at 58% down (~74px) - moved up significantly
+                    prompt: 0.0,          // "Include/Exclude:" prompt (at top)
+                    buttons: 0.40,        // [+] vote count [-] buttons (~44px from top)
+                    stats: 0.50           // Vote data display (~83px from top)
                 },
-                // Section 3: Content Voting (Is this statement accurate?)
-                // MIRROR of inclusion voting for perfect symmetry!
+                
+                // SECTION 3: Content Voting (30% = 127px) - "Is this statement accurate?"
+                // SYMMETRIC MIRROR of inclusionVoting for visual consistency
                 contentVoting: {
-                    prompt: 0.08,         // Same position as inclusion
-                    buttons: 0.42,        // Same position as inclusion - moved down
-                    stats: 0.58           // Same position as inclusion - moved up significantly
+                    prompt: 0.0,          // "Agree/Disagree:" prompt (at top)
+                    buttons: 0.40,        // [👍] vote count [👎] buttons (~44px from top)
+                    stats: 0.50           // Vote data display (~83px from top)
                 }
             },
             preview: {
+                // SECTION 1: Content Text - Statement display only
                 contentText: {
-                    text: 0,
+                    text: 0.2,
                     textHeight: 1.0
                 },
+                
+                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 0.5          // Buttons centered in preview
+                    buttons: 1          // Buttons centered in section
                 },
-                contentVoting: {}         // No content voting in preview
+                
+                // SECTION 3: Content Voting - Not shown in preview
+                contentVoting: {}
             }
         },
+        
+        // ========================================================================
+        // ANSWER NODE - Awaiting migration to new structure
+        // ========================================================================
         answer: {
             detail: {
                 contentText: {
-                    text: 0,
+                    text: 0.2,
                     textHeight: 0.65,
                     instruction: 0.70
                 },
@@ -277,6 +301,10 @@
                 contentVoting: {}
             }
         },
+        
+        // ========================================================================
+        // DEFAULT - Fallback for unmigrated node types
+        // ========================================================================
         default: {
             detail: {
                 contentText: {},
@@ -497,7 +525,6 @@
             positioning={currentPositioning.contentText || {}}
         />
     </g>
-    
     {#if inclusionVotingHeight > 0}
         <g class="inclusion-voting-section">
             <slot

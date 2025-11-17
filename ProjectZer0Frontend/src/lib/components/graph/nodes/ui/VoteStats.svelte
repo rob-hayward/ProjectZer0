@@ -1,9 +1,8 @@
 <!-- src/lib/components/graph/nodes/ui/VoteStats.svelte -->
 <!-- Enhanced with configurable labels for both inclusion and content voting -->
 <!-- 
-  NOTE: This component renders at (0, 0). 
-  Parent should wrap in <g transform="translate(0, {y})"> for positioning.
-  The containerY prop is deprecated and should always be 0.
+  POSITIONING: This component renders at (0, 0) relative to parent positioning.
+  Parent controls placement. Internal spacing between rows is preserved.
 -->
 <script lang="ts">
   import type { VoteStatus } from '$lib/types/domain/nodes';
@@ -16,7 +15,7 @@
   export let availableWidth: number = 400;
   export let showBackground: boolean = true;
   
-  // NEW: Configurable labels for different voting contexts
+  // Configurable labels for different voting contexts
   export let positiveLabel: string = 'Total Agree';
   export let negativeLabel: string = 'Total Disagree';
   export let netLabel: string = 'Net Votes';
@@ -51,10 +50,11 @@
     />
   {/if}
   
+  <!-- FIXED: Header starts at 0 (was 80) -->
   <text 
     class="stats-header"
     x={-availableWidth/2 + 25}
-    y="80"
+    y="0"
     style:font-family="Inter"
     style:font-size="12px"
     style:font-weight="400"
@@ -64,7 +64,8 @@
     Vote Data
   </text>
   
-  <g class="stats-content" transform="translate(0, 100)">
+  <!-- FIXED: Content starts at 20 (was 100) - maintains 20px spacing after header -->
+  <g class="stats-content" transform="translate(0, 20)">
     {#if showUserStatus}
       <g class="stat-row">
         <text 
@@ -106,6 +107,7 @@
       </g>
     {/if}
     
+    <!-- PRESERVED: Internal row spacing (15px between rows) -->
     <g class="stat-row" transform="translate(0, {showUserStatus ? 15 : 0})">
       <text 
         class="stat-key"
