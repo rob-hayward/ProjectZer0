@@ -84,11 +84,13 @@
     // Manual apply state (only used in manual mode)
     let hasPendingChanges = false;
     
-    // Hover state for preview mode
+    // Hover state for preview mode AND detail mode button
     let isHovering = false;
+    let isApplyButtonHovering = false;
     
-    // Unique filter ID (like InclusionVoteButtons)
+    // Unique filter IDs
     const glowFilterId = `control-glow-${Math.random().toString(36).slice(2)}`;
+    const applyGlowFilterId = `control-apply-glow-${Math.random().toString(36).slice(2)}`;
     
     // Control node has special sizes
     $: controlRadius = isDetail 
@@ -134,9 +136,6 @@
     
     // Helper function to increase opacity of a hex color for selected state
     function getSelectedBackground(backgroundColor: string): string {
-        // Replace the last 2 characters (opacity) with a higher value
-        // Original: XX (e.g., 33 ≈ 20% opacity)
-        // Selected: 80 (≈ 50% opacity) for a noticeable but not overwhelming increase
         return backgroundColor.slice(0, -2) + '80';
     }
     
@@ -151,26 +150,18 @@
         // Load categories using store (with caching)
         loadingCategories = true;
         try {
-            console.log('[ControlNode] Loading categories from store...');
-            
-            // Try to get from store first (may have cache)
             const categories = await categoryListStore.loadAllCategories();
             
             if (categories && categories.length > 0) {
                 availableCategories = categories;
-                console.log('[ControlNode] Loaded categories from store:', availableCategories.length);
             } else {
-                // Fallback to direct API call if store returns empty
-                console.log('[ControlNode] Store returned empty, trying direct API call...');
                 const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories');
                 if (categoriesResponse && Array.isArray(categoriesResponse)) {
                     availableCategories = categoriesResponse.map((cat: any) => ({
                         id: cat.id,
                         name: cat.name
                     }));
-                    console.log('[ControlNode] Loaded categories from API:', availableCategories.length);
                 } else {
-                    console.warn('[ControlNode] No categories available from API');
                     availableCategories = [];
                 }
             }
@@ -184,17 +175,11 @@
         // Load keywords using store (with caching)
         loadingKeywords = true;
         try {
-            console.log('[ControlNode] Loading keywords from store...');
-            
-            // Try to get from store first (may have cache)
             const keywords = await wordListStore.loadAllWords();
             
             if (keywords && keywords.length > 0) {
                 availableKeywords = keywords;
-                console.log('[ControlNode] Loaded keywords from store:', availableKeywords.length);
             } else {
-                // Fallback to direct API call if store returns empty
-                console.log('[ControlNode] Store returned empty, trying direct API call...');
                 const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords');
                 if (keywordsResponse && Array.isArray(keywordsResponse)) {
                     availableKeywords = keywordsResponse.map((kw: any) => {
@@ -202,9 +187,7 @@
                         if (kw && typeof kw === 'object' && 'word' in kw) return kw.word;
                         return null;
                     }).filter(Boolean) as string[];
-                    console.log('[ControlNode] Loaded keywords from API:', availableKeywords.length);
                 } else {
-                    console.warn('[ControlNode] No keywords available from API');
                     availableKeywords = [];
                 }
             }
@@ -288,7 +271,6 @@
         
         // Auto mode: debounce and dispatch after delay
         if (isLoading) {
-            console.log('[ControlNode] Skipping filter update - load in progress');
             return;
         }
         
@@ -318,14 +300,6 @@
             .filter(([_, isSelected]) => isSelected)
             .map(([type]) => type);
         
-        console.log('[ControlNode] Dispatching filter change:', {
-            nodeTypes: activeNodeTypes,
-            categories: selectedCategories.map(c => c.id),
-            keywords: selectedKeywords,
-            sortBy,
-            sortDirection
-        });
-        
         dispatch('filterChange', {
             nodeTypes: activeNodeTypes,
             categories: selectedCategories.map(c => c.id),
@@ -351,26 +325,16 @@
     function handleModeChange() {
         const newMode: NodeMode = isDetail ? 'preview' : 'detail';
         
-        console.log('[ControlNode] Mode change clicked:', {
-            currentMode: node.mode,
-            newMode,
-            nodeId: node.id,
-            position: { x: nodeX, y: nodeY }
-        });
-        
-        // Prepare event data with position and nodeId
         const eventData: { 
             mode: NodeMode; 
             position?: { x: number; y: number };
             nodeId?: string;
         } = { mode: newMode };
         
-        // Include position if available
         if (nodeX !== undefined && nodeY !== undefined) {
             eventData.position = { x: nodeX, y: nodeY };
         }
         
-        // Include node ID
         eventData.nodeId = node.id;
         
         dispatch('modeChange', eventData);
@@ -382,6 +346,18 @@
             handleModeChange();
         }
     }
+
+    function handleApplyKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            applyFiltersManually();
+        }
+    }
+
+    // Get icon for apply button based on state
+    $: applyButtonIcon = isLoading ? 'progress_activity' : hasPendingChanges ? 'check_circle' : 'radio_button_unchecked';
+    $: applyButtonColor = isLoading ? 'rgba(100, 200, 100, 0.9)' : hasPendingChanges ? 'rgba(66, 153, 225, 0.9)' : 'rgba(255, 255, 255, 0.3)';
+    $: applyTooltipText = isLoading ? 'Applying Filters...' : hasPendingChanges ? 'Apply Filters' : 'No Changes';
 </script>
 
 {#if isDetail}
@@ -513,41 +489,10 @@
                             </div>
                         </div>
                         
-                        <!-- Manual Apply Button (only shown in manual mode) -->
-                        {#if applyMode === 'manual'}
-                            <div class="apply-controls">
-                                <button 
-                                    class="apply-button"
-                                    class:has-changes={hasPendingChanges}
-                                    class:loading={isLoading}
-                                    disabled={isLoading || !hasPendingChanges}
-                                    on:click={applyFiltersManually}
-                                >
-                                    {#if isLoading}
-                                        <span class="spinner">⏳</span>
-                                        Applying...
-                                    {:else if hasPendingChanges}
-                                        <span class="icon">✓</span>
-                                        Apply Filters
-                                    {:else}
-                                        <span class="icon">✓</span>
-                                        No Changes
-                                    {/if}
-                                </button>
-                                
-                                {#if hasPendingChanges && !isLoading}
-                                    <div class="changes-hint">
-                                        Click to apply your filter changes
-                                    </div>
-                                {/if}
-                            </div>
-                        {/if}
-                        
                         <!-- Section 2: Categories (Searchable dropdown showing all options) -->
                         <div class="filter-section">
                             <div class="section-header">Categories {selectedCategories.length > 0 ? `(${selectedCategories.length}/5)` : ''}</div>
                             
-                            <!-- Selected categories as tags -->
                             {#if selectedCategories.length > 0}
                                 <div class="tag-list">
                                     {#each selectedCategories as category}
@@ -563,7 +508,6 @@
                                 </div>
                             {/if}
                             
-                            <!-- Category search and dropdown (always show when less than 5 selected) -->
                             {#if selectedCategories.length < 5}
                                 <div class="dropdown-container">
                                     <input 
@@ -602,7 +546,6 @@
                         <div class="filter-section">
                             <div class="section-header">Keywords {selectedKeywords.length > 0 ? `(${selectedKeywords.length}/5)` : ''}</div>
                             
-                            <!-- Selected keywords as tags -->
                             {#if selectedKeywords.length > 0}
                                 <div class="tag-list">
                                     {#each selectedKeywords as keyword}
@@ -618,7 +561,6 @@
                                 </div>
                             {/if}
                             
-                            <!-- Keyword search and dropdown (always show when less than 5 selected) -->
                             {#if selectedKeywords.length < 5}
                                 <div class="dropdown-container">
                                     <input 
@@ -697,6 +639,106 @@
                     </div>
                 </div>
             </foreignObject>
+
+            <!-- Apply Filters Button (positioned at bottom, only in manual mode) -->
+            {#if applyMode === 'manual'}
+                <!-- Filter definitions -->
+                <defs>
+                    <filter id={applyGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                        <feFlood flood-color={applyButtonColor} flood-opacity="0.6" result="color1"/>
+                        <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                        
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                        <feFlood flood-color={applyButtonColor} flood-opacity="0.8" result="color2"/>
+                        <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                        
+                        <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                        <feFlood flood-color={applyButtonColor} flood-opacity="1" result="color3"/>
+                        <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                        
+                        <feMerge>
+                            <feMergeNode in="shadow1"/>
+                            <feMergeNode in="shadow2"/>
+                            <feMergeNode in="shadow3"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
+                <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+                <circle
+                    cx={0}
+                    cy={controlRadius - 40}
+                    r={30}
+                    fill="transparent"
+                    class="apply-button-detection"
+                    on:mouseenter={() => isApplyButtonHovering = true}
+                    on:mouseleave={() => isApplyButtonHovering = false}
+                    on:click={applyFiltersManually}
+                    on:keydown={handleApplyKeydown}
+                    tabindex="0"
+                    role="button"
+                    aria-label={applyTooltipText}
+                    aria-pressed="false"
+                    style="cursor: {hasPendingChanges && !isLoading ? 'pointer' : 'default'};"
+                    class:disabled={!hasPendingChanges || isLoading}
+                />
+
+                <g style:filter={(isApplyButtonHovering && hasPendingChanges && !isLoading) ? `url(#${applyGlowFilterId})` : 'none'}>
+                    <foreignObject 
+                        x={-20}
+                        y={controlRadius - 60}
+                        width={40}
+                        height={40}
+                        class="apply-icon-container"
+                    >
+                        <div class="apply-icon-wrapper" {...{"xmlns": "http://www.w3.org/1999/xhtml"}}>
+                            <span 
+                                class="material-symbols-outlined apply-icon"
+                                class:hovered={isApplyButtonHovering && hasPendingChanges}
+                                class:loading={isLoading}
+                                class:pending={hasPendingChanges && !isLoading}
+                                style:color={applyButtonColor}
+                            >
+                                {applyButtonIcon}
+                            </span>
+                        </div>
+                    </foreignObject>
+                </g>
+
+                <!-- Tooltip -->
+                {#if isApplyButtonHovering}
+                    <g transform="translate(0, {controlRadius + 10})">
+                        <rect
+                            x={-50}
+                            y={-10}
+                            width="100"
+                            height="20"
+                            rx="4"
+                            fill="rgba(0, 0, 0, 0.9)"
+                            stroke={applyButtonColor}
+                            stroke-width="1"
+                            class="apply-tooltip-background"
+                        />
+                        <text
+                            x={0}
+                            y={3}
+                            text-anchor="middle"
+                            dominant-baseline="middle"
+                            fill="white"
+                            font-size="11"
+                            font-weight="500"
+                            font-family="Inter, system-ui, sans-serif"
+                            class="apply-tooltip-text"
+                        >
+                            {applyTooltipText}
+                        </text>
+                    </g>
+                {/if}
+            {/if}
         </svelte:fragment>
 
         <!-- Section 2: No inclusion voting for control node -->
@@ -716,17 +758,14 @@
             <!-- Filter definition at content slot level -->
             <defs>
                 <filter id={glowFilterId} x="-100%" y="-100%" width="300%" height="300%">
-                    <!-- Strong outer glow -->
                     <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
                     <feFlood flood-color="white" flood-opacity="0.6" result="color1"/>
                     <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
                     
-                    <!-- Medium glow -->
                     <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
                     <feFlood flood-color="white" flood-opacity="0.8" result="color2"/>
                     <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
                     
-                    <!-- Sharp inner glow -->
                     <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
                     <feFlood flood-color="white" flood-opacity="1" result="color3"/>
                     <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
@@ -743,7 +782,6 @@
             <!-- svelte-ignore a11y-click-events-have-key-events -->
             <!-- svelte-ignore a11y-no-static-element-interactions -->
             <!-- svelte-ignore a11y-mouse-events-have-key-events -->
-            <!-- Invisible hover detection area with proper accessibility -->
             <circle
                 cx={0}
                 cy={0}
@@ -761,7 +799,6 @@
                 style="cursor: pointer;"
             />
             
-            <!-- Apply filter to parent <g>, not foreignObject -->
             <g style:filter={isHovering ? `url(#${glowFilterId})` : 'none'}>
                 <foreignObject 
                     x={-controlRadius * 0.5} 
@@ -819,7 +856,6 @@
 {/if}
 
 <style>
-    /* [All the existing styles remain exactly the same] */
     /* Preview mode styles */
     .hover-detection {
         transition: all 0.2s ease;
@@ -829,16 +865,6 @@
     .hover-detection:focus {
         outline: 2px solid rgba(255, 255, 255, 0.3);
         outline-offset: 4px;
-    }
-    
-    .icon-background {
-        transition: all 0.2s ease;
-        pointer-events: none;
-    }
-    
-    .icon-background.hovered {
-        fill: var(--color-background-tertiary);
-        stroke-width: 2.5;
     }
     
     /* Icon container styling - critical for Material Icons */
@@ -870,13 +896,68 @@
         font-size: 28px;
         font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 48;
     }
+
+    /* Apply button styles (positioned at bottom in detail mode) */
+    .apply-button-detection {
+        transition: all 0.2s ease;
+        outline: none;
+    }
+
+    .apply-button-detection:focus {
+        outline: 2px solid rgba(255, 255, 255, 0.3);
+        outline-offset: 4px;
+    }
+
+    .apply-button-detection.disabled {
+        cursor: not-allowed !important;
+        opacity: 0.5;
+    }
+
+    .apply-icon-container {
+        overflow: visible;
+        pointer-events: none;
+    }
+
+    .apply-icon-wrapper {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    :global(.material-symbols-outlined.apply-icon) {
+        font-size: 32px;
+        transition: all 0.3s ease;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    :global(.material-symbols-outlined.apply-icon.hovered.pending) {
+        font-size: 36px;
+        font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 48;
+    }
+
+    :global(.material-symbols-outlined.apply-icon.loading) {
+        animation: spin 2s linear infinite;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
     
-    .tooltip-background {
+    .tooltip-background,
+    .apply-tooltip-background {
         filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
         pointer-events: none;
     }
     
-    .tooltip-text {
+    .tooltip-text,
+    .apply-tooltip-text {
         pointer-events: none;
         user-select: none;
         letter-spacing: 0.02em;
@@ -892,7 +973,6 @@
         box-sizing: border-box;
     }
     
-    /* Inner wrapper to reduce content width with side padding */
     .control-panel-inner {
         padding: 0 25px;
         box-sizing: border-box;
@@ -936,7 +1016,6 @@
         100% { transform: rotate(360deg); }
     }
     
-    /* Node type circles - condensed 2-row layout */
     .node-type-circles {
         display: flex;
         flex-wrap: wrap;
@@ -945,7 +1024,6 @@
         max-width: 100%;
     }
     
-    /* Wrapper for circle + tooltip */
     .circle-wrapper {
         position: relative;
         display: flex;
@@ -958,7 +1036,6 @@
         width: 28px;
         height: 28px;
         border-radius: 50%;
-        /* Use CSS variables set from NODE_CONSTANTS */
         background: var(--node-bg);
         border: 2px solid var(--node-border);
         color: rgba(255, 255, 255, 0.4);
@@ -972,13 +1049,11 @@
         opacity: 0.4;
     }
     
-    /* Hover states - increase opacity and border thickness */
     .circle-button:hover {
         opacity: 1;
         border-width: 2.5px;
     }
     
-    /* Selected states - vibrant and glowing */
     .circle-button.selected {
         opacity: 1;
         border-width: 2.5px;
@@ -987,7 +1062,6 @@
         background: var(--node-bg-selected);
     }
     
-    /* Disabled states */
     .circle-button.disabled {
         opacity: 0.4;
         cursor: not-allowed;
@@ -1004,7 +1078,6 @@
         letter-spacing: 0.3px;
     }
     
-    /* Hover tooltip for node type circles */
     .circle-tooltip {
         font-size: 8px;
         font-weight: 500;
@@ -1020,100 +1093,11 @@
         opacity: 1;
     }
     
-    /* Manual Apply Button Section */
-    .apply-controls {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding: 8px 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.15);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-        margin: 8px 0;
-    }
-    
-    .apply-button {
-        width: 100%;
-        padding: 8px 16px;
-        font-size: 11px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: all 0.2s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        
-        /* Default state - no changes */
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        color: rgba(255, 255, 255, 0.5);
-    }
-    
-    .apply-button.has-changes {
-        /* Has changes - ready to apply */
-        background: rgba(66, 153, 225, 0.2);
-        border: 1px solid rgba(66, 153, 225, 0.6);
-        color: white;
-        box-shadow: 0 0 12px rgba(66, 153, 225, 0.3);
-    }
-    
-    .apply-button.has-changes:hover:not(:disabled) {
-        background: rgba(66, 153, 225, 0.3);
-        border-color: rgba(66, 153, 225, 0.8);
-        box-shadow: 0 0 16px rgba(66, 153, 225, 0.4);
-        transform: translateY(-1px);
-    }
-    
-    .apply-button.loading {
-        /* Loading state */
-        background: rgba(100, 200, 100, 0.2);
-        border: 1px solid rgba(100, 200, 100, 0.6);
-        color: rgba(255, 255, 255, 0.8);
-        cursor: wait;
-    }
-    
-    .apply-button:disabled {
-        cursor: not-allowed;
-        opacity: 0.5;
-    }
-    
-    .apply-button .icon {
-        font-size: 14px;
-    }
-    
-    .apply-button .spinner {
-        display: inline-block;
-        animation: spin-button 1s linear infinite;
-    }
-    
-    @keyframes spin-button {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-    
-    .changes-hint {
-        font-size: 9px;
-        color: rgba(255, 200, 100, 0.8);
-        text-align: center;
-        font-style: italic;
-        animation: pulse 1.5s ease-in-out infinite;
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-    
-    /* Compact node types section */
     .filter-section.node-types {
         margin-bottom: 8px;
         padding-bottom: 6px;
     }
     
-    /* Checkbox label for user filter */
     .checkbox-label {
         display: flex;
         align-items: center;
@@ -1139,7 +1123,6 @@
         color: rgba(255, 255, 255, 0.9);
     }
     
-    /* Tag system for categories and keywords */
     .tag-list {
         display: flex;
         flex-wrap: wrap;
@@ -1180,13 +1163,11 @@
         background: rgba(255, 255, 255, 0.2);
     }
     
-    /* Search input and dropdown container */
     .dropdown-container {
         position: relative;
         width: 100%;
     }
     
-    /* Standardized search input - full width within container */
     .search-input-standard {
         width: 100%;
         padding: 5px 8px;
@@ -1214,7 +1195,6 @@
         cursor: not-allowed;
     }
     
-    /* Full dropdown showing all options with scrolling */
     .dropdown-full {
         position: absolute;
         top: 100%;
@@ -1260,7 +1240,6 @@
         background: none;
     }
     
-    /* Sort controls - standardized width */
     .sort-controls {
         display: flex;
         gap: 6px;
@@ -1306,7 +1285,6 @@
         border-color: rgba(255, 255, 255, 0.4);
     }
     
-    /* User mode dropdown - standardized width */
     .user-mode-dropdown {
         width: 100%;
         margin-top: 6px;
@@ -1325,7 +1303,6 @@
         border-color: rgba(66, 153, 225, 0.6);
     }
     
-    /* Dropdown scrollbar */
     .dropdown-full::-webkit-scrollbar {
         width: 4px;
     }
