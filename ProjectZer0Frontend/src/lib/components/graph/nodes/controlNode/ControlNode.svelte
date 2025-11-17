@@ -1,5 +1,5 @@
 <!-- src/lib/components/graph/nodes/controlNode/ControlNode.svelte -->
-
+<!-- REORGANIZED: Control node structure - contentText only (no voting sections) -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -396,7 +396,8 @@
             <NodeHeader title="Graph Controls" {radius} mode="detail" />
         </svelte:fragment>
         
-        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+        <!-- REORGANIZED: Section 1 - Content Text (All control panel UI) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height>
             <foreignObject {x} {y} {width} {height}>
                 <div class="control-panel" {...{"xmlns": "http://www.w3.org/1999/xhtml"}} style="width: {width}px; height: {height}px; padding-top: {height * 0.15}px;">
                     <div class="control-panel-inner">
@@ -697,6 +698,9 @@
                 </div>
             </foreignObject>
         </svelte:fragment>
+
+        <!-- Section 2: No inclusion voting for control node -->
+        <!-- Section 3: No content voting for control node -->
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE - Minimal icon design -->
@@ -707,7 +711,8 @@
         {nodeY}
         on:modeChange={handleModeChange}
     >
-        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+        <!-- REORGANIZED: Section 1 - Content Text (Icon display) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height>
             <!-- Filter definition at content slot level -->
             <defs>
                 <filter id={glowFilterId} x="-100%" y="-100%" width="300%" height="300%">
@@ -807,10 +812,14 @@
                 </g>
             {/if}
         </svelte:fragment>
+
+        <!-- Section 2: No inclusion voting for control node -->
+        <!-- Section 3: No content voting for control node -->
     </BasePreviewNode>
 {/if}
 
 <style>
+    /* [All the existing styles remain exactly the same] */
     /* Preview mode styles */
     .hover-detection {
         transition: all 0.2s ease;
@@ -1329,4 +1338,4 @@
         background: rgba(255, 255, 255, 0.3);
         border-radius: 2px;
     }
-</style> 
+</style>

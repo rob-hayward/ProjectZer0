@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/word/WordNode.svelte -->
+<!-- REORGANIZED: Clean semantic structure - contentText / inclusionVoting only (no content voting) -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -29,14 +30,40 @@
 	// Data extraction
 	$: displayWord = wordData.word;
 
-	// Inclusion voting data (Word nodes have inclusion voting only)
-	$: inclusionPositiveVotes = getNeo4jNumber(wordData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(wordData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(wordData.inclusionNetVotes) || 
-		(inclusionPositiveVotes - inclusionNegativeVotes);
+	let inclusionVoting: VoteBehaviour;
+
+	// CRITICAL: Extract store references for Svelte's $ auto-subscription
+	$: positiveVotesStore = inclusionVoting?.positiveVotes;
+	$: negativeVotesStore = inclusionVoting?.negativeVotes;
+	$: netVotesStore = inclusionVoting?.netVotes;
+	$: userVoteStatusStore = inclusionVoting?.userVoteStatus;
+	$: isVotingStore = inclusionVoting?.isVoting;
+	$: voteSuccessStore = inclusionVoting?.voteSuccess;
+	$: lastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+	// FIXED: Subscribe to stores (reactive), fallback to data
+	$: inclusionPositiveVotes = positiveVotesStore 
+		? $positiveVotesStore
+		: (getNeo4jNumber(wordData.inclusionPositiveVotes) || 0);
 	
-	// User vote status from metadata
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
+	$: inclusionNegativeVotes = negativeVotesStore 
+		? $negativeVotesStore
+		: (getNeo4jNumber(wordData.inclusionNegativeVotes) || 0);
+	
+	$: inclusionNetVotes = netVotesStore 
+		? $netVotesStore
+		: (getNeo4jNumber(wordData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+	
+	$: inclusionUserVoteStatus = (userVoteStatusStore 
+		? $userVoteStatusStore
+		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+
+	// FIXED: Create votingState from store subscriptions
+	$: votingState = {
+		isVoting: isVotingStore ? $isVotingStore : false,
+		voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
+		lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
+	};
 	
 	// Threshold check for expansion
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
@@ -48,9 +75,6 @@
 		source: 'user' as const
 	})) as Keyword[];
 
-	// Voting behaviour instance
-	let inclusionVoting: VoteBehaviour;
-
 	// Mode state
 	$: isDetail = node.mode === 'detail';
 
@@ -58,6 +82,7 @@
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
+		keywordClick: { word: string };
 	}>();
 
 	// Initialize voting behaviour on mount
@@ -97,13 +122,6 @@
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
-	// Get reactive state from behaviour
-	$: votingState = inclusionVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
-
 	// Mode change handler
 	function handleModeChange(event: CustomEvent) {
 		dispatch('modeChange', {
@@ -114,8 +132,7 @@
 
 	// Keyword click handler (for categories this word appears in)
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
-		// TODO: Implement keyword navigation or filtering
-		console.log('Keyword clicked:', event.detail.word);
+		dispatch('keywordClick', event.detail);
 	}
 </script>
 
@@ -137,51 +154,70 @@
 			{/if}
 		</svelte:fragment>
 
-		<!-- Content: Display the word prominently -->
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
+		<!-- REORGANIZED: Section 1 - Content Text (Word Display) -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- Display the word prominently, centered -->
 			<text
-				x="0"
-				y={y + 20}
+				x={x + width/2}
+				y={y + Math.floor(height * (positioning.word || 0.5))}
 				class="main-word"
 				style:font-family="Inter"
 				style:font-size="32px"
 				style:font-weight="700"
 				style:fill="white"
 				style:text-anchor="middle"
+				style:dominant-baseline="middle"
 				style:filter="drop-shadow(0 0 12px rgba(255, 255, 255, 0.4))"
 			>
 				{displayWord}
 			</text>
 		</svelte:fragment>
 
-		<!-- Inclusion voting only -->
-		<svelte:fragment slot="voting" let:width let:height>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
-				availableWidth={width}
-				containerY={0}
-				mode="detail"
-				on:vote={handleInclusionVote}
-			/>
+		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Inclusion vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
+				<div class="vote-prompt">
+					<strong>Include/Exclude:</strong> Should this word exist in the graph?
+				</div>
+			</foreignObject>
+
+			<!-- Inclusion vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={votingState.isVoting}
+					voteSuccess={votingState.voteSuccess}
+					lastVoteType={votingState.lastVoteType}
+					availableWidth={width}
+					mode="detail"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
+
+			<!-- Inclusion vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
+				<VoteStats
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					positiveLabel="Include"
+					negativeLabel="Exclude"
+					availableWidth={width}
+					showUserStatus={false}
+					showBackground={false}
+				/>
+			</g>
 		</svelte:fragment>
 
-		<!-- Vote stats -->
-		<svelte:fragment slot="stats" let:width>
-			<VoteStats
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				positiveLabel="Include"
-				negativeLabel="Exclude"
-				availableWidth={width}
-				containerY={0}
-			/>
-		</svelte:fragment>
+		<!-- Section 3: No content voting for words -->
 
 		<!-- Metadata -->
 		<svelte:fragment slot="metadata" let:radius>
@@ -212,36 +248,39 @@
 			<NodeHeader title="Word" {radius} mode="preview" size="medium" />
 		</svelte:fragment>
 
-		<!-- Content: Display the word -->
-		<svelte:fragment slot="content" let:x let:y let:layoutConfig>
+		<!-- REORGANIZED: Preview mode - simplified structure -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- Display the word -->
 			<text
-				x="0"
-				y={y + layoutConfig.titleYOffset + 40}
+				x={x + width/2}
+				y={y + Math.floor(height * (positioning.word || 0.5))}
 				class="word-preview"
 				style:font-family="Inter"
 				style:font-size="20px"
 				style:font-weight="500"
 				style:fill="white"
 				style:text-anchor="middle"
+				style:dominant-baseline="middle"
 			>
 				{displayWord}
 			</text>
 		</svelte:fragment>
 
 		<!-- Inclusion voting only -->
-		<svelte:fragment slot="voting" let:width let:height let:y>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="preview"
-				on:vote={handleInclusionVote}
-			/>
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={votingState.isVoting}
+					voteSuccess={votingState.voteSuccess}
+					lastVoteType={votingState.lastVoteType}
+					availableWidth={width}
+					mode="preview"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
 		</svelte:fragment>
 	</BasePreviewNode>
 {/if}
@@ -251,5 +290,24 @@
 	.word-preview {
 		text-anchor: middle;
 		dominant-baseline: middle;
+	}
+
+	.vote-prompt {
+		font-family: Inter, sans-serif;
+		font-size: 11px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.7);
+		text-align: center;
+		line-height: 1.3;
+		padding: 2px 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+	}
+
+	.vote-prompt strong {
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 600;
 	}
 </style>

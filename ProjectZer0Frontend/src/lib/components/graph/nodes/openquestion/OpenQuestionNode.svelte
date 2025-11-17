@@ -1,5 +1,5 @@
 <!-- src/lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte -->
-<!-- FIXED: Vote reactivity now reads from voteBehaviour stores -->
+<!-- REORGANIZED: Clean semantic structure - contentText / inclusionVoting only (no content voting) -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -29,38 +29,37 @@
 
 	let inclusionVoting: VoteBehaviour;
 
-	// CRITICAL: Extract store references for Svelte's $ auto-subscription
-	// These will be undefined until inclusionVoting is initialized in onMount
-	$: positiveVotesStore = inclusionVoting?.positiveVotes;
-	$: negativeVotesStore = inclusionVoting?.negativeVotes;
-	$: netVotesStore = inclusionVoting?.netVotes;
-	$: userVoteStatusStore = inclusionVoting?.userVoteStatus;
-	$: isVotingStore = inclusionVoting?.isVoting;
-	$: voteSuccessStore = inclusionVoting?.voteSuccess;
-	$: lastVoteTypeStore = inclusionVoting?.lastVoteType;
+	// CRITICAL: Extract INCLUSION store references for Svelte's $ auto-subscription
+	$: inclusionPositiveVotesStore = inclusionVoting?.positiveVotes;
+	$: inclusionNegativeVotesStore = inclusionVoting?.negativeVotes;
+	$: inclusionNetVotesStore = inclusionVoting?.netVotes;
+	$: inclusionUserVoteStatusStore = inclusionVoting?.userVoteStatus;
+	$: inclusionIsVotingStore = inclusionVoting?.isVoting;
+	$: inclusionVoteSuccessStore = inclusionVoting?.voteSuccess;
+	$: inclusionLastVoteTypeStore = inclusionVoting?.lastVoteType;
 
-	// FIXED: Use Svelte's $ auto-subscription on store properties
-	// These will reactively update when the stores change
-	$: inclusionPositiveVotes = positiveVotesStore 
-		? $positiveVotesStore
+	// FIXED: Subscribe to INCLUSION stores (reactive), fallback to data
+	$: inclusionPositiveVotes = inclusionPositiveVotesStore 
+		? $inclusionPositiveVotesStore
 		: (getNeo4jNumber(questionData.inclusionPositiveVotes) || 0);
 	
-	$: inclusionNegativeVotes = negativeVotesStore 
-		? $negativeVotesStore
+	$: inclusionNegativeVotes = inclusionNegativeVotesStore 
+		? $inclusionNegativeVotesStore
 		: (getNeo4jNumber(questionData.inclusionNegativeVotes) || 0);
 	
-	$: inclusionNetVotes = netVotesStore 
-		? $netVotesStore
+	$: inclusionNetVotes = inclusionNetVotesStore 
+		? $inclusionNetVotesStore
 		: (getNeo4jNumber(questionData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
 	
-	$: inclusionUserVoteStatus = (userVoteStatusStore 
-		? $userVoteStatusStore
+	$: inclusionUserVoteStatus = (inclusionUserVoteStatusStore 
+		? $inclusionUserVoteStatusStore
 		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
-	
-	$: votingState = {
-		isVoting: isVotingStore ? $isVotingStore : false,
-		voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
-		lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
+
+	// FIXED: Create votingState object from store subscriptions
+	$: inclusionVotingState = {
+		isVoting: inclusionIsVotingStore ? $inclusionIsVotingStore : false,
+		voteSuccess: inclusionVoteSuccessStore ? $inclusionVoteSuccessStore : false,
+		lastVoteType: inclusionLastVoteTypeStore ? $inclusionLastVoteTypeStore : null
 	};
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
@@ -87,10 +86,10 @@
 		keywordClick: { word: string };
 	}>();
 
-	
 	onMount(async () => {
 		console.log('[OpenQuestionNode] Initializing vote behaviour for', node.id);
 		
+		// Initialize INCLUSION voting only (no content voting for questions)
 		inclusionVoting = createVoteBehaviour(node.id, 'openquestion', {
 			apiIdentifier: questionData.id,
 			dataObject: questionData,
@@ -106,12 +105,12 @@
 			getRemoveVoteEndpoint: (id) => `/nodes/openquestion/${id}/vote`,
 			getVoteStatusEndpoint: (id) => `/nodes/openquestion/${id}/vote-status`,
 			graphStore,
-			// NOTE: No onDataUpdate or onMetadataUpdate callbacks needed!
-			// We're now subscribed directly to voteBehaviour's reactive stores
 			metadataConfig: {
 				nodeMetadata: node.metadata,
-				voteStatusKey: 'inclusionVoteStatus'
-			}
+				voteStatusKey: 'inclusionVoteStatus',
+				metadataGroup: getMetadataGroup()
+			},
+			voteKind: 'INCLUSION'
 		});
 
 		await inclusionVoting.initialize({
@@ -132,8 +131,7 @@
 			console.error('[OpenQuestionNode] Vote behaviour not initialized');
 			return;
 		}
-		
-		console.log('[OpenQuestionNode] Handling vote:', event.detail.voteType);
+		console.log('[OpenQuestionNode] Handling inclusion vote:', event.detail.voteType);
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
@@ -189,13 +187,26 @@
 			{/if}
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<foreignObject {x} {y} {width} height={height - 30}>
-				<TextContent text={displayQuestion} mode="detail" />
+		<!-- REORGANIZED: Section 1 - Content Text (question + answer count) -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- Question text -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 0.80))}
+			>
+				<TextContent text={displayQuestion} mode="detail" verticalAlign="start" />
 			</foreignObject>
-			
+
+			<!-- Answer count -->
 			{#if answerCount > 0}
-				<foreignObject {x} y={y + height - 25} {width} height="20">
+				<foreignObject 
+					{x} 
+					y={y + Math.floor(height * (positioning.answerCount || 0.85))} 
+					{width} 
+					height="30"
+				>
 					<div class="answer-count">
 						{answerCount} answer{answerCount !== 1 ? 's' : ''}
 					</div>
@@ -203,35 +214,51 @@
 			{/if}
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y>
-			<!-- Store subscriptions automatically trigger reactivity -->
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="detail"
-				on:vote={handleInclusionVote}
-			/>
+		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Inclusion vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
+				<div class="vote-prompt">
+					<strong>Include/Exclude:</strong> Should this question exist in the graph?
+				</div>
+			</foreignObject>
+
+			<!-- Inclusion vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={inclusionVotingState.isVoting}
+					voteSuccess={inclusionVotingState.voteSuccess}
+					lastVoteType={inclusionVotingState.lastVoteType}
+					availableWidth={width}
+					mode="detail"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
+
+			<!-- Inclusion vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
+				<VoteStats
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					positiveLabel="Include"
+					negativeLabel="Exclude"
+					availableWidth={width}
+					showUserStatus={false}
+					showBackground={false}
+				/>
+			</g>
 		</svelte:fragment>
 
-		<svelte:fragment slot="stats" let:width let:y>
-			<!-- Store subscriptions automatically trigger reactivity -->
-			<VoteStats
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				positiveLabel="Include"
-				negativeLabel="Exclude"
-				availableWidth={width}
-				containerY={y}
-				showUserStatus={false}
-			/>
-		</svelte:fragment>
+		<!-- Section 3: No content voting for questions -->
 
 		<svelte:fragment slot="metadata" let:radius>
 			<NodeMetadata
@@ -268,31 +295,59 @@
 			<NodeHeader title="Question" {radius} mode="preview" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<foreignObject {x} {y} {width} {height}>
-				<TextContent text={displayQuestion} mode="preview" />
+		<!-- REORGANIZED: Preview mode - simplified structure -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 1.0))}
+			>
+				<TextContent text={displayQuestion} mode="preview" verticalAlign="start" />
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:x let:y let:width let:height>
-			<!-- Store subscriptions automatically trigger reactivity -->
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="preview"
-				on:vote={handleInclusionVote}
-			/>
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Preview mode: just centered inclusion buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={inclusionVotingState.isVoting}
+					voteSuccess={inclusionVotingState.voteSuccess}
+					lastVoteType={inclusionVotingState.lastVoteType}
+					availableWidth={width}
+					mode="preview"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
 		</svelte:fragment>
+
+		<!-- No content voting in preview mode -->
 	</BasePreviewNode>
 {/if}
 
 <style>
+	.vote-prompt {
+		font-family: Inter, sans-serif;
+		font-size: 11px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.7);
+		text-align: center;
+		line-height: 1.3;
+		padding: 2px 10px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 100%;
+	}
+
+	.vote-prompt strong {
+		color: rgba(255, 255, 255, 0.9);
+		font-weight: 600;
+	}
+
 	.answer-count {
 		font-family: Inter, sans-serif;
 		font-size: 12px;

@@ -1,4 +1,5 @@
 <!-- ProjectZer0Frontend/src/lib/components/graph/nodes/dashboard/DashboardNode.svelte -->
+<!-- REORGANIZED: Control node structure - contentText only (no voting sections) -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -7,13 +8,12 @@
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import NodeHeader from '../ui/NodeHeader.svelte';
-    import ContentBox from '../ui/ContentBox.svelte';
     import { wrapTextForWidth } from '../utils/textUtils';
 
     export let node: RenderableNode;
     export let userActivity: UserActivity | undefined;
 
-    // Debug toggle - set to true to show ContentBox borders
+    // Debug toggle - set to false in production
     const DEBUG_SHOW_BORDERS = false;
 
     // Type guard for user profile data
@@ -49,20 +49,22 @@
 
 {#if isDetail}
     <!-- DETAIL MODE -->
-    <BaseDetailNode {node} on:modeChange={handleModeChange}>
+    <BaseDetailNode {node} on:modeChange={handleModeChange} showContentBoxBorder={DEBUG_SHOW_BORDERS}>
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="ProjectZer0" {radius} size="large" mode="detail" />
         </svelte:fragment>
         
-        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+        <!-- REORGANIZED: Section 1 - Content Text (All dashboard content) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
             <!-- Name Section -->
-            <g transform="translate(0, {y + layoutConfig.titleYOffset})">
+            <g transform="translate(0, {y + Math.floor(height * (positioning.nameLabel || 0))})">
                 <text 
                     x={x}
                     class="label left-align"
                     style:font-family="Inter"
                     style:font-size="14px"
                     style:fill="rgba(255, 255, 255, 0.7)"
+                    style:dominant-baseline="middle"
                 >
                     name:
                 </text>
@@ -74,19 +76,21 @@
                     style:font-size="16px"
                     style:fill="white"
                     style:font-weight="500"
+                    style:dominant-baseline="middle"
                 >
                     {displayName}
                 </text>
             </g>
 
             <!-- Mission Statement Section -->
-            <g transform="translate(0, {y + layoutConfig.titleYOffset + 80})">
+            <g transform="translate(0, {y + Math.floor(height * (positioning.missionLabel || 0.15))})">
                 <text 
                     x={x}
                     class="label left-align"
                     style:font-family="Inter"
                     style:font-size="14px"
                     style:fill="rgba(255, 255, 255, 0.7)"
+                    style:dominant-baseline="middle"
                 >
                     mission statement:
                 </text>
@@ -95,7 +99,7 @@
                     x={x}
                     y="25"
                     width={width}
-                    height="120"
+                    height={Math.floor(height * (positioning.missionHeight || 0.20))}
                 >
                     <div class="mission-statement">
                         {#each wrapTextForWidth(missionStatement, width, { fontSize: 14, fontFamily: 'Inter' }) as line}
@@ -107,13 +111,14 @@
 
             <!-- Activity Stats Section -->
             {#if userActivity}
-                <g transform="translate(0, {y + layoutConfig.titleYOffset + 240})">
+                <g transform="translate(0, {y + Math.floor(height * (positioning.statsLabel || 0.50))})">
                     <text 
                         x={x}
                         class="label left-align"
                         style:font-family="Inter"
                         style:font-size="14px"
                         style:fill="rgba(255, 255, 255, 0.7)"
+                        style:dominant-baseline="middle"
                     >
                         activity stats:
                     </text>
@@ -126,6 +131,7 @@
                             style:font-family="Inter"
                             style:font-size="14px"
                             style:fill="rgba(255, 255, 255, 0.8)"
+                            style:dominant-baseline="middle"
                         >
                             nodes created
                         </text>
@@ -136,6 +142,7 @@
                             style:font-size="14px"
                             style:fill="rgba(255, 255, 255, 0.6)"
                             style:text-anchor="middle"
+                            style:dominant-baseline="middle"
                         >
                             =
                         </text>
@@ -147,6 +154,7 @@
                             style:fill="white"
                             style:font-weight="600"
                             style:text-anchor="end"
+                            style:dominant-baseline="middle"
                         >
                             {userActivity.nodesCreated}
                         </text>
@@ -160,6 +168,7 @@
                             style:font-family="Inter"
                             style:font-size="14px"
                             style:fill="rgba(255, 255, 255, 0.8)"
+                            style:dominant-baseline="middle"
                         >
                             votes cast
                         </text>
@@ -170,6 +179,7 @@
                             style:font-size="14px"
                             style:fill="rgba(255, 255, 255, 0.6)"
                             style:text-anchor="middle"
+                            style:dominant-baseline="middle"
                         >
                             =
                         </text>
@@ -181,6 +191,7 @@
                             style:fill="white"
                             style:font-weight="600"
                             style:text-anchor="end"
+                            style:dominant-baseline="middle"
                         >
                             {userActivity.votesCast}
                         </text>
@@ -188,6 +199,9 @@
                 </g>
             {/if}
         </svelte:fragment>
+
+        <!-- Section 2: No inclusion voting for dashboard -->
+        <!-- Section 3: No content voting for dashboard -->
     </BaseDetailNode>
 {:else}
     <!-- PREVIEW MODE -->
@@ -196,15 +210,17 @@
             <NodeHeader title="ProjectZer0" {radius} size="small" mode="preview" />
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+        <!-- REORGANIZED: Section 1 - Content Text (Simplified dashboard preview) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
             <!-- Name -->
-            <g transform="translate(0, {y + layoutConfig.titleYOffset - 10})">
+            <g transform="translate(0, {y + Math.floor(height * (positioning.nameLabel || 0))})">
                 <text 
                     x={x}
                     class="preview-label left-align"
                     style:font-family="Inter"
                     style:font-size="11px"
                     style:fill="rgba(255, 255, 255, 0.6)"
+                    style:dominant-baseline="middle"
                 >
                     name:
                 </text>
@@ -216,19 +232,21 @@
                     style:font-size="13px"
                     style:fill="white"
                     style:font-weight="500"
+                    style:dominant-baseline="middle"
                 >
                     {displayName}
                 </text>
             </g>
 
             <!-- Mission Statement (truncated for preview) -->
-            <g transform="translate(0, {y + layoutConfig.titleYOffset + 45})">
+            <g transform="translate(0, {y + Math.floor(height * (positioning.missionLabel || 0.25))})">
                 <text 
                     x={x}
                     class="preview-label left-align"
                     style:font-family="Inter"
                     style:font-size="11px"
                     style:fill="rgba(255, 255, 255, 0.6)"
+                    style:dominant-baseline="middle"
                 >
                     mission:
                 </text>
@@ -237,7 +255,7 @@
                     x={x}
                     y="18"
                     width={width}
-                    height={height - layoutConfig.titleYOffset - 65}
+                    height={Math.floor(height * (positioning.missionHeight || 0.70))}
                 >
                     <div class="mission-preview">
                         {#each wrapTextForWidth(missionStatement, width, { fontSize: 11, fontFamily: 'Inter', maxLines: 3 }) as line}
@@ -247,6 +265,9 @@
                 </foreignObject>
             </g>
         </svelte:fragment>
+
+        <!-- Section 2: No inclusion voting for dashboard -->
+        <!-- Section 3: No content voting for dashboard -->
     </BasePreviewNode>
 {/if}
 

@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
+<!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / contentVoting -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -30,23 +31,75 @@
 
 	$: definitionText = definitionData.definitionText;
 
-	$: inclusionPositiveVotes = getNeo4jNumber(definitionData.inclusionPositiveVotes) || 0;
-	$: inclusionNegativeVotes = getNeo4jNumber(definitionData.inclusionNegativeVotes) || 0;
-	$: inclusionNetVotes = getNeo4jNumber(definitionData.inclusionNetVotes) || 
-		(inclusionPositiveVotes - inclusionNegativeVotes);
-	
-	$: contentPositiveVotes = getNeo4jNumber(definitionData.contentPositiveVotes) || 0;
-	$: contentNegativeVotes = getNeo4jNumber(definitionData.contentNegativeVotes) || 0;
-	$: contentNetVotes = getNeo4jNumber(definitionData.contentNetVotes) || 
-		(contentPositiveVotes - contentNegativeVotes);
-	
-	$: inclusionUserVoteStatus = (node.metadata?.inclusionVoteStatus?.status || 'none') as VoteStatus;
-	$: contentUserVoteStatus = (node.metadata?.contentVoteStatus?.status || 'none') as VoteStatus;
-	
-	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
-
 	let inclusionVoting: VoteBehaviour;
 	let contentVoting: VoteBehaviour;
+
+	// CRITICAL: Extract INCLUSION store references for Svelte's $ auto-subscription
+	$: inclusionPositiveVotesStore = inclusionVoting?.positiveVotes;
+	$: inclusionNegativeVotesStore = inclusionVoting?.negativeVotes;
+	$: inclusionNetVotesStore = inclusionVoting?.netVotes;
+	$: inclusionUserVoteStatusStore = inclusionVoting?.userVoteStatus;
+	$: inclusionIsVotingStore = inclusionVoting?.isVoting;
+	$: inclusionVoteSuccessStore = inclusionVoting?.voteSuccess;
+	$: inclusionLastVoteTypeStore = inclusionVoting?.lastVoteType;
+
+	// CRITICAL: Extract CONTENT store references for Svelte's $ auto-subscription
+	$: contentPositiveVotesStore = contentVoting?.positiveVotes;
+	$: contentNegativeVotesStore = contentVoting?.negativeVotes;
+	$: contentNetVotesStore = contentVoting?.netVotes;
+	$: contentUserVoteStatusStore = contentVoting?.userVoteStatus;
+	$: contentIsVotingStore = contentVoting?.isVoting;
+	$: contentVoteSuccessStore = contentVoting?.voteSuccess;
+	$: contentLastVoteTypeStore = contentVoting?.lastVoteType;
+
+	// FIXED: Subscribe to INCLUSION stores (reactive), fallback to data
+	$: inclusionPositiveVotes = inclusionPositiveVotesStore 
+		? $inclusionPositiveVotesStore
+		: (getNeo4jNumber(definitionData.inclusionPositiveVotes) || 0);
+	
+	$: inclusionNegativeVotes = inclusionNegativeVotesStore 
+		? $inclusionNegativeVotesStore
+		: (getNeo4jNumber(definitionData.inclusionNegativeVotes) || 0);
+	
+	$: inclusionNetVotes = inclusionNetVotesStore 
+		? $inclusionNetVotesStore
+		: (getNeo4jNumber(definitionData.inclusionNetVotes) || (inclusionPositiveVotes - inclusionNegativeVotes));
+	
+	$: inclusionUserVoteStatus = (inclusionUserVoteStatusStore 
+		? $inclusionUserVoteStatusStore
+		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
+
+	// FIXED: Subscribe to CONTENT stores (reactive), fallback to data
+	$: contentPositiveVotes = contentPositiveVotesStore 
+		? $contentPositiveVotesStore
+		: (getNeo4jNumber(definitionData.contentPositiveVotes) || 0);
+	
+	$: contentNegativeVotes = contentNegativeVotesStore 
+		? $contentNegativeVotesStore
+		: (getNeo4jNumber(definitionData.contentNegativeVotes) || 0);
+	
+	$: contentNetVotes = contentNetVotesStore 
+		? $contentNetVotesStore
+		: (getNeo4jNumber(definitionData.contentNetVotes) || (contentPositiveVotes - contentNegativeVotes));
+	
+	$: contentUserVoteStatus = (contentUserVoteStatusStore 
+		? $contentUserVoteStatusStore
+		: (node.metadata?.contentVoteStatus?.status || 'none')) as VoteStatus;
+
+	// FIXED: Create votingState objects from store subscriptions
+	$: inclusionVotingState = {
+		isVoting: inclusionIsVotingStore ? $inclusionIsVotingStore : false,
+		voteSuccess: inclusionVoteSuccessStore ? $inclusionVoteSuccessStore : false,
+		lastVoteType: inclusionLastVoteTypeStore ? $inclusionLastVoteTypeStore : null
+	};
+
+	$: contentVotingState = {
+		isVoting: contentIsVotingStore ? $contentIsVotingStore : false,
+		voteSuccess: contentVoteSuccessStore ? $contentVoteSuccessStore : false,
+		lastVoteType: contentLastVoteTypeStore ? $contentLastVoteTypeStore : null
+	};
+	
+	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
 	$: isDetail = node.mode === 'detail';
 
@@ -56,6 +109,9 @@
 	}>();
 
 	onMount(async () => {
+		console.log('[DefinitionNode] Initializing vote behaviours for', node.id);
+
+		// Initialize INCLUSION voting
 		inclusionVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -68,23 +124,18 @@
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
 			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,
-			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,  // Separate endpoint
+			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,
 			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
 			graphStore,
-			onDataUpdate: () => {
-				definitionData = { ...definitionData };
-			},
-			onMetadataUpdate: () => {
-				node = node;
-			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
-			// NO voteKind - uses separate endpoint instead
+			// NO voteKind - uses separate endpoint
 		});
 
+		// Initialize CONTENT voting
 		contentVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -97,23 +148,18 @@
 				negativeVotesKey: 'contentNegativeVotes'
 			},
 			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,
-			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,  // Separate endpoint
+			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,
 			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
 			graphStore,
-			onDataUpdate: () => {
-				definitionData = { ...definitionData };
-			},
-			onMetadataUpdate: () => {
-				node = node;
-			},
 			metadataConfig: {
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'contentVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
-			// NO voteKind - uses separate endpoint instead
+			// NO voteKind - uses separate endpoint
 		});
 
+		// Initialize both in parallel
 		await Promise.all([
 			inclusionVoting.initialize({
 				positiveVotes: inclusionPositiveVotes,
@@ -126,29 +172,33 @@
 				skipVoteStatusFetch: false
 			})
 		]);
+
+		console.log('[DefinitionNode] Vote behaviours initialized:', {
+			nodeId: node.id,
+			inclusionVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
+			contentVotes: { contentPositiveVotes, contentNegativeVotes, contentNetVotes },
+			inclusionStatus: inclusionUserVoteStatus,
+			contentStatus: contentUserVoteStatus
+		});
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!inclusionVoting) return;
+		if (!inclusionVoting) {
+			console.error('[DefinitionNode] Inclusion vote behaviour not initialized');
+			return;
+		}
+		console.log('[DefinitionNode] Handling inclusion vote:', event.detail.voteType);
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
 	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!contentVoting) return;
+		if (!contentVoting) {
+			console.error('[DefinitionNode] Content vote behaviour not initialized');
+			return;
+		}
+		console.log('[DefinitionNode] Handling content vote:', event.detail.voteType);
 		await contentVoting.handleVote(event.detail.voteType);
 	}
-
-	$: inclusionVotingState = inclusionVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
-
-	$: contentVotingState = contentVoting?.getCurrentState() || {
-		isVoting: false,
-		voteSuccess: false,
-		lastVoteType: null
-	};
 
 	function handleModeChange(event: CustomEvent) {
 		dispatch('modeChange', {
@@ -164,15 +214,28 @@
 			<NodeHeader title={nodeTitle} {radius} mode="detail" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<foreignObject {x} {y} {width} height={height - 100}>
+		<!-- REORGANIZED: Section 1 - Content Text (Word + Definition) -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- Word + Definition display -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 0.70))}
+			>
 				<div class="definition-wrapper">
 					<span class="word-part">{wordText}:</span>
-					<TextContent text={definitionText} mode="detail" />
+					<TextContent text={definitionText} mode="detail" verticalAlign="start" />
 				</div>
 			</foreignObject>
 
-			<foreignObject {x} y={y + height - 90} {width} height="80">
+			<!-- Instruction text -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.instruction || 0.75))} 
+				{width} 
+				height="40"
+			>
 				<div class="instruction-text">
 					<strong>Include/Exclude:</strong> Should this definition exist for "{wordText}"? 
 					<strong>Agree/Disagree:</strong> Is this definition accurate and well-written?
@@ -180,47 +243,81 @@
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={inclusionVotingState.isVoting}
-				voteSuccess={inclusionVotingState.voteSuccess}
-				lastVoteType={inclusionVotingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="detail"
-				on:vote={handleInclusionVote}
-			/>
+		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Inclusion vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
+				<div class="vote-prompt">
+					<strong>Include/Exclude:</strong> Should this definition exist?
+				</div>
+			</foreignObject>
 
-			<ContentVoteButtons
-				userVoteStatus={contentUserVoteStatus}
-				positiveVotes={contentPositiveVotes}
-				negativeVotes={contentNegativeVotes}
-				isVoting={contentVotingState.isVoting}
-				voteSuccess={contentVotingState.voteSuccess}
-				lastVoteType={contentVotingState.lastVoteType}
-				availableWidth={width}
-				containerY={y + 60}
-				mode="detail"
-				on:vote={handleContentVote}
-			/>
+			<!-- Inclusion vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={inclusionVotingState.isVoting}
+					voteSuccess={inclusionVotingState.voteSuccess}
+					lastVoteType={inclusionVotingState.lastVoteType}
+					availableWidth={width}
+					mode="detail"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
+
+			<!-- Inclusion vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
+				<VoteStats
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					positiveLabel="Include"
+					negativeLabel="Exclude"
+					availableWidth={width}
+					showUserStatus={false}
+					showBackground={false}
+				/>
+			</g>
 		</svelte:fragment>
 
-		<svelte:fragment slot="stats" let:width let:y>
-			<VoteStats
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				positiveLabel="Include"
-				negativeLabel="Exclude"
-				availableWidth={width}
-				containerY={y}
-				showUserStatus={false}
-			/>
-			
-			<g transform="translate(0, 80)">
+		<!-- REORGANIZED: Section 3 - Content Voting (Complete system, mirrors inclusion!) -->
+		<svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Content vote prompt -->
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * positioning.prompt)} 
+				{width} 
+				height="24"
+			>
+				<div class="vote-prompt">
+					<strong>Agree/Disagree:</strong> Is this definition accurate?
+				</div>
+			</foreignObject>
+
+			<!-- Content vote buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<ContentVoteButtons
+					userVoteStatus={contentUserVoteStatus}
+					positiveVotes={contentPositiveVotes}
+					negativeVotes={contentNegativeVotes}
+					isVoting={contentVotingState.isVoting}
+					voteSuccess={contentVotingState.voteSuccess}
+					lastVoteType={contentVotingState.lastVoteType}
+					availableWidth={width}
+					mode="detail"
+					on:vote={handleContentVote}
+				/>
+			</g>
+
+			<!-- Content vote stats -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={contentUserVoteStatus}
 					positiveVotes={contentPositiveVotes}
@@ -228,8 +325,8 @@
 					positiveLabel="Agree"
 					negativeLabel="Disagree"
 					availableWidth={width}
-					containerY={y}
 					showUserStatus={false}
+					showBackground={false}
 				/>
 			</g>
 		</svelte:fragment>
@@ -259,49 +356,60 @@
 			<NodeHeader title={nodeTitle} {radius} mode="preview" size="small" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="content" let:x let:y let:width let:height>
-			<foreignObject {x} {y} {width} {height}>
+		<!-- REORGANIZED: Preview mode - simplified structure -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<foreignObject 
+				{x} 
+				y={y + Math.floor(height * (positioning.text || 0))} 
+				{width} 
+				height={Math.floor(height * (positioning.textHeight || 1.0))}
+			>
 				<div class="definition-wrapper">
 					<span class="word-part">{wordText}:</span>
-					<TextContent text={definitionText} mode="preview" />
+					<TextContent text={definitionText} mode="preview" verticalAlign="start" />
 				</div>
 			</foreignObject>
 		</svelte:fragment>
 
-		<svelte:fragment slot="voting" let:width let:height let:y>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={inclusionVotingState.isVoting}
-				voteSuccess={inclusionVotingState.voteSuccess}
-				lastVoteType={inclusionVotingState.lastVoteType}
-				availableWidth={width}
-				containerY={y}
-				mode="preview"
-				on:vote={handleInclusionVote}
-			/>
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<!-- Preview mode: just centered inclusion buttons -->
+			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={inclusionVotingState.isVoting}
+					voteSuccess={inclusionVotingState.voteSuccess}
+					lastVoteType={inclusionVotingState.lastVoteType}
+					availableWidth={width}
+					mode="preview"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
 		</svelte:fragment>
+
+		<!-- No content voting in preview mode -->
 	</BasePreviewNode>
 {/if}
 
 <style>
-	.definition-wrapper {
+	.vote-prompt {
 		font-family: Inter, sans-serif;
+		font-size: 11px;
+		font-weight: 400;
+		color: rgba(255, 255, 255, 0.7);
 		text-align: center;
+		line-height: 1.3;
+		padding: 2px 10px;
 		display: flex;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		width: 100%;
 		height: 100%;
 	}
 
-	.word-part {
+	.vote-prompt strong {
+		color: rgba(255, 255, 255, 0.9);
 		font-weight: 600;
-		color: white;
-		font-size: inherit;
-		margin-bottom: 0.25em;
 	}
 
 	.instruction-text {
@@ -317,5 +425,26 @@
 	.instruction-text strong {
 		color: rgba(255, 255, 255, 0.9);
 		font-weight: 600;
+	}
+
+	.definition-wrapper {
+		font-family: Inter, sans-serif;
+		text-align: left;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: flex-start;
+		width: 100%;
+		height: 100%;
+		padding: 5px;
+		box-sizing: border-box;
+	}
+
+	.word-part {
+		font-weight: 600;
+		color: white;
+		font-size: inherit;
+		margin-bottom: 0.5em;
+		display: block;
 	}
 </style>

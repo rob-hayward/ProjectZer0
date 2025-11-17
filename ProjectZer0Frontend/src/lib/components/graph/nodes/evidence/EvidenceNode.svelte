@@ -1,4 +1,5 @@
 <!-- src/lib/components/graph/nodes/evidence/EvidenceNode.svelte -->
+<!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / peerReview -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -6,13 +7,7 @@
     import { isEvidenceData } from '$lib/types/graph/enhanced';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import NodeHeader from '../ui/NodeHeader.svelte';
-    import InclusionVoteButtons from '../ui/InclusionVoteButtons.svelte';
-    import VoteStats from '../ui/VoteStats.svelte';
-    import CategoryTags from '../ui/CategoryTags.svelte';
-    import KeywordTags from '../ui/KeywordTags.svelte';
-    import NodeMetadata from '../ui/NodeMetadata.svelte';
-    import CreatorCredits from '../ui/CreatorCredits.svelte';
+    import { TextContent, NodeHeader, InclusionVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits } from '../ui';
     import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
     import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     import { fetchWithAuth } from '$lib/services/api';
@@ -77,7 +72,7 @@
     $: parentNodeType = evidenceData.parentNodeType;
     $: parentInfo = evidenceData.parentInfo;
 
-     let inclusionVoting: VoteBehaviour;
+    let inclusionVoting: VoteBehaviour;
 
     // CRITICAL: Extract store references for Svelte's $ auto-subscription
     $: positiveVotesStore = inclusionVoting?.positiveVotes;
@@ -193,8 +188,10 @@
             },
             metadataConfig: {
                 nodeMetadata: node.metadata,
-                voteStatusKey: 'inclusionVoteStatus'
-            }
+                voteStatusKey: 'inclusionVoteStatus',
+                metadataGroup: getMetadataGroup()
+            },
+            voteKind: 'INCLUSION'
         });
 
         // Initialize with current vote data
@@ -385,7 +382,13 @@
 
 {#if isDetail}
     <!-- DETAIL MODE -->
-    <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
+    <BaseDetailNode 
+        {node} 
+        categoryTagsYOffset={0.95}
+        keywordTagsYOffset={0.85}
+        on:modeChange={handleModeChange} 
+        on:visibilityChange={handleVisibilityChange}
+    >
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Evidence" {radius} mode="detail" />
         </svelte:fragment>
@@ -414,306 +417,377 @@
             {/if}
         </svelte:fragment>
 
-        <!-- Main Content -->
-        <svelte:fragment slot="content" let:x let:y let:width let:height>
-            <!-- Evidence Details Section -->
-            <g transform="translate({x}, {y})">
-                <!-- Title -->
-                <foreignObject x="0" y="0" {width} height="60">
-                    <div class="evidence-title">{displayTitle}</div>
+        <!-- REORGANIZED: Section 1 - Content Text (Evidence Details) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+            <!-- Title -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.title || 0))} 
+                {width} 
+                height={Math.floor(height * (positioning.titleHeight || 0.20))}
+            >
+                <div class="evidence-title">{displayTitle}</div>
+            </foreignObject>
+
+            <!-- Evidence Type Badge -->
+            <g transform="translate({x + width/2 - 100}, {y + Math.floor(height * (positioning.typeBadge || 0.22))})">
+                <rect
+                    x="0"
+                    y="0"
+                    width="200"
+                    height="28"
+                    rx="14"
+                    ry="14"
+                    fill={evidenceTypeConfig.color}
+                    fill-opacity="0.2"
+                    stroke={evidenceTypeConfig.color}
+                    stroke-width="1.5"
+                />
+                <text
+                    x="100"
+                    y="14"
+                    class="evidence-type-text"
+                    style:fill={evidenceTypeConfig.color}
+                >
+                    {evidenceTypeConfig.icon} {evidenceTypeConfig.label}
+                </text>
+            </g>
+
+            <!-- Authors -->
+            {#if formattedAuthors}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.authors || 0.35))} 
+                    {width} 
+                    height="20"
+                >
+                    <div class="evidence-meta">
+                        Authors: <span class="evidence-meta-value">{formattedAuthors}</span>
+                    </div>
                 </foreignObject>
+            {/if}
 
-                <!-- Evidence Type Badge -->
-                <g transform="translate(0, 70)">
-                    <rect
-                        x="0"
-                        y="0"
-                        width="200"
-                        height="28"
-                        rx="14"
-                        ry="14"
-                        fill={evidenceTypeConfig.color}
-                        fill-opacity="0.2"
-                        stroke={evidenceTypeConfig.color}
-                        stroke-width="1.5"
-                    />
-                    <text
-                        x="100"
-                        y="14"
-                        class="evidence-type-text"
-                        style:fill={evidenceTypeConfig.color}
-                    >
-                        {evidenceTypeConfig.icon} {evidenceTypeConfig.label}
-                    </text>
-                </g>
+            <!-- Publication Date -->
+            {#if formattedDate}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.pubDate || 0.42))} 
+                    {width} 
+                    height="20"
+                >
+                    <div class="evidence-meta">
+                        Published: <span class="evidence-meta-value">{formattedDate}</span>
+                    </div>
+                </foreignObject>
+            {/if}
 
-                <!-- Authors -->
-                {#if formattedAuthors}
-                    <text x="0" y="120" class="evidence-meta left-align">
-                        Authors: <tspan class="evidence-meta-value">{formattedAuthors}</tspan>
-                    </text>
-                {/if}
-
-                <!-- Publication Date -->
-                {#if formattedDate}
-                    <text x="0" y="145" class="evidence-meta left-align">
-                        Published: <tspan class="evidence-meta-value">{formattedDate}</tspan>
-                    </text>
-                {/if}
-
-                <!-- URL Link -->
-                <g 
-                    transform="translate(0, 170)" 
-                    class="url-link" 
+            <!-- URL Link -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.url || 0.50))} 
+                {width} 
+                height="20"
+            >
+                <div 
+                    class="evidence-url" 
                     on:click={handleUrlClick}
+                    on:keydown={(e) => e.key === 'Enter' && handleUrlClick()}
                     role="button"
                     tabindex="0"
-                    on:keydown={(e) => e.key === 'Enter' && handleUrlClick()}
                 >
-                    <text x="0" y="0" class="evidence-url">
-                        🔗 {displayUrl}
-                    </text>
-                </g>
+                    🔗 {displayUrl}
+                </div>
+            </foreignObject>
 
-                <!-- Description -->
-                {#if displayDescription}
-                    <foreignObject x="0" y="200" {width} height="80">
-                        <div class="evidence-description">{displayDescription}</div>
-                    </foreignObject>
-                {/if}
+            <!-- Description -->
+            {#if displayDescription}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.description || 0.58))} 
+                    {width} 
+                    height={Math.floor(height * (positioning.descriptionHeight || 0.25))}
+                >
+                    <div class="evidence-description">{displayDescription}</div>
+                </foreignObject>
+            {/if}
 
-                <!-- Parent Node Reference -->
-                {#if parentInfo}
-                    <g transform="translate(0, {displayDescription ? 290 : 210})">
-                        <text x="0" y="0" class="parent-label left-align">
-                            Supports {parentNodeType === 'StatementNode' ? 'Statement' : 
-                                      parentNodeType === 'AnswerNode' ? 'Answer' : 'Quantity'}:
-                        </text>
-                        <text x="0" y="25" class="parent-title left-align">
-                            {parentInfo.title}
-                        </text>
-                        <g 
-                            transform="translate(0, 50)" 
-                            class="parent-link" 
-                            on:click={handleParentNodeClick}
-                            role="button"
-                            tabindex="0"
-                            on:keydown={(e) => e.key === 'Enter' && handleParentNodeClick()}
-                        >
-                            <rect
-                                x="0"
-                                y="0"
-                                width="160"
-                                height="32"
-                                rx="4"
-                                ry="4"
-                                fill="rgba(26, 188, 156, 0.2)"
-                                stroke="rgba(26, 188, 156, 0.4)"
-                                stroke-width="1"
-                            />
-                            <text x="80" y="16" class="parent-link-text">
-                                → View Parent Node
-                            </text>
-                        </g>
-                    </g>
-                {/if}
-            </g>
+            <!-- Parent Node Reference -->
+            {#if parentInfo}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.parentLabel || 0.85))} 
+                    {width} 
+                    height="20"
+                >
+                    <div class="parent-label">
+                        Supports {parentNodeType === 'StatementNode' ? 'Statement' : 
+                                  parentNodeType === 'AnswerNode' ? 'Answer' : 'Quantity'}:
+                    </div>
+                </foreignObject>
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.parentTitle || 0.92))} 
+                    {width} 
+                    height="25"
+                >
+                    <div class="parent-title">{parentInfo.title}</div>
+                </foreignObject>
+            {/if}
         </svelte:fragment>
 
-        <!-- Inclusion Voting Section (after content, before peer review) -->
-        <svelte:fragment slot="voting" let:x let:y let:width let:height>
-            <g transform="translate({x}, {y})">
-                <text x="0" y="-10" class="section-header left-align">
-                    INCLUSION VOTING
-                </text>
+        <!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+        <svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+            <!-- Inclusion vote prompt -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * positioning.prompt)} 
+                {width} 
+                height="24"
+            >
+                <div class="vote-prompt">
+                    <strong>Include/Exclude:</strong> Is this evidence relevant?
+                </div>
+            </foreignObject>
 
+            <!-- Inclusion vote buttons -->
+            <g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+                <InclusionVoteButtons
+                    userVoteStatus={inclusionUserVoteStatus}
+                    positiveVotes={inclusionPositiveVotes}
+                    negativeVotes={inclusionNegativeVotes}
+                    isVoting={votingState.isVoting}
+                    voteSuccess={votingState.voteSuccess}
+                    lastVoteType={votingState.lastVoteType}
+                    availableWidth={width}
+                    mode="detail"
+                    on:vote={handleInclusionVote}
+                />
+            </g>
+
+            <!-- Inclusion vote stats -->
+            <g transform="translate({width * (positioning.statsXOffset || 0)}, {y + Math.floor(height * positioning.stats)})">
                 <VoteStats
                     userVoteStatus={inclusionUserVoteStatus}
                     positiveVotes={inclusionPositiveVotes}
                     negativeVotes={inclusionNegativeVotes}
+                    positiveLabel="Include"
+                    negativeLabel="Exclude"
+                    availableWidth={width * (positioning.statsWidth || 1.0)}
                     showUserStatus={false}
-                    availableWidth={width * 0.5}
-                    containerY={10}
-                    positiveLabel="Total Agree"
-                    negativeLabel="Total Disagree"
-                    netLabel="Net Votes"
+                    showBackground={false}
                 />
-
-                <g transform="translate({width * 0.3}, 10)">
-                    <InclusionVoteButtons
-                        userVoteStatus={inclusionUserVoteStatus}
-                        positiveVotes={inclusionPositiveVotes}
-                        negativeVotes={inclusionNegativeVotes}
-                        isVoting={votingState.isVoting}
-                        voteSuccess={votingState.voteSuccess}
-                        lastVoteType={votingState.lastVoteType}
-                        availableWidth={width * 0.4}
-                        containerY={50}
-                        mode="detail"
-                        on:vote={handleInclusionVote}
-                    />
-                </g>
             </g>
         </svelte:fragment>
 
-        <!-- Peer Review Section (custom stats slot) -->
-        <svelte:fragment slot="stats" let:x let:y let:width let:height>
-            <g transform="translate({x}, {y})">
-                <text x="0" y="0" class="section-header left-align">
-                    PEER REVIEW ASSESSMENT
-                </text>
+        <!-- REORGANIZED: Section 3 - Peer Review Assessment System -->
+        <svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:positioning>
+            <!-- Section header -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.header || 0))} 
+                {width} 
+                height="30"
+            >
+                <div class="section-header">PEER REVIEW ASSESSMENT</div>
+            </foreignObject>
 
-                <!-- Community Scores -->
-                {#if reviewCount > 0}
-                    <g transform="translate(0, 30)">
-                        <text x="0" y="0" class="review-subsection left-align">
-                            Community Scores ({reviewCount} review{reviewCount === 1 ? '' : 's'}):
-                        </text>
+            <!-- Community Scores -->
+            {#if reviewCount > 0}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.communityLabel || 0.08))} 
+                    {width} 
+                    height="20"
+                >
+                    <div class="review-subsection">
+                        Community Scores ({reviewCount} review{reviewCount === 1 ? '' : 's'}):
+                    </div>
+                </foreignObject>
 
-                        <text x="0" y="30" class="review-metric left-align">
-                            Quality: <tspan class="review-stars">{renderStars(avgQualityScore)}</tspan>
-                            <tspan class="review-score">{avgQualityScore.toFixed(1)}</tspan>
-                        </text>
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.communityScores || 0.13))} 
+                    {width} 
+                    height="120"
+                >
+                    <div class="community-scores">
+                        <div class="review-metric">
+                            Quality: <span class="review-stars">{renderStars(avgQualityScore)}</span>
+                            <span class="review-score">{avgQualityScore.toFixed(1)}</span>
+                        </div>
+                        <div class="review-metric">
+                            Independence: <span class="review-stars">{renderStars(avgIndependenceScore)}</span>
+                            <span class="review-score">{avgIndependenceScore.toFixed(1)}</span>
+                        </div>
+                        <div class="review-metric">
+                            Relevance: <span class="review-stars">{renderStars(avgRelevanceScore)}</span>
+                            <span class="review-score">{avgRelevanceScore.toFixed(1)}</span>
+                        </div>
+                        <div class="review-overall">
+                            Overall: <span class="review-stars">{renderStars(overallScore)}</span>
+                            <span class="review-score">{overallScore.toFixed(1)}</span>
+                        </div>
+                    </div>
+                </foreignObject>
+            {:else}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.noReviews || 0.10))} 
+                    {width} 
+                    height="30"
+                >
+                    <div class="no-reviews">No peer reviews yet. Be the first to assess this evidence!</div>
+                </foreignObject>
+            {/if}
 
-                        <text x="0" y="55" class="review-metric left-align">
-                            Independence: <tspan class="review-stars">{renderStars(avgIndependenceScore)}</tspan>
-                            <tspan class="review-score">{avgIndependenceScore.toFixed(1)}</tspan>
-                        </text>
+            <!-- User's Review Section -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.userLabel || (reviewCount > 0 ? 0.42 : 0.20)))} 
+                {width} 
+                height="20"
+            >
+                <div class="review-subsection">Your Assessment:</div>
+            </foreignObject>
 
-                        <text x="0" y="80" class="review-metric left-align">
-                            Relevance: <tspan class="review-stars">{renderStars(avgRelevanceScore)}</tspan>
-                            <tspan class="review-score">{avgRelevanceScore.toFixed(1)}</tspan>
-                        </text>
+            {#if hasUserReview && userReview}
+                <!-- Display user's existing review -->
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.userScores || (reviewCount > 0 ? 0.48 : 0.26)))} 
+                    {width} 
+                    height="120"
+                >
+                    <div class="user-scores">
+                        <div class="review-metric">
+                            Quality: <span class="review-stars">{renderStars(userReview.qualityScore)}</span>
+                            <span class="review-score">{userReview.qualityScore}</span>
+                        </div>
+                        <div class="review-metric">
+                            Independence: <span class="review-stars">{renderStars(userReview.independenceScore)}</span>
+                            <span class="review-score">{userReview.independenceScore}</span>
+                        </div>
+                        <div class="review-metric">
+                            Relevance: <span class="review-stars">{renderStars(userReview.relevanceScore)}</span>
+                            <span class="review-score">{userReview.relevanceScore}</span>
+                        </div>
+                        <div class="review-overall">
+                            Your Overall: <span class="review-stars">{renderStars((userReview.qualityScore + userReview.independenceScore + userReview.relevanceScore) / 3)}</span>
+                            <span class="review-score">{((userReview.qualityScore + userReview.independenceScore + userReview.relevanceScore) / 3).toFixed(1)}</span>
+                        </div>
+                    </div>
+                </foreignObject>
 
-                        <text x="0" y="110" class="review-overall left-align">
-                            Overall: <tspan class="review-stars">{renderStars(overallScore)}</tspan>
-                            <tspan class="review-score">{overallScore.toFixed(1)}</tspan>
-                        </text>
-                    </g>
-                {:else}
-                    <text x="0" y="40" class="no-reviews left-align">
-                        No peer reviews yet. Be the first to assess this evidence!
-                    </text>
-                {/if}
-
-                <!-- User's Review Section -->
-                <g transform="translate(0, {reviewCount > 0 ? 170 : 80})">
-                    <text x="0" y="0" class="review-subsection left-align">
-                        Your Assessment:
-                    </text>
-
-                    {#if hasUserReview && userReview}
-                        <!-- Display user's existing review -->
-                        <text x="0" y="30" class="review-metric left-align">
-                            Quality: <tspan class="review-stars">{renderStars(userReview.qualityScore)}</tspan>
-                            <tspan class="review-score">{userReview.qualityScore}</tspan>
-                        </text>
-
-                        <text x="0" y="55" class="review-metric left-align">
-                            Independence: <tspan class="review-stars">{renderStars(userReview.independenceScore)}</tspan>
-                            <tspan class="review-score">{userReview.independenceScore}</tspan>
-                        </text>
-
-                        <text x="0" y="80" class="review-metric left-align">
-                            Relevance: <tspan class="review-stars">{renderStars(userReview.relevanceScore)}</tspan>
-                            <tspan class="review-score">{userReview.relevanceScore}</tspan>
-                        </text>
-
-                        <text x="0" y="110" class="review-overall left-align">
-                            Your Overall: <tspan class="review-stars">{renderStars((userReview.qualityScore + userReview.independenceScore + userReview.relevanceScore) / 3)}</tspan>
-                            <tspan class="review-score">{((userReview.qualityScore + userReview.independenceScore + userReview.relevanceScore) / 3).toFixed(1)}</tspan>
-                        </text>
-
-                        <!-- Update and Clear buttons -->
-                        <foreignObject x="0" y="130" width="250" height="40">
-                            <div class="review-buttons">
-                                <button class="review-button update-button" on:click={handleSubmitReview} disabled={isSubmittingReview}>
-                                    {isSubmittingReview ? 'Updating...' : 'Update Assessment'}
-                                </button>
-                                <button class="review-button clear-button" on:click={handleClearReview} disabled={isSubmittingReview}>
-                                    Clear
-                                </button>
+                <!-- Update and Clear buttons -->
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.userButtons || (reviewCount > 0 ? 0.75 : 0.63)))} 
+                    {width} 
+                    height="40"
+                >
+                    <div class="review-buttons">
+                        <button class="review-button update-button" on:click={handleSubmitReview} disabled={isSubmittingReview}>
+                            {isSubmittingReview ? 'Updating...' : 'Update Assessment'}
+                        </button>
+                        <button class="review-button clear-button" on:click={handleClearReview} disabled={isSubmittingReview}>
+                            Clear
+                        </button>
+                    </div>
+                </foreignObject>
+            {:else}
+                <!-- Interactive rating input -->
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.inputStars || (reviewCount > 0 ? 0.48 : 0.26)))} 
+                    {width} 
+                    height="90"
+                >
+                    <div class="star-inputs">
+                        <div class="star-input-row">
+                            <span class="review-input-label">Quality:</span>
+                            <div class="stars">
+                                {#each [1, 2, 3, 4, 5] as score}
+                                    <span
+                                        class="star-input"
+                                        class:selected={score <= qualityScore}
+                                        on:click={() => handleScoreClick('quality', score)}
+                                        on:keydown={(e) => e.key === 'Enter' && handleScoreClick('quality', score)}
+                                        role="button"
+                                        tabindex="0"
+                                        aria-label={`Rate quality ${score} out of 5`}
+                                    >
+                                        {score <= qualityScore ? '★' : '☆'}
+                                    </span>
+                                {/each}
                             </div>
-                        </foreignObject>
-                    {:else}
-                        <!-- Interactive rating input -->
-                        <g transform="translate(0, 30)">
-                            <text x="0" y="0" class="review-input-label left-align">Quality:</text>
-                            {#each [1, 2, 3, 4, 5] as score}
-                                <text
-                                    x={110 + (score - 1) * 25}
-                                    y="0"
-                                    class="star-input"
-                                    class:selected={score <= qualityScore}
-                                    on:click={() => handleScoreClick('quality', score)}
-                                    on:keydown={(e) => e.key === 'Enter' && handleScoreClick('quality', score)}
-                                    role="button"
-                                    tabindex="0"
-                                    aria-label={`Rate quality ${score} out of 5`}
-                                >
-                                    {score <= qualityScore ? '★' : '☆'}
-                                </text>
-                            {/each}
-                        </g>
+                        </div>
+                        <div class="star-input-row">
+                            <span class="review-input-label">Independence:</span>
+                            <div class="stars">
+                                {#each [1, 2, 3, 4, 5] as score}
+                                    <span
+                                        class="star-input"
+                                        class:selected={score <= independenceScore}
+                                        on:click={() => handleScoreClick('independence', score)}
+                                        on:keydown={(e) => e.key === 'Enter' && handleScoreClick('independence', score)}
+                                        role="button"
+                                        tabindex="0"
+                                        aria-label={`Rate independence ${score} out of 5`}
+                                    >
+                                        {score <= independenceScore ? '★' : '☆'}
+                                    </span>
+                                {/each}
+                            </div>
+                        </div>
+                        <div class="star-input-row">
+                            <span class="review-input-label">Relevance:</span>
+                            <div class="stars">
+                                {#each [1, 2, 3, 4, 5] as score}
+                                    <span
+                                        class="star-input"
+                                        class:selected={score <= relevanceScore}
+                                        on:click={() => handleScoreClick('relevance', score)}
+                                        on:keydown={(e) => e.key === 'Enter' && handleScoreClick('relevance', score)}
+                                        role="button"
+                                        tabindex="0"
+                                        aria-label={`Rate relevance ${score} out of 5`}
+                                    >
+                                        {score <= relevanceScore ? '★' : '☆'}
+                                    </span>
+                                {/each}
+                            </div>
+                        </div>
+                    </div>
+                </foreignObject>
 
-                        <g transform="translate(0, 30)">
-                            <text x="0" y="25" class="review-input-label left-align">Independence:</text>
-                            {#each [1, 2, 3, 4, 5] as score}
-                                <text
-                                    x={110 + (score - 1) * 25}
-                                    y="25"
-                                    class="star-input"
-                                    class:selected={score <= independenceScore}
-                                    on:click={() => handleScoreClick('independence', score)}
-                                    on:keydown={(e) => e.key === 'Enter' && handleScoreClick('independence', score)}
-                                    role="button"
-                                    tabindex="0"
-                                    aria-label={`Rate independence ${score} out of 5`}
-                                >
-                                    {score <= independenceScore ? '★' : '☆'}
-                                </text>
-                            {/each}
-                        </g>
+                <!-- Submit button -->
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.submitButton || (reviewCount > 0 ? 0.65 : 0.53)))} 
+                    {width} 
+                    height="40"
+                >
+                    <button
+                        class="review-button submit-button"
+                        on:click={handleSubmitReview}
+                        disabled={isSubmittingReview || qualityScore === 0 || independenceScore === 0 || relevanceScore === 0}
+                    >
+                        {isSubmittingReview ? 'Submitting...' : 'Submit Assessment'}
+                    </button>
+                </foreignObject>
 
-                        <g transform="translate(0, 30)">
-                            <text x="0" y="50" class="review-input-label left-align">Relevance:</text>
-                            {#each [1, 2, 3, 4, 5] as score}
-                                <text
-                                    x={110 + (score - 1) * 25}
-                                    y="50"
-                                    class="star-input"
-                                    class:selected={score <= relevanceScore}
-                                    on:click={() => handleScoreClick('relevance', score)}
-                                    on:keydown={(e) => e.key === 'Enter' && handleScoreClick('relevance', score)}
-                                    role="button"
-                                    tabindex="0"
-                                    aria-label={`Rate relevance ${score} out of 5`}
-                                >
-                                    {score <= relevanceScore ? '★' : '☆'}
-                                </text>
-                            {/each}
-                        </g>
-
-                        <!-- Submit button -->
-                        <foreignObject x="0" y="110" width="200" height="40">
-                            <button
-                                class="review-button submit-button"
-                                on:click={handleSubmitReview}
-                                disabled={isSubmittingReview || qualityScore === 0 || independenceScore === 0 || relevanceScore === 0}
-                            >
-                                {isSubmittingReview ? 'Submitting...' : 'Submit Assessment'}
-                            </button>
-                        </foreignObject>
-
-                        <!-- Error message -->
-                        {#if reviewError}
-                            <text x="0" y="165" class="error-message left-align">
-                                {reviewError}
-                            </text>
-                        {/if}
-                    {/if}
-                </g>
-            </g>
+                <!-- Error message -->
+                {#if reviewError}
+                    <foreignObject 
+                        {x} 
+                        y={y + Math.floor(height * (positioning.errorMessage || (reviewCount > 0 ? 0.75 : 0.63)))} 
+                        {width} 
+                        height="30"
+                    >
+                        <div class="error-message">{reviewError}</div>
+                    </foreignObject>
+                {/if}
+            {/if}
         </svelte:fragment>
 
         <!-- Creator credits -->
@@ -745,54 +819,62 @@
             <NodeHeader title="Evidence" {radius} size="small" mode="preview" />
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:x let:y let:width let:height>
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
             <foreignObject
                 {x}
-                {y}
+                y={y + Math.floor(height * (positioning.text || 0))}
                 {width}
-                {height}
+                height={Math.floor(height * (positioning.textHeight || 0.70))}
             >
                 <div class="evidence-preview">
                     {#each titleLines.slice(0, 2) as line}
                         <div class="title-line">{line}</div>
                     {/each}
-                    <div class="type-badge" style:color={evidenceTypeConfig.color}>
-                        {evidenceTypeConfig.icon} {evidenceTypeConfig.label}
-                    </div>
+                </div>
+            </foreignObject>
+            <foreignObject
+                {x}
+                y={y + Math.floor(height * (positioning.typeBadge || 0.75))}
+                {width}
+                height="30"
+            >
+                <div class="type-badge" style:color={evidenceTypeConfig.color}>
+                    {evidenceTypeConfig.icon} {evidenceTypeConfig.label}
                 </div>
             </foreignObject>
         </svelte:fragment>
 
-        <svelte:fragment slot="voting" let:width let:height>
-            <InclusionVoteButtons
-                userVoteStatus={inclusionUserVoteStatus}
-                positiveVotes={inclusionPositiveVotes}
-                negativeVotes={inclusionNegativeVotes}
-                isVoting={votingState.isVoting}
-                voteSuccess={votingState.voteSuccess}
-                lastVoteType={votingState.lastVoteType}
-                availableWidth={width}
-                containerY={height / 2}
-                mode="preview"
-                on:vote={handleInclusionVote}
-            />
+        <svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+            <g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+                <InclusionVoteButtons
+                    userVoteStatus={inclusionUserVoteStatus}
+                    positiveVotes={inclusionPositiveVotes}
+                    negativeVotes={inclusionNegativeVotes}
+                    isVoting={votingState.isVoting}
+                    voteSuccess={votingState.voteSuccess}
+                    lastVoteType={votingState.lastVoteType}
+                    availableWidth={width}
+                    mode="preview"
+                    on:vote={handleInclusionVote}
+                />
+            </g>
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
 
 <style>
-    .left-align {
-        text-anchor: start;
-    }
-
     /* Evidence Title */
     :global(.evidence-title) {
         color: white;
         font-family: 'Inter', sans-serif;
-        font-size: 18px;
+        font-size: 16px;
         font-weight: 600;
-        line-height: 1.4;
+        line-height: 1.3;
         text-align: left;
+        padding: 0 5px;
+        display: flex;
+        align-items: flex-start;
+        height: 100%;
     }
 
     /* Evidence Type Badge */
@@ -805,168 +887,235 @@
     }
 
     /* Evidence Metadata */
-    .evidence-meta {
+    :global(.evidence-meta) {
         font-family: 'Inter', sans-serif;
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 400;
-        fill: rgba(255, 255, 255, 0.7);
+        color: rgba(255, 255, 255, 0.7);
+        text-align: left;
+        padding: 0 5px;
+        display: flex;
+        align-items: center;
+        height: 100%;
     }
 
-    .evidence-meta-value {
-        fill: rgba(255, 255, 255, 0.9);
+    :global(.evidence-meta-value) {
+        color: rgba(255, 255, 255, 0.9);
         font-weight: 500;
+        margin-left: 5px;
     }
 
     /* URL Link */
-    .evidence-url {
+    :global(.evidence-url) {
         font-family: 'Inter', sans-serif;
-        font-size: 13px;
+        font-size: 11px;
         font-weight: 400;
-        fill: rgba(52, 152, 219, 0.9);
-        text-anchor: start;
+        color: rgba(52, 152, 219, 0.9);
+        text-align: left;
+        padding: 0 5px;
         cursor: pointer;
         text-decoration: underline;
+        display: flex;
+        align-items: center;
+        height: 100%;
     }
 
-    .url-link {
-        cursor: pointer;
-    }
-
-    .url-link:hover .evidence-url {
-        fill: rgba(52, 152, 219, 1);
+    :global(.evidence-url:hover) {
+        color: rgba(52, 152, 219, 1);
     }
 
     /* Description */
     :global(.evidence-description) {
         color: rgba(255, 255, 255, 0.85);
         font-family: 'Inter', sans-serif;
-        font-size: 14px;
+        font-size: 11px;
         font-weight: 400;
-        line-height: 1.5;
+        line-height: 1.4;
         text-align: left;
+        padding: 0 5px;
+        overflow-y: auto;
+        height: 100%;
     }
 
     /* Parent Node Reference */
-    .parent-label {
+    :global(.parent-label),
+    :global(.parent-title) {
         font-family: 'Inter', sans-serif;
-        font-size: 13px;
+        font-size: 11px;
+        text-align: left;
+        padding: 0 5px;
+        display: flex;
+        align-items: center;
+        height: 100%;
+    }
+
+    :global(.parent-label) {
         font-weight: 400;
-        fill: rgba(255, 255, 255, 0.6);
+        color: rgba(255, 255, 255, 0.6);
     }
 
-    .parent-title {
-        font-family: 'Inter', sans-serif;
-        font-size: 14px;
+    :global(.parent-title) {
         font-weight: 500;
-        fill: rgba(255, 255, 255, 0.9);
+        color: rgba(255, 255, 255, 0.9);
     }
 
-    .parent-link {
-        cursor: pointer;
+    /* Vote Prompt */
+    :global(.vote-prompt) {
+        font-family: Inter, sans-serif;
+        font-size: 11px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.7);
+        text-align: center;
+        line-height: 1.3;
+        padding: 2px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
     }
 
-    .parent-link-text {
-        font-family: 'Inter', sans-serif;
-        font-size: 13px;
-        font-weight: 500;
-        fill: rgba(26, 188, 156, 0.9);
-        text-anchor: middle;
-        dominant-baseline: middle;
-    }
-
-    .parent-link:hover rect {
-        fill: rgba(26, 188, 156, 0.3);
+    :global(.vote-prompt strong) {
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 600;
     }
 
     /* Section Headers */
-    .section-header {
+    :global(.section-header) {
         font-family: 'Inter', sans-serif;
-        font-size: 16px;
+        font-size: 14px;
         font-weight: 600;
-        fill: rgba(26, 188, 156, 0.9);
+        color: rgba(26, 188, 156, 0.9);
         letter-spacing: 0.5px;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
     }
 
-    .review-subsection {
+    :global(.review-subsection) {
         font-family: 'Inter', sans-serif;
-        font-size: 14px;
+        font-size: 12px;
         font-weight: 600;
-        fill: rgba(255, 255, 255, 0.9);
+        color: rgba(255, 255, 255, 0.9);
+        text-align: left;
+        padding: 0 5px;
+        display: flex;
+        align-items: center;
+        height: 100%;
     }
 
-    /* Review Metrics */
-    .review-metric {
-        font-family: 'Inter', sans-serif;
-        font-size: 14px;
-        font-weight: 400;
-        fill: rgba(255, 255, 255, 0.8);
+    /* Community/User Scores Display */
+    :global(.community-scores),
+    :global(.user-scores) {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 5px;
+        height: 100%;
+        justify-content: space-around;
     }
 
-    .review-overall {
+    :global(.review-metric),
+    :global(.review-overall) {
         font-family: 'Inter', sans-serif;
-        font-size: 15px;
-        font-weight: 600;
-        fill: rgba(255, 255, 255, 0.95);
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.8);
+        display: flex;
+        align-items: center;
+        gap: 8px;
     }
 
-    .review-stars {
-        font-family: 'Inter', sans-serif;
-        font-size: 16px;
-        fill: rgba(241, 196, 15, 0.9);
-    }
-
-    .review-score {
-        font-family: 'Inter', sans-serif;
-        font-size: 14px;
-        font-weight: 600;
-        fill: rgba(26, 188, 156, 0.9);
-    }
-
-    .no-reviews {
-        font-family: 'Inter', sans-serif;
+    :global(.review-overall) {
         font-size: 13px;
-        font-weight: 400;
-        fill: rgba(255, 255, 255, 0.6);
-        font-style: italic;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.95);
     }
 
-    /* Review Input */
-    .review-input-label {
-        font-family: 'Inter', sans-serif;
+    :global(.review-stars) {
+        color: rgba(241, 196, 15, 0.9);
         font-size: 14px;
-        font-weight: 500;
-        fill: rgba(255, 255, 255, 0.9);
     }
 
-    .star-input {
+    :global(.review-score) {
+        color: rgba(26, 188, 156, 0.9);
+        font-weight: 600;
+        font-size: 12px;
+    }
+
+    :global(.no-reviews) {
         font-family: 'Inter', sans-serif;
+        font-size: 11px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.6);
+        font-style: italic;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        padding: 0 10px;
+    }
+
+    /* Star Input UI */
+    :global(.star-inputs) {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 5px;
+        height: 100%;
+        justify-content: space-around;
+    }
+
+    :global(.star-input-row) {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    :global(.review-input-label) {
+        font-family: 'Inter', sans-serif;
+        font-size: 12px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.9);
+        min-width: 100px;
+    }
+
+    :global(.stars) {
+        display: flex;
+        gap: 5px;
+    }
+
+    :global(.star-input) {
         font-size: 20px;
-        fill: rgba(255, 255, 255, 0.3);
-        text-anchor: middle;
+        color: rgba(255, 255, 255, 0.3);
         cursor: pointer;
         user-select: none;
-        transition: fill 0.2s ease;
+        transition: color 0.2s ease;
     }
 
-    .star-input:hover {
-        fill: rgba(241, 196, 15, 0.6);
+    :global(.star-input:hover) {
+        color: rgba(241, 196, 15, 0.6);
     }
 
-    .star-input.selected {
-        fill: rgba(241, 196, 15, 0.9);
+    :global(.star-input.selected) {
+        color: rgba(241, 196, 15, 0.9);
     }
 
     /* Review Buttons */
     :global(.review-buttons) {
         display: flex;
         gap: 10px;
+        justify-content: center;
+        align-items: center;
+        height: 100%;
     }
 
     :global(.review-button) {
         padding: 8px 16px;
         border-radius: 4px;
         font-family: 'Inter', sans-serif;
-        font-size: 13px;
+        font-size: 12px;
         font-weight: 500;
         cursor: pointer;
         transition: all 0.2s ease;
@@ -1007,21 +1156,26 @@
     }
 
     /* Error Message */
-    .error-message {
+    :global(.error-message) {
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 400;
-        fill: #ff4444;
+        color: #ff4444;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
     }
 
     /* Preview Mode */
-    .evidence-preview {
+    :global(.evidence-preview) {
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 400;
         color: rgba(255, 255, 255, 0.9);
         text-align: center;
-        line-height: 1.4;
+        line-height: 1.3;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -1032,14 +1186,19 @@
         box-sizing: border-box;
     }
 
-    .title-line {
+    :global(.title-line) {
         margin-bottom: 3px;
     }
 
-    .type-badge {
+    :global(.type-badge) {
+        font-family: 'Inter', sans-serif;
         font-size: 10px;
         font-weight: 500;
-        margin-top: 5px;
         opacity: 0.8;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
     }
 </style>

@@ -1,6 +1,5 @@
-<!-- QuantityNode.svelte - FIXED SCRIPT SECTION -->
-<!-- Copy this entire script block to replace your current one -->
-
+<!-- src/lib/components/graph/nodes/quantity/QuantityNode.svelte -->
+<!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / quantityVisualization -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode, ViewType } from '$lib/types/graph/enhanced';
@@ -141,7 +140,6 @@
     onMount(async () => {
         console.log('[QuantityNode] Initializing vote behaviour for', node.id);
         
-        // FIXED: Correct endpoints + store subscriptions (no onDataUpdate callback needed)
         inclusionVoting = createVoteBehaviour(node.id, 'quantity', {
             apiIdentifier: quantityData.id,
             dataObject: quantityData,
@@ -153,17 +151,16 @@
                 positiveVotesKey: 'inclusionPositiveVotes',
                 negativeVotesKey: 'inclusionNegativeVotes'
             },
-            // FIXED: Correct endpoints for single-voting nodes
             getVoteEndpoint: (id) => `/nodes/quantity/${id}/vote`,
             getRemoveVoteEndpoint: (id) => `/nodes/quantity/${id}/vote`,
             getVoteStatusEndpoint: (id) => `/nodes/quantity/${id}/vote-status`,
             graphStore,
-            // NOTE: No onDataUpdate callback needed!
-            // We're now subscribed directly to voteBehaviour's reactive stores
             metadataConfig: {
                 nodeMetadata: node.metadata,
-                voteStatusKey: 'inclusionVoteStatus'
-            }
+                voteStatusKey: 'inclusionVoteStatus',
+                metadataGroup: getMetadataGroup()
+            },
+            voteKind: 'INCLUSION'
         });
 
         await inclusionVoting.initialize({
@@ -541,15 +538,16 @@
 
     $: hasUserResponse = userResponse !== null;
     $: responseCount = statistics?.responseCount || 0;
-    $: minValue = statistics?.min !== undefined ? formatNumber(statistics.min) : '-';
-    $: maxValue = statistics?.max !== undefined ? formatNumber(statistics.max) : '-';
-    $: meanValue = statistics?.mean !== undefined ? formatNumber(statistics.mean) : '-';
-    $: medianValue = statistics?.median !== undefined ? formatNumber(statistics.median) : '-';
-    $: standardDeviation = statistics?.standardDeviation !== undefined ? formatNumber(statistics.standardDeviation) : '-';
 </script>
 
 {#if isDetail}
-    <BaseDetailNode {node} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
+    <BaseDetailNode 
+        {node} 
+        categoryTagsYOffset={0.90}
+        keywordTagsYOffset={0.80}
+        on:modeChange={handleModeChange} 
+        on:visibilityChange={handleVisibilityChange}
+    >
         <svelte:fragment slot="title" let:radius>
             <NodeHeader title="Quantity" {radius} mode="detail" />
         </svelte:fragment>
@@ -576,281 +574,214 @@
             {/if}
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:x let:y let:width let:height>
-            <g transform="translate({x}, {y - 150})">
+        <!-- REORGANIZED: Section 1 - Content Text (question + unit category) -->
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+            <!-- Question text -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.text || 0))} 
+                {width} 
+                height={Math.floor(height * (positioning.textHeight || 0.70))}
+            >
+                <TextContent text={displayQuestion} mode="detail" verticalAlign="start" />
+            </foreignObject>
+        </svelte:fragment>
+
+        <!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
+        <svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+            <!-- Inclusion vote prompt -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * positioning.prompt)} 
+                {width} 
+                height="24"
+            >
+                <div class="vote-prompt">
+                    <strong>Include/Exclude:</strong> Should this question exist in the graph?
+                </div>
+            </foreignObject>
+
+            <!-- Inclusion vote buttons -->
+            <g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+                <InclusionVoteButtons
+                    userVoteStatus={inclusionUserVoteStatus}
+                    positiveVotes={inclusionPositiveVotes}
+                    negativeVotes={inclusionNegativeVotes}
+                    isVoting={votingState.isVoting}
+                    voteSuccess={votingState.voteSuccess}
+                    lastVoteType={votingState.lastVoteType}
+                    availableWidth={width}
+                    mode="detail"
+                    on:vote={handleInclusionVote}
+                />
+            </g>
+
+            <!-- Inclusion vote stats - WIDTH AND POSITION FROM CONTENTBOX -->
+            <g transform="translate({width * (positioning.statsXOffset || 0)}, {y + Math.floor(height * positioning.stats)})">
                 <VoteStats
                     userVoteStatus={inclusionUserVoteStatus}
                     positiveVotes={inclusionPositiveVotes}
                     negativeVotes={inclusionNegativeVotes}
+                    positiveLabel="Include"
+                    negativeLabel="Exclude"
+                    availableWidth={width * (positioning.statsWidth || 1.0)}
                     showUserStatus={false}
-                    availableWidth={width * 0.4}
-                    containerY={0}
-                    positiveLabel="Total Agree"
-                    negativeLabel="Total Disagree"
-                    netLabel="Net Votes"
+                    showBackground={false}
                 />
-                
-                <g transform="translate({width * 0.25}, 0)">
-                    <InclusionVoteButtons
-                        userVoteStatus={inclusionUserVoteStatus}
-                        positiveVotes={inclusionPositiveVotes}
-                        negativeVotes={inclusionNegativeVotes}
-                        isVoting={votingState.isVoting}
-                        voteSuccess={votingState.voteSuccess}
-                        lastVoteType={votingState.lastVoteType}
-                        availableWidth={width * 0.3}
-                        containerY={50}
-                        mode="detail"
-                        on:vote={handleInclusionVote}
-                    />
-                </g>
             </g>
+        </svelte:fragment>
 
-            <!-- Question Display - MIGRATED TO TextContent -->
-            <g transform="translate({x}, {y - 50})">
-                <foreignObject x="0" y="0" {width} height="80">
-                    <TextContent text={displayQuestion} mode="detail" />
-                </foreignObject>
-            </g>
-            
-            <g transform="translate({x}, {y + 40})">
-                <text 
-                    x="0" 
-                    class="unit-category-label left-align"
-                    style:font-family="Inter"
-                    style:font-size="14px"
-                    style:fill="rgba(255, 255, 255, 0.8)"
-                >
-                    Unit Category: {categoryName}
-                </text>
-            </g>
-
-            <g transform="translate({x}, {y + 80})">
-                <text 
-                    x="0" 
-                    class="section-header left-align"
-                    style:font-family="Inter"
-                    style:font-size="16px"
-                    style:fill="rgba(26, 188, 156, 0.9)"
-                    style:font-weight="500"
-                >
+        <!-- REORGANIZED: Section 3 - Quantity Visualization & Response Interface -->
+        <svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:positioning>
+            <!-- Community responses header -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.responsesHeader || 0))} 
+                {width} 
+                height="30"
+            >
+                <div class="section-header">
                     Community Responses ({responseCount})
-                </text>
-                
-                <foreignObject
-                    x="0"
-                    y="30"
-                    {width}
-                    height="320"
-                >
-                    {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
-                        <QuantityVisualization 
-                            {statistics}
-                            {userResponse}
-                            unitSymbol={displayUnitSymbol}
-                            {displayUnitId}
-                            categoryId={displayUnitCategoryId}
-                            defaultUnitId={displayDefaultUnitId}
-                        />
-                    {:else if isLoadingResponses}
-                        <div class="loading-message">Loading response data...</div>
-                    {:else if responseCount === 0}
-                        <div class="no-responses-message">No responses yet. Be the first to respond!</div>
-                    {:else}
-                        <div class="no-visualization-message">Not enough data for visualization.</div>
-                    {/if}
-                </foreignObject>
-                
-                {#if statistics && (!statistics.distributionCurve || statistics.distributionCurve.length === 0) && responseCount > 0}
-                    <g transform="translate(0, 130)">
-                        <text 
-                            x="0"
-                            y="20"
-                            class="stats-summary left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.7)"
-                        >
-                            Mean: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{meanValue} {displayUnitSymbol}</tspan>
-                        </text>
-                        
-                        <text 
-                            x="0"
-                            y="50"
-                            class="stats-summary left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.7)"
-                        >
-                            Median: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{medianValue} {displayUnitSymbol}</tspan>
-                        </text>
-                        
-                        <text 
-                            x={width * 0.3}
-                            y="20"
-                            class="stats-summary left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.7)"
-                        >
-                            Min: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{minValue} {displayUnitSymbol}</tspan>
-                        </text>
-                        
-                        <text 
-                            x={width * 0.3}
-                            y="50"
-                            class="stats-summary left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.7)"
-                        >
-                            Max: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{maxValue} {displayUnitSymbol}</tspan>
-                        </text>
-                        
-                        <text 
-                            x={width * 0.6}
-                            y="20"
-                            class="stats-summary left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.7)"
-                        >
-                            StdDev: <tspan class="stats-value" style:fill="rgba(26, 188, 156, 0.9)">{standardDeviation} {displayUnitSymbol}</tspan>
-                        </text>
-                    </g>
-                {/if}
-            </g>
+                </div>
+            </foreignObject>
 
-            <g transform="translate({x}, {y + 420})">
-                <text 
-                    x="0" 
-                    class="section-header left-align"
-                    style:font-family="Inter"
-                    style:font-size="16px"
-                    style:fill="rgba(26, 188, 156, 0.9)"
-                    style:font-weight="500"
-                >
+            <!-- Quantity Visualization -->
+            <foreignObject
+                {x}
+                y={y + Math.floor(height * (positioning.visualization || 0.08))}
+                {width}
+                height={Math.floor(height * (positioning.visualizationHeight || 0.35))}
+            >
+                {#if statistics && statistics.distributionCurve && statistics.distributionCurve.length > 0}
+                    <QuantityVisualization 
+                        {statistics}
+                        {userResponse}
+                        unitSymbol={displayUnitSymbol}
+                        {displayUnitId}
+                        categoryId={displayUnitCategoryId}
+                        defaultUnitId={displayDefaultUnitId}
+                    />
+                {:else if isLoadingResponses}
+                    <div class="loading-message">Loading response data...</div>
+                {:else if responseCount === 0}
+                    <div class="no-responses-message">No responses yet. Be the first to respond!</div>
+                {:else}
+                    <div class="no-visualization-message">Not enough data for visualization.</div>
+                {/if}
+            </foreignObject>
+
+            <!-- User response section header -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.userResponseHeader || 0.45))} 
+                {width} 
+                height="30"
+            >
+                <div class="section-header">
                     {hasUserResponse ? 'Your Response' : 'Add Your Response'}
-                </text>
-                
-                {#if hasUserResponse}
-                    <g transform="translate(0, 30)">
-                        <text 
-                            x="0"
-                            class="user-response-value left-align"
-                            style:font-family="Inter"
-                            style:font-size="14px"
-                            style:fill="rgba(255, 255, 255, 0.8)"
-                        >
-                            Current answer: <tspan class="value-highlight" style:fill="rgba(26, 188, 156, 0.9)" style:font-weight="bold">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</tspan>
-                        </text>
-                        
-                        <foreignObject x={width * 0.7} y="40" width="120" height="40">
-                            <button 
-                                class="response-button delete-button"
-                                on:click={handleDeleteResponse}
-                                disabled={isSubmitting}
-                            >
-                                {isSubmitting ? 'Deleting...' : 'Delete'}
-                            </button>
-                        </foreignObject>
-                    </g>
-                {/if}
-                
-                <g transform="translate(0, {hasUserResponse ? 70 : 40})">
-                    <text 
-                        x="0"
-                        y="-10"
-                        class="form-label left-align"
-                        style:font-family="Inter"
-                        style:font-size="13px"
-                        style:fill="rgba(255, 255, 255, 0.6)"
-                    >
-                        {hasUserResponse ? 'Update your answer:' : 'Enter your answer:'}
-                    </text>
-                
-                    <foreignObject x="0" y="0" width="200" height="40">
-                        <input 
-                            type="text" 
-                            class="response-input"
-                            placeholder="Enter value"
-                            value={responseValue}
-                            on:input={handleResponseInput}
-                            disabled={isSubmitting}
-                        />
-                    </foreignObject>
-                    
-                    <foreignObject x="210" y="0" width="120" height="40">
-                        <button 
-                            class="response-button submit-button"
-                            on:click={handleSubmitResponse}
-                            disabled={isSubmitting || !responseValue}
-                        >
-                            {isSubmitting ? 'Submitting...' : (hasUserResponse ? 'Update' : 'Submit')}
-                        </button>
-                    </foreignObject>
-                    
-                    {#if errorMessage}
-                        <text 
-                            x="0"
-                            y="50"
-                            class="error-message left-align"
-                            style:font-family="Inter"
-                            style:font-size="12px"
-                            style:fill="#ff4444"
-                        >
-                            {errorMessage}
-                        </text>
-                    {/if}
-                    
-                    <text 
-                        x="0"
-                        y="70"
-                        class="unit-preferences-label left-align"
-                        style:font-family="Inter"
-                        style:font-size="14px"
-                        style:fill="rgba(255, 255, 255, 0.8)"
-                    >
-                        Change Units:
-                    </text>
-                    
-                    <foreignObject x="110" y="60" width="200" height="40">
-                        <select 
-                            class="unit-select display-unit-select"
-                            value={displayUnitId}
-                            on:change={handleUnitChange}
-                            disabled={isLoadingUnitPreferences || !availableUnits.length}
-                        >
-                            <option value="">Select unit</option>
-                            {#each availableUnits as unit}
-                                <option value={unit.id}>{unit.name} ({unit.symbol})</option>
-                            {/each}
-                        </select>
-                    </foreignObject>
-                </g>
-            </g>
-        </svelte:fragment>
+                </div>
+            </foreignObject>
 
-        <svelte:fragment slot="createChild" let:radius>
-            <CreateLinkedNodeButton
-                y={-radius * 0.7071}
-                x={radius * 0.7071}
-                nodeId={node.id}
-                nodeType="quantity"
-                on:click={handleCreateChild}
-            />
-        </svelte:fragment>
+            <!-- Current response display (if exists) -->
+            {#if hasUserResponse}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * (positioning.currentResponse || 0.52))} 
+                    {width} 
+                    height="30"
+                >
+                    <div class="user-response-value">
+                        Current answer: <span class="value-highlight">{userResponse.value} {userResponse.unitSymbol || userResponse.unitId}</span>
+                    </div>
+                </foreignObject>
 
-        <svelte:fragment slot="credits" let:radius>
-            {#if quantityData.createdBy}
-                <CreatorCredits
-                    createdBy={quantityData.createdBy}
-                    publicCredit={quantityData.publicCredit}
-                    creatorDetails={null}
-                    {radius}
-                    prefix="created by:"
-                />
+                <foreignObject 
+                    x={x + width * 0.7} 
+                    y={y + Math.floor(height * (positioning.deleteButton || 0.56))} 
+                    width="120" 
+                    height="40"
+                >
+                    <button 
+                        class="response-button delete-button"
+                        on:click={handleDeleteResponse}
+                        disabled={isSubmitting}
+                    >
+                        {isSubmitting ? 'Deleting...' : 'Delete'}
+                    </button>
+                </foreignObject>
             {/if}
+
+            <!-- Response input form -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.inputForm || (hasUserResponse ? 0.62 : 0.52)))} 
+                width="200" 
+                height="40"
+            >
+                <input 
+                    type="text" 
+                    class="response-input"
+                    placeholder="Enter value"
+                    value={responseValue}
+                    on:input={handleResponseInput}
+                    disabled={isSubmitting}
+                />
+            </foreignObject>
+
+            <foreignObject 
+                x={x + 210} 
+                y={y + Math.floor(height * (positioning.inputForm || (hasUserResponse ? 0.62 : 0.52)))} 
+                width="120" 
+                height="40"
+            >
+                <button 
+                    class="response-button submit-button"
+                    on:click={handleSubmitResponse}
+                    disabled={isSubmitting || !responseValue}
+                >
+                    {isSubmitting ? 'Submitting...' : (hasUserResponse ? 'Update' : 'Submit')}
+                </button>
+            </foreignObject>
+
+            {#if errorMessage}
+                <foreignObject 
+                    {x} 
+                    y={y + Math.floor(height * ((positioning.inputForm || 0.52) + 0.10))} 
+                    {width} 
+                    height="30"
+                >
+                    <div class="error-message">{errorMessage}</div>
+                </foreignObject>
+            {/if}
+
+            <!-- Unit selector -->
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.unitSelector || 0.80))} 
+                width="200" 
+                height="40"
+            >
+                <select 
+                    class="unit-select display-unit-select"
+                    value={displayUnitId}
+                    on:change={handleUnitChange}
+                    disabled={isLoadingUnitPreferences || !availableUnits.length}
+                >
+                    <option value="">Select unit</option>
+                    {#each availableUnits as unit}
+                        <option value={unit.id}>{unit.name} ({unit.symbol})</option>
+                    {/each}
+                </select>
+            </foreignObject>
+
+            <foreignObject 
+                x={x + 210} 
+                y={y + Math.floor(height * (positioning.unitSelector || 0.80))} 
+                {width}
+                height="30"
+            >
+                <div class="unit-selector-label">Change display units</div>
+            </foreignObject>
         </svelte:fragment>
 
         <svelte:fragment slot="metadata" let:radius>
@@ -860,42 +791,137 @@
                 {radius}
             />
         </svelte:fragment>
+
+        <svelte:fragment slot="credits" let:radius>
+            <CreatorCredits
+                createdBy={quantityData.createdBy}
+                publicCredit={quantityData.publicCredit}
+                {radius}
+            />
+        </svelte:fragment>
+
+        <svelte:fragment slot="createChild" let:radius>
+            {#if canExpand}
+                <CreateLinkedNodeButton
+                    y={-radius * 0.7071}
+                    x={radius * 0.7071}
+                    nodeId={node.id}
+                    nodeType="quantity"
+                    on:click={handleCreateChild}
+                />
+            {/if}
+        </svelte:fragment>
     </BaseDetailNode>
 {:else}
     <BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>
         <svelte:fragment slot="title" let:radius>
-            <NodeHeader title="Quantity" {radius} size="small" mode="preview" />
+            <NodeHeader title="Quantity" {radius} mode="preview" />
         </svelte:fragment>
 
-        <svelte:fragment slot="content" let:x let:y let:width let:height>
-            <foreignObject {x} {y} {width} {height}>
-                <TextContent text={displayQuestion} mode="preview" />
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+            <foreignObject 
+                {x} 
+                y={y + Math.floor(height * (positioning.text || 0))} 
+                {width} 
+                height={Math.floor(height * (positioning.textHeight || 1.0))}
+            >
+                <TextContent text={displayQuestion} mode="preview" verticalAlign="start" />
             </foreignObject>
         </svelte:fragment>
 
-        <svelte:fragment slot="voting" let:width let:height>
-            <InclusionVoteButtons
-                userVoteStatus={inclusionUserVoteStatus}
-                positiveVotes={inclusionPositiveVotes}
-                negativeVotes={inclusionNegativeVotes}
-                isVoting={votingState.isVoting}
-                voteSuccess={votingState.voteSuccess}
-                lastVoteType={votingState.lastVoteType}
-                availableWidth={width}
-                containerY={height / 2}
-                mode="preview"
-                on:vote={handleInclusionVote}
-            />
+        <svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+            <g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+                <InclusionVoteButtons
+                    userVoteStatus={inclusionUserVoteStatus}
+                    positiveVotes={inclusionPositiveVotes}
+                    negativeVotes={inclusionNegativeVotes}
+                    isVoting={votingState.isVoting}
+                    voteSuccess={votingState.voteSuccess}
+                    lastVoteType={votingState.lastVoteType}
+                    availableWidth={width}
+                    mode="preview"
+                    on:vote={handleInclusionVote}
+                />
+            </g>
         </svelte:fragment>
     </BasePreviewNode>
 {/if}
 
 <style>
-    .left-align {
-        text-anchor: start;
+    .vote-prompt {
+        font-family: Inter, sans-serif;
+        font-size: 11px;
+        font-weight: 400;
+        color: rgba(255, 255, 255, 0.7);
+        text-align: center;
+        line-height: 1.3;
+        padding: 2px 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
     }
 
-    :global(.loading-message), :global(.no-responses-message), :global(.no-visualization-message) {
+    .vote-prompt strong {
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 600;
+    }
+
+    .section-header,
+    .unit-selector-label {
+        font-family: Inter, sans-serif;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.8);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+    }
+
+    .section-header {
+        font-size: 16px;
+        font-weight: 500;
+        color: rgba(26, 188, 156, 0.9);
+    }
+
+    .unit-selector-label {
+        font-size: 12px;
+        justify-content: flex-start;
+        padding-left: 10px;
+    }
+
+    .user-response-value {
+        font-family: Inter, sans-serif;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.8);
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+    }
+
+    .value-highlight {
+        color: rgba(26, 188, 156, 0.9);
+        font-weight: bold;
+        margin-left: 5px;
+    }
+
+    .error-message {
+        font-family: Inter, sans-serif;
+        font-size: 12px;
+        color: #ff4444;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+    }
+
+    :global(.loading-message), 
+    :global(.no-responses-message), 
+    :global(.no-visualization-message) {
         color: rgba(255, 255, 255, 0.6);
         font-style: italic;
         text-align: center;

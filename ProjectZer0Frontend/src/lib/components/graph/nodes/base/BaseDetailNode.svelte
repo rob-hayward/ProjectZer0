@@ -16,7 +16,7 @@
 	export let nodeY: number | undefined = undefined;
 
 	// ContentBox debugging
-	export let showContentBoxBorder: boolean = true;
+	export let showContentBoxBorder: boolean = false;
 
 	// Vote-based styling for enhanced visuals
 	export let voteBasedStyles = {
