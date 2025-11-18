@@ -133,17 +133,17 @@
         r={radius} 
         fill="none" 
         stroke={highlightColor} 
-        stroke-width={voteBasedStyles.ring.width} 
-        opacity={voteBasedStyles.ring.opacity}
+        stroke-width= 2
+        opacity=0.8
         filter="url(#{filterId})"
     />
     <circle 
         class="middle-ring" 
-        r={radius * 0.99} 
+        r={radius * 1.006} 
         fill="none" 
         stroke="white" 
         stroke-width="1" 
-        opacity="0.2"
+        opacity="0.5"
     />
     
     <!-- Slot for child content (BasePreviewNode or BaseDetailNode) -->
@@ -161,7 +161,7 @@
     }
 
     .base-node:hover .outer-ring {
-        stroke-width: 2;
+        stroke-width: 5;
         opacity: 1.0;
     }
 </style>

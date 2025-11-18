@@ -1,5 +1,6 @@
 <!-- src/lib/components/graph/nodes/base/BaseDetailNode.svelte -->
 <!-- REORGANIZED: Updated to use new semantic slot structure -->
+<!-- UPDATED: Added category expansion support -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import { spring } from 'svelte/motion';
@@ -52,6 +53,12 @@
 		};
 		click: void;
 		visibilityChange: { isHidden: boolean };
+		expandCategory: {
+			categoryId: string;
+			categoryName: string;
+			sourceNodeId: string;
+			sourcePosition: { x: number; y: number };
+		};
 	}>();
 
 	function handleVisibilityChange(event: CustomEvent<{ isHidden: boolean }>) {

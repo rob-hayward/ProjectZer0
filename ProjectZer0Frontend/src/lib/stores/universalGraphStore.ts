@@ -10,7 +10,7 @@ import { fetchWithAuth } from '$lib/services/api';
 // UPDATED: Node data structure for universal graph - supports all 5 content node types
 export interface UniversalNodeData {
     id: string;
-    type: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence';
+    type: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 'category' | 'word';
     mode: NodeMode;
     group: string;
     data: any;

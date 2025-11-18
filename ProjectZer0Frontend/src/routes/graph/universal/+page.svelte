@@ -18,6 +18,7 @@
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { wordListStore } from '$lib/stores/wordListStore';
     import { fetchWithAuth } from '$lib/services/api';
+    import { fetchCategoryExpansion, type CategoryExpansionResponse } from '$lib/services/graph/CategoryExpansionService';
     
     import type { 
         GraphData, 
@@ -848,6 +849,188 @@
         console.log('[UNIVERSAL-PAGE] Visibility changed:', { nodeId, isHidden });
     }
 
+    /**
+     * Handle category tag click - expand category in graph
+     * 
+     * Process:
+     * 1. Check if category already exists in graph
+     * 2. If exists: center on existing node
+     * 3. If not exists: fetch category data, add to graph, center on new node
+     * 4. Reheat simulation to allow nodes to settle
+     */
+    async function handleExpandCategory(event: CustomEvent<{
+        categoryId: string;
+        categoryName: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        const { categoryId, categoryName, sourceNodeId, sourcePosition } = event.detail;
+        
+        console.log('[UNIVERSAL-PAGE] Category expansion requested:', {
+            categoryId,
+            categoryName,
+            sourceNodeId,
+            sourcePosition
+        });
+        
+        try {
+            // Check if category node already exists in the graph
+            const existingCategoryNode = nodes.find(n => 
+                n.type === 'category' && n.id === categoryId
+            );
+            
+            if (existingCategoryNode) {
+                console.log('[UNIVERSAL-PAGE] Category already exists, centering on it:', categoryId);
+                
+                // Center graph on existing category node
+                if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                    (graphStore as any).centerOnNodeById(categoryId, 750);
+                }
+                
+                return;
+            }
+            
+            console.log('[UNIVERSAL-PAGE] Category not in graph, fetching expansion data...');
+            
+            // Fetch category expansion data from API (auth handled automatically)
+            const expansionData: CategoryExpansionResponse = await fetchCategoryExpansion(
+                categoryId
+            );
+            
+            console.log('[UNIVERSAL-PAGE] Category expansion data received:', {
+                nodeCount: expansionData.nodes.length,
+                relationshipCount: expansionData.relationships.length
+            });
+            
+            // Calculate position for new category node (proximal to source node)
+            const categoryPosition = calculateProximalPosition(
+                sourcePosition,
+                nodes,
+                100  // Distance offset from source node
+            );
+            
+            console.log('[UNIVERSAL-PAGE] Calculated position for category node:', categoryPosition);
+            
+            // Convert API nodes to EnhancedNode format
+            const enhancedNodes = expansionData.nodes.map((apiNode, index) => {
+                // Category node gets calculated position, word nodes get nearby positions
+                const nodePosition = index === 0 
+                    ? categoryPosition  // First node is the category
+                    : calculateProximalPosition(
+                        categoryPosition, 
+                        nodes, 
+                        50 + (index * 30)  // Offset word nodes around category
+                    );
+                
+                return convertApiNodeToEnhanced(apiNode, nodePosition);
+            });
+            
+            // Add nodes to the graph
+            console.log('[UNIVERSAL-PAGE] Adding nodes to graph...');
+            nodes = [...nodes, ...enhancedNodes];
+            relationships = [...relationships, ...expansionData.relationships];
+            
+            // Update graph with new nodes
+            if (graphStore) {
+                updateGraphWithUniversalData();
+            }
+            
+            // Center view on the new category node
+            const newCategoryNode = enhancedNodes[0];  // First node is the category
+            if (newCategoryNode && graphStore) {
+                setTimeout(() => {
+                    console.log('[UNIVERSAL-PAGE] Centering on new category node...');
+                    if (typeof (graphStore as any).centerOnNodeById === 'function') {
+                        (graphStore as any).centerOnNodeById(newCategoryNode.id, 750);
+                    }
+                    
+                    // Reheat simulation after centering completes
+                    setTimeout(() => {
+                        console.log('[UNIVERSAL-PAGE] Reheating simulation for category expansion...');
+                        if (graphStore && typeof (graphStore as any).reheatSimulation === 'function') {
+                            (graphStore as any).reheatSimulation(0.3);
+                        }
+                    }, 850);  // Wait for 750ms centering + buffer
+                }, 100);
+            }
+            
+            console.log('[UNIVERSAL-PAGE] Category expansion complete');
+            
+        } catch (error) {
+            console.error('[UNIVERSAL-PAGE] Error expanding category:', error);
+            // TODO: Show user-friendly error message
+        }
+    }
+
+    /**
+     * Calculate a position near the source node
+     * Uses simple offset with collision avoidance
+     */
+    function calculateProximalPosition(
+        sourcePosition: { x: number; y: number },
+        existingNodes: any[],
+        offset: number = 100
+    ): { x: number; y: number } {
+        const angle = Math.random() * 2 * Math.PI;  // Random angle
+        
+        let position = {
+            x: sourcePosition.x + Math.cos(angle) * offset,
+            y: sourcePosition.y + Math.sin(angle) * offset
+        };
+        
+        // Simple collision check - if too close to another node, try again with larger offset
+        const MIN_DISTANCE = 150;
+        let attempts = 0;
+        const MAX_ATTEMPTS = 5;
+        
+        while (attempts < MAX_ATTEMPTS) {
+            const tooClose = existingNodes.some(node => {
+                if (!node.position) return false;
+                const dx = node.position.x - position.x;
+                const dy = node.position.y - position.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                return distance < MIN_DISTANCE;
+            });
+            
+            if (!tooClose) break;
+            
+            // Try again with increased offset
+            attempts++;
+            const newOffset = offset + (attempts * 50);
+            const newAngle = Math.random() * 2 * Math.PI;
+            position = {
+                x: sourcePosition.x + Math.cos(newAngle) * newOffset,
+                y: sourcePosition.y + Math.sin(newAngle) * newOffset
+            };
+        }
+        
+        return position;
+    }
+
+    /**
+     * Convert API node format to EnhancedNode format
+     * This function handles both category and word nodes
+     */
+    function convertApiNodeToEnhanced(apiNode: any, position: { x: number; y: number }): any {
+        // This is a simplified converter - expand based on your actual node structure
+        // The category node will have type 'category', word nodes will have type 'word'
+        
+        return {
+            id: apiNode.id,
+            type: apiNode.type,
+            data: apiNode,
+            position: {
+                x: position.x,
+                y: position.y,
+                svgTransform: `translate(${position.x}, ${position.y})`
+            },
+            mode: 'preview',
+            group: apiNode.type,
+            metadata: apiNode.metadata || {},
+            // The graph manager will calculate radius based on type and mode
+        };
+    }
+
     // UPDATED: Toggle node type function - supports all 5 types
     function toggleNodeType(nodeType: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence') {
         if (selectedNodeTypes.has(nodeType)) {
@@ -969,6 +1152,7 @@
         on:modechange={handleNodeModeChange}
         on:visibilitychange={handleVisibilityChange}
         on:filterchange={handleFilterChange}
+        on:expandCategory={handleExpandCategory}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isStatementNode(node)}
