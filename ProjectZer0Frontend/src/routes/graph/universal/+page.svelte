@@ -23,6 +23,7 @@
     import { wordListStore } from '$lib/stores/wordListStore';
     import { fetchWithAuth } from '$lib/services/api';
     import { fetchCategoryExpansion, type CategoryExpansionResponse } from '$lib/services/graph/CategoryExpansionService';
+    import { fetchWordExpansion, type WordExpansionResponse } from '$lib/services/graph/WordExpansionService';
     
     import type { 
         GraphData, 
@@ -1082,6 +1083,271 @@ async function handleExpandCategory(event: CustomEvent<{
     }
 }
 
+/**
+ * Handle keyword tag click - expand word and definitions in graph
+ * 
+ * Process:
+ * 1. Check if word node already exists
+ * 2. If exists: center on existing word node
+ * 3. If not exists: fetch word + definitions, add to graph, center on word
+ * 4. Definitions are sorted by contentNetVotes (highest first) and positioned closest to word
+ */
+async function handleExpandWord(event: CustomEvent<{
+    word: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { word, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Word expansion requested:', {
+        word, sourceNodeId, sourcePosition
+    });
+    
+    try {
+        // Check if word node already exists
+        const existingWordNode = graphData.nodes.find(n => 
+            n.type === 'word' && 
+            (n.data as any).word?.toLowerCase() === word.toLowerCase()
+        );
+        
+        if (existingWordNode) {
+            console.log('[UNIVERSAL-PAGE] Word already exists, centering:', word);
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(existingWordNode.id, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Word not in graph, fetching expansion data...');
+        
+        // Fetch word + definitions
+        const expansionData = await fetchWordExpansion(word);
+        
+        console.log('[UNIVERSAL-PAGE] Word expansion data received:', {
+            totalNodeCount: expansionData.nodes.length,
+            definitionCount: expansionData.nodes.filter(n => n.type === 'definition').length
+        });
+        
+        // Extract word node and definition nodes
+        const wordApiNode = expansionData.nodes.find(n => n.type === 'word');
+        const definitionApiNodes = expansionData.nodes.filter(n => n.type === 'definition');
+        
+        if (!wordApiNode) {
+            console.error('[UNIVERSAL-PAGE] No word node in expansion response');
+            return;
+        }
+        
+        // Sort definitions by content net votes (highest first)
+        const sortedDefinitions = [...definitionApiNodes].sort((a, b) => {
+            const aVotes = a.content_net_votes || a.contentNetVotes || 0;
+            const bVotes = b.content_net_votes || b.contentNetVotes || 0;
+            return bVotes - aVotes;
+        });
+        
+        console.log('[UNIVERSAL-PAGE] Sorted definitions by content votes:', 
+            sortedDefinitions.map(d => ({
+                id: d.id,
+                contentNetVotes: d.content_net_votes || d.contentNetVotes || 0
+            }))
+        );
+        
+        // Calculate position for word node (near source)
+        const wordPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes as any[],
+            150
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Calculated word position:', wordPosition);
+        
+        // Calculate positions for definitions (ring around word, sorted by votes)
+        const definitionPositions = calculateDefinitionRing(
+            wordPosition,
+            sortedDefinitions.length,
+            220  // Radius of ring around word
+        );
+        
+        // Transform word node to GraphNode
+        const wordGraphNode: GraphNode = {
+            id: wordApiNode.id || word.toLowerCase(),
+            type: 'word' as NodeType,
+            data: {
+                id: wordApiNode.id || word.toLowerCase(),
+                word: wordApiNode.word || word,
+                createdBy: wordApiNode.created_by || wordApiNode.createdBy || '',
+                publicCredit: wordApiNode.public_credit ?? wordApiNode.publicCredit ?? true,
+                inclusionPositiveVotes: wordApiNode.inclusion_positive_votes || wordApiNode.inclusionPositiveVotes || 0,
+                inclusionNegativeVotes: wordApiNode.inclusion_negative_votes || wordApiNode.inclusionNegativeVotes || 0,
+                inclusionNetVotes: wordApiNode.inclusion_net_votes || wordApiNode.inclusionNetVotes || 0,
+                contentPositiveVotes: 0,
+                contentNegativeVotes: 0,
+                contentNetVotes: 0,
+                createdAt: wordApiNode.created_at || wordApiNode.createdAt || new Date().toISOString(),
+                updatedAt: wordApiNode.updated_at || wordApiNode.updatedAt || new Date().toISOString(),
+                categories: [],
+                keywords: []
+            },
+            group: 'word' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'word',
+                initialPosition: wordPosition,
+                net_votes: wordApiNode.inclusion_net_votes || wordApiNode.inclusionNetVotes || 0
+            }
+        };
+        
+        // Transform definition nodes to GraphNode (using sorted order)
+        const definitionGraphNodes: GraphNode[] = sortedDefinitions.map((defNode, index) => ({
+            id: defNode.id,
+            type: 'definition' as NodeType,
+            data: {
+                id: defNode.id,
+                word: word,
+                definitionText: defNode.definitionText || '',
+                createdBy: defNode.created_by || defNode.createdBy || '',
+                publicCredit: defNode.public_credit ?? defNode.publicCredit ?? true,
+                isApiDefinition: defNode.is_api_definition ?? defNode.isApiDefinition ?? false,
+                isAICreated: defNode.is_ai_created ?? defNode.isAICreated ?? false,
+                inclusionPositiveVotes: defNode.inclusion_positive_votes || defNode.inclusionPositiveVotes || 0,
+                inclusionNegativeVotes: defNode.inclusion_negative_votes || defNode.inclusionNegativeVotes || 0,
+                inclusionNetVotes: defNode.inclusion_net_votes || defNode.inclusionNetVotes || 0,
+                contentPositiveVotes: defNode.content_positive_votes || defNode.contentPositiveVotes || 0,
+                contentNegativeVotes: defNode.content_negative_votes || defNode.contentNegativeVotes || 0,
+                contentNetVotes: defNode.content_net_votes || defNode.contentNetVotes || 0,
+                createdAt: defNode.created_at || defNode.createdAt || new Date().toISOString(),
+                updatedAt: defNode.updated_at || defNode.updatedAt || new Date().toISOString(),
+            },
+            group: 'definition' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'definition',
+                initialPosition: definitionPositions[index],
+                net_votes: defNode.inclusion_net_votes || defNode.inclusionNetVotes || 0
+            }
+        }));
+        
+        // Get existing node IDs for relationship filtering
+        const existingNodeIds = new Set(graphData.nodes.map(n => n.id));
+        existingNodeIds.add(wordGraphNode.id);
+        definitionGraphNodes.forEach(n => existingNodeIds.add(n.id));
+        
+        // Transform relationships
+        const relevantLinks: GraphLink[] = expansionData.relationships
+            .filter(rel => {
+                const sourceExists = existingNodeIds.has(rel.source);
+                const targetExists = existingNodeIds.has(rel.target);
+                return sourceExists && targetExists;
+            })
+            .map(rel => ({
+                id: rel.id,
+                source: rel.source,
+                target: rel.target,
+                type: rel.type as LinkType,
+                metadata: rel.metadata
+            }));
+        
+        console.log('[UNIVERSAL-PAGE] Adding word + definitions to graph:', {
+            wordNodeId: wordGraphNode.id,
+            definitionCount: definitionGraphNodes.length,
+            relevantLinks: relevantLinks.length,
+            definitionOrder: definitionGraphNodes.map(d => ({
+                id: d.id,
+                contentVotes: (d.data as any).contentNetVotes
+            }))
+        });
+        
+        // Filter relationships for store
+        const relevantApiRelationships = expansionData.relationships.filter(rel => {
+            const sourceExists = existingNodeIds.has(rel.source);
+            const targetExists = existingNodeIds.has(rel.target);
+            return sourceExists && targetExists;
+        });
+        
+        // Create expanded graph data
+        if (graphStore) {
+            const expandedGraphData: GraphData = {
+                nodes: [...graphData.nodes, wordGraphNode, ...definitionGraphNodes],
+                links: [...graphData.links, ...relevantLinks]
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding nodes via updateState...', {
+                previousNodeCount: graphData.nodes.length,
+                newNodeCount: expandedGraphData.nodes.length,
+                addedNodes: 1 + definitionGraphNodes.length,
+                previousLinkCount: graphData.links.length,
+                newLinkCount: expandedGraphData.links.length
+            });
+            
+            // Use updateState with 0.6 wake power to add nodes gently
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.6);
+                // CRITICAL: Don't update graphData here - prevents gentle sync override
+            }
+            // Fallback: regular setData (will cause restart)
+            else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(expandedGraphData);
+                graphData = expandedGraphData;
+            }
+        }
+        
+        // Center on word node after delay for settling
+        setTimeout(() => {
+            console.log('[UNIVERSAL-PAGE] Centering on word node...');
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(wordGraphNode.id, 750);
+            }
+        }, 500);
+        
+        console.log('[UNIVERSAL-PAGE] Word expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding word:', error);
+    }
+}
+
+/**
+ * Calculate positions for definitions in a ring around word node
+ * Definitions are positioned in order (sorted by content votes)
+ * First definition gets angle 0 (rightmost), then counter-clockwise
+ */
+function calculateDefinitionRing(
+    centerPosition: { x: number; y: number },
+    count: number,
+    radius: number
+): Array<{ x: number; y: number }> {
+    const positions: Array<{ x: number; y: number }> = [];
+    
+    if (count === 0) return positions;
+    
+    // Start at 0 degrees (right side) for highest-voted definition
+    // Move counter-clockwise for subsequent definitions
+    const angleStep = (2 * Math.PI) / count;
+    
+    for (let i = 0; i < count; i++) {
+        const angle = i * angleStep;
+        positions.push({
+            x: centerPosition.x + Math.cos(angle) * radius,
+            y: centerPosition.y + Math.sin(angle) * radius
+        });
+    }
+    
+    console.log('[UNIVERSAL-PAGE] Calculated definition ring positions:', {
+        centerPosition,
+        count,
+        radius,
+        positions: positions.map((p, i) => ({
+            index: i,
+            angle: (i * angleStep * 180 / Math.PI).toFixed(1) + '°',
+            x: p.x.toFixed(1),
+            y: p.y.toFixed(1)
+        }))
+    });
+    
+    return positions;
+}
+
     /**
      * Calculate a position near the source node
      * Uses simple offset with collision avoidance
@@ -1273,6 +1539,7 @@ async function handleExpandCategory(event: CustomEvent<{
         on:visibilitychange={handleVisibilityChange}
         on:filterchange={handleFilterChange}
         on:expandCategory={handleExpandCategory}
+        on:expandWord={handleExpandWord}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
             {#if isStatementNode(node)}

@@ -69,6 +69,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+         expandWord: {  // ✅ ADD THIS
+            word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // DOM references
@@ -558,6 +563,23 @@
         console.log('[Graph] Category expansion event forwarded to parent page');
     }
 
+    function handleExpandWord(event: CustomEvent<{
+        word: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Word expansion event received:', {
+            word: event.detail.word,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+    
+    // Forward the event to parent page component
+    dispatch('expandWord', event.detail);
+    
+    console.log('[Graph] Word expansion event forwarded to parent page');
+}
+
     function toggleDebug() {
         showDebug = !showDebug;
         
@@ -900,6 +922,7 @@
                                     on:modeChange={handleModeChange}
                                     on:visibilityChange={handleVisibilityChange}
                                     on:expandCategory={handleExpandCategory}
+                                    on:expandWord={handleExpandWord}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
@@ -914,6 +937,7 @@
                                         let:nodeY
                                         let:handleModeChange
                                         let:handleExpandCategory
+                                        let:handleExpandWord
                                     >
                                         <!-- Direct node rendering - viewType removed from StatementNode and OpenQuestionNode -->
                                         {#if isStatementNode(node)}
@@ -921,35 +945,41 @@
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if isOpenQuestionNode(node)}
                                             <OpenQuestionNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if node.type === 'answer'}
                                             <AnswerNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if node.type === 'quantity'}
                                             <QuantityNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if node.type === 'evidence'}
                                             <EvidenceNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if node.type === 'category'}
                                             <CategoryNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
+                                                on:expandWord={handleExpandWord}
                                             />
                                         {:else if node.type === 'word'}
                                             <WordNode
@@ -957,7 +987,7 @@
                                                 on:modeChange={handleModeChange}
                                             />
                                         {:else if node.type === 'definition'}
-                                            <EvidenceNode
+                                            <DefinitionNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
                                             />    

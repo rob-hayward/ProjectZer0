@@ -114,13 +114,17 @@
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
 		createChildNode: { parentId: string; parentType: string; childType: string };
-		expandCategory: {  // ← RENAMED from categoryClick
+		expandCategory: { 
 			categoryId: string;
 			categoryName: string;
-			sourceNodeId: string;  // ← ADDED
-			sourcePosition: { x: number; y: number };  // ← ADDED
+			sourceNodeId: string;  
+			sourcePosition: { x: number; y: number };  
 		};
-		keywordClick: { word: string };
+		expandWord: { 
+			word: string;
+			sourceNodeId: string;
+			sourcePosition: { x: number; y: number };
+		};
 	}>();
 
 	onMount(async () => {
@@ -244,8 +248,23 @@
 	}
 
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
-		dispatch('keywordClick', event.detail);
-	}
+    const { word } = event.detail;
+    
+    console.log('[NodeComponent] Keyword clicked:', {
+        word,
+        sourceNodeId: node.id,
+        sourcePosition: node.position
+    });
+    
+    dispatch('expandWord', {
+        word,
+        sourceNodeId: node.id,
+        sourcePosition: {
+            x: node.position?.x || 0,
+            y: node.position?.y || 0
+        }
+    });
+}
 
 	function handleCreateChild() {
 		dispatch('createChildNode', {

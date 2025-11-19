@@ -88,6 +88,7 @@
 	// Initialize voting behaviour on mount
 	onMount(async () => {
 		// Create voting behaviour for inclusion votes
+		// ✅ FIXED: Correct endpoints for word nodes
 		inclusionVoting = createVoteBehaviour(node.id, 'word', {
 			apiIdentifier: displayWord, // Words use their text as identifier
 			dataObject: wordData,
@@ -95,17 +96,28 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (word) => `/nodes/word/${encodeURIComponent(word)}/vote`,
-			getRemoveVoteEndpoint: (word) => `/nodes/word/${encodeURIComponent(word)}/vote/remove`,
+			// ✅ CRITICAL: Must include apiResponseKeys
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
+			},
+			// ✅ FIXED: Correct endpoints - /words/ not /nodes/word/
+			getVoteEndpoint: (word) => `/words/${encodeURIComponent(word)}/vote-inclusion`,
+			getRemoveVoteEndpoint: (word) => `/words/${encodeURIComponent(word)}/vote`,
+			getVoteStatusEndpoint: (word) => `/words/${encodeURIComponent(word)}/vote-status`,
 			graphStore,
 			onDataUpdate: () => {
 				// Trigger reactivity
 				wordData = { ...wordData };
 			},
+			// ✅ CRITICAL: Must include metadataConfig
 			metadataConfig: {
 				nodeMetadata: node.metadata,
-				voteStatusKey: 'inclusionVoteStatus'
-			}
+				voteStatusKey: 'inclusionVoteStatus',
+				metadataGroup: 'word'
+			},
+			// ✅ CRITICAL: Must include voteKind
+			voteKind: 'INCLUSION'
 		});
 
 		// Initialize with current vote data

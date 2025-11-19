@@ -355,7 +355,7 @@
     }
 
     // Get icon for apply button based on state
-    $: applyButtonIcon = isLoading ? 'progress_activity' : hasPendingChanges ? 'check_circle' : 'radio_button_unchecked';
+    $: applyButtonIcon = 'graph_5';
     $: applyButtonColor = isLoading ? 'rgba(100, 200, 100, 0.9)' : hasPendingChanges ? 'rgba(66, 153, 225, 0.9)' : 'rgba(255, 255, 255, 0.3)';
     $: applyTooltipText = isLoading ? 'Applying Filters...' : hasPendingChanges ? 'Apply Filters' : 'No Changes';
 </script>

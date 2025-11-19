@@ -56,6 +56,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+         expandWord: { 
+            word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // Store the expected radius for comment nodes
@@ -245,6 +250,24 @@
         
         console.log('[NodeRenderer] Category expansion event forwarded to Graph');
     }
+
+    function handleExpandWord(event: CustomEvent<{
+        word: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Word expansion event received:', {
+            word: event.detail.word,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        // Forward the event to Graph component
+        dispatch('expandWord', event.detail);
+        
+        console.log('[NodeRenderer] Word expansion event forwarded to Graph');
+    }
+
     
     // Position information from node
     $: posX = node.position.x;
@@ -443,6 +466,7 @@
             nodeY={posY}
             handleModeChange={handleModeChange}
             handleExpandCategory={handleExpandCategory}
+            handleExpandWord={handleExpandWord} 
         />
     
         <!-- Add show/hide button to qualifying nodes -->
