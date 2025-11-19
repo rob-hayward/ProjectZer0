@@ -158,6 +158,17 @@ export const NODE_CONSTANTS = {
             }
         },
 
+        CATEGORY: {
+            background: `${COLORS.PRIMARY.CATEGORY}33`,
+            border: `${COLORS.PRIMARY.CATEGORY}FF`,
+            text: `${COLORS.PRIMARY.CATEGORY}FF`,
+            hover: `${COLORS.PRIMARY.CATEGORY}FF`,
+            gradient: {
+                start: `${COLORS.PRIMARY.CATEGORY}66`,
+                end: `${COLORS.PRIMARY.CATEGORY}33`
+            }
+        },
+
         EDIT_PROFILE: {
             background: '#FFFFFF33',
             border: '#FFFFFFFF',

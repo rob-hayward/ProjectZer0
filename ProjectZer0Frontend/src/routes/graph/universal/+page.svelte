@@ -10,6 +10,10 @@
     import AnswerNode from '$lib/components/graph/nodes/answer/AnswerNode.svelte';
     import QuantityNode from '$lib/components/graph/nodes/quantity/QuantityNode.svelte';
     import EvidenceNode from '$lib/components/graph/nodes/evidence/EvidenceNode.svelte';
+    import CategoryNode from '$lib/components/graph/nodes/category/CategoryNode.svelte';
+    import WordNode from '$lib/components/graph/nodes/word/WordNode.svelte';
+    import DefinitionNode from '$lib/components/graph/nodes/definition/DefinitionNode.svelte';
+    import CommentNode from '$lib/components/graph/nodes/comment/CommentNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     
@@ -39,11 +43,18 @@
         isQuantityNode,
         isEvidenceNode,
         isNavigationNode,
+        isCategoryNode,
+        isWordNode,
+        isDefinitionNode,
+        isCommentNode,
         isStatementData,
         isOpenQuestionData,
         isAnswerData,
         isQuantityData,
         isEvidenceData,
+        isCategoryData,
+        isDefinitionData,
+        isCommentData
     } from '$lib/types/graph/enhanced';
     import type { NavigationOption } from '$lib/types/domain/navigation';
 	import { BATCH_RENDERING } from '$lib/constants/graph/universal-graph';
@@ -556,6 +567,31 @@
                         discussionId: node.discussionId,  // ✅ Top level
                     };
                     break;
+
+                case 'category':
+                    nodeData = {
+                        ...commonProperties,
+                        name: node.content || node.name,
+                        wordCount: node.metadata?.wordCount || 0,
+                        contentCount: node.metadata?.contentCount || 0,
+                        childCount: node.metadata?.childCount || 0,
+                        words: node.metadata?.words || [],
+                        parentCategory: node.metadata?.parentCategory || null,
+                        childCategories: node.metadata?.childCategories || [],
+                        discussionId: node.discussionId
+                    };
+                    break;
+
+                case 'word':
+                    nodeData = {
+                        ...commonProperties,
+                        word: node.content || node.word,
+                        definitionCount: node.metadata?.definitionCount || 0,
+                        usageCount: node.metadata?.usageCount || 0,
+                        categoryId: node.metadata?.categoryId || node.categoryId,
+                        definitions: node.metadata?.definitions || []
+                    };
+                    break;    
                     
                 default:
                     // Fallback for unknown types
@@ -858,109 +894,193 @@
      * 3. If not exists: fetch category data, add to graph, center on new node
      * 4. Reheat simulation to allow nodes to settle
      */
-    async function handleExpandCategory(event: CustomEvent<{
-        categoryId: string;
-        categoryName: string;
-        sourceNodeId: string;
-        sourcePosition: { x: number; y: number };
-    }>) {
-        const { categoryId, categoryName, sourceNodeId, sourcePosition } = event.detail;
+    // CORRECTED handleExpandCategory - All TypeScript errors fixed
+// Location: src/routes/graph/universal/+page.svelte, replace entire function
+
+async function handleExpandCategory(event: CustomEvent<{
+    categoryId: string;
+    categoryName: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { categoryId, categoryName, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Category expansion requested:', {
+        categoryId, categoryName, sourceNodeId, sourcePosition
+    });
+    
+    try {
+        // Check if category already exists in graphData (not store array to avoid type issues)
+        const existingCategoryNode = graphData.nodes.find(n => 
+            n.type === 'category' && n.id === categoryId
+        );
         
-        console.log('[UNIVERSAL-PAGE] Category expansion requested:', {
-            categoryId,
-            categoryName,
-            sourceNodeId,
-            sourcePosition
+        if (existingCategoryNode) {
+            console.log('[UNIVERSAL-PAGE] Category already exists, centering on it:', categoryId);
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(categoryId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Category not in graph, fetching expansion data...');
+        
+        // Fetch category data (includes category + word nodes)
+        const expansionData = await fetchCategoryExpansion(categoryId);
+        
+        console.log('[UNIVERSAL-PAGE] Category expansion data received:', {
+            totalNodeCount: expansionData.nodes.length,
+            totalRelationshipCount: expansionData.relationships.length
         });
         
-        try {
-            // Check if category node already exists in the graph
-            const existingCategoryNode = nodes.find(n => 
-                n.type === 'category' && n.id === categoryId
-            );
-            
-            if (existingCategoryNode) {
-                console.log('[UNIVERSAL-PAGE] Category already exists, centering on it:', categoryId);
-                
-                // Center graph on existing category node
-                if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
-                    (graphStore as any).centerOnNodeById(categoryId, 750);
-                }
-                
-                return;
-            }
-            
-            console.log('[UNIVERSAL-PAGE] Category not in graph, fetching expansion data...');
-            
-            // Fetch category expansion data from API (auth handled automatically)
-            const expansionData: CategoryExpansionResponse = await fetchCategoryExpansion(
-                categoryId
-            );
-            
-            console.log('[UNIVERSAL-PAGE] Category expansion data received:', {
-                nodeCount: expansionData.nodes.length,
-                relationshipCount: expansionData.relationships.length
-            });
-            
-            // Calculate position for new category node (proximal to source node)
-            const categoryPosition = calculateProximalPosition(
-                sourcePosition,
-                nodes,
-                100  // Distance offset from source node
-            );
-            
-            console.log('[UNIVERSAL-PAGE] Calculated position for category node:', categoryPosition);
-            
-            // Convert API nodes to EnhancedNode format
-            const enhancedNodes = expansionData.nodes.map((apiNode, index) => {
-                // Category node gets calculated position, word nodes get nearby positions
-                const nodePosition = index === 0 
-                    ? categoryPosition  // First node is the category
-                    : calculateProximalPosition(
-                        categoryPosition, 
-                        nodes, 
-                        50 + (index * 30)  // Offset word nodes around category
-                    );
-                
-                return convertApiNodeToEnhanced(apiNode, nodePosition);
-            });
-            
-            // Add nodes to the graph
-            console.log('[UNIVERSAL-PAGE] Adding nodes to graph...');
-            nodes = [...nodes, ...enhancedNodes];
-            relationships = [...relationships, ...expansionData.relationships];
-            
-            // Update graph with new nodes
-            if (graphStore) {
-                updateGraphWithUniversalData();
-            }
-            
-            // Center view on the new category node
-            const newCategoryNode = enhancedNodes[0];  // First node is the category
-            if (newCategoryNode && graphStore) {
-                setTimeout(() => {
-                    console.log('[UNIVERSAL-PAGE] Centering on new category node...');
-                    if (typeof (graphStore as any).centerOnNodeById === 'function') {
-                        (graphStore as any).centerOnNodeById(newCategoryNode.id, 750);
-                    }
-                    
-                    // Reheat simulation after centering completes
-                    setTimeout(() => {
-                        console.log('[UNIVERSAL-PAGE] Reheating simulation for category expansion...');
-                        if (graphStore && typeof (graphStore as any).reheatSimulation === 'function') {
-                            (graphStore as any).reheatSimulation(0.3);
-                        }
-                    }, 850);  // Wait for 750ms centering + buffer
-                }, 100);
-            }
-            
-            console.log('[UNIVERSAL-PAGE] Category expansion complete');
-            
-        } catch (error) {
-            console.error('[UNIVERSAL-PAGE] Error expanding category:', error);
-            // TODO: Show user-friendly error message
+        // FILTER: Extract ONLY the category node (first node in response)
+        const categoryApiNode = expansionData.nodes.find((n: any) => n.type === 'category');
+        
+        if (!categoryApiNode) {
+            console.error('[UNIVERSAL-PAGE] No category node found in expansion response');
+            return;
         }
+        
+        console.log('[UNIVERSAL-PAGE] Extracted category node:', {
+            categoryId: categoryApiNode.id,
+            categoryName: categoryApiNode.name || categoryApiNode.content,
+            wordCount: expansionData.nodes.filter((n: any) => n.type === 'word').length
+        });
+        
+        // Calculate position near source node
+        const categoryPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes as any[],  // Cast to avoid type issues
+            150  // Distance from source node
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Calculated position for category node:', categoryPosition);
+        
+        // Transform the category node to GraphNode format
+        const categoryGraphNode: GraphNode = {
+            id: categoryApiNode.id,
+            type: 'category' as NodeType,
+            data: {
+                id: categoryApiNode.id,
+                name: categoryApiNode.name || categoryApiNode.content,
+                createdBy: categoryApiNode.created_by || categoryApiNode.createdBy,
+                publicCredit: categoryApiNode.public_credit ?? categoryApiNode.publicCredit ?? true,
+                createdAt: categoryApiNode.created_at || categoryApiNode.createdAt,
+                updatedAt: categoryApiNode.updated_at || categoryApiNode.updatedAt,
+                inclusionPositiveVotes: categoryApiNode.inclusionPositiveVotes || 0,
+                inclusionNegativeVotes: categoryApiNode.inclusionNegativeVotes || 0,
+                inclusionNetVotes: categoryApiNode.inclusionNetVotes || 0,
+                wordCount: categoryApiNode.wordCount || 0,
+                contentCount: categoryApiNode.contentCount || 0,
+                childCount: categoryApiNode.childCount || 0,
+                words: categoryApiNode.words || [],
+                parentCategory: categoryApiNode.parentCategory || null,
+                childCategories: categoryApiNode.childCategories || [],
+                discussionId: categoryApiNode.discussionId
+            },
+            group: 'category' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'category' as any,
+                initialPosition: categoryPosition,
+                ...(categoryApiNode.metadata || {})
+            }
+        };
+        
+        // FILTER: Only include relationships that connect the category to EXISTING nodes
+        // Get IDs of nodes that will be in the graph after we add the category
+        const existingNodeIds = new Set([
+            ...graphData.nodes.map(n => n.id),
+            categoryGraphNode.id
+        ]);
+        
+        // Filter GraphLinks for the graph update
+        const relevantLinks: GraphLink[] = expansionData.relationships
+            .filter((rel: any) => {
+                const sourceExists = existingNodeIds.has(rel.source);
+                const targetExists = existingNodeIds.has(rel.target);
+                const isComposedOf = rel.type === 'composed_of' || rel.type === 'COMPOSED_OF';
+                
+                return sourceExists && targetExists && !isComposedOf;
+            })
+            .map((rel: any) => ({
+                id: rel.id,
+                source: rel.source,
+                target: rel.target,
+                type: rel.type as LinkType,
+                strength: rel.metadata?.strength,
+                metadata: rel.metadata
+            }));
+        
+        console.log('[UNIVERSAL-PAGE] Adding ONLY category node to graph:', {
+            categoryNodeId: categoryGraphNode.id,
+            categoryName: categoryGraphNode.data,
+            relevantLinks: relevantLinks.length,
+            excludedWordNodes: expansionData.nodes.filter((n: any) => n.type === 'word').length,
+            excludedComposedOfLinks: expansionData.relationships.filter((r: any) => 
+                r.type === 'composed_of' || r.type === 'COMPOSED_OF'
+            ).length
+        });
+        
+        // Add only the category node to store arrays (for state management)
+        nodes = [...nodes, categoryApiNode];
+        
+        // Filter original API relationships for the store (must match UniversalRelationshipData type)
+        const relevantApiRelationships = expansionData.relationships.filter((rel: any) => {
+            const sourceExists = existingNodeIds.has(rel.source);
+            const targetExists = existingNodeIds.has(rel.target);
+            const isComposedOf = rel.type === 'composed_of' || rel.type === 'COMPOSED_OF';
+            
+            return sourceExists && targetExists && !isComposedOf;
+        });
+        
+        relationships = [...relationships, ...relevantApiRelationships];
+        
+        // Create COMPLETE graph data with the new category node
+        if (graphStore) {
+            const expandedGraphData: GraphData = {
+                nodes: [...graphData.nodes, categoryGraphNode],
+                links: [...graphData.links, ...relevantLinks]
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding category node via updateState...', {
+                previousNodeCount: graphData.nodes.length,
+                newNodeCount: expandedGraphData.nodes.length,
+                addedNodes: 1,  // Only 1 category node
+                previousLinkCount: graphData.links.length,
+                newLinkCount: expandedGraphData.links.length,
+                addedLinks: relevantLinks.length
+            });
+            
+            // Use updateState with low wake power to add the category node gently
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.2 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.2);
+            }
+            // Fallback: regular setData (will cause restart)
+            else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(expandedGraphData);
+            }
+            
+            // Update our local graphData reference
+            graphData = expandedGraphData;
+        }
+        
+        // Center on the new category node
+        setTimeout(() => {
+            console.log('[UNIVERSAL-PAGE] Centering on new category node...');
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(categoryGraphNode.id, 750);
+            }
+        }, 100);
+        
+        console.log('[UNIVERSAL-PAGE] Category node addition complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding category:', error);
     }
+}
 
     /**
      * Calculate a position near the source node
@@ -1174,6 +1294,22 @@
             {:else if isEvidenceNode(node)}
                 <EvidenceNode
                     {node}
+                />
+            {:else if isCategoryNode(node)}
+                 <CategoryNode 
+                    {node} 
+                />
+            {:else if isWordNode(node)}
+                <WordNode 
+                    {node} 
+                />
+            {:else if isDefinitionNode(node)}
+                <DefinitionNode 
+                    {node} 
+                />
+            {:else if isCommentNode(node)}
+                <CommentNode 
+                    {node} 
                 />
             {:else if isNavigationNode(node)}
                 <NavigationNode 

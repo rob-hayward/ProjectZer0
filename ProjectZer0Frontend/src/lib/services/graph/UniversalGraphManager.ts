@@ -354,7 +354,7 @@ export class UniversalGraphManager {
 
     private temporarilySleepSimulationForCentering(): void {
         // Put the simulation to sleep temporarily to avoid interfering with centering
-        console.log('[UniversalGraphManager] ðŸ˜´ SLEEPING simulation for centering - current state:', {
+        console.log('[UniversalGraphManager] Ã°Å¸ËœÂ´ SLEEPING simulation for centering - current state:', {
             simulationActive: this.simulationActive,
             isDormant: this.d3Simulation?.isDormantState?.(),
             isSettling: this.d3Simulation?.isSettling?.()
@@ -364,13 +364,13 @@ export class UniversalGraphManager {
             this.d3Simulation.sleepSimulation();
             this.simulationActive = false;
             
-            console.log('[UniversalGraphManager] ðŸ˜´ SLEEP COMPLETE - new state:', {
+            console.log('[UniversalGraphManager] Ã°Å¸ËœÂ´ SLEEP COMPLETE - new state:', {
                 simulationActive: this.simulationActive,
                 isDormant: this.d3Simulation?.isDormantState?.(),
                 alpha: this.d3Simulation.getSimulation().alpha()
             });
         } else {
-            console.log('[UniversalGraphManager] âš ï¸ SLEEP SKIPPED - simulation not active or missing');
+            console.log('[UniversalGraphManager] Ã¢Å¡Â Ã¯Â¸Â SLEEP SKIPPED - simulation not active or missing');
         }
     }
 
@@ -1230,6 +1230,58 @@ export class UniversalGraphManager {
                     keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                     votes: votes
                 };
+                } else if (node.type === 'category') {
+                    // Category node data extraction
+                    const votes = node.metadata?.votes as any;
+                    const inclusionVotes = votes?.inclusion || votes || {};
+                    
+                    nodeData = {
+                        ...nodeData,
+                        name: node.data && 'name' in node.data ? (node.data as any).name :
+                            node.data && 'content' in node.data ? node.data.content : '',
+                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                        wordCount: node.data && 'wordCount' in node.data ? (node.data as any).wordCount : 0,
+                        contentCount: node.data && 'contentCount' in node.data ? (node.data as any).contentCount : 0,
+                        childCount: node.data && 'childCount' in node.data ? (node.data as any).childCount : 0,
+                        words: node.data && 'words' in node.data ? (node.data as any).words : [],
+                        parentCategory: node.data && 'parentCategory' in node.data ? (node.data as any).parentCategory : null,
+                        childCategories: node.data && 'childCategories' in node.data ? (node.data as any).childCategories : [],
+                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                        categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                        keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                        votes: votes
+                    };
+                } else if (node.type === 'word') {
+                    // Word node data extraction  
+                    const votes = node.metadata?.votes as any;
+                    const inclusionVotes = votes?.inclusion || votes || {};
+                    
+                    nodeData = {
+                        ...nodeData,
+                        word: node.data && 'word' in node.data ? (node.data as any).word :
+                            node.data && 'content' in node.data ? node.data.content : '',
+                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                        definitionCount: node.data && 'definitionCount' in node.data ? (node.data as any).definitionCount : 0,
+                        usageCount: node.data && 'usageCount' in node.data ? (node.data as any).usageCount : 0,
+                        categoryId: node.data && 'categoryId' in node.data ? (node.data as any).categoryId : (node as any).categoryId || '',
+                        definitions: node.data && 'definitions' in node.data ? (node.data as any).definitions : [],
+                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                        categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                        keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                        votes: votes
+                    };
             } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
                 nodeData = {
                     ...nodeData,
@@ -1255,8 +1307,9 @@ export class UniversalGraphManager {
                 isHidden,
                 hiddenReason,
                 
-                x: null,
-                y: null,
+                // Apply initialPosition from metadata if available, otherwise null
+                x: node.metadata?.initialPosition?.x ?? null,
+                y: node.metadata?.initialPosition?.y ?? null,
                 vx: null,
                 vy: null,
                 fx: null,

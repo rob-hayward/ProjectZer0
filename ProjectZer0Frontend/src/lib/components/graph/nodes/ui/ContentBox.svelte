@@ -198,6 +198,11 @@
             detail: { contentText: 0.50, inclusionVoting: 0, contentVoting: 0.50 },
             preview: { contentText: 0.60, inclusionVoting: 0, contentVoting: 0.40 }
         },
+        category: {
+            // Category node: Category display + stats + hierarchy + inclusion voting only
+            detail: { contentText: 0.60, inclusionVoting: 0.40, contentVoting: 0 },
+            preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
+        },
         control: {
             // Control node: Content only, no voting
             detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
@@ -551,6 +556,45 @@
                 },
                 
                 // SECTION 3: Content Voting - Not shown in preview
+                contentVoting: {}
+            }
+        },
+        // ========================================================================
+        // CATEGORY NODE - Similar to word, but with additional stats and hierarchy
+        // ========================================================================
+        category: {
+            detail: {
+                // SECTION 1: Content Text (60% = 255px) - Category name + stats + hierarchy
+                contentText: {
+                    categoryName: 0.35,        // Category name, centered
+                    stats: 0.55,               // Word/content/child counts
+                    parentCategory: 0.75,      // Parent category link (if exists)
+                    childCategories: 0.85      // Child category links (if exist)
+                },
+                
+                // SECTION 2: Inclusion Voting (40% = 170px) - Standard inclusion voting
+                inclusionVoting: {
+                    prompt: 0.0,               // Prompt at top
+                    buttons: 0.40,             // Buttons at 40%
+                    stats: 0.50                // Stats at 50%
+                },
+                
+                // SECTION 3: Content Voting - Not applicable for categories
+                contentVoting: {}
+            },
+            preview: {
+                // SECTION 1: Content Text - Category name + brief stats
+                contentText: {
+                    categoryName: 0.4,         // Category name
+                    statsPreview: 0.65         // Brief stats summary
+                },
+                
+                // SECTION 2: Inclusion Voting - Just buttons, centered
+                inclusionVoting: {
+                    buttons: 0.5               // Buttons centered in section
+                },
+                
+                // SECTION 3: Content Voting - Not applicable
                 contentVoting: {}
             }
         },

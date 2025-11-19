@@ -63,6 +63,12 @@
             showOnlyMyItems: boolean;
             userFilterMode: string;
         };
+        expandCategory: {  // ← ADD THIS
+            categoryId: string;
+            categoryName: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // DOM references
@@ -533,6 +539,25 @@
         console.log('[Graph] Filter change event bubbled to parent page');
     }
 
+    function handleExpandCategory(event: CustomEvent<{
+        categoryId: string;
+        categoryName: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Category expansion event received:', {
+            categoryId: event.detail.categoryId,
+            categoryName: event.detail.categoryName,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        // Forward the event to the parent page component
+        dispatch('expandCategory', event.detail);
+        
+        console.log('[Graph] Category expansion event forwarded to parent page');
+    }
+
     function toggleDebug() {
         showDebug = !showDebug;
         
@@ -874,6 +899,7 @@
                                     viewType={viewType}
                                     on:modeChange={handleModeChange}
                                     on:visibilityChange={handleVisibilityChange}
+                                    on:expandCategory={handleExpandCategory}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
@@ -887,33 +913,39 @@
                                         let:nodeX
                                         let:nodeY
                                         let:handleModeChange
+                                        let:handleExpandCategory
                                     >
                                         <!-- Direct node rendering - viewType removed from StatementNode and OpenQuestionNode -->
                                         {#if isStatementNode(node)}
                                             <StatementNode 
                                                 {node}
                                                 on:modeChange={handleModeChange}
+                                                on:expandCategory={handleExpandCategory}
                                             />
                                         {:else if isOpenQuestionNode(node)}
                                             <OpenQuestionNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
+                                                on:expandCategory={handleExpandCategory}
                                             />
-                                            {:else if node.type === 'answer'}
-                                                <AnswerNode
-                                                    {node}
-                                                    on:modeChange={handleModeChange}
-                                                />
-                                            {:else if node.type === 'quantity'}
-                                                <QuantityNode
-                                                    {node}
-                                                    on:modeChange={handleModeChange}
-                                                />
-                                            {:else if node.type === 'evidence'}
-                                                <EvidenceNode
-                                                    {node}
-                                                    on:modeChange={handleModeChange}
-                                                />
+                                        {:else if node.type === 'answer'}
+                                            <AnswerNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                                on:expandCategory={handleExpandCategory}
+                                            />
+                                        {:else if node.type === 'quantity'}
+                                            <QuantityNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                                on:expandCategory={handleExpandCategory}
+                                            />
+                                        {:else if node.type === 'evidence'}
+                                            <EvidenceNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                                on:expandCategory={handleExpandCategory}
+                                            />
                                         {:else if isNavigationNode(node)}
                                             <NavigationNode 
                                                 {node}

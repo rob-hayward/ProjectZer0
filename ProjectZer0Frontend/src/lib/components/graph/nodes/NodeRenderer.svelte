@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - WITH VISIBILITY BEHAVIOUR -->
+<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - WITH VISIBILITY BEHAVIOUR & CATEGORY EXPANSION -->
 <script lang="ts">
     import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
     import { get } from 'svelte/store';
@@ -32,7 +32,7 @@
     let visibilityBehaviour: VisibilityBehaviour | null = null;
     let visibilityUnsubscribe: (() => void) | null = null;
     
-    // Event dispatcher for mode changes, visibility changes, discussions, and linked nodes
+    // Event dispatcher for mode changes, visibility changes, discussions, linked nodes, and category expansion
     const dispatch = createEventDispatcher<{
         modeChange: { 
             nodeId: string; 
@@ -50,6 +50,12 @@
             nodeType: string;
         };
         answerQuestion: { questionId: string };
+        expandCategory: {
+            categoryId: string;
+            categoryName: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // Store the expected radius for comment nodes
@@ -218,6 +224,26 @@
     function handleAnswerQuestion(event: CustomEvent<{ questionId: string }>) {
         const questionId = event.detail.questionId || node.id;
         dispatch('answerQuestion', { questionId: questionId });
+    }
+    
+    // NEW: Handle category expansion
+    function handleExpandCategory(event: CustomEvent<{
+        categoryId: string;
+        categoryName: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Category expansion event received:', {
+            categoryId: event.detail.categoryId,
+            categoryName: event.detail.categoryName,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        // Forward the event to Graph component
+        dispatch('expandCategory', event.detail);
+        
+        console.log('[NodeRenderer] Category expansion event forwarded to Graph');
     }
     
     // Position information from node
@@ -416,6 +442,7 @@
             nodeX={posX}
             nodeY={posY}
             handleModeChange={handleModeChange}
+            handleExpandCategory={handleExpandCategory}
         />
     
         <!-- Add show/hide button to qualifying nodes -->

@@ -114,7 +114,12 @@
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
 		createChildNode: { parentId: string; parentType: string; childType: string };
-		categoryClick: { categoryId: string; categoryName: string };
+		expandCategory: {  // ← RENAMED from categoryClick
+			categoryId: string;
+			categoryName: string;
+			sourceNodeId: string;  // ← ADDED
+			sourcePosition: { x: number; y: number };  // ← ADDED
+		};
 		keywordClick: { word: string };
 	}>();
 
@@ -218,7 +223,24 @@
 	}
 
 	function handleCategoryClick(event: CustomEvent<{ categoryId: string; categoryName: string }>) {
-		dispatch('categoryClick', event.detail);
+		const { categoryId, categoryName } = event.detail;
+		
+		console.log('[StatementNode] Category tag clicked:', {
+			categoryId,
+			categoryName,
+			sourceNodeId: node.id,
+			sourcePosition: node.position
+		});
+		
+		dispatch('expandCategory', {  // ← RENAMED from categoryClick
+			categoryId,
+			categoryName,
+			sourceNodeId: node.id,  // ← ADDED
+			sourcePosition: {       // ← ADDED
+				x: node.position?.x || 0,
+				y: node.position?.y || 0
+			}
+		});
 	}
 
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
