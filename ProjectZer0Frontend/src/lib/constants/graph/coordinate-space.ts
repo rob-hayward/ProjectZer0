@@ -58,6 +58,10 @@ export const COORDINATE_SPACE = {
                 DETAIL: 600,    
                 PREVIEW: 320    
             },
+            CATEGORY: {
+                DETAIL: 600,
+                PREVIEW: 320
+            },
             NAVIGATION: 80,
             HIDDEN: 100
         },
@@ -71,6 +75,7 @@ export const COORDINATE_SPACE = {
                 STATEMENT: 150,    // Match definition collision padding
                 OPENQUESTION: 150, // NEW: Same as statement collision padding
                 QUANTITY: 200,     // Larger collision padding for quantity nodes
+                CATEGORY: 150,     // Same as other content nodes
                 DASHBOARD: 150,    // Same as definition collision padding
                 COMMENT: 10,       // Small collision padding for comment nodes
                 CONTROL: 10        // Small collision padding for control node preview
@@ -116,6 +121,10 @@ export const COORDINATE_SPACE = {
         COMMENT: {
             DETAIL: 424,        // (600÷2) × √2 = 424.26
             PREVIEW: 226        // (320÷2) × √2 = 226.27
+        },
+        CATEGORY: {
+            DETAIL: 424,     // (600÷2) × √2 = 424.26
+            PREVIEW: 226     // (320÷2) × √2 = 226.27
         },
         NAVIGATION: 56,         // (80÷2) × √2 = 56.57
         HIDDEN: 71              // (100÷2) × √2 = 70.71
@@ -174,6 +183,7 @@ export const COORDINATE_SPACE = {
                     STATEMENT: -300,    // Reduced from -1600
                     OPENQUESTION: -300, // NEW: Same as statement
                     QUANTITY: -400,     // New strength for quantity nodes
+                    CATEGORY: -300,    // Same as other content nodes
                     DASHBOARD: -300,    // Same as definition and statement
                     CONTROL: -50,       // Weak repulsion for control node
                     NAVIGATION: -20,    // Reduced from -50

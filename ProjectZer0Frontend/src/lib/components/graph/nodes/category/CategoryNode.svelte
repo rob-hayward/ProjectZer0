@@ -1,10 +1,8 @@
 <!-- src/lib/components/graph/nodes/category/CategoryNode.svelte -->
-<!-- REORGANIZED: Clean semantic structure - contentText / inclusionVoting only (no content voting) -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
 	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
-	import { isCategoryData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
 	import NodeHeader from '../ui/NodeHeader.svelte';
@@ -20,14 +18,38 @@
 
 	export let node: RenderableNode;
 
-	// Type validation
-	if (!isCategoryData(node.data)) {
-		throw new Error('Invalid node data type for CategoryNode');
+	interface CategoryNodeData {
+		id: string;
+		name: string;
+		createdBy: string;
+		publicCredit: boolean;
+		createdAt: string;
+		updatedAt: string;
+		inclusionPositiveVotes: number;
+		inclusionNegativeVotes: number;
+		inclusionNetVotes: number;
+		wordCount?: number;
+		contentCount?: number;
+		childCount?: number;
+		words?: Array<{
+			id: string;
+			word: string;
+			inclusionNetVotes: number;
+		}>;
+		parentCategory?: {
+			id: string;
+			name: string;
+		} | null;
+		childCategories?: Array<{
+			id: string;
+			name: string;
+			inclusionNetVotes: number;
+		}>;
+		discussionId?: string;
 	}
 
-	let categoryData = node.data;
+	let categoryData = node.data as CategoryNodeData;
 
-	// Data extraction
 	$: displayName = categoryData.name;
 	$: wordCount = categoryData.wordCount || 0;
 	$: contentCount = categoryData.contentCount || 0;
@@ -36,7 +58,6 @@
 
 	let inclusionVoting: VoteBehaviour;
 
-	// CRITICAL: Extract store references for Svelte's $ auto-subscription
 	$: positiveVotesStore = inclusionVoting?.positiveVotes;
 	$: negativeVotesStore = inclusionVoting?.negativeVotes;
 	$: netVotesStore = inclusionVoting?.netVotes;
@@ -45,7 +66,6 @@
 	$: voteSuccessStore = inclusionVoting?.voteSuccess;
 	$: lastVoteTypeStore = inclusionVoting?.lastVoteType;
 
-	// FIXED: Subscribe to stores (reactive), fallback to data
 	$: inclusionPositiveVotes = positiveVotesStore 
 		? $positiveVotesStore
 		: (getNeo4jNumber(categoryData.inclusionPositiveVotes) || 0);
@@ -62,27 +82,22 @@
 		? $userVoteStatusStore
 		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
 
-	// FIXED: Create votingState from store subscriptions
 	$: votingState = {
 		isVoting: isVotingStore ? $isVotingStore : false,
 		voteSuccess: voteSuccessStore ? $voteSuccessStore : false,
 		lastVoteType: lastVoteTypeStore ? $lastVoteTypeStore : null
 	};
 	
-	// Threshold check for expansion
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
-	// Convert composed words to Keyword[] format for KeywordTags component
 	$: keywordsForDisplay = composedWords.map((w: any) => ({
 		word: typeof w === 'string' ? w : w.word,
 		frequency: 1,
 		source: 'user' as const
 	})) as Keyword[];
 
-	// Mode state
 	$: isDetail = node.mode === 'detail';
 
-	// Event dispatcher
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
@@ -91,9 +106,9 @@
 		childCategoryClick: { categoryId: string; categoryName: string };
 	}>();
 
-	// Initialize voting behaviour on mount
 	onMount(async () => {
-		// Create voting behaviour for inclusion votes
+		console.log('[CategoryNode] Initializing vote behaviour for', node.id);
+		
 		inclusionVoting = createVoteBehaviour(node.id, 'category', {
 			apiIdentifier: categoryData.id,
 			dataObject: categoryData,
@@ -101,35 +116,44 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/nodes/category/${id}/vote-inclusion`,  // Was: /vote
-			getRemoveVoteEndpoint: (id) => `/nodes/category/${id}/vote`,      // Was: /vote/remove
-			getVoteStatusEndpoint: (id) => `/nodes/category/${id}/vote-status`, // Added,
-			graphStore,
-			onDataUpdate: () => {
-				// Trigger reactivity
-				categoryData = { ...categoryData };
+			apiResponseKeys: {
+				positiveVotesKey: 'inclusionPositiveVotes',
+				negativeVotesKey: 'inclusionNegativeVotes'
 			},
+			getVoteEndpoint: (id) => `/categories/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/categories/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/categories/${id}/vote-status`,
+			graphStore,
 			metadataConfig: {
 				nodeMetadata: node.metadata,
-				voteStatusKey: 'inclusionVoteStatus'
+				voteStatusKey: 'inclusionVoteStatus',
+				metadataGroup: 'category'
+			},
+			voteKind: 'INCLUSION',
+			onDataUpdate: () => {
+				categoryData = { ...categoryData };
 			}
 		});
 
-		// Initialize with current vote data
 		await inclusionVoting.initialize({
 			positiveVotes: inclusionPositiveVotes,
 			negativeVotes: inclusionNegativeVotes,
 			skipVoteStatusFetch: false
 		});
+		
+		console.log('[CategoryNode] Vote behaviour initialized:', {
+			positiveVotes: inclusionPositiveVotes,
+			negativeVotes: inclusionNegativeVotes,
+			userVoteStatus: inclusionUserVoteStatus
+		});
 	});
 
-	// Vote handler
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
+		console.log('[CategoryNode] Handling inclusion vote:', event.detail.voteType);
 		if (!inclusionVoting) return;
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
-	// Mode change handler
 	function handleModeChange(event: CustomEvent) {
 		dispatch('modeChange', {
 			...event.detail,
@@ -137,12 +161,10 @@
 		});
 	}
 
-	// Keyword click handler (for composed words)
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
 		dispatch('keywordClick', event.detail);
 	}
 
-	// Parent category click handler
 	function handleParentCategoryClick() {
 		if (categoryData.parentCategory) {
 			dispatch('parentCategoryClick', {
@@ -152,7 +174,6 @@
 		}
 	}
 
-	// Child category click handler
 	function handleChildCategoryClick(childId: string, childName: string) {
 		dispatch('childCategoryClick', {
 			categoryId: childId,
@@ -167,7 +188,6 @@
 			<NodeHeader title="Category" {radius} mode="detail" />
 		</svelte:fragment>
 
-		<!-- KeywordTags: Show composed words -->
 		<svelte:fragment slot="keywordTags" let:radius>
 			{#if keywordsForDisplay.length > 0}
 				<KeywordTags 
@@ -179,9 +199,7 @@
 			{/if}
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Section 1 - Content Text (Category Display + Stats) -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-			<!-- Display the category name prominently, centered -->
 			<text
 				x={x + width/2}
 				y={y + Math.floor(height * (positioning.categoryName || 0.35))}
@@ -192,12 +210,11 @@
 				style:fill="white"
 				style:text-anchor="middle"
 				style:dominant-baseline="middle"
-				style:filter="drop-shadow(0 0 10px rgba(0, 255, 176, 0.4))"
+				style:filter="drop-shadow(0 0 10px rgba(255, 138, 61, 0.4))"
 			>
 				{displayName}
 			</text>
 
-			<!-- Category statistics -->
 			<foreignObject 
 				{x} 
 				y={y + Math.floor(height * (positioning.stats || 0.55))} 
@@ -213,14 +230,15 @@
 						<span class="stat-label">Content:</span>
 						<span class="stat-value">{contentCount}</span>
 					</div>
-					<div class="stat-item">
-						<span class="stat-label">Subcategories:</span>
-						<span class="stat-value">{childCount}</span>
-					</div>
+					{#if childCount > 0}
+						<div class="stat-item">
+							<span class="stat-label">Subcategories:</span>
+							<span class="stat-value">{childCount}</span>
+						</div>
+					{/if}
 				</div>
 			</foreignObject>
 
-			<!-- Parent category (if exists) -->
 			{#if categoryData.parentCategory}
 				<foreignObject 
 					{x} 
@@ -240,7 +258,6 @@
 				</foreignObject>
 			{/if}
 
-			<!-- Child categories (if exist) -->
 			{#if categoryData.childCategories && categoryData.childCategories.length > 0}
 				<foreignObject 
 					{x} 
@@ -270,9 +287,7 @@
 			{/if}
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
 		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
-			<!-- Inclusion vote prompt -->
 			<foreignObject 
 				{x} 
 				y={y + Math.floor(height * positioning.prompt)} 
@@ -284,7 +299,6 @@
 				</div>
 			</foreignObject>
 
-			<!-- Inclusion vote buttons -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
@@ -299,7 +313,6 @@
 				/>
 			</g>
 
-			<!-- Inclusion vote stats -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={inclusionUserVoteStatus}
@@ -314,9 +327,6 @@
 			</g>
 		</svelte:fragment>
 
-		<!-- Section 3: No content voting for categories -->
-
-		<!-- Metadata -->
 		<svelte:fragment slot="metadata" let:radius>
 			<NodeMetadata
 				createdAt={categoryData.createdAt}
@@ -325,7 +335,6 @@
 			/>
 		</svelte:fragment>
 
-		<!-- Creator credits -->
 		<svelte:fragment slot="credits" let:radius>
 			{#if categoryData.createdBy}
 				<CreatorCredits
@@ -336,8 +345,6 @@
 				/>
 			{/if}
 		</svelte:fragment>
-
-		<!-- No createChild slot - Categories don't create children directly through this interface -->
 	</BaseDetailNode>
 {:else}
 	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
@@ -345,59 +352,63 @@
 			<NodeHeader title="Category" {radius} mode="preview" size="medium" />
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Preview mode - simplified structure -->
-		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-			<!-- Display the category name -->
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height>
 			<text
-				x={x + width/2}
-				y={y + Math.floor(height * (positioning.categoryName || 0.4))}
-				class="category-preview"
-				style:font-family="Inter"
-				style:font-size="18px"
-				style:font-weight="600"
-				style:fill="white"
-				style:text-anchor="middle"
-				style:dominant-baseline="middle"
+				x="0"
+				y={y + 8}
+				class="category-name-preview"
+				text-anchor="middle"
 			>
 				{displayName}
 			</text>
-
-			<!-- Stats summary in preview -->
-			<foreignObject 
-				{x} 
-				y={y + Math.floor(height * (positioning.statsPreview || 0.65))} 
-				{width} 
-				height="30"
-			>
-				<div class="stats-preview">
-					{wordCount} words • {contentCount} items
-				</div>
-			</foreignObject>
+			
+			{#if wordCount || contentCount}
+				<text
+					x="0"
+					y={y + 26}
+					class="stats-preview"
+					text-anchor="middle"
+				>
+					{wordCount ? `${wordCount} words` : ''}{wordCount && contentCount ? ' • ' : ''}{contentCount ? `${contentCount} items` : ''}
+				</text>
+			{/if}
 		</svelte:fragment>
 
-		<!-- Inclusion voting only -->
-		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
-			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
-				<InclusionVoteButtons
-					userVoteStatus={inclusionUserVoteStatus}
-					positiveVotes={inclusionPositiveVotes}
-					negativeVotes={inclusionNegativeVotes}
-					isVoting={votingState.isVoting}
-					voteSuccess={votingState.voteSuccess}
-					lastVoteType={votingState.lastVoteType}
-					availableWidth={width}
-					mode="preview"
-					on:vote={handleInclusionVote}
-				/>
-			</g>
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height>
+			<InclusionVoteButtons
+				userVoteStatus={inclusionUserVoteStatus}
+				positiveVotes={inclusionPositiveVotes}
+				negativeVotes={inclusionNegativeVotes}
+				isVoting={votingState.isVoting}
+				voteSuccess={votingState.voteSuccess}
+				lastVoteType={votingState.lastVoteType}
+				availableWidth={width}
+				mode="preview"
+				on:vote={handleInclusionVote}
+			/>
 		</svelte:fragment>
 	</BasePreviewNode>
 {/if}
 
 <style>
-	.category-name,
-	.category-preview {
+	.category-name {
 		text-anchor: middle;
+		dominant-baseline: middle;
+	}
+
+	.category-name-preview {
+		font-family: 'Inter', sans-serif;
+		font-size: 14px;
+		font-weight: 500;
+		fill: white;
+		dominant-baseline: middle;
+	}
+
+	.stats-preview {
+		font-family: 'Inter', sans-serif;
+		font-size: 10px;
+		font-weight: 400;
+		fill: rgba(255, 255, 255, 0.6);
 		dominant-baseline: middle;
 	}
 
@@ -426,7 +437,7 @@
 	}
 
 	:global(.stat-value) {
-		color: rgba(0, 255, 176, 0.9);
+		color: rgba(255, 138, 61, 0.9);
 		font-weight: 600;
 		font-size: 14px;
 	}
@@ -479,18 +490,6 @@
 		font-weight: 400;
 		color: rgba(255, 255, 255, 0.5);
 		font-style: italic;
-	}
-
-	:global(.stats-preview) {
-		font-family: 'Inter', sans-serif;
-		font-size: 11px;
-		font-weight: 400;
-		color: rgba(255, 255, 255, 0.7);
-		text-align: center;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
 	}
 
 	.vote-prompt {

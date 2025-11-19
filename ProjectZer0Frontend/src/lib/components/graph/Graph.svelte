@@ -32,7 +32,7 @@
     import WordNode from './nodes/word/WordNode.svelte';
     import NavigationNode from './nodes/navigation/NavigationNode.svelte';
     import ControlNode from './nodes/controlNode/ControlNode.svelte';
-    import { isStatementNode, isOpenQuestionNode, isNavigationNode, isStatementData, isOpenQuestionData } from '$lib/types/graph/enhanced';
+    import { isStatementNode, isOpenQuestionNode, isNavigationNode, isCategoryNode, isAnswerNode, isStatementData, isOpenQuestionData, isCategoryData } from '$lib/types/graph/enhanced';
 
     
     const DEBUG_MODE = false;
@@ -946,6 +946,21 @@
                                                 on:modeChange={handleModeChange}
                                                 on:expandCategory={handleExpandCategory}
                                             />
+                                        {:else if node.type === 'category'}
+                                            <CategoryNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                            />
+                                        {:else if node.type === 'word'}
+                                            <WordNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                            />
+                                        {:else if node.type === 'definition'}
+                                            <EvidenceNode
+                                                {node}
+                                                on:modeChange={handleModeChange}
+                                            />    
                                         {:else if isNavigationNode(node)}
                                             <NavigationNode 
                                                 {node}

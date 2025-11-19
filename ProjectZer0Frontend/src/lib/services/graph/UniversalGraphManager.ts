@@ -1663,6 +1663,21 @@ export class UniversalGraphManager {
                     (COORDINATE_SPACE.NODES.SIZES.EVIDENCE?.DETAIL || 400) / 2 :
                     (COORDINATE_SPACE.NODES.SIZES.EVIDENCE?.PREVIEW || 160) / 2;
                 break;
+            case 'category':
+                radius = node.mode === 'detail' ?
+                    (COORDINATE_SPACE.NODES.SIZES.CATEGORY?.DETAIL || 600) / 2 :
+                    (COORDINATE_SPACE.NODES.SIZES.CATEGORY?.PREVIEW || 320) / 2;
+                break;
+            case 'word':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.WORD.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.WORD.PREVIEW / 2;
+                break;
+            case 'definition':
+                radius = node.mode === 'detail' ?
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.DETAIL / 2 :
+                    COORDINATE_SPACE.NODES.SIZES.DEFINITION.PREVIEW / 2;
+                break;
             case 'navigation':
                 radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
                 break;
@@ -1702,6 +1717,12 @@ export class UniversalGraphManager {
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY || { border: '#ffc864' });
             case 'evidence':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE || { border: '#c864ff' });
+            case 'category':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY || { border: '#64ff96' });
+            case 'word':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
+            case 'definition':
+                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION);
             case 'navigation':
                 return 'transparent';
             case 'dashboard':
@@ -1731,6 +1752,10 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.QUANTITY?.background || 'rgba(255, 200, 100, 0.1)';
             case 'evidence':
                 return NODE_CONSTANTS.COLORS.EVIDENCE?.background || 'rgba(200, 100, 255, 0.1)';
+            case 'category':
+                return NODE_CONSTANTS.COLORS.CATEGORY.background;
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.background;
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.background;
             default:
@@ -1751,6 +1776,10 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.QUANTITY?.border || 'rgba(255, 200, 100, 1)';
             case 'evidence':
                 return NODE_CONSTANTS.COLORS.EVIDENCE?.border || 'rgba(200, 100, 255, 1)';
+            case 'category':
+                return NODE_CONSTANTS.COLORS.CATEGORY.border; 
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.border;  
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.border;
             default:
@@ -1771,6 +1800,10 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.QUANTITY?.hover || 'rgba(255, 200, 100, 0.3)';
             case 'evidence':
                 return NODE_CONSTANTS.COLORS.EVIDENCE?.hover || 'rgba(200, 100, 255, 0.3)';
+            case 'category':
+                return NODE_CONSTANTS.COLORS.CATEGORY.hover;
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.hover;
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
             default:
@@ -1791,6 +1824,10 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.start || 'rgba(255, 200, 100, 0.2)';
             case 'evidence':
                 return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.start || 'rgba(200, 100, 255, 0.2)';
+            case 'category':
+                return NODE_CONSTANTS.COLORS.CATEGORY.gradient.start;
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.gradient.start;
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
             default:
@@ -1811,6 +1848,10 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.end || 'rgba(255, 200, 100, 0.05)';
             case 'evidence':
                 return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.end || 'rgba(200, 100, 255, 0.05)';
+            case 'category':
+                return NODE_CONSTANTS.COLORS.CATEGORY.gradient.end;
+            case 'word':
+                return NODE_CONSTANTS.COLORS.WORD.gradient.end;
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
             default:
