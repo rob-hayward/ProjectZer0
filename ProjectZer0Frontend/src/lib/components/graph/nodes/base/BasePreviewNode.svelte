@@ -24,11 +24,6 @@
 	// These are multipliers of radius for vertical positioning
 	export let titleYOffset: number = 0; // Distance above ContentBox for title
 
-	export let voteBasedStyles = {
-		glow: { intensity: 8, opacity: 0.6 },
-		ring: { width: 6, opacity: 0.5 }
-	};
-
 	const dispatch = createEventDispatcher<{
 		modeChange: {
 			mode: NodeMode;
@@ -92,7 +87,7 @@
 	data-node-mode={node.mode}
 	data-node-radius={node.radius}
 >
-	<BaseNode {node} {voteBasedStyles}>
+	<BaseNode {node}>
 		<svelte:fragment slot="default" let:radius let:filterId let:gradientId>
 			<!-- Title positioned above ContentBox -->
 			<!-- This ensures consistent positioning across all preview nodes -->

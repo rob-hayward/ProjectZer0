@@ -19,18 +19,6 @@
 	// ContentBox debugging
 	export let showContentBoxBorder: boolean = false;
 
-	// Vote-based styling for enhanced visuals
-	export let voteBasedStyles = {
-		glow: {
-			intensity: 8,
-			opacity: 0.6
-		},
-		ring: {
-			width: 6,
-			opacity: 0.5
-		}
-	};
-
 	// FIXED: Position override props for proper vertical stacking
 	// These are multipliers of radius for vertical positioning
 	// Negative values = above center (above ContentBox)
@@ -124,7 +112,7 @@
 	data-node-mode={node.mode}
 	data-node-radius={node.radius}
 >
-	<BaseNode {node} {style} {voteBasedStyles}>
+	<BaseNode {node} {style}>
 		<svelte:fragment slot="default" let:radius let:filterId let:gradientId>
 			<!-- SECTION 1: ELEMENTS ABOVE CONTENTBOX -->
 			<!-- These are positioned in the space between the circle edge and ContentBox top -->

@@ -1,4 +1,10 @@
 <!-- src/lib/components/graph/nodes/base/BaseNode.svelte -->
+<!-- 
+    TODO: Keyboard accessibility
+    Currently suppressing a11y warnings to avoid unwanted focus rectangles.
+    Future enhancement: Add custom keyboard navigation using node's existing
+    hover states (glowing rings) instead of default browser focus outlines.
+-->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -48,7 +54,8 @@
     }
 </script>
 
-
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-no-static-element-interactions -->
 <g 
     class="base-node"
     data-node-id={nodeId}
@@ -122,6 +129,7 @@
     .base-node {
         will-change: transform;
         transition: all 0.3s ease-out;
+        cursor: pointer;
     }
 
     .base-node circle {

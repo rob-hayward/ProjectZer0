@@ -52,7 +52,11 @@ export interface NodeMetadata {
     parentNode?: string;            
     evidenceType?: string;
     unitCategoryId?: string;        // For Quantity nodes
-    defaultUnitId?: string;         // For Quantity nodes
+    defaultUnitId?: string;  
+    initialPosition?: {
+        x: number;
+        y: number;
+    };       // For Quantity nodes
     
     // Universal graph properties
     consensus_ratio?: number;

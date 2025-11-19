@@ -1054,8 +1054,8 @@ async function handleExpandCategory(event: CustomEvent<{
             
             // Use updateState with low wake power to add the category node gently
             if (typeof (graphStore as any).updateState === 'function') {
-                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.2 wake power');
-                (graphStore as any).updateState(expandedGraphData, 0.2);
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.6);
             }
             // Fallback: regular setData (will cause restart)
             else {
@@ -1064,7 +1064,7 @@ async function handleExpandCategory(event: CustomEvent<{
             }
             
             // Update our local graphData reference
-            graphData = expandedGraphData;
+            // graphData = expandedGraphData;
         }
         
         // Center on the new category node
@@ -1073,7 +1073,7 @@ async function handleExpandCategory(event: CustomEvent<{
             if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
                 (graphStore as any).centerOnNodeById(categoryGraphNode.id, 750);
             }
-        }, 100);
+        }, 500);
         
         console.log('[UNIVERSAL-PAGE] Category node addition complete');
         
