@@ -524,7 +524,7 @@
             detail: {
                 // SECTION 1: Content Text (40% = 170px) - Word + definition + instruction
                 contentText: {
-                    text: 0.0,              // Word + definition at top
+                    text: 0.2,              // Word + definition at top
                     textHeight: 0.70,       // Uses 70% for definition text
                     instruction: 0.75       // Instruction text at 75%
                 },

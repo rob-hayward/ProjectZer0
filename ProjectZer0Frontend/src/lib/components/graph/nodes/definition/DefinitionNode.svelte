@@ -1,5 +1,7 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / contentVoting -->
+<!-- FIXED: API endpoints now use /definitions/ instead of /nodes/definition/ -->
+<!-- FIXED: Word extraction from data instead of prop, style debugging -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -14,6 +16,7 @@
 	import { graphStore } from '$lib/stores/graphStore';
 
 	export let node: RenderableNode;
+	// FIXED: Make wordText optional since we can extract it from data
 	export let wordText: string = '';
 
 	if (!isDefinitionData(node.data)) {
@@ -22,6 +25,18 @@
 
 	let definitionData = node.data;
 
+	// DEBUG: Log the definition data we're receiving
+	console.log('[DefinitionNode] Received definition data:', {
+		id: definitionData.id,
+		word: definitionData.word,
+		definitionText: definitionData.definitionText,
+		wordTextProp: wordText,
+		hasDefinitionText: !!definitionData.definitionText,
+		definitionTextLength: definitionData.definitionText?.length,
+		nodeStyle: node.style,
+		nodeColors: node.style?.colors
+	});
+
 	const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
 	const nodeTitle = subtype === 'live' ? 'Live Definition' : 'Alternative Definition';
 
@@ -29,7 +44,17 @@
 		return 'definition';
 	}
 
-	$: definitionText = definitionData.definitionText;
+	// FIXED: Extract word from data object if not provided as prop
+	$: displayWord = wordText || definitionData.word || '[word missing]';
+	$: definitionText = definitionData.definitionText || '[definition text missing]';
+
+	// DEBUG: Log reactive values
+	$: console.log('[DefinitionNode] Reactive values:', {
+		displayWord,
+		definitionText,
+		definitionTextLength: definitionText.length,
+		isDetail
+	});
 
 	let inclusionVoting: VoteBehaviour;
 	let contentVoting: VoteBehaviour;
@@ -109,9 +134,20 @@
 	}>();
 
 	onMount(async () => {
+		console.log('[DefinitionNode] Mounting - data verification:', {
+			nodeId: node.id,
+			word: definitionData.word,
+			definitionText: definitionData.definitionText,
+			hasText: !!definitionData.definitionText,
+			textLength: definitionData.definitionText?.length,
+			style: node.style,
+			colors: node.style?.colors
+		});
+
 		console.log('[DefinitionNode] Initializing vote behaviours for', node.id);
 
 		// Initialize INCLUSION voting
+		// FIXED: Use /definitions/ endpoints instead of /nodes/definition/
 		inclusionVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -123,9 +159,9 @@
 				positiveVotesKey: 'inclusionPositiveVotes',
 				negativeVotesKey: 'inclusionNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,
-			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-inclusion`,
-			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
+			getVoteEndpoint: (id) => `/definitions/${id}/vote-inclusion`,
+			getRemoveVoteEndpoint: (id) => `/definitions/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/definitions/${id}/vote-status`,
 			graphStore,
 			metadataConfig: {
 				nodeMetadata: node.metadata,
@@ -136,6 +172,7 @@
 		});
 
 		// Initialize CONTENT voting
+		// FIXED: Use /definitions/ endpoints instead of /nodes/definition/
 		contentVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -147,9 +184,9 @@
 				positiveVotesKey: 'contentPositiveVotes',
 				negativeVotesKey: 'contentNegativeVotes'
 			},
-			getVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,
-			getRemoveVoteEndpoint: (id) => `/nodes/definition/${id}/vote-content`,
-			getVoteStatusEndpoint: (id) => `/nodes/definition/${id}/vote-status`,
+			getVoteEndpoint: (id) => `/definitions/${id}/vote-content`,
+			getRemoveVoteEndpoint: (id) => `/definitions/${id}/vote`,
+			getVoteStatusEndpoint: (id) => `/definitions/${id}/vote-status`,
 			graphStore,
 			metadataConfig: {
 				nodeMetadata: node.metadata,
@@ -216,6 +253,30 @@
 
 		<!-- REORGANIZED: Section 1 - Content Text (Word + Definition) -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+			<!-- DEBUG: Show what we're trying to render -->
+			{#if !definitionText || definitionText === '[definition text missing]'}
+				<text
+					x="0"
+					y={y + 50}
+					style:font-family="Inter"
+					style:font-size="12px"
+					style:fill="red"
+					style:text-anchor="middle"
+				>
+					DEBUG: No definition text available
+				</text>
+				<text
+					x="0"
+					y={y + 70}
+					style:font-family="Inter"
+					style:font-size="10px"
+					style:fill="red"
+					style:text-anchor="middle"
+				>
+					Data: {JSON.stringify(definitionData)}
+				</text>
+			{/if}
+
 			<!-- Word + Definition display -->
 			<foreignObject 
 				{x} 
@@ -224,21 +285,10 @@
 				height={Math.floor(height * (positioning.textHeight || 0.70))}
 			>
 				<div class="definition-wrapper">
-					<span class="word-part">{wordText}:</span>
-					<TextContent text={definitionText} mode="detail" verticalAlign="start" />
-				</div>
-			</foreignObject>
-
-			<!-- Instruction text -->
-			<foreignObject 
-				{x} 
-				y={y + Math.floor(height * (positioning.instruction || 0.75))} 
-				{width} 
-				height="40"
-			>
-				<div class="instruction-text">
-					<strong>Include/Exclude:</strong> Should this definition exist for "{wordText}"? 
-					<strong>Agree/Disagree:</strong> Is this definition accurate and well-written?
+					<span class="word-part">{displayWord}:</span>
+					<div class="definition-text">
+						<TextContent text={definitionText} mode="detail" verticalAlign="start" />
+					</div>
 				</div>
 			</foreignObject>
 		</svelte:fragment>
@@ -365,8 +415,10 @@
 				height={Math.floor(height * (positioning.textHeight || 1.0))}
 			>
 				<div class="definition-wrapper">
-					<span class="word-part">{wordText}:</span>
-					<TextContent text={definitionText} mode="preview" verticalAlign="start" />
+					<span class="word-part">{displayWord}:</span>
+					<div class="definition-text">
+						<TextContent text={definitionText} mode="preview" verticalAlign="start" />
+					</div>
 				</div>
 			</foreignObject>
 		</svelte:fragment>
@@ -412,21 +464,6 @@
 		font-weight: 600;
 	}
 
-	.instruction-text {
-		font-family: Inter, sans-serif;
-		font-size: 11px;
-		font-weight: 400;
-		color: rgba(255, 255, 255, 0.7);
-		text-align: center;
-		line-height: 1.3;
-		padding: 5px 10px;
-	}
-
-	.instruction-text strong {
-		color: rgba(255, 255, 255, 0.9);
-		font-weight: 600;
-	}
-
 	.definition-wrapper {
 		font-family: Inter, sans-serif;
 		text-align: left;
@@ -446,5 +483,12 @@
 		font-size: inherit;
 		margin-bottom: 0.5em;
 		display: block;
+	}
+
+	.definition-text {
+		flex: 1;
+		width: 100%;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
 	}
 </style>

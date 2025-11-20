@@ -691,10 +691,14 @@ export class WordService {
       // 4. Transform definitions to universal format
       const definitionNodes: UniversalNodeData[] = definitions.map((def) => ({
         id: def.id,
-        type: 'definition' as any, // Note: DefinitionNode not in UniversalNodeData type yet
+        type: 'definition' as any,
         content: def.definitionText,
+        definitionText: def.definitionText,
+        word: def.word,
         createdBy: def.createdBy,
         publicCredit: def.publicCredit,
+        isApiDefinition: def.isApiDefinition,
+        isAICreated: def.isAICreated,
         createdAt:
           def.createdAt instanceof Date
             ? def.createdAt.toISOString()
