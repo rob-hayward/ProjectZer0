@@ -1153,12 +1153,12 @@ async function handleExpandWord(event: CustomEvent<{
         }
         
         // Sort definitions by content net votes (highest first)
-        const sortedDefinitions = [...definitionApiNodes].sort((a, b) => {
+            const sortedDefinitions = [...definitionApiNodes].sort((a, b) => {
             const aVotes = a.content_net_votes || a.contentNetVotes || 0;
             const bVotes = b.content_net_votes || b.contentNetVotes || 0;
             return bVotes - aVotes;
         });
-        
+
         console.log('[UNIVERSAL-PAGE] Sorted definitions by content votes:', 
             sortedDefinitions.map(d => ({
                 id: d.id,
@@ -1223,6 +1223,8 @@ async function handleExpandWord(event: CustomEvent<{
                 publicCredit: defNode.public_credit ?? defNode.publicCredit ?? true,
                 isApiDefinition: defNode.is_api_definition ?? defNode.isApiDefinition ?? false,
                 isAICreated: defNode.is_ai_created ?? defNode.isAICreated ?? false,
+                // ✅ NEW: Mark if this is the live definition (highest content votes = index 0)
+                isLiveDefinition: index === 0,
                 inclusionPositiveVotes: defNode.inclusion_positive_votes || defNode.inclusionPositiveVotes || 0,
                 inclusionNegativeVotes: defNode.inclusion_negative_votes || defNode.inclusionNegativeVotes || 0,
                 inclusionNetVotes: defNode.inclusion_net_votes || defNode.inclusionNetVotes || 0,
@@ -1237,7 +1239,9 @@ async function handleExpandWord(event: CustomEvent<{
             metadata: {
                 group: 'definition',
                 initialPosition: definitionPositions[index],
-                net_votes: defNode.inclusion_net_votes || defNode.inclusionNetVotes || 0
+                net_votes: defNode.inclusion_net_votes || defNode.inclusionNetVotes || 0,
+                // ✅ NEW: Also store in metadata for easy access
+                isLiveDefinition: index === 0
             }
         }));
         

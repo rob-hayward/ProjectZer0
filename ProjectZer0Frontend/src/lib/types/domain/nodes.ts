@@ -7,6 +7,7 @@ export interface Definition {
     publicCredit: boolean;
     isApiDefinition?: boolean;
     isAICreated?: boolean;
+    isLiveDefinition?: boolean;  
     discussionId?: string;
     createdAt: string;
     updatedAt: string;

@@ -1282,6 +1282,35 @@ export class UniversalGraphManager {
                         keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                         votes: votes
                     };
+                } else if (node.type === 'definition') {
+                    // Definition node data extraction
+                    const votes = node.metadata?.votes as any;
+                    const inclusionVotes = votes?.inclusion || votes || {};
+                    const contentVotes = votes?.content || votes || {};
+                    
+                    nodeData = {
+                        ...nodeData,
+                        word: node.data && 'word' in node.data ? (node.data as any).word : '',
+                        definitionText: node.data && 'definitionText' in node.data ? (node.data as any).definitionText : '',
+                        isApiDefinition: node.data && 'isApiDefinition' in node.data ? (node.data as any).isApiDefinition : false,
+                        isAICreated: node.data && 'isAICreated' in node.data ? (node.data as any).isAICreated : false,
+                        // ✅ NEW: Preserve isLiveDefinition flag
+                        isLiveDefinition: node.data && 'isLiveDefinition' in node.data ? (node.data as any).isLiveDefinition : false,
+                        // Inclusion votes
+                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                        // Content votes
+                        contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
+                        contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
+                        contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
+                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                        votes: votes
+                    };
             } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
                 nodeData = {
                     ...nodeData,
@@ -1722,7 +1751,12 @@ export class UniversalGraphManager {
             case 'word':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
             case 'definition':
-                return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.DEFINITION);
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return this.extractBaseColorFromStyle(
+                    isLive 
+                        ? NODE_CONSTANTS.COLORS.DEFINITION.live
+                        : NODE_CONSTANTS.COLORS.DEFINITION.alternative
+                );
             case 'navigation':
                 return 'transparent';
             case 'dashboard':
@@ -1756,6 +1790,11 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.CATEGORY.background;
             case 'word':
                 return NODE_CONSTANTS.COLORS.WORD.background;
+            case 'definition':
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return isLive 
+                    ? NODE_CONSTANTS.COLORS.DEFINITION.live.background
+                    : NODE_CONSTANTS.COLORS.DEFINITION.alternative.background;   
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.background;
             default:
@@ -1780,6 +1819,11 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.CATEGORY.border; 
             case 'word':
                 return NODE_CONSTANTS.COLORS.WORD.border;  
+            case 'definition':
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return isLive 
+                    ? NODE_CONSTANTS.COLORS.DEFINITION.live.border
+                    : NODE_CONSTANTS.COLORS.DEFINITION.alternative.border;   
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.border;
             default:
@@ -1804,6 +1848,11 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.CATEGORY.hover;
             case 'word':
                 return NODE_CONSTANTS.COLORS.WORD.hover;
+            case 'definition':
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return isLive 
+                    ? NODE_CONSTANTS.COLORS.DEFINITION.live.hover
+                    : NODE_CONSTANTS.COLORS.DEFINITION.alternative.hover;   
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.hover;
             default:
@@ -1828,6 +1877,11 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.CATEGORY.gradient.start;
             case 'word':
                 return NODE_CONSTANTS.COLORS.WORD.gradient.start;
+            case 'definition':
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return isLive 
+                    ? NODE_CONSTANTS.COLORS.DEFINITION.live.gradient.start
+                    : NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.start;    
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.start;
             default:
@@ -1852,6 +1906,11 @@ export class UniversalGraphManager {
                 return NODE_CONSTANTS.COLORS.CATEGORY.gradient.end;
             case 'word':
                 return NODE_CONSTANTS.COLORS.WORD.gradient.end;
+            case 'definition':
+                const isLive = (node.data as any)?.isLiveDefinition === true;
+                return isLive 
+                    ? NODE_CONSTANTS.COLORS.DEFINITION.live.gradient.end
+                    : NODE_CONSTANTS.COLORS.DEFINITION.alternative.gradient.end;   
             case 'dashboard':
                 return NODE_CONSTANTS.COLORS.DASHBOARD.gradient.end;
             default:
