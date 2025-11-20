@@ -895,8 +895,7 @@
      * 3. If not exists: fetch category data, add to graph, center on new node
      * 4. Reheat simulation to allow nodes to settle
      */
-    // CORRECTED handleExpandCategory - All TypeScript errors fixed
-// Location: src/routes/graph/universal/+page.svelte, replace entire function
+
 
 async function handleExpandCategory(event: CustomEvent<{
     categoryId: string;
@@ -948,6 +947,21 @@ async function handleExpandCategory(event: CustomEvent<{
             wordCount: expansionData.nodes.filter((n: any) => n.type === 'word').length
         });
         
+        // ✅ NEW: Extract word nodes from the expansion data
+        const wordApiNodes = expansionData.nodes.filter((n: any) => n.type === 'word');
+        
+        // ✅ NEW: Create words array for the category data
+        const wordsArray = wordApiNodes.map((w: any) => ({
+            id: w.id || w.word,
+            word: w.word || w.content,
+            inclusionNetVotes: w.inclusionNetVotes || 0
+        }));
+        
+        console.log('[UNIVERSAL-PAGE] Extracted words for category:', {
+            wordCount: wordsArray.length,
+            words: wordsArray.map(w => w.word)
+        });
+        
         // Calculate position near source node
         const categoryPosition = calculateProximalPosition(
             sourcePosition,
@@ -971,10 +985,10 @@ async function handleExpandCategory(event: CustomEvent<{
                 inclusionPositiveVotes: categoryApiNode.inclusionPositiveVotes || 0,
                 inclusionNegativeVotes: categoryApiNode.inclusionNegativeVotes || 0,
                 inclusionNetVotes: categoryApiNode.inclusionNetVotes || 0,
-                wordCount: categoryApiNode.wordCount || 0,
+                wordCount: categoryApiNode.wordCount || wordsArray.length,  // ✅ UPDATED: Use actual word count
                 contentCount: categoryApiNode.contentCount || 0,
                 childCount: categoryApiNode.childCount || 0,
-                words: categoryApiNode.words || [],
+                words: wordsArray,  // ✅ CHANGED: Use extracted words array instead of categoryApiNode.words
                 parentCategory: categoryApiNode.parentCategory || null,
                 childCategories: categoryApiNode.childCategories || [],
                 discussionId: categoryApiNode.discussionId
@@ -1015,7 +1029,8 @@ async function handleExpandCategory(event: CustomEvent<{
         
         console.log('[UNIVERSAL-PAGE] Adding ONLY category node to graph:', {
             categoryNodeId: categoryGraphNode.id,
-            categoryName: categoryGraphNode.data,
+            categoryHasWords: wordsArray.length > 0,  // ✅ UPDATED: Show if words were included
+            wordsInCategory: wordsArray.map(w => w.word),  // ✅ NEW: Show which words
             relevantLinks: relevantLinks.length,
             excludedWordNodes: expansionData.nodes.filter((n: any) => n.type === 'word').length,
             excludedComposedOfLinks: expansionData.relationships.filter((r: any) => 

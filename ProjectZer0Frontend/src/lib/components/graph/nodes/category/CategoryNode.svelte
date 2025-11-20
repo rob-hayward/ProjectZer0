@@ -90,6 +90,7 @@
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
 
+	// ✅ FIXED: Convert words to Keyword[] format for KeywordTags component
 	$: keywordsForDisplay = composedWords.map((w: any) => ({
 		word: typeof w === 'string' ? w : w.word,
 		frequency: 1,
@@ -98,15 +99,34 @@
 
 	$: isDetail = node.mode === 'detail';
 
+	// ✅ FIXED: Added expandWord to event dispatcher
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
-		keywordClick: { word: string };
+		expandWord: { 
+			word: string;
+			sourceNodeId: string;
+			sourcePosition: { x: number; y: number };
+		};
 		parentCategoryClick: { categoryId: string; categoryName: string };
 		childCategoryClick: { categoryId: string; categoryName: string };
 	}>();
 
 	onMount(async () => {
+		console.log('[CategoryNode] 🔍 DEBUG - Component mounted for:', categoryData.name);
+		console.log('[CategoryNode] 🔍 DEBUG - Full categoryData:', categoryData);
+		console.log('[CategoryNode] 🔍 DEBUG - categoryData.words:', categoryData.words);
+		console.log('[CategoryNode] 🔍 DEBUG - composedWords:', composedWords);
+		console.log('[CategoryNode] 🔍 DEBUG - keywordsForDisplay:', keywordsForDisplay);
+		console.log('[CategoryNode] 🔍 DEBUG - Data properties:', {
+			hasWords: 'words' in categoryData,
+			wordsType: typeof categoryData.words,
+			wordsIsArray: Array.isArray(categoryData.words),
+			wordsLength: categoryData.words?.length,
+			wordCount: categoryData.wordCount,
+			keys: Object.keys(categoryData)
+		});
+		
 		console.log('[CategoryNode] Initializing vote behaviour for', node.id);
 		
 		inclusionVoting = createVoteBehaviour(node.id, 'category', {
@@ -161,8 +181,24 @@
 		});
 	}
 
+	// ✅ FIXED: Now dispatches expandWord event like StatementNode
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
-		dispatch('keywordClick', event.detail);
+		const { word } = event.detail;
+		
+		console.log('[CategoryNode] Keyword clicked:', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: node.position
+		});
+		
+		dispatch('expandWord', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: {
+				x: node.position?.x || 0,
+				y: node.position?.y || 0
+			}
+		});
 	}
 
 	function handleParentCategoryClick() {
@@ -188,12 +224,13 @@
 			<NodeHeader title="Category" {radius} mode="detail" />
 		</svelte:fragment>
 
+		<!-- ✅ PRESENT: KeywordTags showing composed words -->
 		<svelte:fragment slot="keywordTags" let:radius>
 			{#if keywordsForDisplay.length > 0}
 				<KeywordTags 
 					keywords={keywordsForDisplay}
 					{radius}
-					maxDisplay={5}
+					maxDisplay={8}
 					on:keywordClick={handleKeywordClick}
 				/>
 			{/if}
