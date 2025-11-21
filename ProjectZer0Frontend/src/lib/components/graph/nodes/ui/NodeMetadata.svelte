@@ -2,7 +2,6 @@
 <script lang="ts">
   export let createdAt: string;  // ISO timestamp
   export let updatedAt: string | undefined = undefined;  // ISO timestamp, optional
-  export let radius: number;
 
   // Format timestamp for display
   function formatTimestamp(timestamp: string): string {
@@ -46,12 +45,9 @@
   $: hasBeenUpdated = updatedAt && updatedAt !== createdAt;
   $: formattedCreatedAt = formatTimestamp(createdAt);
   $: formattedUpdatedAt = hasBeenUpdated ? formatTimestamp(updatedAt!) : null;
-
-  // Position above CreatorCredits in detail mode
-  $: yPosition = radius + 5;
 </script>
 
-<g class="node-metadata" transform="translate(0, {yPosition})">
+<g class="node-metadata">
   <!-- Created timestamp -->
   <text
     x="0"

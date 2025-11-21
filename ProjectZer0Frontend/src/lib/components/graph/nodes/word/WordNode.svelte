@@ -236,7 +236,6 @@
 			<NodeMetadata
 				createdAt={wordData.createdAt}
 				updatedAt={wordData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -246,7 +245,6 @@
 				<CreatorCredits
 					createdBy={wordData.createdBy}
 					publicCredit={wordData.publicCredit}
-					{radius}
 					prefix="created by:"
 				/>
 			{/if}

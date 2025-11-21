@@ -408,7 +408,6 @@
 			<NodeMetadata
 				createdAt={statementData.createdAt}
 				updatedAt={statementData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -416,7 +415,6 @@
 			<CreatorCredits
 				createdBy={statementData.createdBy}
 				publicCredit={statementData.publicCredit}
-				{radius}
 			/>
 		</svelte:fragment>
 

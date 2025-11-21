@@ -264,7 +264,6 @@
 			<NodeMetadata
 				createdAt={questionData.createdAt}
 				updatedAt={questionData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -272,7 +271,6 @@
 			<CreatorCredits
 				createdBy={questionData.createdBy}
 				publicCredit={questionData.publicCredit}
-				{radius}
 				prefix="asked by:"
 			/>
 		</svelte:fragment>

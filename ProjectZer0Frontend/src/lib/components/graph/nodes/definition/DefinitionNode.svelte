@@ -385,7 +385,6 @@
 			<NodeMetadata
 				createdAt={definitionData.createdAt}
 				updatedAt={definitionData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -394,7 +393,6 @@
 				<CreatorCredits
 					createdBy={definitionData.createdBy}
 					publicCredit={definitionData.publicCredit}
-					{radius}
 					prefix="defined by:"
 				/>
 			{/if}

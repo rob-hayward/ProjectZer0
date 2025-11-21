@@ -368,7 +368,6 @@
 			<NodeMetadata
 				createdAt={categoryData.createdAt}
 				updatedAt={categoryData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -377,7 +376,6 @@
 				<CreatorCredits
 					createdBy={categoryData.createdBy}
 					publicCredit={categoryData.publicCredit}
-					{radius}
 					prefix="created by:"
 				/>
 			{/if}

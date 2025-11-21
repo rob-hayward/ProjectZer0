@@ -797,7 +797,6 @@
                     createdBy={evidenceData.createdBy}
                     publicCredit={evidenceData.publicCredit}
                     creatorDetails={null}
-                    {radius}
                     prefix="submitted by:"
                 />
             {/if}
@@ -808,7 +807,6 @@
             <NodeMetadata
                 createdAt={evidenceData.createdAt}
                 updatedAt={evidenceData.updatedAt}
-                {radius}
             />
         </svelte:fragment>
     </BaseDetailNode>

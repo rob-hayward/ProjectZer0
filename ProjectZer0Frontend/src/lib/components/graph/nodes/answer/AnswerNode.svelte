@@ -376,7 +376,6 @@
 			<NodeMetadata
 				createdAt={answerData.createdAt}
 				updatedAt={answerData.updatedAt}
-				{radius}
 			/>
 		</svelte:fragment>
 
@@ -384,7 +383,6 @@
 			<CreatorCredits
 				createdBy={answerData.createdBy}
 				publicCredit={answerData.publicCredit}
-				{radius}
 			/>
 		</svelte:fragment>
 

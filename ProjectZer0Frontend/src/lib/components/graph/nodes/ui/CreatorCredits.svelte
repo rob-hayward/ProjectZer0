@@ -6,34 +6,30 @@
     export let createdBy: string;
     export let publicCredit: boolean = true;
     export let creatorDetails: any = null;
-    export let radius: number;
     export let prefix: string = 'created by:';
     export let color: string = 'rgba(255, 255, 255, 0.5)';
     export let fontSize: string = '10px';
   
-    // Calculate position (bottom of node)
-    $: yPosition = radius - 55;
-  
     // Get display name
     $: displayName = getDisplayName(createdBy, creatorDetails, !publicCredit);
-  </script>
+</script>
   
-  {#if createdBy}
+{#if createdBy}
     <text
-      y={yPosition}
+      y={0}
       class="creator-credits"
       style:font-size={fontSize}
       style:fill={color}
     >
       {prefix} {displayName}
     </text>
-  {/if}
+{/if}
   
-  <style>
+<style>
     .creator-credits {
       text-anchor: middle;
       font-family: Inter;
       dominant-baseline: middle;
       pointer-events: none;
     }
-  </style>
+</style>
