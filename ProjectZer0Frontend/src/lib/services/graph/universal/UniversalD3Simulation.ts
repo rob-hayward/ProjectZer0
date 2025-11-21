@@ -1,5 +1,6 @@
 // src/lib/services/graph/universal/UniversalD3Simulation.ts
 // D3 force simulation management for Universal Graph
+// ENHANCED: Significantly strengthened system node repulsion force
 
 import * as d3 from 'd3';
 import type { EnhancedNode, EnhancedLink } from '$lib/types/graph/enhanced';
@@ -35,11 +36,14 @@ export class UniversalD3Simulation {
 
     /**
      * Create custom force to repel content nodes from system nodes
+     * ENHANCED: Much stronger force with aggressive parameters
      */
     private createSystemNodeRepulsionForce() {
         return (alpha: number) => {
             const simulationNodes = this.simulation.nodes() as EnhancedNode[];
             const systemNodes = this.systemNodes;
+            
+            if (systemNodes.length === 0) return;
             
             simulationNodes.forEach(contentNode => {
                 systemNodes.forEach(systemNode => {
@@ -47,21 +51,51 @@ export class UniversalD3Simulation {
                     const dy = (contentNode.y ?? 0) - (systemNode.y ?? 0);
                     const distance = Math.sqrt(dx * dx + dy * dy);
                     
+                    if (distance === 0) return; // Skip if at exact same position
+                    
                     const systemRadius = systemNode.radius || 50;
                     const contentRadius = contentNode.radius || 50;
-                    const minDistance = systemRadius + contentRadius + 50; // 50px buffer
                     
-                    if (distance < minDistance && distance > 0) {
-                        const strength = ((minDistance - distance) / minDistance) * 2.0 * alpha;
+                    // MUCH LARGER exclusion zone - content nodes should stay far away
+                    const SAFETY_BUFFER = 100; // Increased from 50px to 150px
+                    const minDistance = systemRadius + contentRadius + SAFETY_BUFFER;
+                    
+                    // Apply force if within exclusion zone
+                    if (distance < minDistance) {
+                        // AGGRESSIVE strength calculation
+                        // The closer the node, the exponentially stronger the force
+                        const penetration = minDistance - distance;
+                        const penetrationRatio = penetration / minDistance;
                         
+                        // Exponential strength: closer = much stronger force
+                        // Base strength is HIGH and doesn't rely on alpha
+                        const baseStrength = 50.0; // Very high base strength
+                        const exponentialFactor = Math.pow(penetrationRatio, 2); // Squared for exponential growth
+                        const strength = baseStrength * exponentialFactor * (1 + alpha);
+                        
+                        // Calculate force vector (pushing away from system node)
                         const fx = (dx / distance) * strength;
                         const fy = (dy / distance) * strength;
                         
+                        // Apply force to content node velocity
                         if (contentNode.vx !== null && contentNode.vx !== undefined) {
                             contentNode.vx += fx;
                         }
                         if (contentNode.vy !== null && contentNode.vy !== undefined) {
                             contentNode.vy += fy;
+                        }
+                        
+                        // DEBUG: Log violations (only log occasionally to avoid spam)
+                        if (Math.random() < 0.01) { // 1% sample rate
+                            console.log('[D3Simulation] System repulsion applied:', {
+                                contentNode: contentNode.id.substring(0, 8),
+                                systemNode: systemNode.id.substring(0, 8),
+                                distance: distance.toFixed(1),
+                                minDistance: minDistance.toFixed(1),
+                                penetration: penetration.toFixed(1),
+                                strength: strength.toFixed(2),
+                                forceVector: { fx: fx.toFixed(2), fy: fy.toFixed(2) }
+                            });
                         }
                     }
                 });
@@ -350,6 +384,7 @@ export class UniversalD3Simulation {
         this.simulation.force('centerX', d3.forceX(0).strength(UNIVERSAL_FORCES.DROP_PHASE.CENTER.X_STRENGTH));
         this.simulation.force('centerY', d3.forceY(0).strength(UNIVERSAL_FORCES.DROP_PHASE.CENTER.Y_STRENGTH));
 
+        // ENHANCED: Apply strengthened system repulsion force
         this.simulation.force('systemRepulsion', this.createSystemNodeRepulsionForce());
 
         // Apply drop phase simulation parameters
@@ -396,6 +431,7 @@ export class UniversalD3Simulation {
         // 5. Angular spreading force
         this.simulation.force('angular', this.createAngularSpreadingForce());
 
+        // 6. ENHANCED: Apply strengthened system repulsion force
         this.simulation.force('systemRepulsion', this.createSystemNodeRepulsionForce());
         
         // Apply settlement phase parameters
@@ -717,7 +753,7 @@ export class UniversalD3Simulation {
      */
     private getActiveForces(): string[] {
         const forces: string[] = [];
-        const forceNames = ['charge', 'collision', 'softRadial', 'angular', 'link', 'centerX', 'centerY'];
+        const forceNames = ['charge', 'collision', 'softRadial', 'angular', 'link', 'centerX', 'centerY', 'systemRepulsion'];
         forceNames.forEach(name => {
             if (this.simulation.force(name)) {
                 forces.push(name);

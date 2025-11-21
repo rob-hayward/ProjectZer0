@@ -270,18 +270,18 @@ export class UniversalGraphManager {
             count: navigationNodes.length
         });
         
-        // Get all nodes including system nodes
+        // Get all current nodes (system + simulation)
         const allNodes = this.d3Simulation.getAllNodes();
         
-        // Update each navigation node's position
+        // Update navigation nodes with new positions
         const updatedNodes = allNodes.map(node => {
             if (node.type === 'navigation') {
                 const navNode = navigationNodes.find(n => n.id === node.id);
                 if (navNode && navNode.metadata?.initialPosition) {
                     console.log('[UniversalGraphManager] Updating nav node position:', {
                         id: node.id,
-                        newX: navNode.metadata.initialPosition.x.toFixed(1),
-                        newY: navNode.metadata.initialPosition.y.toFixed(1)
+                        oldPos: node.x && node.y ? `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})` : 'none',
+                        newPos: `(${navNode.metadata.initialPosition.x.toFixed(1)}, ${navNode.metadata.initialPosition.y.toFixed(1)})`
                     });
                     
                     return {
@@ -291,19 +291,31 @@ export class UniversalGraphManager {
                         fx: navNode.metadata.initialPosition.x,
                         fy: navNode.metadata.initialPosition.y,
                         vx: 0,
-                        vy: 0
+                        vy: 0,
+                        metadata: {
+                            ...node.metadata,
+                            initialPosition: navNode.metadata.initialPosition,
+                            angle: navNode.metadata.angle
+                        }
                     };
                 }
             }
             return node;
         });
         
-        // Update simulation (it will separate system nodes internally)
-        this.d3Simulation.updateNodes(updatedNodes);
+        // Separate system nodes from content nodes
+        const systemNodes = updatedNodes.filter(n => 
+            n.type === 'navigation' || n.group === 'central' || n.fixed
+        );
         
-        // Update stores
+        // CRITICAL: Update system nodes directly (they're not in simulation)
+        this.d3Simulation.updateSystemNodes(systemNodes);
+        
+        // Update stores to trigger re-render
         this.nodesStore.set(updatedNodes);
         this.forceUpdateCounter.update(n => n + 1);
+        
+        console.log('[UniversalGraphManager] Navigation positions updated successfully');
     }
 
     private startSizeChangeSettlementMonitoring(): void {

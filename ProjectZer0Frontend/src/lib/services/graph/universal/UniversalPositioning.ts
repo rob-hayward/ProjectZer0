@@ -1,10 +1,11 @@
 // src/lib/services/graph/universal/UniversalPositioning.ts
 // Vote-based positioning calculations for Universal Graph
-// UPDATED: Supports 3 rings for ultra-close configuration with smooth progression
+// UPDATED: Dynamic BASE_DISTANCE calculation to respect navigation ring
 
 import type { EnhancedNode, GraphNode } from '$lib/types/graph/enhanced';
 import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 import { UNIVERSAL_LAYOUT } from './UniversalConstants';
+import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
 
 export interface PositionedNode {
     node: EnhancedNode;
@@ -19,10 +20,11 @@ export interface PositionedNode {
 /**
  * Calculate positions for nodes based on vote ranking
  * Maintains continuity across batches by using global index
+ * ENHANCED: Now respects navigation ring boundaries
  */
 export class UniversalPositioning {
     private readonly goldenAngle = UNIVERSAL_LAYOUT.POSITIONING.GOLDEN_ANGLE;
-    private readonly baseDistance = UNIVERSAL_LAYOUT.POSITIONING.BASE_DISTANCE;
+    private readonly configuredBaseDistance = UNIVERSAL_LAYOUT.POSITIONING.BASE_DISTANCE;
     private readonly distanceIncrement = UNIVERSAL_LAYOUT.POSITIONING.DISTANCE_INCREMENT;
     
     // Ring-based positioning for natural distribution
@@ -30,6 +32,67 @@ export class UniversalPositioning {
     private readonly SECOND_RING_SIZE = UNIVERSAL_LAYOUT.POSITIONING.SECOND_RING_SIZE;
     private readonly THIRD_RING_SIZE = UNIVERSAL_LAYOUT.POSITIONING.THIRD_RING_SIZE || 0;
     private readonly RING_DISTANCE_INCREMENT = UNIVERSAL_LAYOUT.POSITIONING.RING_DISTANCE_INCREMENT;
+    
+    // NEW: Dynamic base distance that respects navigation ring
+    private effectiveBaseDistance: number;
+    
+    constructor() {
+        // Calculate safe minimum distance on initialization
+        this.effectiveBaseDistance = this.calculateSafeBaseDistance();
+        
+        console.log('[UniversalPositioning] Initialized with safe distances:', {
+            configuredBaseDistance: this.configuredBaseDistance,
+            effectiveBaseDistance: this.effectiveBaseDistance,
+            adjustment: this.effectiveBaseDistance - this.configuredBaseDistance
+        });
+    }
+    
+    /**
+     * Calculate safe minimum distance for content nodes
+     * Must be beyond navigation ring outer edge to prevent overlaps
+     */
+    private calculateSafeBaseDistance(): number {
+        // Navigation ring calculation (based on NavigationRingPositioning.ts logic)
+        // We use DETAIL mode as worst case (largest ring)
+        const controlRadius = COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2; // 225px
+        const navRadius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2; // 40px
+        const gapDistance = COORDINATE_SPACE.LAYOUT.NAVIGATION.DISTANCE.FIXED_DISTANCE.DETAIL_MODE; // 70px
+        
+        // Ring radius to center of navigation nodes
+        const ringRadius = controlRadius + gapDistance + navRadius; // 335px
+        
+        // Outer edge of navigation nodes
+        const navOuterEdge = ringRadius + navRadius; // 375px
+        
+        // Content nodes need to start beyond this, with safety buffer
+        const SAFETY_BUFFER = 60; // Extra space for collision detection and forces
+        const safeMinimum = navOuterEdge + SAFETY_BUFFER; // 435px
+        
+        // Use the larger of configured distance or safe minimum
+        const effectiveDistance = Math.max(this.configuredBaseDistance, safeMinimum);
+        
+        console.log('[UniversalPositioning] Safe distance calculation:', {
+            controlRadius,
+            navRadius,
+            gapDistance,
+            ringRadius,
+            navOuterEdge,
+            SAFETY_BUFFER,
+            safeMinimum,
+            configuredBase: this.configuredBaseDistance,
+            effectiveDistance,
+            spacingBeyondNavRing: effectiveDistance - navOuterEdge
+        });
+        
+        return effectiveDistance;
+    }
+    
+    /**
+     * Get the effective base distance (accounts for navigation ring)
+     */
+    public getEffectiveBaseDistance(): number {
+        return this.effectiveBaseDistance;
+    }
     
     /**
      * Sort nodes by net votes (highest first)
@@ -62,26 +125,26 @@ export class UniversalPositioning {
     /**
      * Calculate target distance for a node based on its index
      * Uses ring-based approach for first nodes, then transitions to spiral
-     * UPDATED: Supports 3 rings
+     * UPDATED: Uses effectiveBaseDistance instead of configured base
      */
     private calculateTargetDistance(globalIndex: number): number {
         if (globalIndex < this.FIRST_RING_SIZE) {
-            // First ring: all nodes at base distance
-            return this.baseDistance;
+            // First ring: all nodes at effective base distance
+            return this.effectiveBaseDistance;
         } else if (globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE) {
-            // Second ring: all nodes at base + one increment
-            return this.baseDistance + this.RING_DISTANCE_INCREMENT;
+            // Second ring: effective base + one increment
+            return this.effectiveBaseDistance + this.RING_DISTANCE_INCREMENT;
         } else if (this.THIRD_RING_SIZE > 0 && 
                    globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE) {
-            // Third ring (if configured): all nodes at base + two increments
-            return this.baseDistance + (2 * this.RING_DISTANCE_INCREMENT);
+            // Third ring: effective base + two increments
+            return this.effectiveBaseDistance + (2 * this.RING_DISTANCE_INCREMENT);
         } else {
             // Subsequent nodes: use smooth spiral
             const ringsTotal = this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE;
             const spiralIndex = globalIndex - ringsTotal;
             const ringsCount = this.THIRD_RING_SIZE > 0 ? 3 : 2;
             
-            return this.baseDistance + 
+            return this.effectiveBaseDistance + 
                    (ringsCount * this.RING_DISTANCE_INCREMENT) + 
                    (Math.sqrt(spiralIndex) * this.distanceIncrement);
         }
@@ -116,7 +179,7 @@ export class UniversalPositioning {
     /**
      * Calculate positions for single-node sequential rendering
      * Uses global index to maintain continuity across batches
-     * UPDATED: Ring-based positioning for first nodes with 3 rings support
+     * UPDATED: Uses effectiveBaseDistance for safe positioning
      */
     public calculateSingleNodePositions(
         nodes: EnhancedNode[],
@@ -158,11 +221,23 @@ export class UniversalPositioning {
             (node as any).voteRank = globalIndex;
             (node as any).initialAngle = angle;
         });
+        
+        // Log first few positioned nodes for verification
+        if (contentNodes.length > 0) {
+            console.log('[UniversalPositioning] First 3 nodes positioned:', 
+                contentNodes.slice(0, 3).map(n => ({
+                    id: n.id.substring(0, 8),
+                    votes: (n as any).netVotes,
+                    distance: Math.sqrt((n.x || 0) ** 2 + (n.y || 0) ** 2).toFixed(1),
+                    targetDistance: (n as any).voteBasedDistance?.toFixed(1)
+                }))
+            );
+        }
     }
     
     /**
      * Calculate positions for batch rendering with continuity
-     * UPDATED: Ring-based positioning for first nodes with 3 rings support
+     * UPDATED: Uses effectiveBaseDistance for safe positioning
      */
     public calculateBatchPositions(
         nodes: EnhancedNode[],
@@ -203,6 +278,21 @@ export class UniversalPositioning {
             (node as any).voteRank = index;
             (node as any).initialAngle = angle;
         });
+        
+        // Log batch positioning summary
+        if (contentNodes.length > 0) {
+            const distances = contentNodes.map(n => Math.sqrt((n.x || 0) ** 2 + (n.y || 0) ** 2));
+            const minDist = Math.min(...distances);
+            const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+            
+            console.log('[UniversalPositioning] Batch positioned:', {
+                batchNumber,
+                nodeCount: contentNodes.length,
+                minDistance: minDist.toFixed(1),
+                avgDistance: avgDist.toFixed(1),
+                effectiveBase: this.effectiveBaseDistance
+            });
+        }
     }
     
     /**
@@ -215,7 +305,7 @@ export class UniversalPositioning {
     
     /**
      * Get initial position for a new node being added dynamically
-     * UPDATED: Ring-based positioning for first nodes with 3 rings support
+     * UPDATED: Uses effectiveBaseDistance for safe positioning
      */
     public getInitialNodePosition(
         existingNodes: EnhancedNode[],
@@ -240,7 +330,7 @@ export class UniversalPositioning {
             insertIndex = sortedNodes.length;
         }
         
-        // Calculate position using ring strategy
+        // Calculate position using ring strategy with safe base distance
         const targetDistance = this.calculateTargetDistance(insertIndex);
         const angle = this.calculateAngle(insertIndex);
         

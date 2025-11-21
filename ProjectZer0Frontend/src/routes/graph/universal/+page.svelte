@@ -1580,31 +1580,6 @@ function calculateDefinitionRing(
         <span class="loading-text">Initializing universal graph...</span>
     </div>
 {:else}
-    <!-- Phantom links status display -->
-    {#if enableBatchRendering}
-        <div class="batch-status">
-            <div class="batch-info">
-                <span class="batch-label">
-                    Phase 2.2 Phantom Links: {phantomLinksStatus.enabled ? 'ENABLED' : 'DISABLED'}
-                </span>
-                <span class="batch-progress">
-                    {#if enableSequentialRendering}
-                        {#if batchRenderingStatus.isRendering}
-                            Rendering batch {batchRenderingStatus.currentBatch}/{maxBatchesToRender}...
-                        {:else if batchRenderingStatus.isComplete}
-                            Complete: {batchRenderingStatus.renderedNodes} nodes | 
-                            Links: {phantomLinksStatus.linksCount} ({phantomLinksStatus.revealState})
-                        {:else}
-                            Ready: {maxBatchesToRender} batches | Links: {phantomLinksStatus.linksCount}
-                        {/if}
-                    {:else}
-                        {batchRenderingStatus.renderedNodes} / {batchRenderingStatus.totalNodes} nodes |
-                        Links: {phantomLinksStatus.linksCount} ({phantomLinksStatus.revealState})
-                    {/if}
-                </span>
-            </div>
-        </div>
-    {/if}
 
     <!-- BULLETPROOF: Blocking overlay during filter operations -->
     {#if isFilterOperationLocked && nodesLoading}
@@ -1718,36 +1693,6 @@ function calculateDefinitionRing(
         to {
             transform: rotate(360deg);
         }
-    }
-
-    /* ENHANCED: Phantom links status styles */
-    .batch-status {
-        position: fixed;
-        top: 1rem;
-        right: 1rem;
-        background: rgba(0, 0, 0, 0.8);
-        border: 1px solid rgba(0, 188, 212, 0.3);
-        border-radius: 8px;
-        padding: 0.5rem 1rem;
-        color: white;
-        font-family: 'Orbitron', sans-serif;
-        font-size: 0.8rem;
-        z-index: 40;
-    }
-
-    .batch-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .batch-label {
-        color: rgba(0, 188, 212, 1);
-        font-weight: 600;
-    }
-
-    .batch-progress {
-        opacity: 0.8;
     }
     
     /* BULLETPROOF: Blocking overlay for filter operations */
