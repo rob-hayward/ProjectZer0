@@ -147,7 +147,7 @@ export class UniversalGraphManager {
         
         if (isSettled || hasSettledPositions) {
             if (newData.nodes) {
-                const currentNodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+                const currentNodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
                 const updatedNodes = this.mergeNodeDataOnly(currentNodes, newData.nodes);
                 
                 this.nodesStore.set(updatedNodes);
@@ -162,7 +162,7 @@ export class UniversalGraphManager {
                 this.updatePerformanceMetrics(transformedLinks);
                 
                 const renderableLinks = this.createRenderableLinks(
-                    this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[],
+                    this.d3Simulation.getAllNodes() as unknown as EnhancedNode[],
                     transformedLinks,
                     new Map()
                 );
@@ -248,7 +248,7 @@ export class UniversalGraphManager {
                 this.d3Simulation.updateLinks(transformedLinks);
                 this.updatePerformanceMetrics(transformedLinks);
                 
-                const currentNodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+                const currentNodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
                 const renderableLinks = this.createRenderableLinks(currentNodes, transformedLinks, new Map());
                 this.opacityController.registerLinks(renderableLinks);
             }
@@ -259,6 +259,50 @@ export class UniversalGraphManager {
             this.simulationActive = true;
         }
         
+        this.forceUpdateCounter.update(n => n + 1);
+    }
+
+    /**
+     * Update navigation node positions (called when control node mode changes)
+     */
+    public updateNavigationPositions(navigationNodes: GraphNode[]): void {
+        console.log('[UniversalGraphManager] Updating navigation node positions:', {
+            count: navigationNodes.length
+        });
+        
+        // Get all nodes including system nodes
+        const allNodes = this.d3Simulation.getAllNodes();
+        
+        // Update each navigation node's position
+        const updatedNodes = allNodes.map(node => {
+            if (node.type === 'navigation') {
+                const navNode = navigationNodes.find(n => n.id === node.id);
+                if (navNode && navNode.metadata?.initialPosition) {
+                    console.log('[UniversalGraphManager] Updating nav node position:', {
+                        id: node.id,
+                        newX: navNode.metadata.initialPosition.x.toFixed(1),
+                        newY: navNode.metadata.initialPosition.y.toFixed(1)
+                    });
+                    
+                    return {
+                        ...node,
+                        x: navNode.metadata.initialPosition.x,
+                        y: navNode.metadata.initialPosition.y,
+                        fx: navNode.metadata.initialPosition.x,
+                        fy: navNode.metadata.initialPosition.y,
+                        vx: 0,
+                        vy: 0
+                    };
+                }
+            }
+            return node;
+        });
+        
+        // Update simulation (it will separate system nodes internally)
+        this.d3Simulation.updateNodes(updatedNodes);
+        
+        // Update stores
+        this.nodesStore.set(updatedNodes);
         this.forceUpdateCounter.update(n => n + 1);
     }
 
@@ -340,7 +384,7 @@ export class UniversalGraphManager {
 
     private handleSizeChangeSettlementComplete(): void {
         // Preserve final positions
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         
         // Return simulation to dormant state
@@ -403,7 +447,7 @@ export class UniversalGraphManager {
         
         this.simulationActive = false;
         
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         
         // IMPORTANT: Remove centering forces after initial settlement
@@ -461,7 +505,7 @@ export class UniversalGraphManager {
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
                 this.d3Simulation.startSettlementPhase();
                 
-                const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+                const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
                 const contentNodes = nodes.filter(n => ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type));
                 
                 if (contentNodes.length > 0) {
@@ -496,7 +540,7 @@ export class UniversalGraphManager {
             return;
         }
         
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         this.forceUpdateCounter.update(n => n + 1);
     }
@@ -553,15 +597,16 @@ export class UniversalGraphManager {
     public updateNodeMode(nodeId: string, mode: NodeMode): void {
         const previousMode = this.nodeModes.get(nodeId);
         this.nodeModes.set(nodeId, mode);
+        const allNodes = this.d3Simulation.getAllNodes();
         
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
         if (nodeIndex === -1) {
             return;
         }
         
-        const node = nodes[nodeIndex];
+        const node = allNodes[nodeIndex];
         if (node.mode === mode) {
             return;
         }
@@ -580,7 +625,8 @@ export class UniversalGraphManager {
             }
         };
         
-        nodes[nodeIndex] = updatedNode;
+        allNodes[nodeIndex] = updatedNode;
+
         
         // Store current position but don't fix it yet if expanding to detail
         // This allows centering animation to complete without interference
@@ -593,8 +639,8 @@ export class UniversalGraphManager {
         }
         
         // Always update stores and dispatch event
-        this.d3Simulation.updateNodes(nodes);
-        this.nodesStore.set(nodes);
+        this.d3Simulation.updateNodes(allNodes);
+        this.nodesStore.set(allNodes);
         this.forceUpdateCounter.update(n => n + 1);
         
         this.dispatchModeChangeEvent(nodeId, mode, { x: updatedNode.x ?? 0, y: updatedNode.y ?? 0 });
@@ -673,15 +719,17 @@ export class UniversalGraphManager {
         return new Map(this.nodeModes);
     }
 
+
     public setDefaultNodeMode(mode: NodeMode): void {
         this.defaultNodeMode = mode;
     }
 
     public resetAllNodesToPreview(): void {
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        // Get all nodes including system nodes
+        const allNodes = this.d3Simulation.getAllNodes();
         let changedCount = 0;
         
-        nodes.forEach(node => {
+        allNodes.forEach(node => {
             if (node.mode === 'detail' && ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) {
                 this.nodeModes.set(node.id, 'preview');
                 node.mode = 'preview';
@@ -695,8 +743,12 @@ export class UniversalGraphManager {
         if (changedCount > 0) {
             this.updateCollisionForce();
             this.reheatSimulation(0.2);
-            this.d3Simulation.updateNodes(nodes);
-            this.nodesStore.set(nodes);
+            
+            // Update simulation with all nodes (will filter internally)
+            this.d3Simulation.updateNodes(allNodes);
+            
+            // Update stores
+            this.nodesStore.set(allNodes);
             this.forceUpdateCounter.update(n => n + 1);
         }
     }
@@ -711,6 +763,7 @@ export class UniversalGraphManager {
     }
 
     private updateCollisionForce(): void {
+        // Note: Navigation nodes are not in simulation, so collision only affects content nodes
         const simulation = this.d3Simulation.getSimulation();
         
         // Remove existing collision force
@@ -775,15 +828,19 @@ export class UniversalGraphManager {
         
         // Release fixed positions after a short delay to allow collision forces to engage
         setTimeout(() => {
-            const nodes = simulation.nodes() as EnhancedNode[];
-            nodes.forEach(node => {
-                // Only release non-permanently fixed nodes
+            const allNodes = this.d3Simulation.getAllNodes();
+            allNodes.forEach(node => {
+                // Skip system nodes (navigation, central)
+                if (node.type === 'navigation' || node.group === 'central' || node.fixed) {
+                    return;
+                }
+                
                 if (!node.fixed && node.fx !== null) {
                     node.fx = null;
                     node.fy = null;
                 }
             });
-        }, 150); // Slightly longer delay for better collision force engagement
+        }, 100);
         
         // Ensure simulation is active and running
         if (!this.simulationActive) {
@@ -796,12 +853,12 @@ export class UniversalGraphManager {
     }
 
     public updateNodeVisibility(nodeId: string, isHidden: boolean, hiddenReason: 'community' | 'user' = 'user'): void {
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
-        const nodeIndex = nodes.findIndex(n => n.id === nodeId);
+        const allNodes = this.d3Simulation.getAllNodes();
+        const nodeIndex = allNodes.findIndex(n => n.id === nodeId);
         
         if (nodeIndex === -1) return;
         
-        const oldNode = nodes[nodeIndex];
+        const oldNode = allNodes[nodeIndex];
         if (oldNode.isHidden === isHidden) return;
         
         this.clearNodeRadiusCache(nodeId);
@@ -821,14 +878,14 @@ export class UniversalGraphManager {
             expanded: updatedMode === 'detail'
         };
         
-        nodes[nodeIndex] = updatedNode;
+        allNodes[nodeIndex] = updatedNode;
 
         if (hiddenReason === 'user') {
             visibilityStore.setPreference(nodeId, !isHidden);
         }
         
-        this.d3Simulation.updateNodes(nodes);
-        this.nodesStore.set(nodes);
+        this.d3Simulation.updateNodes(allNodes);
+        this.nodesStore.set(allNodes);
         this.forceUpdateCounter.update(n => n + 1);
         
         this.d3Simulation.start(0.2);
@@ -838,7 +895,7 @@ export class UniversalGraphManager {
     public applyVisibilityPreferences(preferences: Record<string, boolean>): void {
         if (Object.keys(preferences).length === 0) return;
         
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         if (!nodes || nodes.length === 0) return;
         
         let changedNodeCount = 0;
@@ -874,7 +931,7 @@ export class UniversalGraphManager {
     public forceTick(ticks: number = 1): void {
         this.d3Simulation.forceTick(ticks);
         
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.nodesStore.set([...nodes]);
         this.forceUpdateCounter.update(n => n + 1);
     }
@@ -892,7 +949,7 @@ export class UniversalGraphManager {
     }
 
     public forceRevealAll(): void {
-        const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+        const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.opacityController.forceRevealAll(nodes);
     }
 
@@ -1941,7 +1998,7 @@ export class UniversalGraphManager {
         }
         
         if (this.d3Simulation) {
-            const nodes = this.d3Simulation.getSimulation().nodes() as unknown as EnhancedNode[];
+            const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
             this.preserveFinalPositions(nodes);
             this.d3Simulation.stopSimulation();
         }

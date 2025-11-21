@@ -22,6 +22,7 @@ export class UniversalD3Simulation {
     private settlementTickCounter = 0;
     private lastDOMUpdateTime = 0;
     private callbacks: SimulationCallbacks;
+    private systemNodes: EnhancedNode[] = []; // Track navigation and central nodes separately
 
     private isDormant = false;
     private shouldIgnoreEndEvents = false;
@@ -30,7 +31,82 @@ export class UniversalD3Simulation {
         this.callbacks = callbacks;
         this.simulation = this.initializeSimulation();
     }
-    
+
+
+    /**
+     * Create custom force to repel content nodes from system nodes
+     */
+    private createSystemNodeRepulsionForce() {
+        return (alpha: number) => {
+            const simulationNodes = this.simulation.nodes() as EnhancedNode[];
+            const systemNodes = this.systemNodes;
+            
+            simulationNodes.forEach(contentNode => {
+                systemNodes.forEach(systemNode => {
+                    const dx = (contentNode.x ?? 0) - (systemNode.x ?? 0);
+                    const dy = (contentNode.y ?? 0) - (systemNode.y ?? 0);
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    const systemRadius = systemNode.radius || 50;
+                    const contentRadius = contentNode.radius || 50;
+                    const minDistance = systemRadius + contentRadius + 50; // 50px buffer
+                    
+                    if (distance < minDistance && distance > 0) {
+                        const strength = ((minDistance - distance) / minDistance) * 2.0 * alpha;
+                        
+                        const fx = (dx / distance) * strength;
+                        const fy = (dy / distance) * strength;
+                        
+                        if (contentNode.vx !== null && contentNode.vx !== undefined) {
+                            contentNode.vx += fx;
+                        }
+                        if (contentNode.vy !== null && contentNode.vy !== undefined) {
+                            contentNode.vy += fy;
+                        }
+                    }
+                });
+            });
+        };
+    }
+
+    /**
+     * Separate and store system nodes (navigation, central) from content nodes
+     * System nodes should not participate in force simulation
+     */
+    private separateSystemNodes(nodes: EnhancedNode[]): {
+        simulationNodes: EnhancedNode[];
+        systemNodes: EnhancedNode[];
+    } {
+        const simulationNodes: EnhancedNode[] = [];
+        const systemNodes: EnhancedNode[] = [];
+        
+        nodes.forEach(node => {
+            if (node.type === 'navigation' || node.group === 'central' || node.fixed) {
+                systemNodes.push(node);
+            } else {
+                simulationNodes.push(node);
+            }
+        });
+        
+        this.systemNodes = systemNodes;
+        
+        console.log('[D3Simulation] Separated nodes:', {
+            simulationNodes: simulationNodes.length,
+            systemNodes: systemNodes.length,
+            systemTypes: systemNodes.map(n => n.type)
+        });
+        
+        return { simulationNodes, systemNodes };
+    }
+
+    /**
+     * Get all nodes including system nodes
+     */
+    public getAllNodes(): EnhancedNode[] {
+        const simulationNodes = this.simulation.nodes() as EnhancedNode[];
+        return [...simulationNodes, ...this.systemNodes];
+    }
+        
     /**
      * Initialize D3 simulation with base parameters
      */
@@ -50,20 +126,20 @@ export class UniversalD3Simulation {
             }
             
             tickCount++;
-            const nodes = simulation.nodes() as unknown as EnhancedNode[];
+            const allNodes = this.getAllNodes(); // CHANGED: Include system nodes
             
             // Enforce fixed positions for system nodes
-            this.enforceFixedPositions(nodes);
+            this.enforceFixedPositions(allNodes);
             
             // Handle settlement phase updates
             if (this.isInSettlementPhase) {
-                this.handleSettlementTick(nodes);
+                this.handleSettlementTick(allNodes); // CHANGED: Pass allNodes
             } else {
                 // Normal tick during drop phase - REDUCED: Only log every 100 ticks instead of constantly
                 if (tickCount % 100 === 0) {
                     console.log(`[D3Simulation] Drop phase - Tick #${tickCount}, alpha: ${simulation.alpha().toFixed(4)}`);
                 }
-                this.callbacks.onTick(nodes);
+                this.callbacks.onTick(allNodes); // CHANGED: Pass allNodes
             }
         });
 
@@ -73,6 +149,11 @@ export class UniversalD3Simulation {
                 console.log('[D3Simulation] 🛡️ IGNORING end event - simulation is dormant');
                 return;
             }
+            
+            console.log('[D3Simulation] Simulation ended naturally');
+            
+            const allNodes = this.getAllNodes(); // CHANGED: Include system nodes
+            this.callbacks.onTick(allNodes); // CHANGED: Pass allNodes
             
             if (this.isInSettlementPhase) {
                 this.handleSettlementEnd();
@@ -193,8 +274,8 @@ export class UniversalD3Simulation {
         // CRUCIAL DEBUG: Settlement phase end is important for debugging
         console.log(`[D3Simulation] Settlement phase ended after ${this.settlementTickCounter} ticks`);
         
-        const nodes = this.simulation.nodes() as unknown as EnhancedNode[];
-        const contentNodes = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
+        const allNodes = this.getAllNodes(); // CHANGED: Get all nodes including system
+        const contentNodes = allNodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
             n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence');
         
         const distances = contentNodes.map(n => Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2));
@@ -216,23 +297,22 @@ export class UniversalD3Simulation {
     
     /**
      * Enforce fixed positions for system nodes
+     * NOTE: System nodes (navigation, central) are no longer in simulation,
+     * but we still maintain their positions here
      */
     private enforceFixedPositions(nodes: EnhancedNode[]): void {
-        nodes.forEach(node => {
-            if (node.fixed || node.group === 'central') {
+        // System nodes (navigation, central) maintain their fixed positions
+        this.systemNodes.forEach(node => {
+            if (node.type === 'navigation') {
+                // Navigation nodes already have fx/fy set - just zero velocity
+                node.vx = 0;
+                node.vy = 0;
+            } else if (node.group === 'central' || node.fixed) {
+                // Central node stays at origin
                 node.x = 0;
                 node.y = 0;
                 node.fx = 0;
                 node.fy = 0;
-                node.vx = 0;
-                node.vy = 0;
-            } else if (node.type === 'navigation') {
-                if (node.fx !== null && node.fx !== undefined) {
-                    node.x = node.fx;
-                }
-                if (node.fy !== null && node.fy !== undefined) {
-                    node.y = node.fy;
-                }
                 node.vx = 0;
                 node.vy = 0;
             }
@@ -243,7 +323,10 @@ export class UniversalD3Simulation {
      * Configure forces for drop phase
      */
     public configureDropPhaseForces(nodes: EnhancedNode[], links: EnhancedLink[]): void {
-        this.simulation.nodes(asD3Nodes(nodes));
+        // CRITICAL: Separate and only simulate content nodes
+        const { simulationNodes } = this.separateSystemNodes(nodes);
+        
+        this.simulation.nodes(asD3Nodes(simulationNodes)); // Only content nodes
         
         const linkForce = this.simulation.force('link') as d3.ForceLink<any, any>;
         if (linkForce && links.length > 0) {
@@ -266,6 +349,8 @@ export class UniversalD3Simulation {
 
         this.simulation.force('centerX', d3.forceX(0).strength(UNIVERSAL_FORCES.DROP_PHASE.CENTER.X_STRENGTH));
         this.simulation.force('centerY', d3.forceY(0).strength(UNIVERSAL_FORCES.DROP_PHASE.CENTER.Y_STRENGTH));
+
+        this.simulation.force('systemRepulsion', this.createSystemNodeRepulsionForce());
 
         // Apply drop phase simulation parameters
         this.simulation
@@ -310,6 +395,8 @@ export class UniversalD3Simulation {
         
         // 5. Angular spreading force
         this.simulation.force('angular', this.createAngularSpreadingForce());
+
+        this.simulation.force('systemRepulsion', this.createSystemNodeRepulsionForce());
         
         // Apply settlement phase parameters
         this.simulation
@@ -410,10 +497,19 @@ export class UniversalD3Simulation {
         this.isInSettlementPhase = true;
         this.settlementTickCounter = 0;
         
-        const nodes = this.simulation.nodes() as EnhancedNode[];
+        // Get ONLY simulation nodes (excludes navigation and central)
+        const simulationNodes = this.simulation.nodes() as EnhancedNode[];
         
-        // Unpin ALL content nodes
-        nodes.forEach(node => {
+        console.log('[D3Simulation] Settlement starting with nodes:', {
+            simulationNodes: simulationNodes.length,
+            types: simulationNodes.reduce((acc: any, n) => {
+                acc[n.type] = (acc[n.type] || 0) + 1;
+                return acc;
+            }, {})
+        });
+        
+        // Unpin ALL simulation nodes (navigation nodes aren't here)
+        simulationNodes.forEach(node => {
             if (node.type === 'statement' || node.type === 'openquestion' ||
             node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
                 node.fx = null;
@@ -444,7 +540,8 @@ export class UniversalD3Simulation {
      * Update nodes in simulation
      */
     public updateNodes(nodes: EnhancedNode[]): void {
-        this.simulation.nodes(asD3Nodes(nodes));
+        const { simulationNodes } = this.separateSystemNodes(nodes);
+        this.simulation.nodes(asD3Nodes(simulationNodes)); // Only content nodes
     }
     
     /**
@@ -476,7 +573,7 @@ export class UniversalD3Simulation {
         this.isDormant = true;
         this.shouldIgnoreEndEvents = true;
         
-        // STEP 2: Get final positions
+        // STEP 2: Get final positions (only simulation nodes - system nodes handled separately)
         const nodes = this.simulation.nodes() as EnhancedNode[];
         
         // STEP 3: Set simulation to dormant state with higher alphaMin to prevent 'end' events
@@ -535,7 +632,7 @@ export class UniversalD3Simulation {
         this.isDormant = false;
         this.shouldIgnoreEndEvents = false;
         
-        // Get final positions before stopping
+        // Get final positions before stopping (only simulation nodes)
         const nodes = this.simulation.nodes() as EnhancedNode[];
         
         // REDUCED: Only log sample positions in development mode
@@ -633,7 +730,7 @@ export class UniversalD3Simulation {
      * Clear all forces
      */
     private clearAllForces(): void {
-        const forceNames = ['radial', 'voteRadial', 'centerX', 'centerY', 'link', 'charge', 'collision', 'softRadial', 'angular'];
+        const forceNames = ['radial', 'voteRadial', 'centerX', 'centerY', 'link', 'charge', 'collision', 'softRadial', 'angular', 'systemRepulsion'];
         forceNames.forEach(name => {
             this.simulation.force(name, null);
         });

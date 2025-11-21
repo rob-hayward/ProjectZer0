@@ -24,6 +24,7 @@
     import { fetchWithAuth } from '$lib/services/api';
     import { fetchCategoryExpansion, type CategoryExpansionResponse } from '$lib/services/graph/CategoryExpansionService';
     import { fetchWordExpansion, type WordExpansionResponse } from '$lib/services/graph/WordExpansionService';
+    import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
         GraphData, 
@@ -184,14 +185,28 @@
     }
     
     // Create navigation nodes
-    let navigationNodes = getNavigationOptions(NavigationContext.DASHBOARD)
-        .map(option => ({
+    function createNavigationNodesWithPositions(controlMode: NodeMode): GraphNode[] {
+        const options = getNavigationOptions(NavigationContext.DASHBOARD);
+        const positions = calculateNavigationRingPositions(options.length, controlMode);
+        
+        return options.map((option, index) => ({
             id: option.id,
             type: 'navigation' as const,
             data: option,
-            group: 'navigation' as const
+            group: 'navigation' as const,
+            metadata: {
+                group: 'navigation' as const,
+                fixed: true, // Mark as fixed so enforceFixedPositions recognizes them
+                initialPosition: {
+                    x: positions[index].x,
+                    y: positions[index].y
+                },
+                angle: positions[index].angle
+            }
         }));
+    }
         
+    let navigationNodes = createNavigationNodesWithPositions(controlNodeMode);
     // Navigation options for the transformer
     let navigationOptions: NavigationOption[] = getNavigationOptions(NavigationContext.DASHBOARD);
 
@@ -212,6 +227,59 @@
         mode: controlNodeMode
     };
 
+    $: if (controlNode && controlNode.mode !== undefined && graphData && graphStore) {
+        const newPositions = calculateNavigationRingPositions(navigationNodes.length, controlNode.mode);
+        
+        // Check if positions actually changed (to avoid unnecessary updates)
+        const positionsChanged = navigationNodes.some((node, index) => {
+            const currentPos = node.metadata?.initialPosition;
+            const newPos = newPositions[index];
+            return !currentPos || 
+                Math.abs(currentPos.x - newPos.x) > 0.1 || 
+                Math.abs(currentPos.y - newPos.y) > 0.1;
+        });
+        
+        if (positionsChanged) {
+            console.log('[UNIVERSAL-PAGE] Control node mode changed, recalculating navigation positions:', {
+                mode: controlNode.mode,
+                navigationCount: navigationNodes.length
+            });
+            
+            // Update navigation nodes with new positions
+            navigationNodes = navigationNodes.map((node, index) => ({
+                ...node,
+                 metadata: {
+                    group: 'navigation' as const, // Explicitly set to avoid undefined
+                    fixed: true,
+                    isDetail: false,
+                    votes: 0,
+                    ...node.metadata, // Spread existing metadata after setting required props
+                    initialPosition: {
+                        x: newPositions[index].x,
+                        y: newPositions[index].y
+                    },
+                    angle: newPositions[index].angle
+                }
+            }));
+            
+            // Update graph data to trigger re-render
+            if (graphData) {
+                graphData = {
+                    ...graphData,
+                    nodes: [
+                        ...navigationNodes,
+                        controlNode,
+                        ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId)
+                    ]
+                };
+            }
+            
+            // If graphStore exists and has updateNavigationPositions method, call it
+            if (graphStore && typeof graphStore.updateNavigationPositions === 'function') {
+                graphStore.updateNavigationPositions(navigationNodes);
+            }
+        }
+    }
     // Event listeners for manager events
     let modeChangeListener: EventListener;
     let sequentialBatchListener: EventListener;
