@@ -1,5 +1,6 @@
-// src/lib/services/graph/UniversalGraphManager.ts - UPDATED FOR 5 NODE TYPES
+// src/lib/services/graph/UniversalGraphManager.ts
 // Central orchestrator with enhanced opacity controller integration
+// CLEANED: Removed excessive logging, optimized methods, retained all functionality
 
 import * as d3 from 'd3';
 import { writable, derived, type Readable } from 'svelte/store';
@@ -58,7 +59,7 @@ export class UniversalGraphManager {
         currentBatch: 0
     };
 
-    // Position preservation for gentle updates
+    // Position preservation
     private finalPositionCache = new Map<string, {x: number, y: number, settled: boolean}>();
     private settlementCheckInterval: number | null = null;
 
@@ -95,6 +96,13 @@ export class UniversalGraphManager {
             onEnd: () => this.handleSimulationEnd(),
             onSettlementTick: (nodes, tickCount) => this.handleSettlementTick(nodes, tickCount)
         });
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('navigation-positions-update', ((event: CustomEvent) => {
+                console.log('[UniversalGraphManager] 📡 Received navigation-positions-update event');
+                this.updateNavigationPositions(event.detail.navigationNodes);
+            }) as EventListener);
+        }
         
         this.renderingStrategy = new UniversalRenderingStrategy({
             onNodesReady: (nodes, links) => this.handleNodesReady(nodes, links),
@@ -263,25 +271,41 @@ export class UniversalGraphManager {
     }
 
     /**
-     * Update navigation node positions (called when control node mode changes)
+     * Update navigation node positions
+     * Called when control node mode changes to reposition navigation ring
      */
     public updateNavigationPositions(navigationNodes: GraphNode[]): void {
-        console.log('[UniversalGraphManager] Updating navigation node positions:', {
-            count: navigationNodes.length
+        console.log('[UniversalGraphManager] 🎯 updateNavigationPositions called:', {
+            count: navigationNodes.length,
+            nodeTypes: navigationNodes.map(n => n.type),
+            hasMetadata: navigationNodes.every(n => !!n.metadata),
+            hasPositions: navigationNodes.every(n => !!n.metadata?.initialPosition)
         });
         
         // Get all current nodes (system + simulation)
         const allNodes = this.d3Simulation.getAllNodes();
+        
+        console.log('[UniversalGraphManager] Current nodes:', {
+            total: allNodes.length,
+            byType: allNodes.reduce((acc: any, n) => {
+                acc[n.type] = (acc[n.type] || 0) + 1;
+                return acc;
+            }, {})
+        });
         
         // Update navigation nodes with new positions
         const updatedNodes = allNodes.map(node => {
             if (node.type === 'navigation') {
                 const navNode = navigationNodes.find(n => n.id === node.id);
                 if (navNode && navNode.metadata?.initialPosition) {
-                    console.log('[UniversalGraphManager] Updating nav node position:', {
-                        id: node.id,
-                        oldPos: node.x && node.y ? `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})` : 'none',
-                        newPos: `(${navNode.metadata.initialPosition.x.toFixed(1)}, ${navNode.metadata.initialPosition.y.toFixed(1)})`
+                    const oldPos = node.x && node.y ? `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})` : 'none';
+                    const newPos = `(${navNode.metadata.initialPosition.x.toFixed(1)}, ${navNode.metadata.initialPosition.y.toFixed(1)})`;
+                    
+                    console.log('[UniversalGraphManager] 🔄 Updating nav node:', {
+                        id: node.id.substring(0, 20),
+                        oldPos,
+                        newPos,
+                        positionChanged: oldPos !== newPos
                     });
                     
                     return {
@@ -308,24 +332,28 @@ export class UniversalGraphManager {
             n.type === 'navigation' || n.group === 'central' || n.fixed
         );
         
-        // CRITICAL: Update system nodes directly (they're not in simulation)
+        console.log('[UniversalGraphManager] 🔧 Updating system nodes in simulation:', {
+            systemNodesCount: systemNodes.length,
+            navigationNodesCount: systemNodes.filter(n => n.type === 'navigation').length
+        });
+        
+        // Update system nodes in simulation
         this.d3Simulation.updateSystemNodes(systemNodes);
         
         // Update stores to trigger re-render
         this.nodesStore.set(updatedNodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        console.log('[UniversalGraphManager] Navigation positions updated successfully');
+        console.log('[UniversalGraphManager] ✅ Navigation positions updated successfully');
     }
 
     private startSizeChangeSettlementMonitoring(): void {
-        // Clear any existing settlement monitoring
         if (this.settlementCheckInterval) {
             clearInterval(this.settlementCheckInterval);
         }
         
         let checkCount = 0;
-        const maxChecks = 30; // Maximum 30 seconds of monitoring
+        const maxChecks = 30;
         
         this.settlementCheckInterval = window.setInterval(() => {
             checkCount++;
@@ -336,7 +364,6 @@ export class UniversalGraphManager {
             const currentAlpha = simulation.alpha();
             const nodes = simulation.nodes() as EnhancedNode[];
             
-            // Calculate average velocity for content nodes
             const contentNodes = nodes.filter(n => 
                 ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type) && !n.fixed
             );
@@ -354,20 +381,16 @@ export class UniversalGraphManager {
             
             const avgVelocity = totalVelocity / contentNodes.length;
             const isSettled = avgVelocity < 0.5 && currentAlpha < 0.05;
-            
-            // Check for overlapping nodes (collision detection)
             const hasOverlaps = this.checkForNodeOverlaps(contentNodes);
             
             if (isSettled && !hasOverlaps) {
-                // Nodes have settled without overlaps - return to dormant state
                 this.clearSizeChangeSettlementMonitoring();
                 this.handleSizeChangeSettlementComplete();
             } else if (checkCount >= maxChecks) {
-                // Force settlement after max time to prevent infinite monitoring
                 this.clearSizeChangeSettlementMonitoring();
                 this.handleSizeChangeSettlementComplete();
             }
-        }, 500); // Check every 500ms for size change settlement
+        }, 500);
     }
 
     private clearSizeChangeSettlementMonitoring(): void {
@@ -395,11 +418,9 @@ export class UniversalGraphManager {
     }
 
     private handleSizeChangeSettlementComplete(): void {
-        // Preserve final positions
         const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
         
-        // Return simulation to dormant state
         setTimeout(() => {
             if (this.d3Simulation) {
                 this.d3Simulation.sleepSimulation();
@@ -408,30 +429,7 @@ export class UniversalGraphManager {
         }, 200);
     }
 
-    private temporarilySleepSimulationForCentering(): void {
-        // Put the simulation to sleep temporarily to avoid interfering with centering
-        console.log('[UniversalGraphManager] Ã°Å¸ËœÂ´ SLEEPING simulation for centering - current state:', {
-            simulationActive: this.simulationActive,
-            isDormant: this.d3Simulation?.isDormantState?.(),
-            isSettling: this.d3Simulation?.isSettling?.()
-        });
-        
-        if (this.simulationActive && this.d3Simulation) {
-            this.d3Simulation.sleepSimulation();
-            this.simulationActive = false;
-            
-            console.log('[UniversalGraphManager] Ã°Å¸ËœÂ´ SLEEP COMPLETE - new state:', {
-                simulationActive: this.simulationActive,
-                isDormant: this.d3Simulation?.isDormantState?.(),
-                alpha: this.d3Simulation.getSimulation().alpha()
-            });
-        } else {
-            console.log('[UniversalGraphManager] Ã¢Å¡Â Ã¯Â¸Â SLEEP SKIPPED - simulation not active or missing');
-        }
-    }
-
     private checkForNodeOverlaps(nodes: EnhancedNode[]): boolean {
-        // Check if any nodes are overlapping based on their radii
         for (let i = 0; i < nodes.length; i++) {
             for (let j = i + 1; j < nodes.length; j++) {
                 const nodeA = nodes[i];
@@ -441,10 +439,10 @@ export class UniversalGraphManager {
                 const dy = (nodeA.y || 0) - (nodeB.y || 0);
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
-                const minDistance = nodeA.radius + nodeB.radius + 20; // 20px buffer
+                const minDistance = nodeA.radius + nodeB.radius + 20;
                 
                 if (distance < minDistance) {
-                    return true; // Overlap detected
+                    return true;
                 }
             }
         }
@@ -461,24 +459,16 @@ export class UniversalGraphManager {
         
         const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
-        
-        // IMPORTANT: Remove centering forces after initial settlement
-        // They're only needed for initial layout, after that they interfere with viewport centering
         this.removeCenteringForcesAfterInitialSettlement();
-        
         this.opacityController.onSettlementComplete();
     }
 
     private removeCenteringForcesAfterInitialSettlement(): void {
         const simulation = this.d3Simulation.getSimulation();
-        
-        // Remove centering forces that pull nodes toward (0,0)
         simulation.force('centerX', null);
         simulation.force('centerY', null);
         simulation.force('x', null);
         simulation.force('y', null);
-        
-        console.log('[UniversalGraphManager] Removed centering forces after initial settlement');
     }
 
     private preserveFinalPositions(nodes: EnhancedNode[]): void {
@@ -509,9 +499,7 @@ export class UniversalGraphManager {
     }
 
     private handleRenderComplete(): void {
-        if (!this.simulationActive) {
-            return;
-        }
+        if (!this.simulationActive) return;
         
         setTimeout(() => {
             if (this.simulationActive && !this.d3Simulation.isSettling()) {
@@ -548,9 +536,7 @@ export class UniversalGraphManager {
     }
 
     private handleSimulationEnd(): void {
-        if (this.d3Simulation?.isDormantState?.()) {
-            return;
-        }
+        if (this.d3Simulation?.isDormantState?.()) return;
         
         const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         this.preserveFinalPositions(nodes);
@@ -587,14 +573,8 @@ export class UniversalGraphManager {
 
     private handleLinkRenderingEnabled(): void {
         this.forceUpdateCounter.update(n => n + 1);
-        
-        setTimeout(() => {
-            this.forceUpdateCounter.update(n => n + 1);
-        }, 50);
-        
-        setTimeout(() => {
-            this.forceUpdateCounter.update(n => n + 1);
-        }, 100);
+        setTimeout(() => this.forceUpdateCounter.update(n => n + 1), 50);
+        setTimeout(() => this.forceUpdateCounter.update(n => n + 1), 100);
     }
 
     private getCurrentLinks(): EnhancedLink[] {
@@ -614,14 +594,10 @@ export class UniversalGraphManager {
         const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
         const nodeIndex = nodes.findIndex(n => n.id === nodeId);
         
-        if (nodeIndex === -1) {
-            return;
-        }
+        if (nodeIndex === -1) return;
         
         const node = allNodes[nodeIndex];
-        if (node.mode === mode) {
-            return;
-        }
+        if (node.mode === mode) return;
         
         const oldRadius = node.radius;
         const newRadius = this.getNodeRadius({ ...node, mode });
@@ -638,19 +614,13 @@ export class UniversalGraphManager {
         };
         
         allNodes[nodeIndex] = updatedNode;
-
         
-        // Store current position but don't fix it yet if expanding to detail
-        // This allows centering animation to complete without interference
         if (mode === 'detail') {
-            // For expansion: delay simulation reheating until after centering completes
             this.handleNodeExpansion(updatedNode, nodes);
         } else {
-            // For collapse: immediate reheating is fine
             this.handleNodeCollapse(updatedNode, nodes);
         }
         
-        // Always update stores and dispatch event
         this.d3Simulation.updateNodes(allNodes);
         this.nodesStore.set(allNodes);
         this.forceUpdateCounter.update(n => n + 1);
@@ -659,67 +629,54 @@ export class UniversalGraphManager {
     }
 
     private handleNodeExpansion(updatedNode: EnhancedNode, nodes: EnhancedNode[]): void {
-        // Store position but don't fix it yet - allow centering to work
         if (updatedNode.x !== null && updatedNode.y !== null) {
             updatedNode.fx = updatedNode.x;
             updatedNode.fy = updatedNode.y;
         }
         
-        // Update collision force immediately for the new size
         this.updateCollisionForce();
         
-        // Delay simulation reheating to allow centering animation to complete
-        // Standard centering animation is 750ms, so wait a bit longer
         setTimeout(() => {
-            // Now release the fixed position and allow physics to adjust other nodes
             if (!updatedNode.fixed) {
                 updatedNode.fx = null;
                 updatedNode.fy = null;
             }
-            
-            // Apply gentle reheating focused on other nodes, not the expanded one
             this.reheatSimulationForExpansion(updatedNode.id);
-        }, 850); // Wait for centering animation to complete
+        }, 850);
     }
 
     private handleNodeCollapse(updatedNode: EnhancedNode, nodes: EnhancedNode[]): void {
-        // For collapse, immediate reheating is fine since no centering animation
         this.updateCollisionForce();
         this.storeCurrentPositions(nodes);
-        this.reheatSimulation(0.2); // Gentler for collapse
+        this.reheatSimulation(0.2);
     }
 
     private reheatSimulationForExpansion(expandedNodeId: string): void {
         const simulation = this.d3Simulation.getSimulation();
         
-        // Check if simulation is in dormant state and wake it properly
         const isDormant = this.d3Simulation.isDormantState();
         if (isDormant) {
-            this.d3Simulation.wakeSimulation(0.3); // Moderate energy for expansion
+            this.d3Simulation.wakeSimulation(0.3);
         } else {
             simulation.alpha(0.3);
             simulation.alphaTarget(0);
         }
         
-        // Release fixed positions for all nodes EXCEPT the expanded one
         setTimeout(() => {
             const nodes = simulation.nodes() as EnhancedNode[];
             nodes.forEach(node => {
-                // Don't disturb the expanded node - let it stay where centering placed it
                 if (node.id !== expandedNodeId && !node.fixed && node.fx !== null) {
                     node.fx = null;
                     node.fy = null;
                 }
             });
-        }, 100); // Shorter delay since centering is already complete
+        }, 100);
         
-        // Ensure simulation is active
         if (!this.simulationActive) {
             simulation.restart();
             this.simulationActive = true;
         }
         
-        // Start monitoring for settlement after expansion
         this.startSizeChangeSettlementMonitoring();
     }
 
@@ -731,13 +688,11 @@ export class UniversalGraphManager {
         return new Map(this.nodeModes);
     }
 
-
     public setDefaultNodeMode(mode: NodeMode): void {
         this.defaultNodeMode = mode;
     }
 
     public resetAllNodesToPreview(): void {
-        // Get all nodes including system nodes
         const allNodes = this.d3Simulation.getAllNodes();
         let changedCount = 0;
         
@@ -755,11 +710,7 @@ export class UniversalGraphManager {
         if (changedCount > 0) {
             this.updateCollisionForce();
             this.reheatSimulation(0.2);
-            
-            // Update simulation with all nodes (will filter internally)
             this.d3Simulation.updateNodes(allNodes);
-            
-            // Update stores
             this.nodesStore.set(allNodes);
             this.forceUpdateCounter.update(n => n + 1);
         }
@@ -775,40 +726,31 @@ export class UniversalGraphManager {
     }
 
     private updateCollisionForce(): void {
-        // Note: Navigation nodes are not in simulation, so collision only affects content nodes
         const simulation = this.d3Simulation.getSimulation();
-        
-        // Remove existing collision force
         simulation.force('collision', null);
         
-        // Create enhanced collision force for size changes
         const collisionForce = d3.forceCollide()
             .radius((d: any) => {
                 const node = d as EnhancedNode;
                 const basePadding = this.d3Simulation.isSettling() 
                     ? UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.SETTLEMENT_PHASE
                     : UNIVERSAL_LAYOUT.NODE_SIZING.COLLISION_PADDING.DROP_PHASE;
-                
-                // Add extra padding for recently changed nodes to prevent tight clustering
-                const extraPadding = 15; // Additional padding for size changes
+                const extraPadding = 15;
                 return node.radius + basePadding + extraPadding;
             })
-            .strength(0.9) // Stronger collision avoidance for size changes
-            .iterations(3); // More iterations for better separation
+            .strength(0.9)
+            .iterations(3);
         
         simulation.force('collision', collisionForce);
-        
-        // Also ensure the charge (repulsion) force is active to help with separation
         this.ensureRepulsionForce();
     }
 
     private ensureRepulsionForce(): void {
         const simulation = this.d3Simulation.getSimulation();
         
-        // Check if charge force exists, if not add a moderate one
         if (!simulation.force('charge')) {
             simulation.force('charge', d3.forceManyBody()
-                .strength(-200) // Moderate repulsion
+                .strength(-200)
                 .distanceMin(50)
                 .distanceMax(800)
             );
@@ -827,22 +769,17 @@ export class UniversalGraphManager {
     private reheatSimulation(alpha: number = 0.3): void {
         const simulation = this.d3Simulation.getSimulation();
         
-        // Check if simulation is in dormant state and wake it properly
         const isDormant = this.d3Simulation.isDormantState();
         if (isDormant) {
-            // Use stronger wake-up energy for node size changes
             this.d3Simulation.wakeSimulation(Math.max(alpha, 0.4));
         } else {
-            // Standard alpha increase for active simulation
             simulation.alpha(alpha);
             simulation.alphaTarget(0);
         }
         
-        // Release fixed positions after a short delay to allow collision forces to engage
         setTimeout(() => {
             const allNodes = this.d3Simulation.getAllNodes();
             allNodes.forEach(node => {
-                // Skip system nodes (navigation, central)
                 if (node.type === 'navigation' || node.group === 'central' || node.fixed) {
                     return;
                 }
@@ -854,13 +791,11 @@ export class UniversalGraphManager {
             });
         }, 100);
         
-        // Ensure simulation is active and running
         if (!this.simulationActive) {
             simulation.restart();
             this.simulationActive = true;
         }
         
-        // Start monitoring for settlement after size changes
         this.startSizeChangeSettlementMonitoring();
     }
 
@@ -1042,7 +977,7 @@ export class UniversalGraphManager {
         
         let nodeMode: NodeMode | undefined = node.mode;
         if (node.group === 'central') {
-            nodeMode = node.mode ?? 'detail';  // Respect explicit mode or default to detail
+            nodeMode = node.mode ?? 'detail';
         }
         
         const nodeRadius = this.getNodeRadius({
@@ -1056,7 +991,6 @@ export class UniversalGraphManager {
             id: node.id
         };
         
-        // UPDATED: Handle all 5 content node types
         if (node.type === 'statement') {
             const votes = node.metadata?.votes as any;
             nodeData = {
@@ -1157,7 +1091,6 @@ export class UniversalGraphManager {
             const netVotes = this.positioning.getNodeVotes(node);
             
             const visibilityPref = visibilityStore.getPreference(node.id);
-            // UPDATED: Include all 5 content node types in isHidden logic
             const isHidden = visibilityPref !== undefined ? !visibilityPref : 
                             (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && netVotes < 0);
             const hiddenReason = visibilityPref !== undefined ? 'user' : 
@@ -1166,11 +1099,10 @@ export class UniversalGraphManager {
             let nodeMode: NodeMode = this.nodeModes.get(node.id) ?? node.mode ?? this.defaultNodeMode;
             
            if (node.group === 'central' && !this.nodeModes.has(node.id)) {
-                nodeMode = node.mode ?? 'detail';  // Respect explicit mode or default to detail
+                nodeMode = node.mode ?? 'detail';
                 this.nodeModes.set(node.id, nodeMode);
             }
             
-            // UPDATED: Include all 5 content node types in mode initialization
             if (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && !this.nodeModes.has(node.id)) {
                 nodeMode = 'preview';
                 this.nodeModes.set(node.id, nodeMode);
@@ -1187,7 +1119,6 @@ export class UniversalGraphManager {
                 id: node.id
             };
             
-            // UPDATED: Handle all 5 content node types
             if (node.type === 'statement') {
                 const votes = node.metadata?.votes as any;
                 nodeData = {
@@ -1213,7 +1144,6 @@ export class UniversalGraphManager {
                     votes: votes
                 };
             } else if (node.type === 'answer') {
-                // NEW: Answer node data extraction
                 const votes = node.metadata?.votes as any;
                 const inclusionVotes = votes?.inclusion || votes || {};
                 const contentVotes = votes?.content || votes || {};
@@ -1225,21 +1155,17 @@ export class UniversalGraphManager {
                                node.metadata?.discussionId || '',
                     parentQuestion: node.metadata?.parentQuestion,
                     discussionId: node.metadata?.discussionId,
-                    // Inclusion votes
                     inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
                     inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
                     inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                    // Content votes
                     contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
                     contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
                     contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
-                    // Categories and keywords
                     categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
                     keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                     votes: votes
                 };
             } else if (node.type === 'quantity') {
-                // NEW: Quantity node data extraction
                 const votes = node.metadata?.votes as any;
                 const inclusionVotes = votes?.inclusion || votes || {};
                 const contentVotes = votes?.content || votes || {};
@@ -1252,21 +1178,17 @@ export class UniversalGraphManager {
                     defaultUnitId: node.data && 'defaultUnitId' in node.data ? (node.data as any).defaultUnitId :
                                   node.metadata?.defaultUnitId || '',
                     discussionId: node.metadata?.discussionId,
-                    // Inclusion votes
                     inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
                     inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
                     inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                    // Content votes (same as inclusion for quantity)
                     contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || getNeo4jNumber(inclusionVotes?.positive) || 0,
                     contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || getNeo4jNumber(inclusionVotes?.negative) || 0,
                     contentNetVotes: getNeo4jNumber(contentVotes?.net) || getNeo4jNumber(inclusionVotes?.net) || 0,
-                    // Categories and keywords
                     categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
                     keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                     votes: votes
                 };
             } else if (node.type === 'evidence') {
-                // NEW: Evidence node data extraction
                 const votes = node.metadata?.votes as any;
                 const inclusionVotes = votes?.inclusion || votes || {};
                 const contentVotes = votes?.content || votes || {};
@@ -1286,100 +1208,91 @@ export class UniversalGraphManager {
                     sourceUrl: node.metadata?.sourceUrl,
                     parentNode: node.metadata?.parentNode,
                     discussionId: node.metadata?.discussionId,
-                    // Inclusion votes
                     inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
                     inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
                     inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                    // Content votes (same as inclusion for evidence)
                     contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || getNeo4jNumber(inclusionVotes?.positive) || 0,
                     contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || getNeo4jNumber(inclusionVotes?.negative) || 0,
                     contentNetVotes: getNeo4jNumber(contentVotes?.net) || getNeo4jNumber(inclusionVotes?.net) || 0,
-                    // Categories and keywords
                     categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
                     keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
                     votes: votes
                 };
-                } else if (node.type === 'category') {
-                    // Category node data extraction
-                    const votes = node.metadata?.votes as any;
-                    const inclusionVotes = votes?.inclusion || votes || {};
-                    
-                    nodeData = {
-                        ...nodeData,
-                        name: node.data && 'name' in node.data ? (node.data as any).name :
-                            node.data && 'content' in node.data ? node.data.content : '',
-                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
-                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
-                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                        wordCount: node.data && 'wordCount' in node.data ? (node.data as any).wordCount : 0,
-                        contentCount: node.data && 'contentCount' in node.data ? (node.data as any).contentCount : 0,
-                        childCount: node.data && 'childCount' in node.data ? (node.data as any).childCount : 0,
-                        words: node.data && 'words' in node.data ? (node.data as any).words : [],
-                        parentCategory: node.data && 'parentCategory' in node.data ? (node.data as any).parentCategory : null,
-                        childCategories: node.data && 'childCategories' in node.data ? (node.data as any).childCategories : [],
-                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
-                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
-                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
-                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
-                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
-                        categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
-                        keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
-                        votes: votes
-                    };
-                } else if (node.type === 'word') {
-                    // Word node data extraction  
-                    const votes = node.metadata?.votes as any;
-                    const inclusionVotes = votes?.inclusion || votes || {};
-                    
-                    nodeData = {
-                        ...nodeData,
-                        word: node.data && 'word' in node.data ? (node.data as any).word :
-                            node.data && 'content' in node.data ? node.data.content : '',
-                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
-                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
-                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                        definitionCount: node.data && 'definitionCount' in node.data ? (node.data as any).definitionCount : 0,
-                        usageCount: node.data && 'usageCount' in node.data ? (node.data as any).usageCount : 0,
-                        categoryId: node.data && 'categoryId' in node.data ? (node.data as any).categoryId : (node as any).categoryId || '',
-                        definitions: node.data && 'definitions' in node.data ? (node.data as any).definitions : [],
-                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
-                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
-                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
-                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
-                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
-                        categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
-                        keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
-                        votes: votes
-                    };
-                } else if (node.type === 'definition') {
-                    // Definition node data extraction
-                    const votes = node.metadata?.votes as any;
-                    const inclusionVotes = votes?.inclusion || votes || {};
-                    const contentVotes = votes?.content || votes || {};
-                    
-                    nodeData = {
-                        ...nodeData,
-                        word: node.data && 'word' in node.data ? (node.data as any).word : '',
-                        definitionText: node.data && 'definitionText' in node.data ? (node.data as any).definitionText : '',
-                        isApiDefinition: node.data && 'isApiDefinition' in node.data ? (node.data as any).isApiDefinition : false,
-                        isAICreated: node.data && 'isAICreated' in node.data ? (node.data as any).isAICreated : false,
-                        // ✅ NEW: Preserve isLiveDefinition flag
-                        isLiveDefinition: node.data && 'isLiveDefinition' in node.data ? (node.data as any).isLiveDefinition : false,
-                        // Inclusion votes
-                        inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
-                        inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
-                        inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
-                        // Content votes
-                        contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
-                        contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
-                        contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
-                        discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
-                        createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
-                        publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
-                        createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
-                        updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
-                        votes: votes
-                    };
+            } else if (node.type === 'category') {
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                
+                nodeData = {
+                    ...nodeData,
+                    name: node.data && 'name' in node.data ? (node.data as any).name :
+                        node.data && 'content' in node.data ? node.data.content : '',
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    wordCount: node.data && 'wordCount' in node.data ? (node.data as any).wordCount : 0,
+                    contentCount: node.data && 'contentCount' in node.data ? (node.data as any).contentCount : 0,
+                    childCount: node.data && 'childCount' in node.data ? (node.data as any).childCount : 0,
+                    words: node.data && 'words' in node.data ? (node.data as any).words : [],
+                    parentCategory: node.data && 'parentCategory' in node.data ? (node.data as any).parentCategory : null,
+                    childCategories: node.data && 'childCategories' in node.data ? (node.data as any).childCategories : [],
+                    discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                    createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                    publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                    createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                    updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                    categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                    keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                    votes: votes
+                };
+            } else if (node.type === 'word') {
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                
+                nodeData = {
+                    ...nodeData,
+                    word: node.data && 'word' in node.data ? (node.data as any).word :
+                        node.data && 'content' in node.data ? node.data.content : '',
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    definitionCount: node.data && 'definitionCount' in node.data ? (node.data as any).definitionCount : 0,
+                    usageCount: node.data && 'usageCount' in node.data ? (node.data as any).usageCount : 0,
+                    categoryId: node.data && 'categoryId' in node.data ? (node.data as any).categoryId : (node as any).categoryId || '',
+                    definitions: node.data && 'definitions' in node.data ? (node.data as any).definitions : [],
+                    discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                    createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                    publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                    createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                    updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                    categories: node.data && 'categories' in node.data ? (node.data as any).categories : [],
+                    keywords: node.data && 'keywords' in node.data ? (node.data as any).keywords : [],
+                    votes: votes
+                };
+            } else if (node.type === 'definition') {
+                const votes = node.metadata?.votes as any;
+                const inclusionVotes = votes?.inclusion || votes || {};
+                const contentVotes = votes?.content || votes || {};
+                
+                nodeData = {
+                    ...nodeData,
+                    word: node.data && 'word' in node.data ? (node.data as any).word : '',
+                    definitionText: node.data && 'definitionText' in node.data ? (node.data as any).definitionText : '',
+                    isApiDefinition: node.data && 'isApiDefinition' in node.data ? (node.data as any).isApiDefinition : false,
+                    isAICreated: node.data && 'isAICreated' in node.data ? (node.data as any).isAICreated : false,
+                    isLiveDefinition: node.data && 'isLiveDefinition' in node.data ? (node.data as any).isLiveDefinition : false,
+                    inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                    inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                    inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                    contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
+                    contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
+                    contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
+                    discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                    createdBy: node.data && 'createdBy' in node.data ? (node.data as any).createdBy : (node as any).createdBy || '',
+                    publicCredit: node.data && 'publicCredit' in node.data ? (node.data as any).publicCredit : true,
+                    createdAt: node.data && 'createdAt' in node.data ? (node.data as any).createdAt : node.metadata?.createdAt || '',
+                    updatedAt: node.data && 'updatedAt' in node.data ? (node.data as any).updatedAt : (node as any).updatedAt || '',
+                    votes: votes
+                };
             } else if (node.type === 'dashboard' && node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
                 nodeData = {
                     ...nodeData,
@@ -1405,7 +1318,6 @@ export class UniversalGraphManager {
                 isHidden,
                 hiddenReason,
                 
-                // Apply initialPosition from metadata if available, otherwise null
                 x: node.metadata?.initialPosition?.x ?? null,
                 y: node.metadata?.initialPosition?.y ?? null,
                 vx: null,
@@ -1518,18 +1430,11 @@ export class UniversalGraphManager {
             const source = nodeMap.get(sourceId);
             const target = nodeMap.get(targetId);
             
-            if (!source || !target) {
-                return null;
-            }
-            
-            if (source.isHidden || target.isHidden) {
-                return null;
-            }
+            if (!source || !target) return null;
+            if (source.isHidden || target.isHidden) return null;
             
             const path = this.calculateLinkPath(source, target, link);
-            if (!path) {
-                return null;
-            }
+            if (!path) return null;
             
             const sourceTransform = coordinateSystem.createSVGTransform(source.x ?? 0, source.y ?? 0);
             const targetTransform = coordinateSystem.createSVGTransform(target.x ?? 0, target.y ?? 0);
@@ -1734,7 +1639,6 @@ export class UniversalGraphManager {
         }
         
         let radius = 0;
-        // UPDATED: Handle all 5 content node types
         switch(node.type) {
             case 'statement':
                 radius = node.mode === 'detail' ?
@@ -1803,7 +1707,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeColor(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return this.extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
@@ -1843,7 +1746,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeBackground(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.background;
@@ -1872,7 +1774,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeBorder(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.border;
@@ -1901,7 +1802,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeHover(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.hover;
@@ -1930,7 +1830,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeGradientStart(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.start;
@@ -1959,7 +1858,6 @@ export class UniversalGraphManager {
     }
 
     private getNodeGradientEnd(node: EnhancedNode): string {
-        // UPDATED: Handle all 5 content node types
         switch (node.type) {
             case 'statement':
                 return NODE_CONSTANTS.COLORS.STATEMENT.gradient.end;
@@ -2023,9 +1921,7 @@ export class UniversalGraphManager {
             this.opacityController.dispose();
         }
         
-        const modeCount = this.nodeModes.size;
         this.nodeModes.clear();
-        
         this.clearCaches();
         
         this.performanceMetrics = {

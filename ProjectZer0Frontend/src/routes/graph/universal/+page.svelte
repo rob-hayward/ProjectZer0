@@ -227,10 +227,11 @@
         mode: controlNodeMode
     };
 
+    // Replace the current reactive statement (around line 232-296) with this:
+
     $: if (controlNode && controlNode.mode !== undefined && graphData && graphStore) {
         const newPositions = calculateNavigationRingPositions(navigationNodes.length, controlNode.mode);
         
-        // Check if positions actually changed (to avoid unnecessary updates)
         const positionsChanged = navigationNodes.some((node, index) => {
             const currentPos = node.metadata?.initialPosition;
             const newPos = newPositions[index];
@@ -240,20 +241,23 @@
         });
         
         if (positionsChanged) {
-            console.log('[UNIVERSAL-PAGE] Control node mode changed, recalculating navigation positions:', {
+            console.log('[UNIVERSAL-PAGE] 🎯 Control node mode changed, updating positions:', {
                 mode: controlNode.mode,
-                navigationCount: navigationNodes.length
+                navigationCount: navigationNodes.length,
+                hasGraphStore: !!graphStore,
+                graphStoreType: graphStore?.constructor?.name,
+                hasMethod: typeof graphStore?.updateNavigationPositions === 'function'
             });
             
             // Update navigation nodes with new positions
             navigationNodes = navigationNodes.map((node, index) => ({
                 ...node,
-                 metadata: {
-                    group: 'navigation' as const, // Explicitly set to avoid undefined
+                metadata: {
+                    group: 'navigation' as const,
                     fixed: true,
                     isDetail: false,
                     votes: 0,
-                    ...node.metadata, // Spread existing metadata after setting required props
+                    ...node.metadata,
                     initialPosition: {
                         x: newPositions[index].x,
                         y: newPositions[index].y
@@ -262,24 +266,36 @@
                 }
             }));
             
-            // Update graph data to trigger re-render
-            if (graphData) {
-                graphData = {
-                    ...graphData,
-                    nodes: [
-                        ...navigationNodes,
-                        controlNode,
-                        ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId)
-                    ]
-                };
-            }
+            // Update graph data
+            graphData = {
+                ...graphData,
+                nodes: [
+                    ...navigationNodes,
+                    controlNode,
+                    ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId)
+                ]
+            };
             
-            // If graphStore exists and has updateNavigationPositions method, call it
+            // DIRECT METHOD CALL - Try multiple approaches
             if (graphStore && typeof graphStore.updateNavigationPositions === 'function') {
+                console.log('[UNIVERSAL-PAGE] ✅ Calling graphStore.updateNavigationPositions() directly');
                 graphStore.updateNavigationPositions(navigationNodes);
+            } else if (graphStore && (graphStore as any)._manager && typeof (graphStore as any)._manager.updateNavigationPositions === 'function') {
+                // Fallback: access manager directly if wrapped
+                console.log('[UNIVERSAL-PAGE] ⚠️ Calling manager.updateNavigationPositions() via fallback');
+                (graphStore as any)._manager.updateNavigationPositions(navigationNodes);
+            } else {
+                // Last resort: dispatch event for manager to listen to
+                console.error('[UNIVERSAL-PAGE] ❌ Method not available, dispatching event');
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('navigation-positions-update', {
+                        detail: { navigationNodes }
+                    }));
+                }
             }
         }
     }
+
     // Event listeners for manager events
     let modeChangeListener: EventListener;
     let sequentialBatchListener: EventListener;

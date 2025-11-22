@@ -140,6 +140,45 @@ export class UniversalD3Simulation {
         const simulationNodes = this.simulation.nodes() as EnhancedNode[];
         return [...simulationNodes, ...this.systemNodes];
     }
+
+    /**
+     * Update system nodes with new positions (navigation ring repositioning)
+     */
+    public updateSystemNodes(updatedSystemNodes: EnhancedNode[]): void {
+        console.log('[D3Simulation] Updating system nodes:', {
+            count: updatedSystemNodes.length,
+            types: updatedSystemNodes.map(n => n.type)
+        });
+        
+        // Replace system nodes with updated versions
+        this.systemNodes = updatedSystemNodes.map(updatedNode => {
+            const existingNode = this.systemNodes.find(n => n.id === updatedNode.id);
+            
+            if (existingNode) {
+                console.log('[D3Simulation] Updating existing system node:', {
+                    id: updatedNode.id,
+                    type: updatedNode.type,
+                    oldPos: existingNode.x && existingNode.y ? 
+                        `(${existingNode.x.toFixed(1)}, ${existingNode.y.toFixed(1)})` : 'none',
+                    newPos: updatedNode.x && updatedNode.y ? 
+                        `(${updatedNode.x.toFixed(1)}, ${updatedNode.y.toFixed(1)})` : 'none'
+                });
+                
+                // Merge updated data while preserving essential properties
+                return {
+                    ...existingNode,
+                    ...updatedNode,
+                    fixed: true, // System nodes are always fixed
+                    vx: 0,
+                    vy: 0
+                };
+            }
+            
+            return updatedNode;
+        });
+        
+        console.log('[D3Simulation] System nodes updated successfully');
+    }
         
     /**
      * Initialize D3 simulation with base parameters
