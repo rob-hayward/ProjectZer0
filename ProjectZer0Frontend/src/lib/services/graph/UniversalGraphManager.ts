@@ -96,13 +96,6 @@ export class UniversalGraphManager {
             onEnd: () => this.handleSimulationEnd(),
             onSettlementTick: (nodes, tickCount) => this.handleSettlementTick(nodes, tickCount)
         });
-
-        if (typeof window !== 'undefined') {
-            window.addEventListener('navigation-positions-update', ((event: CustomEvent) => {
-                console.log('[UniversalGraphManager] 📡 Received navigation-positions-update event');
-                this.updateNavigationPositions(event.detail.navigationNodes);
-            }) as EventListener);
-        }
         
         this.renderingStrategy = new UniversalRenderingStrategy({
             onNodesReady: (nodes, links) => this.handleNodesReady(nodes, links),

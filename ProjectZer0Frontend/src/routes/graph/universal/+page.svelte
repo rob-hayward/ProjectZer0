@@ -265,7 +265,7 @@
                     angle: newPositions[index].angle
                 }
             }));
-            
+
             // Update graph data
             graphData = {
                 ...graphData,
@@ -275,23 +275,13 @@
                     ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId)
                 ]
             };
-            
-            // DIRECT METHOD CALL - Try multiple approaches
+
+            // CLEAN DIRECT METHOD CALL (now that wrapper is fixed)
             if (graphStore && typeof graphStore.updateNavigationPositions === 'function') {
-                console.log('[UNIVERSAL-PAGE] ✅ Calling graphStore.updateNavigationPositions() directly');
+                console.log('[UNIVERSAL-PAGE] 🎯 Updating navigation positions via graphStore');
                 graphStore.updateNavigationPositions(navigationNodes);
-            } else if (graphStore && (graphStore as any)._manager && typeof (graphStore as any)._manager.updateNavigationPositions === 'function') {
-                // Fallback: access manager directly if wrapped
-                console.log('[UNIVERSAL-PAGE] ⚠️ Calling manager.updateNavigationPositions() via fallback');
-                (graphStore as any)._manager.updateNavigationPositions(navigationNodes);
             } else {
-                // Last resort: dispatch event for manager to listen to
-                console.error('[UNIVERSAL-PAGE] ❌ Method not available, dispatching event');
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('navigation-positions-update', {
-                        detail: { navigationNodes }
-                    }));
-                }
+                console.error('[UNIVERSAL-PAGE] ❌ updateNavigationPositions method not available on graphStore');
             }
         }
     }

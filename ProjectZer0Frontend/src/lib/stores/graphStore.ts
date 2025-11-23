@@ -2,7 +2,8 @@
 
 import { derived, writable, get, type Readable } from 'svelte/store';
 import type { 
-    GraphData, 
+    GraphData,
+    GraphNode, 
     ViewType, 
     NodeMode, 
     RenderableNode, 
@@ -40,7 +41,8 @@ export interface GraphStore {
     getPerformanceMetrics?: () => any;
     enableBatchRendering?: (enable: boolean) => void;
     getBatchDebugInfo?: () => any;
-    getShouldRenderLinks?: () => boolean; // NEW: Phantom links support
+    getShouldRenderLinks?: () => boolean; 
+    updateNavigationPositions?: (navigationNodes: GraphNode[]) => void;
 }
 
 /**
@@ -317,6 +319,11 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
         // NEW: Add phantom links support
         baseStore.getShouldRenderLinks = () => {
             return manager.getShouldRenderLinks();
+        };
+
+            baseStore.updateNavigationPositions = (navigationNodes: GraphNode[]) => {
+            console.log('[GraphStore] updateNavigationPositions called, forwarding to manager');
+            manager.updateNavigationPositions(navigationNodes);
         };
     }
 

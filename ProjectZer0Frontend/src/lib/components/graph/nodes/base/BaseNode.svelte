@@ -97,10 +97,10 @@
     </defs>
 
     <!-- Background layers -->
-    <circle class="background-layer-1" r={radius * 1.0}  fill="url(#{gradientId})" opacity="0.5" />
+    <circle class="background-layer-1" r={radius * 1.0}  fill="url(#{gradientId})" opacity="0.3" />
     <circle class="background-layer-2" r={radius * 0.95} fill="url(#{gradientId})" opacity="0.3" />
     <circle class="background-layer-3" r={radius * 0.85} fill="url(#{gradientId})" opacity="0.3" />
-    <circle class="content-background" r={radius} fill={style.colors?.background || '#1a1a1a'} opacity="0.1" />
+    <circle class="content-background" r={radius} fill={style.colors?.background || '#1a1a1a'} opacity="0.4" />
 
     <!-- Decorative rings -->
     <circle 
