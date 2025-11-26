@@ -3,7 +3,7 @@
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode } from '$lib/types/graph/enhanced';
     import { NODE_CONSTANTS } from '$lib/constants/graph/nodes';
-    import BaseNode from '../../graph/nodes/base/BaseNode.svelte';
+    import BaseNode from '../../../graph/nodes/base/BaseNode.svelte';
     import { userStore } from '$lib/stores/userStore';
     import { discussionStore } from '$lib/stores/discussionStore';
     

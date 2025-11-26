@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/quantity/QuantityReview.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/forms/answer/AnswerReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import { browser } from '$app/environment';
@@ -9,53 +9,29 @@
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
     import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
 
-    export let question = '';
-    export let unitCategoryId = '';
-    export let defaultUnitId = '';
+    export let answerText = '';
+    export let questionId = '';
+    export let questionText = '';
     export let userKeywords: string[] = [];
     export let selectedCategories: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
     export let userId: string | undefined = undefined;
-
+    
+    let categoryDetails: Array<{ id: string; name: string }> = [];
     let shareToX = false;
     let isSubmitting = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
-    
-    let categoryName = '';
-    let unitName = '';
-    let unitSymbol = '';
-    let categoryDetails: Array<{ id: string; name: string }> = [];
-    
+
     const dispatch = createEventDispatcher<{
         back: void;
-        success: { message: string; question: string; };
+        success: { message: string; answerId: string; };
         error: { message: string; };
     }>();
     
     onMount(async () => {
-        if (unitCategoryId && defaultUnitId) {
-            try {
-                const category = await fetchWithAuth(`/units/categories/${unitCategoryId}`);
-                if (category) {
-                    categoryName = category.name;
-                }
-                
-                const units = await fetchWithAuth(`/units/categories/${unitCategoryId}/units`);
-                if (units && Array.isArray(units)) {
-                    const selectedUnit = units.find(u => u.id === defaultUnitId);
-                    if (selectedUnit) {
-                        unitName = selectedUnit.name;
-                        unitSymbol = selectedUnit.symbol;
-                    }
-                }
-            } catch (error) {
-                console.error('Error loading unit details:', error);
-            }
-        }
-        
         if (selectedCategories.length > 0) {
             try {
                 const allCategories = await fetchWithAuth('/categories');
@@ -69,14 +45,14 @@
     });
 
     async function handleSubmit() {
-        if (!question.trim()) {
-            errorMessage = "Question text is required";
+        if (!answerText.trim()) {
+            errorMessage = "Answer text is required";
             dispatch('error', { message: errorMessage });
             return;
         }
-        
-        if (!unitCategoryId || !defaultUnitId) {
-            errorMessage = "Unit category and default unit are required";
+
+        if (!questionId) {
+            errorMessage = "Question ID is missing";
             dispatch('error', { message: errorMessage });
             return;
         }
@@ -85,48 +61,47 @@
         errorMessage = null;
 
         try {
-            const quantityData = {
-                question: question,
+            const answerData = {
+                answerText: answerText.trim(),
+                questionId: questionId,
                 createdBy: userId,
-                unitCategoryId: unitCategoryId,
-                defaultUnitId: defaultUnitId,
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
                 categories: selectedCategories.length > 0 ? selectedCategories : undefined,
                 initialComment: discussion || '',
                 publicCredit
             };
             
-            console.log('Submitting quantity node:', JSON.stringify(quantityData, null, 2));
+            console.log('Submitting answer:', JSON.stringify(answerData, null, 2));
             
-            const createdQuantity = await fetchWithAuth('/nodes/quantity', {
+            const createdAnswer = await fetchWithAuth('/nodes/answer', {
                 method: 'POST',
-                body: JSON.stringify(quantityData),
+                body: JSON.stringify(answerData),
             });
             
-            console.log('Quantity node creation response:', JSON.stringify(createdQuantity, null, 2));
+            console.log('Answer creation response:', JSON.stringify(createdAnswer, null, 2));
 
             if (browser && graphStore) {
                 if (graphStore.forceTick) {
                     try {
                         graphStore.forceTick();
                     } catch (e) {
-                        console.warn('[QuantityReview] Error forcing tick:', e);
+                        console.warn('[AnswerReview] Error forcing tick:', e);
                     }
                 }
             }
 
-            const successMsg = `Quantity node created successfully`;
+            const successMsg = `Answer submitted successfully`;
             dispatch('success', {
                 message: successMsg,
-                question: question
+                answerId: createdAnswer.id
             });
             
             successMessage = successMsg;
 
             setTimeout(() => {
                 if (browser) {
-                    const targetUrl = `/graph/quantity?id=${encodeURIComponent(createdQuantity.id)}`;
-                    console.log('[QuantityReview] Navigating to:', targetUrl);
+                    const targetUrl = `/graph/openquestion?id=${encodeURIComponent(questionId)}`;
+                    console.log('[AnswerReview] Navigating to:', targetUrl);
                     
                     window.location.href = targetUrl;
                 }
@@ -134,10 +109,10 @@
 
         } catch (e) {
             if (browser) {
-                console.error('Error creating quantity node:', e);
+                console.error('Error creating answer:', e);
                 console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
             }
-            errorMessage = e instanceof Error ? e.message : 'Failed to create quantity node';
+            errorMessage = e instanceof Error ? e.message : 'Failed to create answer';
             dispatch('error', { message: errorMessage });
         } finally {
             isSubmitting = false;
@@ -154,27 +129,19 @@
         height="380"
     >
         <div class="review-container">
-            <!-- Question text -->
+            <!-- Parent Question -->
             <div class="review-item">
-                <span class="label">Question:</span>
+                <span class="label">Answering Question:</span>
+                <div class="question-context">
+                    {questionText}
+                </div>
+            </div>
+            
+            <!-- Answer text -->
+            <div class="review-item answer-item">
+                <span class="label">Your Answer:</span>
                 <div class="scrollable-content">
-                    <span class="value">{question}</span>
-                </div>
-            </div>
-            
-            <!-- Unit category -->
-            <div class="review-item">
-                <span class="label">Unit Category:</span>
-                <div class="unit-info">
-                    <span class="value">{categoryName || unitCategoryId}</span>
-                </div>
-            </div>
-            
-            <!-- Default unit -->
-            <div class="review-item">
-                <span class="label">Default Unit:</span>
-                <div class="unit-info">
-                    <span class="value">{unitName || defaultUnitId} {unitSymbol ? `(${unitSymbol})` : ''}</span>
+                    <span class="value answer-value">{answerText}</span>
                 </div>
             </div>
             
@@ -243,9 +210,9 @@
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Submitting..." : "Create Quantity Node"}
+            nextLabel={isSubmitting ? "Submitting..." : "Submit Answer"}
             loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting || !question.trim() || !unitCategoryId || !defaultUnitId}
+            nextDisabled={disabled || isSubmitting || !answerText.trim()}
         />
     </g>
 </g>
@@ -263,6 +230,30 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+    }
+
+    :global(.answer-item) {
+        margin-bottom: 4px;
+    }
+
+    :global(.answer-value) {
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    :global(.question-context) {
+        background: rgba(182, 140, 255, 0.1);
+        border: 1px solid rgba(182, 140, 255, 0.3);
+        border-radius: 4px;
+        padding: 8px;
+        color: rgba(255, 255, 255, 0.8);
+        font-family: 'Inter', sans-serif;
+        font-size: 12px;
+        font-weight: 400;
+        line-height: 1.4;
+        font-style: italic;
+        max-height: 60px;
+        overflow-y: auto;
     }
 
     .scrollable-content {
@@ -290,34 +281,6 @@
     .scrollable-content::-webkit-scrollbar-thumb:hover {
         background: rgba(255, 255, 255, 0.4);
     }
-    
-    :global(.unit-info) {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    
-    :global(.keywords-list) {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
-    }
-
-    :global(.keyword-chip) {
-        background: rgba(72, 224, 194, 0.2);
-        border: 1px solid rgba(72, 224, 194, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 11px;
-        color: white;
-        font-family: 'Inter', sans-serif;
-        font-weight: 400;
-    }
-    
-    :global(.categories-display) {
-        margin-top: 4px;
-    }
 
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
@@ -332,6 +295,28 @@
         font-family: 'Inter', sans-serif;
         font-weight: 400;
         line-height: 1.3;
+    }
+
+    :global(.keywords-list) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 4px;
+    }
+
+    :global(.keyword-chip) {
+        background: rgba(182, 140, 255, 0.2);
+        border: 1px solid rgba(182, 140, 255, 0.3);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-weight: 400;
+    }
+    
+    :global(.categories-display) {
+        margin-top: 4px;
     }
 
     :global(.options-grid) {
@@ -391,7 +376,7 @@
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked) {
-        background: rgba(72, 224, 194, 0.3);
+        background: rgba(182, 140, 255, 0.3);
     }
 
     :global(.checkbox-label input[type="checkbox"]:disabled) {

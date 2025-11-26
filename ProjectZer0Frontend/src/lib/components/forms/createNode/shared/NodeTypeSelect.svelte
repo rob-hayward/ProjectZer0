@@ -46,7 +46,10 @@
             <option value="word">Word</option>
             <option value="statement">Statement</option>
             <option value="openquestion">Open Question</option>
+            <option value="answer">Answer</option>
             <option value="quantity">Quantity</option>
+            <option value="evidence">Evidence</option>
+            <option value="category">Category</option>
         </select>
     </foreignObject>
 
@@ -67,7 +70,7 @@
         font-size: 14px;
         text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
@@ -78,7 +81,7 @@
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-size: 0.9rem;
         font-weight: 400;
         transition: all 0.2s ease;

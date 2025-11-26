@@ -1,4 +1,4 @@
-<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/statement/StatementReview.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/graph/nodes/createNode/CreateNodeNode.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import { browser } from '$app/environment';
@@ -7,44 +7,45 @@
     import { graphStore } from '$lib/stores/graphStore';
     import FormNavigation from '$lib/components/forms/createNode/shared/FormNavigation.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
-    import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
 
-    export let statement = '';
-    export let userKeywords: string[] = [];
-    export let selectedCategories: string[] = [];
+    export let selectedWordIds: string[] = [];
+    export let parentCategoryId: string | null = null;
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
     export let userId: string | undefined = undefined;
     
-    let categoryDetails: Array<{ id: string; name: string }> = [];
-    let shareToX = false;
+    let words: Array<{ id: string; word: string }> = [];
+    let parentCategory: { id: string; name: string } | null = null;
     let isSubmitting = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
 
     const dispatch = createEventDispatcher<{
         back: void;
-        success: { message: string; statement: string; };
+        success: { message: string; categoryId: string; };
         error: { message: string; };
     }>();
     
+    $: categoryName = words.map(w => w.word).join(' ');
+    
     onMount(async () => {
-        if (selectedCategories.length > 0) {
-            try {
-                const allCategories = await fetchWithAuth('/categories');
-                categoryDetails = allCategories.filter((cat: any) => 
-                    selectedCategories.includes(cat.id)
-                );
-            } catch (error) {
-                console.error('Error fetching category details:', error);
+        try {
+            const allWords = await fetchWithAuth('/words');
+            words = allWords.filter((w: any) => selectedWordIds.includes(w.id));
+            
+            if (parentCategoryId) {
+                const categories = await fetchWithAuth('/categories');
+                parentCategory = categories.find((c: any) => c.id === parentCategoryId);
             }
+        } catch (error) {
+            console.error('Error fetching details:', error);
         }
     });
 
     async function handleSubmit() {
-        if (!statement.trim()) {
-            errorMessage = "Statement text is required";
+        if (selectedWordIds.length === 0) {
+            errorMessage = "At least one word is required";
             dispatch('error', { message: errorMessage });
             return;
         }
@@ -53,48 +54,45 @@
         errorMessage = null;
 
         try {
-            const statementData = {
-                statement: statement,
+            const categoryData = {
+                wordIds: selectedWordIds,
+                parentCategoryId: parentCategoryId || undefined,
                 createdBy: userId,
-                userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
-                categories: selectedCategories.length > 0 ? selectedCategories : undefined,
                 initialComment: discussion || '',
                 publicCredit
             };
             
-            console.log('Submitting statement:', JSON.stringify(statementData, null, 2));
+            console.log('Submitting category:', JSON.stringify(categoryData, null, 2));
             
-            const createdStatement = await fetchWithAuth('/nodes/statement', {
+            const createdCategory = await fetchWithAuth('/categories', {
                 method: 'POST',
-                body: JSON.stringify(statementData),
+                body: JSON.stringify(categoryData),
             });
             
-            console.log('Statement creation response:', JSON.stringify(createdStatement, null, 2));
+            console.log('Category creation response:', JSON.stringify(createdCategory, null, 2));
 
-            if (browser && graphStore && graphStore.setViewType) {
-                graphStore.setViewType('statement');
-                
+            if (browser && graphStore) {
                 if (graphStore.forceTick) {
                     try {
                         graphStore.forceTick();
                     } catch (e) {
-                        console.warn('[StatementReview] Error forcing tick:', e);
+                        console.warn('[CategoryReview] Error forcing tick:', e);
                     }
                 }
             }
 
-            const successMsg = `Statement created successfully`;
+            const successMsg = `Category "${categoryName}" created successfully`;
             dispatch('success', {
                 message: successMsg,
-                statement: statement
+                categoryId: createdCategory.id
             });
             
             successMessage = successMsg;
 
             setTimeout(() => {
                 if (browser) {
-                    const targetUrl = `/graph/statement?id=${encodeURIComponent(createdStatement.id)}`;
-                    console.log('[StatementReview] Navigating to:', targetUrl);
+                    const targetUrl = `/graph/category?id=${encodeURIComponent(createdCategory.id)}`;
+                    console.log('[CategoryReview] Navigating to:', targetUrl);
                     
                     window.location.href = targetUrl;
                 }
@@ -102,10 +100,10 @@
 
         } catch (e) {
             if (browser) {
-                console.error('Error creating statement:', e);
+                console.error('Error creating category:', e);
                 console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
             }
-            errorMessage = e instanceof Error ? e.message : 'Failed to create statement';
+            errorMessage = e instanceof Error ? e.message : 'Failed to create category';
             dispatch('error', { message: errorMessage });
         } finally {
             isSubmitting = false;
@@ -119,40 +117,33 @@
         x={FORM_STYLES.layout.leftAlign - 30}
         y="-40"
         width={FORM_STYLES.layout.fieldWidth + 60}
-        height="350"
+        height="320"
     >
         <div class="review-container">
-            <!-- Statement text -->
-            <div class="review-item">
-                <span class="label">Statement:</span>
-                <div class="scrollable-content">
-                    <span class="value">{statement}</span>
+            <!-- Category Name -->
+            <div class="review-item name-item">
+                <span class="label">Category Name:</span>
+                <div class="category-name">
+                    "{categoryName}"
                 </div>
             </div>
             
-            <!-- Keywords list -->
-            {#if userKeywords.length > 0}
-                <div class="review-item">
-                    <span class="label">Your Keywords:</span>
-                    <div class="keywords-list">
-                        {#each userKeywords as keyword}
-                            <span class="keyword-chip">{keyword}</span>
-                        {/each}
-                    </div>
+            <!-- Selected Words -->
+            <div class="review-item">
+                <span class="label">Composed of Words:</span>
+                <div class="words-list">
+                    {#each words as word}
+                        <span class="word-chip">{word.word}</span>
+                    {/each}
                 </div>
-            {/if}
+            </div>
             
-            <!-- Categories display -->
-            {#if categoryDetails.length > 0}
+            <!-- Parent Category -->
+            {#if parentCategory}
                 <div class="review-item">
-                    <span class="label">Categories:</span>
-                    <div class="categories-display">
-                        <svg width="100%" height="30" viewBox="0 0 400 30">
-                            <CategoryTags 
-                                categories={categoryDetails}
-                                radius={100}
-                            />
-                        </svg>
+                    <span class="label">Parent Category:</span>
+                    <div class="parent-display">
+                        {parentCategory.name}
                     </div>
                 </div>
             {/if}
@@ -167,7 +158,7 @@
                 </div>
             {/if}
 
-            <!-- Options grid -->
+            <!-- Options -->
             <div class="options-grid">
                 <label class="checkbox-label">
                     <input
@@ -177,27 +168,18 @@
                     />
                     <span>Publicly credit creation</span>
                 </label>
-
-                <label class="checkbox-label">
-                    <input
-                        type="checkbox"
-                        bind:checked={shareToX}
-                        disabled={isSubmitting}
-                    />
-                    <span>Share on X (Twitter)</span>
-                </label>
             </div>
         </div>
     </foreignObject>
 
     <!-- Navigation -->
-    <g transform="translate(0, 270)">
+    <g transform="translate(0, 200)">
         <FormNavigation
             onBack={() => dispatch('back')}
             onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Submitting..." : "Create Statement"}
+            nextLabel={isSubmitting ? "Creating..." : "Create Category"}
             loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting || !statement.trim()}
+            nextDisabled={disabled || isSubmitting || selectedWordIds.length === 0}
         />
     </g>
 </g>
@@ -215,6 +197,22 @@
         display: flex;
         flex-direction: column;
         gap: 4px;
+    }
+
+    :global(.name-item) {
+        margin-bottom: 8px;
+    }
+    
+    :global(.category-name) {
+        background: rgba(255, 138, 61, 0.15);
+        border: 1px solid rgba(255, 138, 61, 0.4);
+        border-radius: 4px;
+        padding: 12px;
+        color: rgba(255, 138, 61, 1);
+        font-family: 'Inter', sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        text-align: center;
     }
 
     .scrollable-content {
@@ -258,16 +256,16 @@
         line-height: 1.3;
     }
 
-    :global(.keywords-list) {
+    :global(.words-list) {
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
         margin-top: 4px;
     }
 
-    :global(.keyword-chip) {
-        background: rgba(255, 127, 209, 0.2);
-        border: 1px solid rgba(255, 127, 209, 0.3);
+    :global(.word-chip) {
+        background: rgba(255, 138, 61, 0.2);
+        border: 1px solid rgba(255, 138, 61, 0.3);
         border-radius: 12px;
         padding: 2px 8px;
         font-size: 11px;
@@ -276,13 +274,19 @@
         font-weight: 400;
     }
     
-    :global(.categories-display) {
-        margin-top: 4px;
+    :global(.parent-display) {
+        color: rgba(255, 138, 61, 0.9);
+        font-family: 'Inter', sans-serif;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 4px 8px;
+        background: rgba(255, 138, 61, 0.1);
+        border-radius: 4px;
+        display: inline-block;
     }
 
     :global(.options-grid) {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+        display: flex;
         gap: 8px;
         margin-top: 4px;
         padding-top: 8px;
@@ -297,19 +301,6 @@
         font-size: 11px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-    }
-
-    :global(.checkbox-label:first-child) {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-    }
-
-    :global(.checkbox-label:last-child) {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding-left: 35px; 
     }
 
     :global(.checkbox-label input[type="checkbox"]) {
@@ -337,7 +328,7 @@
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked) {
-        background: rgba(255, 127, 209, 0.3);
+        background: rgba(255, 138, 61, 0.3);
     }
 
     :global(.checkbox-label input[type="checkbox"]:disabled) {

@@ -1,6 +1,6 @@
-<!-- src/lib/components/forms/createNode/openquestion/OpenQuestionReview.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/openquestion/OpenQuestionReview.svelte -->
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
     import { FORM_STYLES } from '$lib/styles/forms';
@@ -8,25 +8,40 @@
     import { graphStore } from '$lib/stores/graphStore';
     import FormNavigation from '$lib/components/forms/createNode/shared/FormNavigation.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
+    import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
 
     export let questionText = '';
     export let userKeywords: string[] = [];
+    export let selectedCategories: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
     export let userId: string | undefined = undefined;
 
+    let categoryDetails: Array<{ id: string; name: string }> = [];
     let shareToX = false;
     let isSubmitting = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
-    let debugMessage: string | null = null;
 
     const dispatch = createEventDispatcher<{
         back: void;
         success: { message: string; questionId: string; };
         error: { message: string; };
     }>();
+
+    onMount(async () => {
+        if (selectedCategories.length > 0) {
+            try {
+                const allCategories = await fetchWithAuth('/categories');
+                categoryDetails = allCategories.filter((cat: any) => 
+                    selectedCategories.includes(cat.id)
+                );
+            } catch (error) {
+                console.error('Error fetching category details:', error);
+            }
+        }
+    });
 
     async function handleSubmit() {
         if (!questionText.trim()) {
@@ -37,14 +52,13 @@
 
         isSubmitting = true;
         errorMessage = null;
-        debugMessage = null;
 
         try {
-            // Prepare data for the backend
             const questionData = {
                 questionText: questionText.trim(),
                 createdBy: userId,
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
+                categories: selectedCategories.length > 0 ? selectedCategories : undefined,
                 initialComment: discussion || '',
                 publicCredit,
                 shareToX
@@ -63,14 +77,11 @@
                 throw new Error('Created question data is incomplete');
             }
 
-            // Update openQuestionStore with the created question
             openQuestionStore.set(createdQuestion);
             
-            // Update graph store to openquestion view type
             if (browser && graphStore && graphStore.setViewType) {
                 graphStore.setViewType('openquestion');
                 
-                // Force immediate visual update if available
                 if (graphStore.forceTick) {
                     try {
                         graphStore.forceTick();
@@ -86,19 +97,16 @@
                 questionId: createdQuestion.id
             });
             
-            // Set success message for display
             successMessage = successMsg;
 
-            // Use direct navigation to ensure reliability
             setTimeout(() => {
                 if (browser) {
                     const targetUrl = `/graph/openquestion?id=${encodeURIComponent(createdQuestion.id)}`;
                     console.log('[OpenQuestionReview] Navigating to:', targetUrl);
                     
-                    // Use direct window location for reliable navigation
                     window.location.href = targetUrl;
                 }
-            }, 800); // Match the timing from WordReview
+            }, 800);
 
         } catch (e) {
             if (browser) {
@@ -119,7 +127,7 @@
         x={FORM_STYLES.layout.leftAlign - 30}
         y="-40"
         width={FORM_STYLES.layout.fieldWidth + 60}
-        height="290"
+        height="350"
     >
         <div class="review-container">
             <!-- Question text -->
@@ -138,6 +146,21 @@
                         {#each userKeywords as keyword}
                             <span class="keyword-chip">{keyword}</span>
                         {/each}
+                    </div>
+                </div>
+            {/if}
+            
+            <!-- Categories display -->
+            {#if categoryDetails.length > 0}
+                <div class="review-item">
+                    <span class="label">Categories:</span>
+                    <div class="categories-display">
+                        <svg width="100%" height="30" viewBox="0 0 400 30">
+                            <CategoryTags 
+                                categories={categoryDetails}
+                                radius={100}
+                            />
+                        </svg>
                     </div>
                 </div>
             {/if}
@@ -177,7 +200,7 @@
 
     <!-- Messages -->
     {#if errorMessage}
-        <g transform="translate(0, 240)">
+        <g transform="translate(0, 300)">
             <MessageDisplay errorMessage={errorMessage} successMessage={null} />
         </g>
     {/if}
@@ -267,14 +290,18 @@
     }
 
     :global(.keyword-chip) {
-        background: rgba(0, 188, 212, 0.2);
-        border: 1px solid rgba(0, 188, 212, 0.3);
+        background: rgba(91, 183, 255, 0.2);
+        border: 1px solid rgba(91, 183, 255, 0.3);
         border-radius: 12px;
         padding: 2px 8px;
         font-size: 11px;
         color: white;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
+    }
+    
+    :global(.categories-display) {
+        margin-top: 4px;
     }
 
     :global(.options-grid) {
@@ -334,7 +361,7 @@
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked) {
-        background: rgba(0, 188, 212, 0.3);
+        background: rgba(91, 183, 255, 0.3);
     }
 
     :global(.checkbox-label input[type="checkbox"]:disabled) {

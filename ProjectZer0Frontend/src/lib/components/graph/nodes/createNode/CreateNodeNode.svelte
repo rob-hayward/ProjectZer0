@@ -29,8 +29,21 @@
     import UnitCategorySelect from '$lib/components/forms/createNode/quantity/UnitCategorySelect.svelte';
     import QuantityReview from '$lib/components/forms/createNode/quantity/QuantityReview.svelte';
 
-    //  Shared imports
+    // Answer related imports
+    import AnswerInput from '$lib/components/forms/createNode/answer/AnswerInput.svelte';
+    import AnswerReview from '$lib/components/forms/createNode/answer/AnswerReview.svelte';
+    
+    // Evidence related imports
+    import EvidenceInput from '$lib/components/forms/evidence/EvidenceInput.svelte';
+    import EvidenceReview from '$lib/components/forms/evidence/EvidenceReview.svelte';
+    
+    // Category related imports
+    import CategoryCreationInput from '$lib/components/forms/createNode/category/CategoryCreationInput.svelte';
+    import CategoryCreationReview from '$lib/components/forms/createNode/category/CategoryCreationReview.svelte';
+
+    // Shared imports
     import KeywordInput from '$lib/components/forms/createNode/shared/KeywordInput.svelte';
+    import CategoryInput from '$lib/components/forms/createNode/shared/CategoryInput.svelte';
 
     export let node: RenderableNode;
     
@@ -53,13 +66,22 @@
     let formData = {
         nodeType: '',
         word: '',
-        definitionText: '',      // For word node
-        statement: '',           // For statement node
-        questionText: '',        // For openquestion node
-        question: '',            // For quantity node
-        unitCategoryId: '',      // For quantity node
-        defaultUnitId: '',       // For quantity node
-        userKeywords: [],        // For statement, openquestion and quantity nodes
+        definitionText: '',
+        statement: '',
+        questionText: '',
+        question: '',
+        unitCategoryId: '',
+        defaultUnitId: '',
+        answerText: '',
+        evidenceTitle: '',
+        evidenceUrl: '',
+        evidenceType: '',
+        parentNodeId: '',
+        parentNodeType: '',
+        selectedWordIds: [],
+        parentCategoryId: null,
+        userKeywords: [],
+        selectedCategories: [],
         discussion: '',
         publicCredit: false
     };
@@ -74,80 +96,82 @@
     const baseStyle = {
         previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
         detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
-        colors: { ...NODE_CONSTANTS.COLORS.WORD }, // Clone to avoid modifying the original
+        colors: { ...NODE_CONSTANTS.COLORS.WORD },
         padding: {
             preview: COORDINATE_SPACE.NODES.PADDING.PREVIEW,
             detail: COORDINATE_SPACE.NODES.PADDING.DETAIL
         },
         lineHeight: NODE_CONSTANTS.LINE_HEIGHT,
         stroke: NODE_CONSTANTS.STROKE,
-        highlightColor: COLORS.PRIMARY.BLUE
+        highlightColor: COLORS.PRIMARY.WORD
     };
     
-    // Current style - will be updated reactively
     let currentStyle = { ...baseStyle };
     let completeStyle = { ...baseStyle };
 
     $: if (formData.nodeType === '') {
         if (!intervalId) {
-            // Colors array - including the new CYAN
             const colors = [
                 {
-                    base: COLORS.PRIMARY.BLUE,
-                    full: `${COLORS.PRIMARY.BLUE}FF`,
-                    semi: `${COLORS.PRIMARY.BLUE}66`,
-                    light: `${COLORS.PRIMARY.BLUE}33`
+                    base: COLORS.PRIMARY.WORD,
+                    full: `${COLORS.PRIMARY.WORD}FF`,
+                    semi: `${COLORS.PRIMARY.WORD}66`,
+                    light: `${COLORS.PRIMARY.WORD}33`
                 },
                 {
-                    base: COLORS.PRIMARY.PURPLE,
-                    full: `${COLORS.PRIMARY.PURPLE}FF`,
-                    semi: `${COLORS.PRIMARY.PURPLE}66`,
-                    light: `${COLORS.PRIMARY.PURPLE}33`
+                    base: COLORS.PRIMARY.DEFINITION,
+                    full: `${COLORS.PRIMARY.DEFINITION}FF`,
+                    semi: `${COLORS.PRIMARY.DEFINITION}66`,
+                    light: `${COLORS.PRIMARY.DEFINITION}33`
                 },
                 {
-                    base: COLORS.PRIMARY.CYAN,
-                    full: `${COLORS.PRIMARY.CYAN}FF`,
-                    semi: `${COLORS.PRIMARY.CYAN}66`,
-                    light: `${COLORS.PRIMARY.CYAN}33`
+                    base: COLORS.PRIMARY.STATEMENT,
+                    full: `${COLORS.PRIMARY.STATEMENT}FF`,
+                    semi: `${COLORS.PRIMARY.STATEMENT}66`,
+                    light: `${COLORS.PRIMARY.STATEMENT}33`
                 },
                 {
-                    base: COLORS.PRIMARY.TURQUOISE,
-                    full: `${COLORS.PRIMARY.TURQUOISE}FF`,
-                    semi: `${COLORS.PRIMARY.TURQUOISE}66`,
-                    light: `${COLORS.PRIMARY.TURQUOISE}33`
+                    base: COLORS.PRIMARY.OPEN_QUESTION,
+                    full: `${COLORS.PRIMARY.OPEN_QUESTION}FF`,
+                    semi: `${COLORS.PRIMARY.OPEN_QUESTION}66`,
+                    light: `${COLORS.PRIMARY.OPEN_QUESTION}33`
                 },
                 {
-                    base: COLORS.PRIMARY.GREEN,
-                    full: `${COLORS.PRIMARY.GREEN}FF`,
-                    semi: `${COLORS.PRIMARY.GREEN}66`,
-                    light: `${COLORS.PRIMARY.GREEN}33`
+                    base: COLORS.PRIMARY.ANSWER,
+                    full: `${COLORS.PRIMARY.ANSWER}FF`,
+                    semi: `${COLORS.PRIMARY.ANSWER}66`,
+                    light: `${COLORS.PRIMARY.ANSWER}33`
                 },
                 {
-                    base: COLORS.PRIMARY.YELLOW,
-                    full: `${COLORS.PRIMARY.YELLOW}FF`,
-                    semi: `${COLORS.PRIMARY.YELLOW}66`,
-                    light: `${COLORS.PRIMARY.YELLOW}33`
+                    base: COLORS.PRIMARY.QUANTITY,
+                    full: `${COLORS.PRIMARY.QUANTITY}FF`,
+                    semi: `${COLORS.PRIMARY.QUANTITY}66`,
+                    light: `${COLORS.PRIMARY.QUANTITY}33`
                 },
                 {
-                    base: COLORS.PRIMARY.ORANGE,
-                    full: `${COLORS.PRIMARY.ORANGE}FF`,
-                    semi: `${COLORS.PRIMARY.ORANGE}66`,
-                    light: `${COLORS.PRIMARY.ORANGE}33`
+                    base: COLORS.PRIMARY.EVIDENCE,
+                    full: `${COLORS.PRIMARY.EVIDENCE}FF`,
+                    semi: `${COLORS.PRIMARY.EVIDENCE}66`,
+                    light: `${COLORS.PRIMARY.EVIDENCE}33`
                 },
                 {
-                    base: COLORS.PRIMARY.RED,
-                    full: `${COLORS.PRIMARY.RED}FF`,
-                    semi: `${COLORS.PRIMARY.RED}66`,
-                    light: `${COLORS.PRIMARY.RED}33`
+                    base: COLORS.PRIMARY.CATEGORY,
+                    full: `${COLORS.PRIMARY.CATEGORY}FF`,
+                    semi: `${COLORS.PRIMARY.CATEGORY}66`,
+                    light: `${COLORS.PRIMARY.CATEGORY}33`
+                },
+                {
+                    base: COLORS.PRIMARY.COMMENT,
+                    full: `${COLORS.PRIMARY.COMMENT}FF`,
+                    semi: `${COLORS.PRIMARY.COMMENT}66`,
+                    light: `${COLORS.PRIMARY.COMMENT}33`
                 }
             ];
             
             intervalId = setInterval(() => {
                 colorIndex = (colorIndex + 1) % colors.length;
                 
-                // Use type assertion to bypass TypeScript's literal type checking
                 const newStyle = { ...baseStyle };
-                // Update style with new colors
                 newStyle.colors = {
                     background: colors[colorIndex].light,
                     border: colors[colorIndex].full,
@@ -159,16 +183,14 @@
                     }
                 } as typeof NODE_CONSTANTS.COLORS.WORD;
                 
-                newStyle.highlightColor = colors[colorIndex].base as typeof COLORS.PRIMARY.BLUE;
+                newStyle.highlightColor = colors[colorIndex].base as typeof COLORS.PRIMARY.WORD;
                 
-                // Update current style
                 currentStyle = newStyle;
                 
-                // Also update complete style if no node type is selected
                 if (formData.nodeType === '') {
                     completeStyle = newStyle;
                 }
-            }, 2000); // 2 seconds
+            }, 2000);
         }
     } else {
         if (intervalId) {
@@ -179,65 +201,104 @@
 
     // Set appropriate style based on node type
     $: if (formData.nodeType === 'word') {
-        // For word nodes, use the blue word style from constants
         completeStyle = {
             ...baseStyle,
             colors: NODE_CONSTANTS.COLORS.WORD,
-            highlightColor: COLORS.PRIMARY.BLUE
+            highlightColor: COLORS.PRIMARY.WORD
         };
     } else if (formData.nodeType === 'statement') {
-        // For statement nodes, use purple (moved from green)
         completeStyle = {
             ...baseStyle,
             colors: {
-                background: `${COLORS.PRIMARY.PURPLE}33`,
-                border: `${COLORS.PRIMARY.PURPLE}FF`,
-                text: `${COLORS.PRIMARY.PURPLE}FF`,
-                hover: `${COLORS.PRIMARY.PURPLE}FF`,
+                background: `${COLORS.PRIMARY.STATEMENT}33`,
+                border: `${COLORS.PRIMARY.STATEMENT}FF`,
+                text: `${COLORS.PRIMARY.STATEMENT}FF`,
+                hover: `${COLORS.PRIMARY.STATEMENT}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.PURPLE}66`,
-                    end: `${COLORS.PRIMARY.PURPLE}33`
+                    start: `${COLORS.PRIMARY.STATEMENT}66`,
+                    end: `${COLORS.PRIMARY.STATEMENT}33`
                 }
             } as any,
-            highlightColor: COLORS.PRIMARY.PURPLE as any
+            highlightColor: COLORS.PRIMARY.STATEMENT as any
         };
     } else if (formData.nodeType === 'openquestion') {
-        // For openquestion nodes, use cyan
         completeStyle = {
             ...baseStyle,
             colors: {
-                background: `${COLORS.PRIMARY.CYAN}33`,
-                border: `${COLORS.PRIMARY.CYAN}FF`,
-                text: `${COLORS.PRIMARY.CYAN}FF`,
-                hover: `${COLORS.PRIMARY.CYAN}FF`,
+                background: `${COLORS.PRIMARY.OPEN_QUESTION}33`,
+                border: `${COLORS.PRIMARY.OPEN_QUESTION}FF`,
+                text: `${COLORS.PRIMARY.OPEN_QUESTION}FF`,
+                hover: `${COLORS.PRIMARY.OPEN_QUESTION}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.CYAN}66`,
-                    end: `${COLORS.PRIMARY.CYAN}33`
+                    start: `${COLORS.PRIMARY.OPEN_QUESTION}66`,
+                    end: `${COLORS.PRIMARY.OPEN_QUESTION}33`
                 }
             } as any,
-            highlightColor: COLORS.PRIMARY.CYAN as any
+            highlightColor: COLORS.PRIMARY.OPEN_QUESTION as any
         };
     } else if (formData.nodeType === 'quantity') {
-        // For quantity nodes, use turquoise
         completeStyle = {
             ...baseStyle,
             colors: {
-                background: `${COLORS.PRIMARY.TURQUOISE}33`,
-                border: `${COLORS.PRIMARY.TURQUOISE}FF`,
-                text: `${COLORS.PRIMARY.TURQUOISE}FF`,
-                hover: `${COLORS.PRIMARY.TURQUOISE}FF`,
+                background: `${COLORS.PRIMARY.QUANTITY}33`,
+                border: `${COLORS.PRIMARY.QUANTITY}FF`,
+                text: `${COLORS.PRIMARY.QUANTITY}FF`,
+                hover: `${COLORS.PRIMARY.QUANTITY}FF`,
                 gradient: {
-                    start: `${COLORS.PRIMARY.TURQUOISE}66`,
-                    end: `${COLORS.PRIMARY.TURQUOISE}33`
+                    start: `${COLORS.PRIMARY.QUANTITY}66`,
+                    end: `${COLORS.PRIMARY.QUANTITY}33`
                 }
             } as any,
-            highlightColor: COLORS.PRIMARY.TURQUOISE as any
+            highlightColor: COLORS.PRIMARY.QUANTITY as any
+        };
+    } else if (formData.nodeType === 'answer') {
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.ANSWER}33`,
+                border: `${COLORS.PRIMARY.ANSWER}FF`,
+                text: `${COLORS.PRIMARY.ANSWER}FF`,
+                hover: `${COLORS.PRIMARY.ANSWER}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.ANSWER}66`,
+                    end: `${COLORS.PRIMARY.ANSWER}33`
+                }
+            } as any,
+            highlightColor: COLORS.PRIMARY.ANSWER as any
+        };
+    } else if (formData.nodeType === 'evidence') {
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.EVIDENCE}33`,
+                border: `${COLORS.PRIMARY.EVIDENCE}FF`,
+                text: `${COLORS.PRIMARY.EVIDENCE}FF`,
+                hover: `${COLORS.PRIMARY.EVIDENCE}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.EVIDENCE}66`,
+                    end: `${COLORS.PRIMARY.EVIDENCE}33`
+                }
+            } as any,
+            highlightColor: COLORS.PRIMARY.EVIDENCE as any
+        };
+    } else if (formData.nodeType === 'category') {
+        completeStyle = {
+            ...baseStyle,
+            colors: {
+                background: `${COLORS.PRIMARY.CATEGORY}33`,
+                border: `${COLORS.PRIMARY.CATEGORY}FF`,
+                text: `${COLORS.PRIMARY.CATEGORY}FF`,
+                hover: `${COLORS.PRIMARY.CATEGORY}FF`,
+                gradient: {
+                    start: `${COLORS.PRIMARY.CATEGORY}66`,
+                    end: `${COLORS.PRIMARY.CATEGORY}33`
+                }
+            } as any,
+            highlightColor: COLORS.PRIMARY.CATEGORY as any
         };
     } else if (formData.nodeType !== '') {
-        // For other node types, use current style from the animation
         completeStyle = { ...currentStyle };
     } else {
-        // When no node type selected, use animated current style
         completeStyle = { ...currentStyle };
     }
 
@@ -250,27 +311,52 @@
                      'Review Creation') :
                   formData.nodeType === 'statement' ?
                     (currentStep === 2 ? 'Enter Statement' :
-                     currentStep === 3 ? 'Add Keywords' :
-                     currentStep === 4 ? 'Start Discussion' :
+                     currentStep === 3 ? 'Add Categories' :
+                     currentStep === 4 ? 'Add Keywords' :
+                     currentStep === 5 ? 'Start Discussion' :
                      'Review Creation') :
                   formData.nodeType === 'openquestion' ?
                     (currentStep === 2 ? 'Enter Question' :
-                     currentStep === 3 ? 'Add Keywords' :
-                     currentStep === 4 ? 'Start Discussion' :
+                     currentStep === 3 ? 'Add Categories' :
+                     currentStep === 4 ? 'Add Keywords' :
+                     currentStep === 5 ? 'Start Discussion' :
                      'Review Creation') :
                   formData.nodeType === 'quantity' ?
                     (currentStep === 2 ? 'Enter Question' :
                      currentStep === 3 ? 'Select Unit' :
+                     currentStep === 4 ? 'Add Categories' :
+                     currentStep === 5 ? 'Add Keywords' :
+                     currentStep === 6 ? 'Start Discussion' :
+                     'Review Creation') :
+                  formData.nodeType === 'answer' ?
+                    (currentStep === 2 ? 'Enter Answer' :
+                     currentStep === 3 ? 'Add Categories' :
                      currentStep === 4 ? 'Add Keywords' :
                      currentStep === 5 ? 'Start Discussion' :
                      'Review Creation') :
+                  formData.nodeType === 'evidence' ?
+                    (currentStep === 2 ? 'Enter Evidence' :
+                     currentStep === 3 ? 'Add Categories' :
+                     currentStep === 4 ? 'Add Keywords' :
+                     currentStep === 5 ? 'Start Discussion' :
+                     'Review Creation') :
+                  formData.nodeType === 'category' ?
+                    (currentStep === 2 ? 'Select Words' :
+                     currentStep === 3 ? 'Start Discussion' :
+                     'Review Creation') :
                   'Create New Node';
 
-    $: showStepIndicators = currentStep < (formData.nodeType === 'quantity' ? 6 : 5);
+    $: showStepIndicators = currentStep < (formData.nodeType === 'quantity' ? 7 : 
+                                          formData.nodeType === 'statement' || formData.nodeType === 'openquestion' || formData.nodeType === 'answer' || formData.nodeType === 'evidence' ? 6 : 
+                                          formData.nodeType === 'word' ? 5 :
+                                          formData.nodeType === 'category' ? 4 :
+                                          1);
 
     // Max steps based on node type
-    $: maxSteps = formData.nodeType === 'word' || formData.nodeType === 'statement' || formData.nodeType === 'openquestion' ? 5 : 
-                 formData.nodeType === 'quantity' ? 6 : 1;
+    $: maxSteps = formData.nodeType === 'word' ? 5 :
+                 formData.nodeType === 'statement' || formData.nodeType === 'openquestion' || formData.nodeType === 'answer' || formData.nodeType === 'evidence' ? 6 : 
+                 formData.nodeType === 'quantity' ? 7 :
+                 formData.nodeType === 'category' ? 4 : 1;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -298,7 +384,11 @@
             question: '',
             unitCategoryId: '',
             defaultUnitId: '',
+            answerText: '',
+            selectedWordIds: [],
+            parentCategoryId: null,
             userKeywords: [],
+            selectedCategories: [],
             discussion: '',
             publicCredit: false
         };
@@ -313,7 +403,7 @@
 
 <BaseDetailNode {node} style={completeStyle} on:modeChange={handleModeChange}>
     <svelte:fragment slot="default" let:radius>
-        <g transform="translate(0, {-radius + (currentStep === (formData.nodeType === 'quantity' ? 6 : 5) ? 100 : 120)})">
+        <g transform="translate(0, {-radius + (currentStep === maxSteps ? 100 : 120)})">
             <!-- Title -->
             <text 
                 class="title"
@@ -325,9 +415,9 @@
             <!-- Step Indicators -->
             {#if showStepIndicators}
                 <g transform="translate(0, 40)">
-                    {#each Array(formData.nodeType === 'quantity' ? 6 : 5) as _, i}
+                    {#each Array(maxSteps) as _, i}
                         <circle
-                            cx={-50 + (i * 20)}
+                            cx={-60 + (i * 20)}
                             cy="0"
                             r="4"
                             class="step-indicator"
@@ -354,7 +444,7 @@
                         on:typeChange={handleNodeTypeChange}
                     />
                 {:else if formData.nodeType === 'word'}
-                    <!-- Word node creation flow -->
+                    <!-- Word node creation flow (4 steps after type) -->
                     {#if currentStep === 2}
                         <WordInput
                             bind:word={formData.word}
@@ -391,7 +481,7 @@
                         />
                     {/if}
                 {:else if formData.nodeType === 'statement'}
-                    <!-- Statement node creation flow -->
+                    <!-- Statement node creation flow (5 steps after type) -->
                     {#if currentStep === 2}
                         <StatementInput
                             bind:statement={formData.statement}
@@ -400,81 +490,8 @@
                             on:proceed={handleNext}
                         />
                     {:else if currentStep === 3}
-                        <KeywordInput
-                            bind:userKeywords={formData.userKeywords}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 4}
-                        <DiscussionInput
-                            bind:discussion={formData.discussion}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 5}
-                        <StatementReview
-                            statement={formData.statement}
-                            userKeywords={formData.userKeywords}
-                            discussion={formData.discussion}
-                            publicCredit={formData.publicCredit}
-                            userId={userData.sub}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:success={e => successMessage = e.detail.message}
-                            on:error={e => errorMessage = e.detail.message}
-                        />
-                    {/if}
-                {:else if formData.nodeType === 'openquestion'}
-                    <!-- OpenQuestion node creation flow -->
-                    {#if currentStep === 2}
-                        <OpenQuestionInput
-                            bind:questionText={formData.questionText}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 3}
-                        <KeywordInput
-                            bind:userKeywords={formData.userKeywords}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 4}
-                        <DiscussionInput
-                            bind:discussion={formData.discussion}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 5}
-                        <OpenQuestionReview
-                            questionText={formData.questionText}
-                            userKeywords={formData.userKeywords}
-                            discussion={formData.discussion}
-                            publicCredit={formData.publicCredit}
-                            userId={userData.sub}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:success={e => successMessage = e.detail.message}
-                            on:error={e => errorMessage = e.detail.message}
-                        />
-                    {/if}
-                {:else if formData.nodeType === 'quantity'}
-                    <!-- Quantity node creation flow -->
-                    {#if currentStep === 2}
-                        <QuantityInput
-                            bind:question={formData.question}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 3}
-                        <UnitCategorySelect
-                            bind:unitCategoryId={formData.unitCategoryId}
-                            bind:defaultUnitId={formData.defaultUnitId}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -494,11 +511,238 @@
                             on:proceed={handleNext}
                         />
                     {:else if currentStep === 6}
+                        <StatementReview
+                            statement={formData.statement}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'openquestion'}
+                    <!-- OpenQuestion node creation flow (5 steps after type) -->
+                    {#if currentStep === 2}
+                        <OpenQuestionInput
+                            bind:questionText={formData.questionText}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <OpenQuestionReview
+                            questionText={formData.questionText}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'quantity'}
+                    <!-- Quantity node creation flow (6 steps after type) -->
+                    {#if currentStep === 2}
+                        <QuantityInput
+                            bind:question={formData.question}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <UnitCategorySelect
+                            bind:unitCategoryId={formData.unitCategoryId}
+                            bind:defaultUnitId={formData.defaultUnitId}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 7}
                         <QuantityReview
                             question={formData.question}
                             unitCategoryId={formData.unitCategoryId}
                             defaultUnitId={formData.defaultUnitId}
                             userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'answer'}
+                    <!-- Answer node creation flow (5 steps after type) -->
+                    {#if currentStep === 2}
+                        <AnswerInput
+                            bind:answerText={formData.answerText}
+                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <AnswerReview
+                            answerText={formData.answerText}
+                            questionId="[Will be provided when answer creation is triggered from a question]"
+                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'evidence'}
+                    <!-- Evidence node creation flow (5 steps after type) -->
+                    {#if currentStep === 2}
+                        <EvidenceInput
+                            bind:title={formData.evidenceTitle}
+                            bind:url={formData.evidenceUrl}
+                            bind:evidenceType={formData.evidenceType}
+                            parentNodeText={formData.parentNodeType ? "[Parent node text will be provided when evidence creation is triggered from a node]" : ""}
+                            parentNodeType={formData.parentNodeType || ""}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <EvidenceReview
+                            title={formData.evidenceTitle}
+                            url={formData.evidenceUrl}
+                            evidenceType={formData.evidenceType}
+                            parentNodeId={formData.parentNodeId}
+                            parentNodeType={formData.parentNodeType}
+                            parentNodeText="[Parent node text will be provided when evidence creation is triggered from a node]"
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'category'}
+                    <!-- Category node creation flow (3 steps after type) -->
+                    {#if currentStep === 2}
+                        <CategoryCreationInput
+                            bind:selectedWordIds={formData.selectedWordIds}
+                            bind:parentCategoryId={formData.parentCategoryId}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <CategoryCreationReview
+                            selectedWordIds={formData.selectedWordIds}
+                            parentCategoryId={formData.parentCategoryId}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
@@ -518,8 +762,8 @@
     .title {
         font-size: 30px;
         fill: white;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron to Inter */
-        font-weight: 600;  /* Added weight for consistency */
+        font-family: 'Inter', sans-serif;
+        font-weight: 600;
     }
 
     .step-indicator {
@@ -543,12 +787,10 @@
         transition: fill 2s ease-in-out;
     }
 
-      /* Make sure foreignObject elements don't clip their content */
-      :global(foreignObject) {
+    :global(foreignObject) {
         overflow: visible !important;
     }
 
-    /* Ensure the button containers have enough height */
     :global(.button-wrapper) {
         padding-top: 4px;
         padding-bottom: 4px;
@@ -556,7 +798,6 @@
         min-height: 45px;
     }
 
-    /* Give buttons proper spacing */
     :global(.action-button) {
         margin-bottom: 5px;
         position: relative;
