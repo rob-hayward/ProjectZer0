@@ -358,8 +358,9 @@
         }
     }
 
-    $: if (controlNode && controlNode.mode !== undefined && graphData && graphStore) {
-        const newPositions = calculateNavigationRingPositions(navigationNodes.length, controlNode.mode);
+    // UPDATED: Watch activeCentralNode instead of controlNode to handle both mode changes AND node type switches
+    $: if (activeCentralNode && activeCentralNode.mode !== undefined && graphData && graphStore) {
+        const newPositions = calculateNavigationRingPositions(navigationNodes.length, activeCentralNode.mode);
         
         const positionsChanged = navigationNodes.some((node, index) => {
             const currentPos = node.metadata?.initialPosition;
@@ -370,8 +371,9 @@
         });
         
         if (positionsChanged) {
-            console.log('[UNIVERSAL-PAGE] 🎯 Control node mode changed, updating positions:', {
-                mode: controlNode.mode,
+            console.log('[UNIVERSAL-PAGE] 🎯 Central node changed, updating positions:', {
+                nodeType: currentCentralNodeType,
+                mode: activeCentralNode.mode,
                 navigationCount: navigationNodes.length,
                 hasGraphStore: !!graphStore,
                 graphStoreType: graphStore?.constructor?.name,
@@ -400,12 +402,12 @@
                 ...graphData,
                 nodes: [
                     ...navigationNodes,
-                    controlNode,
-                    ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId)
+                    activeCentralNode,  // UPDATED: Use activeCentralNode instead of controlNode
+                    ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId && n.id !== 'dashboard-central')
                 ]
             };
 
-            // CLEAN DIRECT METHOD CALL (now that wrapper is fixed)
+            // CLEAN DIRECT METHOD CALL
             if (graphStore && typeof graphStore.updateNavigationPositions === 'function') {
                 console.log('[UNIVERSAL-PAGE] 🎯 Updating navigation positions via graphStore');
                 graphStore.updateNavigationPositions(navigationNodes);

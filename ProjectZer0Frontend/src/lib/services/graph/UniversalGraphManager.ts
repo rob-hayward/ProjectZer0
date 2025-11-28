@@ -1798,6 +1798,11 @@ export class UniversalGraphManager {
             case 'navigation':
                 radius = COORDINATE_SPACE.NODES.SIZES.NAVIGATION / 2;
                 break;
+            case 'control':
+            radius = node.mode === 'detail' ?
+                COORDINATE_SPACE.NODES.SIZES.CONTROL.DETAIL / 2 :
+                COORDINATE_SPACE.NODES.SIZES.CONTROL.PREVIEW / 2;
+            break;    
             case 'dashboard':
                 if (node.data && 'sub' in node.data && node.data.sub === 'universal-controls') {
                     radius = node.mode === 'detail' ?
