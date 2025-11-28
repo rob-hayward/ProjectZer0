@@ -75,11 +75,11 @@
 
         // Check if this is a central node switch (for universal graph)
         if (CENTRAL_NODE_SWITCH_OPTIONS.includes(navigationData.id)) {
-            console.log('[NAVIGATION] Central node switch option - dispatching event only');
+            console.log('[NAVIGATION] Central node switch option - dispatching event');
             
             // Dispatch event for +page.svelte to handle
-            window.dispatchEvent(new CustomEvent('navigation-node-click', {
-                detail: { optionId: navigationData.id }
+            window.dispatchEvent(new CustomEvent('switch-central-node', {
+                detail: { nodeType: navigationData.id }
             }));
             
             // Do NOT call handleNavigation - let the page handle central node switching
@@ -98,8 +98,8 @@
         
         // Get the target view type based on navigation option
         const targetViewType = navigationData.id === 'dashboard' ? 'dashboard' : 
-                             navigationData.id === 'create-word' ? 'create-node' :
-                             navigationData.id === 'edit-profile' ? 'edit-profile' : 'dashboard';
+                            navigationData.id === 'create-word' ? 'create-node' :
+                            navigationData.id === 'edit-profile' ? 'edit-profile' : 'dashboard';
         
         // Update graph store if target view type is specified
         if (graphStore && graphStore.setViewType) {

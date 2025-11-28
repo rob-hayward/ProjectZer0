@@ -340,6 +340,128 @@ export class UniversalGraphManager {
         console.log('[UniversalGraphManager] ✅ Navigation positions updated successfully');
     }
 
+    /**
+     * Switch central node to a different type (control, dashboard, etc.)
+     * Called when user clicks navigation buttons to change central node
+     * Pattern: Surgical update - only replaces central node, no simulation restart
+     */
+    public switchCentralNode(newCentralNode: GraphNode): void {
+        console.log('[UniversalGraphManager] 🔄 switchCentralNode called:', {
+            newNodeId: newCentralNode.id,
+            newNodeType: newCentralNode.type,
+            newNodeMode: newCentralNode.mode,
+            newNodeGroup: newCentralNode.group
+        });
+        
+        // Get all current nodes from simulation
+        const allNodes = this.d3Simulation.getAllNodes();
+        
+        console.log('[UniversalGraphManager] Current nodes before switch:', {
+            total: allNodes.length,
+            centralNodes: allNodes.filter(n => n.group === 'central').length,
+            byType: allNodes.reduce((acc: any, n) => {
+                acc[n.type] = (acc[n.type] || 0) + 1;
+                return acc;
+            }, {})
+        });
+        
+        // Find the existing central node
+        const oldCentralIndex = allNodes.findIndex(n => n.group === 'central');
+        
+        if (oldCentralIndex === -1) {
+            console.error('[UniversalGraphManager] ❌ No existing central node found');
+            return;
+        }
+        
+        const oldCentral = allNodes[oldCentralIndex];
+        console.log('[UniversalGraphManager] Found existing central node:', {
+            id: oldCentral.id,
+            type: oldCentral.type,
+            mode: oldCentral.mode,
+            radius: oldCentral.radius
+        });
+        
+        // Transform the new central node to EnhancedNode
+        const transformedNewCentral = this.transformSingleNode(newCentralNode);
+        
+        // Ensure central node positioning
+        transformedNewCentral.x = 0;
+        transformedNewCentral.y = 0;
+        transformedNewCentral.fx = 0;
+        transformedNewCentral.fy = 0;
+        transformedNewCentral.vx = 0;
+        transformedNewCentral.vy = 0;
+        transformedNewCentral.fixed = true;
+        
+        console.log('[UniversalGraphManager] Transformed new central node:', {
+            id: transformedNewCentral.id,
+            type: transformedNewCentral.type,
+            mode: transformedNewCentral.mode,
+            radius: transformedNewCentral.radius,
+            position: { x: transformedNewCentral.x, y: transformedNewCentral.y }
+        });
+        
+        // Check if radius changed significantly (indicates need for navigation repositioning)
+        const radiusChanged = Math.abs(transformedNewCentral.radius - oldCentral.radius) > 10;
+        
+        console.log('[UniversalGraphManager] Central node size change:', {
+            oldRadius: oldCentral.radius,
+            newRadius: transformedNewCentral.radius,
+            radiusChanged,
+            needsRepositioning: radiusChanged
+        });
+        
+        // Replace ONLY the central node in the array
+        const updatedNodes = allNodes.map((node, index) => 
+            index === oldCentralIndex ? transformedNewCentral : node
+        );
+        
+        // Extract system nodes (navigation + new central)
+        const systemNodes = updatedNodes.filter(n => 
+            n.type === 'navigation' || n.group === 'central' || n.fixed
+        );
+        
+        console.log('[UniversalGraphManager] Updating system nodes:', {
+            systemNodesCount: systemNodes.length,
+            navigationCount: systemNodes.filter(n => n.type === 'navigation').length,
+            centralCount: systemNodes.filter(n => n.group === 'central').length
+        });
+        
+        // Update ONLY system nodes in simulation (no restart)
+        this.d3Simulation.updateSystemNodes(systemNodes);
+        
+        // Update stores to trigger re-render
+        this.nodesStore.set(updatedNodes);
+        this.forceUpdateCounter.update(n => n + 1);
+        
+        console.log('[UniversalGraphManager] ✅ Central node switched successfully');
+        
+        // CRITICAL: If radius changed significantly, we need to:
+        // 1. Dispatch event for +page to recalculate navigation positions
+        // 2. Reheat simulation so content nodes adjust to new central node size
+        if (radiusChanged) {
+            console.log('[UniversalGraphManager] 🔥 Reheating simulation for central node size change');
+            
+            // Dispatch event to notify +page that navigation needs repositioning
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('central-node-radius-changed', {
+                    detail: {
+                        nodeId: transformedNewCentral.id,
+                        oldRadius: oldCentral.radius,
+                        newRadius: transformedNewCentral.radius,
+                        mode: transformedNewCentral.mode
+                    }
+                }));
+            }
+            
+            // Reheat simulation to let content nodes adjust
+            this.reheatSimulation(0.3);
+            
+            // Monitor settlement
+            this.startSizeChangeSettlementMonitoring();
+        }
+    }
+
     private startSizeChangeSettlementMonitoring(): void {
         if (this.settlementCheckInterval) {
             clearInterval(this.settlementCheckInterval);

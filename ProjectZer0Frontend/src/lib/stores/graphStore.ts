@@ -43,6 +43,7 @@ export interface GraphStore {
     getBatchDebugInfo?: () => any;
     getShouldRenderLinks?: () => boolean; 
     updateNavigationPositions?: (navigationNodes: GraphNode[]) => void;
+    switchCentralNode?: (newCentralNode: GraphNode) => void;
 }
 
 /**
@@ -325,6 +326,11 @@ export function createGraphStore(initialViewType: ViewType): GraphStore {
             console.log('[GraphStore] updateNavigationPositions called, forwarding to manager');
             manager.updateNavigationPositions(navigationNodes);
         };
+
+        baseStore.switchCentralNode = (newCentralNode: GraphNode) => {
+        manager.switchCentralNode(newCentralNode);
+    };
+
     }
 
     return baseStore;

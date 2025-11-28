@@ -5,6 +5,7 @@
     import Graph from '$lib/components/graph/Graph.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
+    import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import AnswerNode from '$lib/components/graph/nodes/answer/AnswerNode.svelte';
@@ -16,6 +17,7 @@
     import CommentNode from '$lib/components/graph/nodes/comment/CommentNode.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
+    import { getUserActivity, type UserActivity } from '$lib/services/userActivity';
     
     import { universalGraphStore, type UniversalSortType, type UniversalSortDirection } from '$lib/stores/universalGraphStore';
     import { graphFilterStore, type FilterOperator } from '$lib/stores/graphFilterStore';
@@ -49,6 +51,7 @@
         isWordNode,
         isDefinitionNode,
         isCommentNode,
+        isDashboardNode,
         isStatementData,
         isOpenQuestionData,
         isAnswerData,
@@ -97,6 +100,9 @@
     let dataInitialized = false;
     let nodesLoaded = false;
     let visibilityPreferencesLoaded = false;
+
+    // User activity data for dashboard
+    let userActivity: UserActivity | undefined = undefined;
     
     // Control settings with default values
     let sortType: UniversalSortType = 'netVotes';
@@ -227,7 +233,130 @@
         mode: controlNodeMode
     };
 
-    // Replace the current reactive statement (around line 232-296) with this:
+    // Dashboard node - will be created when user data is available
+    let dashboardNode: GraphNode | null = null;
+
+    // Track which central node is currently active
+    let currentCentralNodeType: 'control' | 'dashboard' = 'control';
+    let activeCentralNode: GraphNode = controlNode;
+
+    // Reactive: Create dashboard node when user data becomes available
+    $: if ($userStore && !dashboardNode) {
+        dashboardNode = {
+            id: 'dashboard-central',
+            type: 'dashboard' as NodeType,
+            data: $userStore, // Now guaranteed to be non-null
+            group: 'central' as NodeGroup,
+            mode: 'detail' as NodeMode
+        };
+        console.log('[UNIVERSAL-PAGE] Dashboard node created');
+    }
+
+    // ============================================================================
+    // CENTRAL NODE SWITCHING HELPERS
+    // ============================================================================
+    
+    /**
+     * Create a central node of the specified type
+     */
+    function createCentralNode(type: 'control' | 'dashboard', mode: NodeMode): GraphNode | null {
+        if (type === 'control') {
+            return {
+                id: controlNodeId,
+                type: 'control' as NodeType,
+                data: {
+                    sub: 'universal-controls',
+                    name: 'Universal Graph Controls',
+                    email: '',
+                    picture: '',
+                    'https://projectzer0.co/user_metadata': {
+                        handle: 'universal-controls'
+                    }
+                },
+                group: 'central' as NodeGroup,
+                mode
+            };
+        } else { // dashboard
+            // Only create if user data is available
+            if (!$userStore) {
+                console.warn('[UNIVERSAL-PAGE] Cannot create dashboard node - no user data');
+                return null;
+            }
+            return {
+                id: 'dashboard-central',
+                type: 'dashboard' as NodeType,
+                data: $userStore,
+                group: 'central' as NodeGroup,
+                mode
+            };
+        }
+    }
+
+    /**
+     * Switch to a different central node type
+     * Uses direct manager call - NO graphData replacement
+     */
+    async function switchCentralNode(newType: 'control' | 'dashboard') {
+        console.log('[UNIVERSAL-PAGE] 🔄 Switching central node:', {
+            from: currentCentralNodeType,
+            to: newType
+        });
+        
+        // Already this type - no need to switch
+        if (newType === currentCentralNodeType) {
+            console.log('[UNIVERSAL-PAGE] Already showing', newType);
+            return;
+        }
+        
+        // Load user activity if switching to dashboard (and not already loaded)
+        if (newType === 'dashboard' && !userActivity) {
+            await loadUserActivity();
+        }
+        
+        // Create the new central node
+        const newCentralNode = createCentralNode(newType, 'detail');
+        
+        // Check if creation was successful
+        if (!newCentralNode) {
+            console.error('[UNIVERSAL-PAGE] Failed to create central node of type:', newType);
+            return;
+        }
+        
+        // Update local tracking
+        currentCentralNodeType = newType;
+        activeCentralNode = newCentralNode;
+        
+        // Direct manager call - NO graphData replacement
+        if (graphStore && typeof graphStore.switchCentralNode === 'function') {
+            console.log('[UNIVERSAL-PAGE] Calling graphStore.switchCentralNode');
+            graphStore.switchCentralNode(newCentralNode);
+        } else {
+            console.error('[UNIVERSAL-PAGE] switchCentralNode method not available');
+        }
+    }
+
+    /**
+     * Load user activity data for dashboard
+     */
+    async function loadUserActivity() {
+        if (!$userStore) {
+            console.warn('[UNIVERSAL-PAGE] Cannot load user activity - no user');
+            return;
+        }
+        
+        try {
+            console.log('[UNIVERSAL-PAGE] Loading user activity...');
+            userActivity = await getUserActivity();
+            console.log('[UNIVERSAL-PAGE] User activity loaded:', userActivity);
+        } catch (error) {
+            console.error('[UNIVERSAL-PAGE] Error loading user activity:', error);
+            userActivity = {
+                nodesCreated: 0,
+                votesCast: 0,
+                commentsMade: 0
+            };
+        }
+    }
 
     $: if (controlNode && controlNode.mode !== undefined && graphData && graphStore) {
         const newPositions = calculateNavigationRingPositions(navigationNodes.length, controlNode.mode);
@@ -468,14 +597,16 @@
     
     // Create initial graph data with just navigation and control nodes
     function createInitialGraphData() {
+        // Only include the ACTIVE central node
         graphData = {
-            nodes: [...navigationNodes, controlNode],
+            nodes: [...navigationNodes, activeCentralNode],
             links: []
         };
         
         console.log('[UNIVERSAL-PAGE] Initial graph data created:', {
             nodes: graphData.nodes.length,
-            links: graphData.links.length
+            links: graphData.links.length,
+            centralNodeType: currentCentralNodeType
         });
     }
     
@@ -1546,6 +1677,59 @@ function calculateDefinitionRing(
     // Initialize on mount
     onMount(() => {
         initializeData();
+        
+        // Listen for navigation clicks to switch central node
+        const navigationClickListener = ((event: CustomEvent) => {
+            const { nodeType } = event.detail;
+            console.log('[UNIVERSAL-PAGE] Navigation click event:', nodeType);
+            
+            if (nodeType === 'dashboard') {
+                switchCentralNode('dashboard');
+            } else if (nodeType === 'graph-controls') {
+                switchCentralNode('control');
+            }
+        }) as EventListener;
+        
+        // Listen for central node radius changes (need to reposition navigation ring)
+        const radiusChangeListener = ((event: CustomEvent) => {
+            const { nodeId, oldRadius, newRadius, mode } = event.detail;
+            console.log('[UNIVERSAL-PAGE] 🔄 Central node radius changed:', {
+                nodeId, oldRadius, newRadius, mode
+            });
+            
+            // Recalculate navigation ring positions for the new radius
+            const newPositions = calculateNavigationRingPositions(navigationNodes.length, mode);
+            
+            // Update navigation nodes with new positions
+            navigationNodes = navigationNodes.map((node, index) => ({
+                ...node,
+                metadata: {
+                    group: 'navigation' as const,  // Explicitly set group
+                    fixed: true,
+                    ...node.metadata,  // Preserve other metadata
+                    initialPosition: {
+                        x: newPositions[index].x,
+                        y: newPositions[index].y
+                    },
+                    angle: newPositions[index].angle
+                }
+            }));
+            
+            // Update navigation positions in graph store
+            if (graphStore && typeof graphStore.updateNavigationPositions === 'function') {
+                console.log('[UNIVERSAL-PAGE] Updating navigation positions for radius change');
+                graphStore.updateNavigationPositions(navigationNodes);
+            }
+        }) as EventListener;
+        
+        window.addEventListener('switch-central-node', navigationClickListener);
+        window.addEventListener('central-node-radius-changed', radiusChangeListener);
+        
+        // Return cleanup function
+        return () => {
+            window.removeEventListener('switch-central-node', navigationClickListener);
+            window.removeEventListener('central-node-radius-changed', radiusChangeListener);
+        };
     });
 
     // Cleanup on destroy
@@ -1610,56 +1794,60 @@ function calculateDefinitionRing(
         on:expandWord={handleExpandWord}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
-            {#if isStatementNode(node)}
-                <StatementNode 
-                    {node}
-                />
-            {:else if isOpenQuestionNode(node)}
-                <OpenQuestionNode
-                    {node}
-                />
-            {:else if isAnswerNode(node)}
-                <AnswerNode
-                    {node}
-                />
-            {:else if isQuantityNode(node)}
-                <QuantityNode
-                    {node}
-                />
-            {:else if isEvidenceNode(node)}
-                <EvidenceNode
-                    {node}
-                />
-            {:else if isCategoryNode(node)}
-                 <CategoryNode 
-                    {node} 
-                />
-            {:else if isWordNode(node)}
-                <WordNode 
-                    {node} 
-                />
-            {:else if isDefinitionNode(node)}
-                <DefinitionNode 
-                    {node} 
-                />
-            {:else if isCommentNode(node)}
-                <CommentNode 
-                    {node} 
-                />
-            {:else if isNavigationNode(node)}
-                <NavigationNode 
-                    {node}
-                />
-            {:else if node.id === controlNodeId}
-                <!-- CRITICAL: Added applyMode="manual" prop -->
-                <ControlNode 
-                    bind:this={controlNodeRef}
-                    {node}
-                    isLoading={nodesLoading}
-                    applyMode="manual"
-                />
-            {/if}
-        </svelte:fragment>
+        {#if isStatementNode(node)}
+            <StatementNode 
+                {node}
+            />
+        {:else if isOpenQuestionNode(node)}
+            <OpenQuestionNode
+                {node}
+            />
+        {:else if isAnswerNode(node)}
+            <AnswerNode
+                {node}
+            />
+        {:else if isQuantityNode(node)}
+            <QuantityNode
+                {node}
+            />
+        {:else if isEvidenceNode(node)}
+            <EvidenceNode
+                {node}
+            />
+        {:else if isCategoryNode(node)}
+            <CategoryNode 
+                {node} 
+            />
+        {:else if isWordNode(node)}
+            <WordNode 
+                {node} 
+            />
+        {:else if isDefinitionNode(node)}
+            <DefinitionNode 
+                {node} 
+            />
+        {:else if isCommentNode(node)}
+            <CommentNode 
+                {node} 
+            />
+        {:else if isNavigationNode(node)}
+            <NavigationNode 
+                {node}
+            />
+        {:else if isDashboardNode(node)}
+            <DashboardNode 
+                {node}
+                {userActivity}
+            />
+        {:else if node.id === controlNodeId}
+            <ControlNode 
+                bind:this={controlNodeRef}
+                {node}
+                isLoading={nodesLoading}
+                applyMode="manual"
+            />
+        {/if}
+    </svelte:fragment>
     </Graph>
 {/if}
 
