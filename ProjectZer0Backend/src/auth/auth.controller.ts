@@ -118,9 +118,9 @@ export class AuthController {
         res.redirect(`${baseUrl}/edit-profile`);
       } else {
         this.logger.log(
-          `Existing user logged in: ${user.sub}, redirecting to dashboard`,
+          `Existing user logged in: ${user.sub}, redirecting to universal graph`,
         );
-        res.redirect(`${baseUrl}/graph/dashboard`);
+        res.redirect(`${baseUrl}/graph/universal`);
       }
     } catch (error) {
       this.logger.error(`Error in callback: ${error.message}`, error.stack);

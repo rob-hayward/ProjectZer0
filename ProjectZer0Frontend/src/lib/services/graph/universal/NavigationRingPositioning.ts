@@ -31,14 +31,6 @@ function calculateRingRadius(controlNodeMode: NodeMode): number {
     // Ring radius = control radius + gap + navigation radius
     const ringRadius = controlRadius + gapDistance + navRadius;
     
-    console.log('[NavigationRingPositioning] Ring radius calculation:', {
-        controlNodeMode,
-        controlRadius,
-        navRadius,
-        gapDistance,
-        ringRadius
-    });
-    
     return ringRadius;
 }
 
@@ -71,17 +63,6 @@ export function calculateNavigationRingPositions(
         
         positions.push({ x, y, angle });
     }
-    
-    console.log('[NavigationRingPositioning] Calculated positions:', {
-        count: navigationNodeCount,
-        controlNodeMode,
-        ringRadius,
-        positions: positions.map(p => ({
-            x: p.x.toFixed(1),
-            y: p.y.toFixed(1),
-            angleDeg: ((p.angle * 180 / Math.PI) % 360).toFixed(1)
-        }))
-    });
     
     return positions;
 }

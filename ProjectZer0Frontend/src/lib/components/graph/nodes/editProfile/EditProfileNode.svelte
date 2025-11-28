@@ -109,9 +109,11 @@
         </text>
     </svelte:fragment>
 
-    <svelte:fragment slot="content" let:x let:y let:width let:height let:layoutConfig>
+    <!-- FIXED: Changed from slot="content" to slot="contentText" -->
+    <!-- FIXED: Changed let:layoutConfig to let:positioning -->
+    <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
         <!-- Form Fields -->
-        <g transform="translate({x}, {y + layoutConfig.titleYOffset})">
+        <g transform="translate({x}, {y})">
             <UsernameInput
                 bind:username={preferred_username}
                 disabled={loading}

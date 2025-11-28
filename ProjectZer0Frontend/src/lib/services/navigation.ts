@@ -11,6 +11,8 @@ export const NavigationOptionId = {
     DASHBOARD: 'dashboard',
     CREATE_NODE: 'create-node',
     EDIT_PROFILE: 'edit-profile',
+    GRAPH_CONTROLS: 'graph-controls',  // NEW: For universal graph controls
+    DONATE: 'donate',  // NEW: Donation link
     EXPLORE: 'explore',
     NETWORK: 'network',
     INTERACTIONS: 'interactions',
@@ -19,8 +21,8 @@ export const NavigationOptionId = {
     ALTERNATIVE_DEFINITIONS: 'alternative-definitions',
     CREATE_DEFINITION: 'create-definition', 
     DISCUSS: 'discuss',
-    QUESTIONS: 'questions',  // NEW: For browsing all questions
-    UNIVERSAL_GRAPH: 'universal-graph'  // NEW: Universal graph view
+    QUESTIONS: 'questions',
+    UNIVERSAL_GRAPH: 'universal-graph'
 } as const;
 
 export type NavigationOptionId = typeof NavigationOptionId[keyof typeof NavigationOptionId];
@@ -30,7 +32,6 @@ function navigateWithWord(path: string) {
     const currentWord = get(wordStore);
     if (currentWord) {
         const url = `${path}?word=${encodeURIComponent(currentWord.word)}`;
-        // Use direct location change
         window.location.href = url;
     }
 }
@@ -53,13 +54,12 @@ const navigationViewTypeMap: Partial<Record<NavigationOptionId, ViewType>> = {
     [NavigationOptionId.CREATE_DEFINITION]: 'create-definition',
     [NavigationOptionId.EXPLORE]: 'statement-network',
     [NavigationOptionId.DISCUSS]: 'discussion',
-    [NavigationOptionId.QUESTIONS]: 'openquestion',  // NEW: Map questions to openquestion view type
-    [NavigationOptionId.UNIVERSAL_GRAPH]: 'universal',  // NEW: Map to universal view type
+    [NavigationOptionId.QUESTIONS]: 'openquestion',
+    [NavigationOptionId.UNIVERSAL_GRAPH]: 'universal',
 };
 
 // Helper to update graph store without TypeScript errors
 function updateGraphStore(viewType: ViewType): void {
-    // Only check if graphStore exists, not its methods
     if (!graphStore) {
         console.warn('[Navigation] Graph store not available');
         return;
@@ -68,7 +68,6 @@ function updateGraphStore(viewType: ViewType): void {
     console.log(`[Navigation] Updating graph store to: ${viewType}`);
     graphStore.setViewType(viewType);
     
-    // Call forceTick directly
     try {
         graphStore.forceTick();
     } catch (e) {
@@ -76,14 +75,6 @@ function updateGraphStore(viewType: ViewType): void {
     }
 }
 
-/**
- * Determines the appropriate API endpoint for node discussions based on node type
- * 
- * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
- * @param nodeId The ID of the node
- * @param nodeText Optional text representation (for word nodes)
- * @returns The appropriate API endpoint
- */
 export function getNodeDiscussionEndpoint(
     nodeType: string, 
     nodeId: string, 
@@ -93,11 +84,9 @@ export function getNodeDiscussionEndpoint(
     switch (nodeType) {
       case 'statement':
       case 'quantity':
-      case 'openquestion':  // NEW: OpenQuestion support
-        // These node types use ID-based endpoints with a standard pattern
+      case 'openquestion':
         return `/nodes/${nodeType}/${nodeId}/discussion`;
       case 'word':
-        // For word nodes, we need the actual word text, not ID
         if (nodeObject && nodeObject.word) {
           return `/nodes/word/${nodeObject.word}/discussion`;
         } else if (nodeText) {
@@ -107,7 +96,6 @@ export function getNodeDiscussionEndpoint(
           return '';
         }
       case 'definition':
-        // Definition nodes use a different base path
         return `/definitions/${nodeId}/discussion`;
       default:
         console.warn(`Unknown node type: ${nodeType}`);
@@ -115,14 +103,6 @@ export function getNodeDiscussionEndpoint(
     }
   }
 
-/**
- * Determines the appropriate API endpoint for node comments based on node type
- * 
- * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
- * @param nodeId The ID of the node
- * @param nodeText Optional text representation (for word nodes)
- * @returns The appropriate API endpoint
- */
 export function getNodeCommentsEndpoint(
     nodeType: string, 
     nodeId: string, 
@@ -132,11 +112,9 @@ export function getNodeCommentsEndpoint(
     switch (nodeType) {
       case 'statement':
       case 'quantity':
-      case 'openquestion':  // NEW: OpenQuestion support
-        // These node types use ID-based endpoints with a standard pattern
+      case 'openquestion':
         return `/nodes/${nodeType}/${nodeId}/comments`;
       case 'word':
-        // For word nodes, we need the actual word text, not ID
         if (nodeObject && nodeObject.word) {
           return `/nodes/word/${nodeObject.word}/comments`;
         } else if (nodeText) {
@@ -146,7 +124,6 @@ export function getNodeCommentsEndpoint(
           return '';
         }
       case 'definition':
-        // Definition nodes use a different base path
         return `/definitions/${nodeId}/comments`;
       default:
         console.warn(`Unknown node type: ${nodeType}`);
@@ -154,14 +131,6 @@ export function getNodeCommentsEndpoint(
     }
   }
 
-/**
- * Determines the appropriate API endpoint for fetching node data based on node type
- * 
- * @param nodeType The type of node (statement, word, definition, quantity, openquestion)
- * @param nodeId The ID of the node
- * @param nodeText Optional text representation (for word nodes)
- * @returns The appropriate API endpoint
- */
 export function getNodeDataEndpoint(
     nodeType: string, 
     nodeId: string, 
@@ -170,15 +139,11 @@ export function getNodeDataEndpoint(
     switch (nodeType) {
       case 'statement':
       case 'quantity':
-      case 'openquestion':  // NEW: OpenQuestion support
-        // These node types use ID-based endpoints
+      case 'openquestion':
         return `/nodes/${nodeType}/${nodeId}`;
       case 'word':
-        // For word nodes, try to find the word by ID first, and if that fails, 
-        // we'll need to implement a lookup by ID
         return `/nodes/word/id/${nodeId}`;
       case 'definition':
-        // Definition nodes use a different base path
         return `/definitions/${nodeId}`;
       default:
         console.warn(`Unknown node type: ${nodeType}`);
@@ -186,39 +151,57 @@ export function getNodeDataEndpoint(
     }
   }
 
-// New function for node-specific navigation to discussion
 export function navigateToNodeDiscussion(nodeType: string, nodeId: string, nodeText?: string): void {
     console.log(`[Navigation] Navigating to discussion for ${nodeType} node: ${nodeId}`);
     
-    // First update the graph store to discussion view
     updateGraphStore('discussion');
     
-    // For word nodes, use the text instead of ID in the URL if available
     const useId = nodeType === 'word' && nodeText ? nodeText : nodeId;
     
-    // Then navigate to the discussion view for this node
     window.location.href = `/graph/discussion/${nodeType}/${useId}`;
 }
 
-// Navigation action handlers
+// UPDATED: Navigation action handlers - DASHBOARD, EDIT_PROFILE, CREATE_NODE, GRAPH_CONTROLS now dispatch events instead of navigating
 const navigationHandlers: Record<NavigationOptionId, () => void> = {
-    // Updated to navigate to the direct routes
+    // UPDATED: Dispatch event for central node switching (no page navigation)
     [NavigationOptionId.DASHBOARD]: () => {
-        updateGraphStore('dashboard');
-        window.location.href = '/graph/dashboard';
+        console.log('[Navigation] Dashboard clicked - dispatching event');
+        window.dispatchEvent(new CustomEvent('navigation-node-click', {
+            detail: { optionId: NavigationOptionId.DASHBOARD }
+        }));
     },
     
+    // UPDATED: Dispatch event for central node switching (no page navigation)
     [NavigationOptionId.EDIT_PROFILE]: () => {
-        updateGraphStore('edit-profile');
-        window.location.href = '/graph/edit-profile';
+        console.log('[Navigation] Edit Profile clicked - dispatching event');
+        window.dispatchEvent(new CustomEvent('navigation-node-click', {
+            detail: { optionId: NavigationOptionId.EDIT_PROFILE }
+        }));
     },
     
+    // UPDATED: Dispatch event for central node switching (no page navigation)
     [NavigationOptionId.CREATE_NODE]: () => {
-        updateGraphStore('create-node');
-        window.location.href = '/graph/create-node';
+        console.log('[Navigation] Create Node clicked - dispatching event');
+        window.dispatchEvent(new CustomEvent('navigation-node-click', {
+            detail: { optionId: NavigationOptionId.CREATE_NODE }
+        }));
     },
+    
+    // NEW: Dispatch event for returning to graph controls (control node)
+    [NavigationOptionId.GRAPH_CONTROLS]: () => {
+        console.log('[Navigation] Graph Controls clicked - dispatching event');
+        window.dispatchEvent(new CustomEvent('navigation-node-click', {
+            detail: { optionId: NavigationOptionId.GRAPH_CONTROLS }
+        }));
+    },
+    
+    // NEW: Donate handler (external link)
+    [NavigationOptionId.DONATE]: () => {
+        console.log('[Navigation] Donate clicked - opening external link');
+        window.open('https://donate.projectzer0.co', '_blank');
+    },
+    
     [NavigationOptionId.EXPLORE]: () => {
-        // Updated to navigate to statement-network view
         updateGraphStore('statement-network');
         window.location.href = '/graph/statement-network';
     },
@@ -234,20 +217,15 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
     },
     [NavigationOptionId.LOGOUT]: () => auth0.logout(),
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: () => navigateWithWord('/graph/alternative-definitions'),
-    // Updated handler for CREATE_DEFINITION
     [NavigationOptionId.CREATE_DEFINITION]: () => {
         const currentWord = get(wordStore);
         console.log(`[Navigation] CREATE_DEFINITION handler called, currentWord:`, currentWord);
         
         if (currentWord) {
-            // First update graph state
             updateGraphStore('create-definition');
-            
-            // Then navigate with current word
             console.log(`[Navigation] Navigating to create definition for word: ${currentWord.word}`);
             window.location.href = `/graph/create-definition?word=${encodeURIComponent(currentWord.word)}`;
         } else {
-            // Try to get word from URL if we're already in a word view
             console.warn('[Navigation] No word in store, checking URL for word parameter');
             const url = new URL(window.location.href);
             const wordParam = url.searchParams.get('word');
@@ -268,13 +246,10 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
         console.log(`[Navigation] DISCUSS handler called, currentWord:`, currentWord, 'currentQuestion:', currentQuestion);
         
         if (currentWord) {
-            // Use the new navigation function for consistency
             navigateToNodeDiscussion('word', currentWord.id, currentWord.word);
         } else if (currentQuestion) {
-            // NEW: Support for discussing questions
             navigateToNodeDiscussion('openquestion', currentQuestion.id);
         } else {
-            // Try to get from URL parameters
             console.warn('[Navigation] No node in store, checking URL parameters');
             const url = new URL(window.location.href);
             const wordParam = url.searchParams.get('word');
@@ -293,14 +268,10 @@ const navigationHandlers: Record<NavigationOptionId, () => void> = {
             }
         }
     },
-    // NEW: Questions navigation handler
     [NavigationOptionId.QUESTIONS]: () => {
         updateGraphStore('openquestion');
-        // Future: Navigate to questions network view
-        // For now, redirect to dashboard
         window.location.href = '/graph/dashboard';
     },
-    // NEW: Universal graph navigation handler
     [NavigationOptionId.UNIVERSAL_GRAPH]: () => {
         updateGraphStore('universal');
         window.location.href = '/graph/universal';
@@ -312,14 +283,14 @@ export const NavigationContext = {
     CREATE_NODE: 'create-node',
     EXPLORE: 'explore',
     WORD: 'word',
-    OPENQUESTION: 'openquestion',  // NEW: OpenQuestion context
+    OPENQUESTION: 'openquestion',
     EDIT_PROFILE: 'edit-profile',
     DISCUSSION: 'discussion'
 } as const;
 
 export type NavigationContext = typeof NavigationContext[keyof typeof NavigationContext];
 
-// Icons mapping - preserved exactly as in the original
+// UPDATED: Icons mapping with new icons for GRAPH_CONTROLS and DONATE
 const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.EXPLORE]: 'Language',
     [NavigationOptionId.CREATE_NODE]: 'add_circle',
@@ -332,26 +303,27 @@ const navigationIcons: Record<NavigationOptionId, string> = {
     [NavigationOptionId.ALTERNATIVE_DEFINITIONS]: 'format_list_bulleted',
     [NavigationOptionId.CREATE_DEFINITION]: 'playlist_add_circle',
     [NavigationOptionId.DISCUSS]: 'forum',
-    [NavigationOptionId.QUESTIONS]: 'help',  // NEW: Questions icon
-    [NavigationOptionId.UNIVERSAL_GRAPH]: 'hub'  // NEW: Universal graph icon
+    [NavigationOptionId.QUESTIONS]: 'help',
+    [NavigationOptionId.UNIVERSAL_GRAPH]: 'hub',
+    [NavigationOptionId.GRAPH_CONTROLS]: 'tune',  // NEW: Graph controls icon
+    [NavigationOptionId.DONATE]: 'volunteer_activism'  // NEW: Donate icon
 };
 
-// Navigation option configurations per context - preserved exactly as in the original
+// UPDATED: Navigation option configurations - DASHBOARD context now has 6 items
 const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]> = {
+    // UPDATED: New universal graph dashboard navigation with 6 options
     [NavigationContext.DASHBOARD]: [
-        NavigationOptionId.EXPLORE,
-        NavigationOptionId.CREATE_NODE,
-        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph to dashboard
-        NavigationOptionId.NETWORK,
-        NavigationOptionId.LOGOUT,
+        NavigationOptionId.DASHBOARD,
         NavigationOptionId.EDIT_PROFILE,
-        NavigationOptionId.INTERACTIONS,
-        NavigationOptionId.CREATIONS
+        NavigationOptionId.CREATE_NODE,
+        NavigationOptionId.DONATE,
+        NavigationOptionId.LOGOUT,
+        NavigationOptionId.GRAPH_CONTROLS
     ],
     [NavigationContext.EDIT_PROFILE]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
-        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
+        NavigationOptionId.UNIVERSAL_GRAPH,
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.DASHBOARD,  
@@ -361,7 +333,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.CREATE_NODE]: [
         NavigationOptionId.EXPLORE,
         NavigationOptionId.DASHBOARD,
-        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
+        NavigationOptionId.UNIVERSAL_GRAPH,
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE,
@@ -371,7 +343,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
     [NavigationContext.EXPLORE]: [
         NavigationOptionId.DASHBOARD,
         NavigationOptionId.CREATE_NODE,
-        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
+        NavigationOptionId.UNIVERSAL_GRAPH,
         NavigationOptionId.NETWORK,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE
@@ -385,7 +357,6 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.DISCUSS,
         NavigationOptionId.DASHBOARD
     ],
-    // NEW: OpenQuestion navigation context
     [NavigationContext.OPENQUESTION]: [
         NavigationOptionId.DASHBOARD,
         NavigationOptionId.CREATE_NODE,
@@ -399,7 +370,7 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
         NavigationOptionId.DASHBOARD,
         NavigationOptionId.EXPLORE,
         NavigationOptionId.CREATE_NODE,
-        NavigationOptionId.UNIVERSAL_GRAPH,  // NEW: Add universal graph
+        NavigationOptionId.UNIVERSAL_GRAPH,
         NavigationOptionId.LOGOUT,
         NavigationOptionId.EDIT_PROFILE
     ]
@@ -408,15 +379,12 @@ const navigationConfigs: Record<NavigationContext, readonly NavigationOptionId[]
 export function handleNavigation(optionId: NavigationOptionId): void {
     console.log(`[Navigation] Handling navigation for option ID: ${optionId}`);
     
-    // Get the corresponding view type for graph updates if available
     const viewType = navigationViewTypeMap[optionId] as ViewType | undefined;
     
-    // Pre-update graph store if this is a graph-related navigation
     if (viewType) {
         updateGraphStore(viewType);
     }
     
-    // Execute the navigation handler
     const handler = navigationHandlers[optionId];
     if (handler) {
         handler();

@@ -30,6 +30,20 @@
     // Get color from navigation option ID
     $: color = getNavigationColor(navigationData.id);
 
+    // Navigation options that should ONLY dispatch events (for universal graph central node switching)
+    const CENTRAL_NODE_SWITCH_OPTIONS = [
+        'dashboard',
+        'edit-profile', 
+        'create-node',
+        'graph-controls'
+    ];
+
+    // Navigation options that should be handled by the navigation service
+    const EXTERNAL_NAVIGATION_OPTIONS = [
+        'donate',
+        'logout'
+    ];
+
     // Since we're no longer using connection lines,
     // we can remove the connection endpoint calculation logic
     
@@ -55,30 +69,51 @@
     }
 
     async function handleClick() {
+        console.log('[NAVIGATION] Clicked node:', { 
+            id: navigationData.id
+        });
+
+        // Check if this is a central node switch (for universal graph)
+        if (CENTRAL_NODE_SWITCH_OPTIONS.includes(navigationData.id)) {
+            console.log('[NAVIGATION] Central node switch option - dispatching event only');
+            
+            // Dispatch event for +page.svelte to handle
+            window.dispatchEvent(new CustomEvent('navigation-node-click', {
+                detail: { optionId: navigationData.id }
+            }));
+            
+            // Do NOT call handleNavigation - let the page handle central node switching
+            return;
+        }
+
+        // Check if this is an external navigation (donate, logout)
+        if (EXTERNAL_NAVIGATION_OPTIONS.includes(navigationData.id)) {
+            console.log('[NAVIGATION] External navigation option - using handler');
+            handleNavigation(navigationData.id as NavigationOptionId);
+            return;
+        }
+
+        // For all other navigation options, use the standard handler
+        console.log('[NAVIGATION] Standard navigation option - using handler');
+        
         // Get the target view type based on navigation option
         const targetViewType = navigationData.id === 'dashboard' ? 'dashboard' : 
                              navigationData.id === 'create-word' ? 'create-node' :
                              navigationData.id === 'edit-profile' ? 'edit-profile' : 'dashboard';
         
-        console.log('[NAVIGATION] Clicked node:', { 
-            id: navigationData.id, 
-            targetViewType 
-        });
-        
-        // 1. FIRST update the graph store directly
+        // Update graph store if target view type is specified
         if (graphStore && graphStore.setViewType) {
             console.log('[NAVIGATION] Directly updating graph store:', targetViewType);
             graphStore.setViewType(targetViewType as ViewType);
             
             // Force immediate refresh
             if (graphStore.forceTick) {
-                graphStore.forceTick(); // No arguments to avoid TS error
+                graphStore.forceTick();
             }
         }
-        
-        // 2. THEN perform navigation
+
+        // Handle the navigation
         try {
-            // Force a small timeout to give store update time to propagate
             await new Promise(resolve => setTimeout(resolve, 10));
             handleNavigation(navigationData.id as NavigationOptionId);
         } catch (e) {

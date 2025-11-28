@@ -213,7 +213,7 @@
     // Create control node for sorting and filtering
     let controlNode: GraphNode = {
         id: controlNodeId,
-        type: 'dashboard' as NodeType,
+        type: 'control' as NodeType,
         data: {
             sub: 'universal-controls',
             name: 'Universal Graph Controls',
@@ -950,7 +950,7 @@
         
         // Skip visibility updates for non-content nodes
         const node = graphData.nodes.find(n => n.id === nodeId);
-        if (!node || ['navigation', 'dashboard', 'control'].includes(node.type)) {
+        if (!node || ['navigation', 'control'].includes(node.type)) {
             return;
         }
         

@@ -7,7 +7,7 @@
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
-    import StatementAnswerForm from '$lib/components/forms/createNode/statement/StatementAnswerForm.svelte';
+    // import StatementAnswerForm from '$lib/components/forms/createNode/statement/StatementAnswerForm.svelte';
     import { getNavigationOptions, NavigationContext } from '$lib/services/navigation';
     import { userStore } from '$lib/stores/userStore';
     import { openQuestionStore } from '$lib/stores/openQuestionStore';
