@@ -6,6 +6,7 @@
     import NavigationNode from '$lib/components/graph/nodes/navigation/NavigationNode.svelte';
     import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
+    import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import AnswerNode from '$lib/components/graph/nodes/answer/AnswerNode.svelte';
@@ -52,6 +53,7 @@
         isDefinitionNode,
         isCommentNode,
         isDashboardNode,
+        isEditProfileNode,
         isStatementData,
         isOpenQuestionData,
         isAnswerData,
@@ -235,9 +237,11 @@
 
     // Dashboard node - will be created when user data is available
     let dashboardNode: GraphNode | null = null;
+    // Edit Profile node - will be created when user data is available
+    let editProfileNode: GraphNode | null = null;
 
     // Track which central node is currently active
-    let currentCentralNodeType: 'control' | 'dashboard' = 'control';
+    let currentCentralNodeType: 'control' | 'dashboard' | 'edit-profile' = 'control';
     let activeCentralNode: GraphNode = controlNode;
 
     // Reactive: Create dashboard node when user data becomes available
@@ -252,6 +256,18 @@
         console.log('[UNIVERSAL-PAGE] Dashboard node created');
     }
 
+    // Reactive: Create edit profile node when user data becomes available
+    $: if ($userStore && !editProfileNode) {
+        editProfileNode = {
+            id: 'edit-profile-central',
+            type: 'edit-profile' as NodeType,
+            data: $userStore,
+            group: 'central' as NodeGroup,
+            mode: 'detail' as NodeMode
+        };
+        console.log('[UNIVERSAL-PAGE] Edit profile node created');
+    }
+
     // ============================================================================
     // CENTRAL NODE SWITCHING HELPERS
     // ============================================================================
@@ -259,7 +275,7 @@
     /**
      * Create a central node of the specified type
      */
-    function createCentralNode(type: 'control' | 'dashboard', mode: NodeMode): GraphNode | null {
+    function createCentralNode(type: 'control' | 'dashboard' | 'edit-profile', mode: NodeMode): GraphNode | null {
         if (type === 'control') {
             return {
                 id: controlNodeId,
@@ -276,7 +292,7 @@
                 group: 'central' as NodeGroup,
                 mode
             };
-        } else { // dashboard
+        } else if (type === 'dashboard') {
             // Only create if user data is available
             if (!$userStore) {
                 console.warn('[UNIVERSAL-PAGE] Cannot create dashboard node - no user data');
@@ -289,14 +305,30 @@
                 group: 'central' as NodeGroup,
                 mode
             };
+        } else if (type === 'edit-profile') {
+            // Only create if user data is available
+            if (!$userStore) {
+                console.warn('[UNIVERSAL-PAGE] Cannot create edit profile node - no user data');
+                return null;
+            }
+            return {
+                id: 'edit-profile-central',
+                type: 'edit-profile' as NodeType,
+                data: $userStore,
+                group: 'central' as NodeGroup,
+                mode
+            };
         }
+        
+        // Fallback - should never reach here
+        return null;
     }
 
     /**
      * Switch to a different central node type
      * Uses direct manager call - NO graphData replacement
      */
-    async function switchCentralNode(newType: 'control' | 'dashboard') {
+    async function switchCentralNode(newType: 'control' | 'dashboard' | 'edit-profile') {
         console.log('[UNIVERSAL-PAGE] 🔄 Switching central node:', {
             from: currentCentralNodeType,
             to: newType
@@ -313,8 +345,13 @@
             await loadUserActivity();
         }
         
+        // Edit profile doesn't need additional data loading (uses $userStore directly)
+        
+        // Determine the mode for the new central node
+        const nodeMode: NodeMode = newType === 'control' ? 'preview' : 'detail';
+        
         // Create the new central node
-        const newCentralNode = createCentralNode(newType, 'detail');
+        const newCentralNode = createCentralNode(newType, nodeMode);
         
         // Check if creation was successful
         if (!newCentralNode) {
@@ -412,7 +449,8 @@
                     ...graphData.nodes.filter(n => 
                         n.type !== 'navigation' && 
                         n.id !== controlNodeId && 
-                        n.id !== 'dashboard-central'
+                        n.id !== 'dashboard-central' &&
+                        n.id !== 'edit-profile-central'
                     )
                 ]
             };
@@ -1093,7 +1131,7 @@
             }
         } 
         // Update the dashboard node if it changed
-        else if (nodeId === 'dashboard-central' && dashboardNode) {
+            else if (nodeId === 'dashboard-central' && dashboardNode) {
             console.log('[UNIVERSAL-PAGE] 📊 Updating dashboard node mode to:', mode);
             dashboardNode = {
                 ...dashboardNode,
@@ -1105,6 +1143,21 @@
                 console.log('[UNIVERSAL-PAGE] ⭐ Dashboard is ACTIVE central - updating activeCentralNode to trigger repositioning');
                 activeCentralNode = {
                     ...dashboardNode,
+                    mode
+                };
+            }
+        } else if (nodeId === 'edit-profile-central' && editProfileNode) {
+            console.log('[UNIVERSAL-PAGE] ⚙️ Updating edit profile node mode to:', mode);
+            editProfileNode = {
+                ...editProfileNode,
+                mode
+            };
+            
+            // If edit profile is the ACTIVE central node, update activeCentralNode to trigger reactivity
+            if (currentCentralNodeType === 'edit-profile') {
+                console.log('[UNIVERSAL-PAGE] ⭐ Edit Profile is ACTIVE central - updating activeCentralNode to trigger repositioning');
+                activeCentralNode = {
+                    ...editProfileNode,
                     mode
                 };
             }
@@ -1715,17 +1768,21 @@ function calculateDefinitionRing(
         initializeData();
         
         // Listen for navigation clicks to switch central node
-        const navigationClickListener = ((event: CustomEvent) => {
+       const navigationClickListener = ((event: CustomEvent) => {
             const { nodeType } = event.detail;
             console.log('[UNIVERSAL-PAGE] Navigation click event:', nodeType);
             
             if (nodeType === 'dashboard') {
                 switchCentralNode('dashboard');
+            } else if (nodeType === 'edit-profile') {
+                switchCentralNode('edit-profile');
             } else if (nodeType === 'graph-controls') {
                 switchCentralNode('control');
             }
         }) as EventListener;
-        
+
+        window.addEventListener('switch-central-node', navigationClickListener);
+                
         // Listen for central node radius changes (need to reposition navigation ring)
         const radiusChangeListener = ((event: CustomEvent) => {
             const { nodeId, oldRadius, newRadius, mode } = event.detail;
@@ -1875,6 +1932,8 @@ function calculateDefinitionRing(
                 {node}
                 {userActivity}
             />
+        {:else if isEditProfileNode(node)}
+            <EditProfileNode {node} />    
         {:else if node.id === controlNodeId}
             <ControlNode 
                 bind:this={controlNodeRef}
