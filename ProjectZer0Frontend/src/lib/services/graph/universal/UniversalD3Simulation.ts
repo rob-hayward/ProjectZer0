@@ -84,19 +84,6 @@ export class UniversalD3Simulation {
                         if (contentNode.vy !== null && contentNode.vy !== undefined) {
                             contentNode.vy += fy;
                         }
-                        
-                        // DEBUG: Log violations (only log occasionally to avoid spam)
-                        if (Math.random() < 0.01) { // 1% sample rate
-                            console.log('[D3Simulation] System repulsion applied:', {
-                                contentNode: contentNode.id.substring(0, 8),
-                                systemNode: systemNode.id.substring(0, 8),
-                                distance: distance.toFixed(1),
-                                minDistance: minDistance.toFixed(1),
-                                penetration: penetration.toFixed(1),
-                                strength: strength.toFixed(2),
-                                forceVector: { fx: fx.toFixed(2), fy: fy.toFixed(2) }
-                            });
-                        }
                     }
                 });
             });
@@ -284,15 +271,6 @@ export class UniversalD3Simulation {
             Math.abs(n.vy ?? 0) > UNIVERSAL_LAYOUT.SETTLEMENT.STUCK_VELOCITY_THRESHOLD
         );
         const movingRatio = movingNodes.length / (contentNodes.length || 1);
-        
-        // CRUCIAL DEBUG: Only log settlement check (this is critical for debugging settlement issues)
-        console.log(`[D3Simulation] Settlement check at tick ${this.settlementTickCounter}:`, {
-            avgVelocity: avgMovement.toFixed(3),
-            movingNodes: movingNodes.length,
-            totalNodes: contentNodes.length,
-            movingRatio: movingRatio.toFixed(2),
-            alpha: this.simulation.alpha().toFixed(4)
-        });
         
         if (avgMovement < UNIVERSAL_LAYOUT.SETTLEMENT.MIN_MOVEMENT_THRESHOLD && 
             this.simulation.alpha() < UNIVERSAL_FORCES.SIMULATION.SETTLEMENT_PHASE.ALPHA_THRESHOLD) {

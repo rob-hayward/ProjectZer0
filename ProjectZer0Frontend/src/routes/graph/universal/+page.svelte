@@ -7,6 +7,7 @@
     import ControlNode from '$lib/components/graph/nodes/controlNode/ControlNode.svelte';
     import DashboardNode from '$lib/components/graph/nodes/dashboard/DashboardNode.svelte';
     import EditProfileNode from '$lib/components/graph/nodes/editProfile/EditProfileNode.svelte';
+    import CreateNodeNode from '$lib/components/graph/nodes/createNode/CreateNodeNode.svelte';
     import StatementNode from '$lib/components/graph/nodes/statement/StatementNode.svelte';
     import OpenQuestionNode from '$lib/components/graph/nodes/openquestion/OpenQuestionNode.svelte';
     import AnswerNode from '$lib/components/graph/nodes/answer/AnswerNode.svelte';
@@ -54,6 +55,7 @@
         isCommentNode,
         isDashboardNode,
         isEditProfileNode,
+        isCreateNodeNode,
         isStatementData,
         isOpenQuestionData,
         isAnswerData,
@@ -239,9 +241,11 @@
     let dashboardNode: GraphNode | null = null;
     // Edit Profile node - will be created when user data is available
     let editProfileNode: GraphNode | null = null;
+    // Create Node node - will be created when user data is available
+    let createNodeNode: GraphNode | null = null;
 
     // Track which central node is currently active
-    let currentCentralNodeType: 'control' | 'dashboard' | 'edit-profile' = 'control';
+    let currentCentralNodeType: 'control' | 'dashboard' | 'edit-profile' | 'create-node' = 'control';
     let activeCentralNode: GraphNode = controlNode;
 
     // Reactive: Create dashboard node when user data becomes available
@@ -268,6 +272,18 @@
         console.log('[UNIVERSAL-PAGE] Edit profile node created');
     }
 
+    // Reactive: Create create-node node when user data becomes available
+    $: if ($userStore && !createNodeNode) {
+        createNodeNode = {
+            id: 'create-node-central',
+            type: 'create-node' as NodeType,
+            data: $userStore,
+            group: 'central' as NodeGroup,
+            mode: 'detail' as NodeMode
+        };
+        console.log('[UNIVERSAL-PAGE] Create node node created');
+    }
+
     // ============================================================================
     // CENTRAL NODE SWITCHING HELPERS
     // ============================================================================
@@ -275,7 +291,7 @@
     /**
      * Create a central node of the specified type
      */
-    function createCentralNode(type: 'control' | 'dashboard' | 'edit-profile', mode: NodeMode): GraphNode | null {
+    function createCentralNode(type: 'control' | 'dashboard' | 'edit-profile' | 'create-node', mode: NodeMode): GraphNode | null {
         if (type === 'control') {
             return {
                 id: controlNodeId,
@@ -318,6 +334,19 @@
                 group: 'central' as NodeGroup,
                 mode
             };
+        } else if (type === 'create-node') {
+            // Only create if user data is available
+            if (!$userStore) {
+                console.warn('[UNIVERSAL-PAGE] Cannot create create node node - no user data');
+                return null;
+            }
+            return {
+                id: 'create-node-central',
+                type: 'create-node' as NodeType,
+                data: $userStore,
+                group: 'central' as NodeGroup,
+                mode
+            };
         }
         
         // Fallback - should never reach here
@@ -328,7 +357,7 @@
      * Switch to a different central node type
      * Uses direct manager call - NO graphData replacement
      */
-    async function switchCentralNode(newType: 'control' | 'dashboard' | 'edit-profile') {
+    async function switchCentralNode(newType: 'control' | 'dashboard' | 'edit-profile' | 'create-node') {
         console.log('[UNIVERSAL-PAGE] 🔄 Switching central node:', {
             from: currentCentralNodeType,
             to: newType
@@ -450,7 +479,8 @@
                         n.type !== 'navigation' && 
                         n.id !== controlNodeId && 
                         n.id !== 'dashboard-central' &&
-                        n.id !== 'edit-profile-central'
+                        n.id !== 'edit-profile-central' &&
+                        n.id !== 'create-node-central'
                     )
                 ]
             };
@@ -1161,6 +1191,21 @@
                     mode
                 };
             }
+        } else if (nodeId === 'create-node-central' && createNodeNode) {
+            console.log('[UNIVERSAL-PAGE] 🔨 Updating create node node mode to:', mode);
+            createNodeNode = {
+                ...createNodeNode,
+                mode
+            };
+            
+            // If create node is the ACTIVE central node, update activeCentralNode to trigger reactivity
+            if (currentCentralNodeType === 'create-node') {
+                console.log('[UNIVERSAL-PAGE] ⭐ Create Node is ACTIVE central - updating activeCentralNode to trigger repositioning');
+                activeCentralNode = {
+                    ...createNodeNode,
+                    mode
+                };
+            }
         }
     }
 
@@ -1768,7 +1813,7 @@ function calculateDefinitionRing(
         initializeData();
         
         // Listen for navigation clicks to switch central node
-       const navigationClickListener = ((event: CustomEvent) => {
+        const navigationClickListener = ((event: CustomEvent) => {
             const { nodeType } = event.detail;
             console.log('[UNIVERSAL-PAGE] Navigation click event:', nodeType);
             
@@ -1776,6 +1821,8 @@ function calculateDefinitionRing(
                 switchCentralNode('dashboard');
             } else if (nodeType === 'edit-profile') {
                 switchCentralNode('edit-profile');
+            } else if (nodeType === 'create-node') {
+                switchCentralNode('create-node');
             } else if (nodeType === 'graph-controls') {
                 switchCentralNode('control');
             }
@@ -1933,7 +1980,9 @@ function calculateDefinitionRing(
                 {userActivity}
             />
         {:else if isEditProfileNode(node)}
-            <EditProfileNode {node} />    
+            <EditProfileNode {node} />
+        {:else if isCreateNodeNode(node)}
+            <CreateNodeNode {node} />
         {:else if node.id === controlNodeId}
             <ControlNode 
                 bind:this={controlNodeRef}

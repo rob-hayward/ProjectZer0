@@ -39,3 +39,36 @@ body {
 .success {
   color: #44ff44;
 }
+
+/* Global CSS for CreateNodeNode color cycling animation */
+/* Add this to your app's global CSS file (e.g., src/app.css or src/routes/+layout.svelte) */
+
+@keyframes colorCycle {
+    0%, 100% { 
+        filter: hue-rotate(0deg); 
+    }
+    11.11% { 
+        filter: hue-rotate(40deg); 
+    }
+    22.22% { 
+        filter: hue-rotate(80deg); 
+    }
+    33.33% { 
+        filter: hue-rotate(120deg); 
+    }
+    44.44% { 
+        filter: hue-rotate(160deg); 
+    }
+    55.55% { 
+        filter: hue-rotate(200deg); 
+    }
+    66.66% { 
+        filter: hue-rotate(240deg); 
+    }
+    77.77% { 
+        filter: hue-rotate(280deg); 
+    }
+    88.88% { 
+        filter: hue-rotate(320deg); 
+    }
+}
