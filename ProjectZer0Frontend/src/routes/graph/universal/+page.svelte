@@ -358,9 +358,16 @@
         }
     }
 
-    // UPDATED: Watch activeCentralNode instead of controlNode to handle both mode changes AND node type switches
+    // Watch BOTH activeCentralNode reference AND its mode property
     $: if (activeCentralNode && activeCentralNode.mode !== undefined && graphData && graphStore) {
-        const newPositions = calculateNavigationRingPositions(navigationNodes.length, activeCentralNode.mode);
+        // Force reactivity by accessing the mode in the condition
+        const currentMode = activeCentralNode.mode;
+        const currentType = activeCentralNode.type;
+        
+        const newPositions = calculateNavigationRingPositions(
+            navigationNodes.length, 
+            currentMode  // Use the mode we extracted
+        );
         
         const positionsChanged = navigationNodes.some((node, index) => {
             const currentPos = node.metadata?.initialPosition;
@@ -371,13 +378,12 @@
         });
         
         if (positionsChanged) {
-            console.log('[UNIVERSAL-PAGE] 🎯 Central node changed, updating positions:', {
-                nodeType: currentCentralNodeType,
-                mode: activeCentralNode.mode,
+            console.log('[UNIVERSAL-PAGE] 🎯 Central node/mode changed, updating positions:', {
+                nodeId: activeCentralNode.id,
+                nodeType: currentType,
+                mode: currentMode,
                 navigationCount: navigationNodes.length,
-                hasGraphStore: !!graphStore,
-                graphStoreType: graphStore?.constructor?.name,
-                hasMethod: typeof graphStore?.updateNavigationPositions === 'function'
+                newRingRadius: Math.sqrt(newPositions[0].x ** 2 + newPositions[0].y ** 2).toFixed(1)
             });
             
             // Update navigation nodes with new positions
@@ -402,8 +408,12 @@
                 ...graphData,
                 nodes: [
                     ...navigationNodes,
-                    activeCentralNode,  // UPDATED: Use activeCentralNode instead of controlNode
-                    ...graphData.nodes.filter(n => n.type !== 'navigation' && n.id !== controlNodeId && n.id !== 'dashboard-central')
+                    activeCentralNode,
+                    ...graphData.nodes.filter(n => 
+                        n.type !== 'navigation' && 
+                        n.id !== controlNodeId && 
+                        n.id !== 'dashboard-central'
+                    )
                 ]
             };
 
@@ -1054,27 +1064,51 @@
     function handleNodeModeChange(event: CustomEvent<{ nodeId: string; mode: NodeMode; radius?: number }>) {
         const { nodeId, mode } = event.detail;
         
-        console.log('[UNIVERSAL-PAGE] MODE ROUTING - Mode change received from Graph:', { 
-            nodeId: nodeId.substring(0, 8), 
+        console.log('[UNIVERSAL-PAGE] 🔄 MODE CHANGE EVENT:', { 
+            nodeId: nodeId.substring(0, 20), 
             mode,
             isControlNode: nodeId === controlNodeId,
-            currentControlMode: controlNodeMode
+            isDashboardNode: nodeId === 'dashboard-central',
+            currentCentralType: currentCentralNodeType,
+            willUpdateActiveCentral: (nodeId === controlNodeId && currentCentralNodeType === 'control') ||
+                                    (nodeId === 'dashboard-central' && currentCentralNodeType === 'dashboard')
         });
         
-        // Update local state for control node (UI consistency)
+        // Update the control node if it changed
         if (nodeId === controlNodeId) {
-            console.log('[UNIVERSAL-PAGE] MODE ROUTING - Updating control node mode from', controlNodeMode, 'to', mode);
+            console.log('[UNIVERSAL-PAGE] 🎮 Updating control node mode:', controlNodeMode, '→', mode);
             controlNodeMode = mode;
             controlNode = {
                 ...controlNode,
                 mode
             };
             
-            console.log('[UNIVERSAL-PAGE] Control node mode updated locally to:', mode);
+            // CRITICAL: If control node is the ACTIVE central node, update activeCentralNode to trigger reactivity
+            if (currentCentralNodeType === 'control') {
+                console.log('[UNIVERSAL-PAGE] ⭐ Control is ACTIVE central - updating activeCentralNode to trigger repositioning');
+                activeCentralNode = {
+                    ...controlNode,
+                    mode
+                };
+            }
+        } 
+        // Update the dashboard node if it changed
+        else if (nodeId === 'dashboard-central' && dashboardNode) {
+            console.log('[UNIVERSAL-PAGE] 📊 Updating dashboard node mode to:', mode);
+            dashboardNode = {
+                ...dashboardNode,
+                mode
+            };
+            
+            // If dashboard is the ACTIVE central node, update activeCentralNode to trigger reactivity
+            if (currentCentralNodeType === 'dashboard') {
+                console.log('[UNIVERSAL-PAGE] ⭐ Dashboard is ACTIVE central - updating activeCentralNode to trigger repositioning');
+                activeCentralNode = {
+                    ...dashboardNode,
+                    mode
+                };
+            }
         }
-        
-        // The UniversalGraphManager handles all the visual changes
-        console.log('[UNIVERSAL-PAGE] Mode change handled by UniversalGraphManager');
     }
 
     // Handle node visibility changes
