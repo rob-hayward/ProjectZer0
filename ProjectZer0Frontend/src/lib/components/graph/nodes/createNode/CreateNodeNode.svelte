@@ -173,31 +173,68 @@
             return;
         }
         
+        // Get all the visual elements from BaseNode
         const outerRing = nodeElement.querySelector('.outer-ring');
+        const middleRing = nodeElement.querySelector('.middle-ring');
+        const backgroundLayer1 = nodeElement.querySelector('.background-layer-1');
+        const backgroundLayer2 = nodeElement.querySelector('.background-layer-2');
+        const backgroundLayer3 = nodeElement.querySelector('.background-layer-3');
+        const contentBackground = nodeElement.querySelector('.content-background');
         const textElements = nodeElement.querySelectorAll('text');
         
         console.log('[CreateNodeNode] Found elements:', {
             outerRing: !!outerRing,
+            middleRing: !!middleRing,
+            backgroundLayer1: !!backgroundLayer1,
+            backgroundLayer2: !!backgroundLayer2,
+            backgroundLayer3: !!backgroundLayer3,
+            contentBackground: !!contentBackground,
             textCount: textElements.length
         });
         
         if (enable) {
-            // Add animation
-            if (outerRing) {
-                (outerRing as SVGElement).style.animation = 'colorCycle 18s linear infinite';
-                console.log('[CreateNodeNode] Applied animation to outer-ring');
-            }
-            textElements.forEach((text, i) => {
+            // Add animation to all visual elements
+            const elementsToAnimate = [
+                outerRing,
+                middleRing,
+                backgroundLayer1,
+                backgroundLayer2,
+                backgroundLayer3,
+                contentBackground
+            ];
+            
+            elementsToAnimate.forEach(element => {
+                if (element) {
+                    (element as SVGElement).style.animation = 'colorCycle 18s linear infinite';
+                }
+            });
+            
+            textElements.forEach(text => {
                 (text as SVGElement).style.animation = 'colorCycle 18s linear infinite';
             });
-            if (textElements.length > 0) {
-                console.log('[CreateNodeNode] Applied animation to', textElements.length, 'text elements');
-            }
+            
+            console.log('[CreateNodeNode] Applied animation to:', {
+                rings: [outerRing, middleRing].filter(Boolean).length,
+                backgroundLayers: [backgroundLayer1, backgroundLayer2, backgroundLayer3, contentBackground].filter(Boolean).length,
+                textElements: textElements.length
+            });
         } else {
-            // Remove animation
-            if (outerRing) {
-                (outerRing as SVGElement).style.animation = '';
-            }
+            // Remove animation from all elements
+            const elementsToReset = [
+                outerRing,
+                middleRing,
+                backgroundLayer1,
+                backgroundLayer2,
+                backgroundLayer3,
+                contentBackground
+            ];
+            
+            elementsToReset.forEach(element => {
+                if (element) {
+                    (element as SVGElement).style.animation = '';
+                }
+            });
+            
             textElements.forEach(text => {
                 (text as SVGElement).style.animation = '';
             });
