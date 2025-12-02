@@ -17,6 +17,7 @@
     import DiscussionInput from '$lib/components/forms/createNode/shared/DiscussionInput.svelte';
     import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
+    import { fetchWithAuth } from '$lib/services/api';
     
     // Statement related imports
     import StatementInput from '$lib/components/forms/createNode/statement/StatementInput.svelte';
@@ -58,6 +59,11 @@
 
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
+        expandWord: { 
+            word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -90,6 +96,7 @@
     let isLoading = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
+    let isCheckingWord = false; // Track word existence check
 
     // IMPROVED: Detect if we're in universal graph as central node
     // Central nodes have id ending in '-central'
@@ -101,6 +108,9 @@
     
     // State for next button hover
     let isNextButtonHovering = false;
+    
+    // State for previous button hover
+    let isPreviousButtonHovering = false;
     
     // Listen for graph settlement if we're a central node
     onMount(() => {
@@ -434,14 +444,26 @@
     // Get node radius for button positioning
     $: nodeRadius = node.radius || (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2);
 
-    // Next button state - ALWAYS show on step 1, just disabled when no type selected
-    $: showNextButton = currentStep === 1;
-    $: isNextButtonDisabled = formData.nodeType === '';
-    $: nextButtonColor = formData.nodeType ? completeStyle.highlightColor : 'rgba(255, 255, 255, 0.3)';
-    $: nextTooltipText = formData.nodeType ? 'Next Step' : 'Select Type First';
+    // Next button state
+    $: showNextButton = currentStep === 1 || (currentStep === 2 && formData.nodeType === 'word');
+    $: isNextButtonDisabled = 
+        (currentStep === 1 && formData.nodeType === '') ||
+        (currentStep === 2 && formData.nodeType === 'word' && (!formData.word.trim() || isCheckingWord));
+    $: nextButtonColor = !isNextButtonDisabled ? completeStyle.highlightColor : 'rgba(255, 255, 255, 0.3)';
+    $: nextTooltipText = 
+        isCheckingWord ? 'Checking word...' :
+        (currentStep === 1 && !formData.nodeType) ? 'Select Type First' :
+        (currentStep === 2 && !formData.word.trim()) ? 'Enter Word First' :
+        'Next Step';
     
-    // Unique filter ID for glow
+    // Previous button state - show on any step after 1
+    $: showPreviousButton = currentStep > 1;
+    $: previousButtonColor = completeStyle.highlightColor;
+    $: previousTooltipText = 'Previous Step';
+    
+    // Unique filter IDs for glow
     const nextGlowFilterId = `next-glow-${Math.random().toString(36).slice(2)}`;
+    const previousGlowFilterId = `previous-glow-${Math.random().toString(36).slice(2)}`;
 
     function handleBack() {
         if (currentStep > 1) {
@@ -450,11 +472,75 @@
         }
     }
 
-    function handleNext() {
-        if (isNextButtonDisabled) {
-            console.log('[CreateNodeNode] Button click ignored - no type selected');
+    // Check word existence using API
+    async function checkWordAndProceed() {
+        if (!formData.word.trim()) {
+            errorMessage = 'Please enter a word';
             return;
         }
+
+        isCheckingWord = true;
+        errorMessage = null;
+        successMessage = null;
+        
+        try {
+            console.log('[CreateNodeNode] Checking word existence:', formData.word.trim());
+            
+            // Use the universal graph endpoint to load word + definitions
+            const response = await fetchWithAuth(`/words/${encodeURIComponent(formData.word.trim())}/with-definitions`);
+            
+            if (response && response.nodes && response.nodes.length > 0) {
+                // Word exists! Show success message and dispatch expandWord
+                successMessage = `Word "${formData.word.trim()}" already exists. Loading word node...`;
+                
+                console.log('[CreateNodeNode] Word exists, dispatching expandWord event');
+                
+                // Dispatch event to load word into graph (same as keyword click)
+                dispatch('expandWord', {
+                    word: formData.word.trim(),
+                    sourceNodeId: node.id,
+                    sourcePosition: {
+                        x: node.position?.x || 0,
+                        y: node.position?.y || 0
+                    }
+                });
+                
+                // Don't proceed to next step - word already exists
+                return;
+            } else {
+                // Word doesn't exist - proceed to next step
+                console.log('[CreateNodeNode] Word does not exist, proceeding to creation');
+                currentStep++;
+                errorMessage = null;
+            }
+        } catch (error) {
+            // If 404 or word not found, proceed to creation
+            if (error instanceof Error && (error.message.includes('404') || error.message.includes('not found'))) {
+                console.log('[CreateNodeNode] Word not found, proceeding to creation');
+                currentStep++;
+                errorMessage = null;
+            } else {
+                errorMessage = error instanceof Error ? error.message : 'Failed to check word existence';
+                console.error('[CreateNodeNode] Error checking word:', error);
+            }
+        } finally {
+            isCheckingWord = false;
+        }
+    }
+
+    function handleNext() {
+        if (isNextButtonDisabled) {
+            console.log('[CreateNodeNode] Button click ignored - disabled');
+            return;
+        }
+        
+        // Step 2 with word type requires word checking
+        if (currentStep === 2 && formData.nodeType === 'word') {
+            checkWordAndProceed();
+            return;
+        }
+        
+        // For all other steps, just advance
         if (currentStep < maxSteps) {
             currentStep++;
             errorMessage = null;
@@ -465,6 +551,13 @@
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             handleNext();
+        }
+    }
+    
+    function handlePreviousKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleBack();
         }
     }
 
@@ -558,6 +651,9 @@
                     {#if currentStep === 2}
                         <WordInput
                             bind:word={formData.word}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -874,7 +970,104 @@
             </g>
         {/if}
 
-        <!-- Next Step Button (positioned at bottom like Control Node's Apply button) -->
+        <!-- Previous Step Button (positioned at bottom left) -->
+        {#if showPreviousButton}
+            <!-- Filter definitions -->
+            <defs>
+                <filter id={previousGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                    <feFlood flood-color={previousButtonColor} flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                    <feFlood flood-color={previousButtonColor} flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                    <feFlood flood-color={previousButtonColor} flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                    
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+            <circle
+                cx={-60}
+                cy={nodeRadius - 40}
+                r={30}
+                fill="transparent"
+                class="previous-button-detection"
+                on:mouseenter={() => isPreviousButtonHovering = true}
+                on:mouseleave={() => isPreviousButtonHovering = false}
+                on:click={handleBack}
+                on:keydown={handlePreviousKeydown}
+                tabindex="0"
+                role="button"
+                aria-label={previousTooltipText}
+                aria-pressed="false"
+                style="cursor: pointer;"
+            />
+
+            <g style:filter={isPreviousButtonHovering ? `url(#${previousGlowFilterId})` : 'none'}>
+                <foreignObject 
+                    x={-80}
+                    y={nodeRadius - 60}
+                    width={40}
+                    height={40}
+                    class="previous-icon-container"
+                >
+                    <div class="previous-icon-wrapper" {...{"xmlns": "http://www.w3.org/1999/xhtml"}}>
+                        <span 
+                            class="material-symbols-outlined previous-icon"
+                            class:hovered={isPreviousButtonHovering}
+                            style:color={previousButtonColor}
+                        >
+                            arrow_circle_left
+                        </span>
+                    </div>
+                </foreignObject>
+            </g>
+
+            <!-- Tooltip -->
+            {#if isPreviousButtonHovering}
+                <g transform="translate(-60, {nodeRadius + 10})">
+                    <rect
+                        x={-55}
+                        y={-10}
+                        width="110"
+                        height="20"
+                        rx="4"
+                        fill="rgba(0, 0, 0, 0.9)"
+                        stroke={previousButtonColor}
+                        stroke-width="1"
+                        class="previous-tooltip-background"
+                    />
+                    <text
+                        x={0}
+                        y={3}
+                        text-anchor="middle"
+                        dominant-baseline="middle"
+                        fill="white"
+                        font-size="11"
+                        font-weight="500"
+                        font-family="Inter, system-ui, sans-serif"
+                        class="previous-tooltip-text"
+                    >
+                        {previousTooltipText}
+                    </text>
+                </g>
+            {/if}
+        {/if}
+
+        <!-- Next Step Button (positioned at bottom right) -->
         <!-- Button is OUTSIDE the translated SVG wrapper to use node-centered coordinates -->
         {#if showNextButton}
             <!-- Filter definitions -->
@@ -905,7 +1098,7 @@
             <!-- svelte-ignore a11y-no-static-element-interactions -->
             <!-- svelte-ignore a11y-mouse-events-have-key-events -->
             <circle
-                cx={0}
+                cx={60}
                 cy={nodeRadius - 40}
                 r={30}
                 fill="transparent"
@@ -924,7 +1117,7 @@
 
             <g style:filter={isNextButtonHovering && !isNextButtonDisabled ? `url(#${nextGlowFilterId})` : 'none'}>
                 <foreignObject 
-                    x={-20}
+                    x={40}
                     y={nodeRadius - 60}
                     width={40}
                     height={40}
@@ -935,9 +1128,10 @@
                             class="material-symbols-outlined next-icon"
                             class:hovered={isNextButtonHovering && !isNextButtonDisabled}
                             class:disabled={isNextButtonDisabled}
+                            class:checking={isCheckingWord}
                             style:color={nextButtonColor}
                         >
-                            arrow_circle_right
+                            {isCheckingWord ? 'progress_activity' : 'arrow_circle_right'}
                         </span>
                     </div>
                 </foreignObject>
@@ -945,7 +1139,7 @@
 
             <!-- Tooltip -->
             {#if isNextButtonHovering}
-                <g transform="translate(0, {nodeRadius + 10})">
+                <g transform="translate(60, {nodeRadius + 10})">
                     <rect
                         x={-50}
                         y={-10}
@@ -984,7 +1178,57 @@
         fill: rgba(255, 255, 255, 0.8);
     }
 
-    /* Next button styles (positioned at bottom) */
+    /* Previous button styles (positioned at bottom left) */
+    .previous-button-detection {
+        transition: all 0.2s ease;
+        outline: none;
+    }
+
+    .previous-button-detection:focus {
+        outline: 2px solid rgba(255, 255, 255, 0.3);
+        outline-offset: 4px;
+    }
+
+    .previous-icon-container {
+        overflow: visible;
+        pointer-events: none;
+    }
+
+    .previous-icon-wrapper {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    :global(.material-symbols-outlined.previous-icon) {
+        font-size: 32px;
+        transition: all 0.3s ease;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    :global(.material-symbols-outlined.previous-icon.hovered) {
+        font-size: 36px;
+        font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 48;
+    }
+
+    .previous-tooltip-background {
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+        pointer-events: none;
+    }
+
+    .previous-tooltip-text {
+        pointer-events: none;
+        user-select: none;
+        letter-spacing: 0.02em;
+    }
+
+    /* Next button styles (positioned at bottom right) */
     .next-button-detection {
         transition: all 0.2s ease;
         outline: none;
@@ -1029,6 +1273,15 @@
     
     :global(.material-symbols-outlined.next-icon.disabled) {
         opacity: 0.3;
+    }
+    
+    :global(.material-symbols-outlined.next-icon.checking) {
+        animation: spin 2s linear infinite;
+    }
+    
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
     }
 
     .next-tooltip-background {
