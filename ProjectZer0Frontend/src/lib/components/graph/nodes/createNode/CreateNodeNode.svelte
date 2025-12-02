@@ -139,7 +139,7 @@
     // Apply CSS animation directly to DOM elements
     // Use afterUpdate to ensure DOM is ready, and check more robustly for elements
     $: if (enableColorCycling) {
-        console.log('[CreateNodeNode] ✨ Color cycling enabled - applying animation');
+        console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
         // Use setTimeout to ensure DOM has fully rendered
         setTimeout(() => {
             applyColorCycling(true);
@@ -474,360 +474,385 @@
         <NodeHeader title={stepTitle} {radius} mode="detail" />
     </svelte:fragment>
 
-    <!-- FIXED: Changed from slot="default" to slot="contentText" -->
-    <svelte:fragment slot="contentText" let:x let:y let:width let:height>
-        <!-- Wrap everything in a foreignObject positioned by contentText slot -->
-        <foreignObject {x} {y} {width} {height}>
-            <div 
-                class="form-container" 
-                style="width: {width}px; height: {height}px; overflow: visible;"
-            >
-                <!-- Step Indicators (positioned at top via CSS) -->
-                {#if showStepIndicators}
-                    <svg width="100%" height="40" style="margin-bottom: 10px;">
-                        <g transform="translate({width/2}, 20)">
-                            {#each Array(maxSteps) as _, i}
-                                <circle
-                                    cx={-60 + (i * 20)}
-                                    cy="0"
-                                    r="4"
-                                    class="step-indicator"
-                                    class:active={currentStep >= i + 1}
-                                />
-                            {/each}
-                        </g>
-                    </svg>
-                {/if}
-            
-                <!-- Error/Success Messages -->
-                {#if errorMessage || successMessage}
-                    <div style="margin-bottom: 10px;">
-                        <MessageDisplay {errorMessage} {successMessage} />
-                    </div>
-                {/if}
+    <!-- FIXED: Proper ContentBox positioning - content centered in node -->
+    <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+        <!-- Step Indicators - positioned at top of content area -->
+        {#if showStepIndicators}
+            <svg {x} {y} {width} height="40">
+                <g transform="translate({width/2}, 20)">
+                    {#each Array(maxSteps) as _, i}
+                        <circle
+                            cx={-60 + (i * 20)}
+                            cy="0"
+                            r="4"
+                            class="step-indicator"
+                            class:active={currentStep >= i + 1}
+                        />
+                    {/each}
+                </g>
+            </svg>
+        {/if}
 
-                <!-- Dynamic Form Content (wrapped in SVG for form components) -->
-                <svg width="100%" height={height - (showStepIndicators ? 50 : 0) - (errorMessage || successMessage ? 60 : 0)}>
-                    <g transform="translate({width/2}, 0)">
-                        {#if currentStep === 1}
-                            <NodeTypeSelect
-                                nodeType={formData.nodeType}
-                                on:typeChange={handleNodeTypeChange}
-                            />
-                        {:else if formData.nodeType === 'word'}
-                            {#if currentStep === 2}
-                                <WordInput
-                                    bind:word={formData.word}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <DefinitionInput
-                                    bind:definitionText={formData.definitionText}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <WordReview
-                                    word={formData.word}
-                                    definitionText={formData.definitionText}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'statement'}
-                            {#if currentStep === 2}
-                                <StatementInput
-                                    bind:statement={formData.statement}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <CategoryInput
-                                    bind:selectedCategories={formData.selectedCategories}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <KeywordInput
-                                    bind:userKeywords={formData.userKeywords}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 6}
-                                <StatementReview
-                                    statement={formData.statement}
-                                    userKeywords={formData.userKeywords}
-                                    selectedCategories={formData.selectedCategories}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'openquestion'}
-                            {#if currentStep === 2}
-                                <OpenQuestionInput
-                                    bind:questionText={formData.questionText}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <CategoryInput
-                                    bind:selectedCategories={formData.selectedCategories}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <KeywordInput
-                                    bind:userKeywords={formData.userKeywords}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 6}
-                                <OpenQuestionReview
-                                    questionText={formData.questionText}
-                                    userKeywords={formData.userKeywords}
-                                    selectedCategories={formData.selectedCategories}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'quantity'}
-                            {#if currentStep === 2}
-                                <UnitCategorySelect
-                                    bind:unitCategoryId={formData.unitCategoryId}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <QuantityInput
-                                    bind:question={formData.question}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <CategoryInput
-                                    bind:selectedCategories={formData.selectedCategories}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <KeywordInput
-                                    bind:userKeywords={formData.userKeywords}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 6}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 7}
-                                <QuantityReview
-                                    question={formData.question}
-                                    unitCategoryId={formData.unitCategoryId}
-                                    defaultUnitId={formData.defaultUnitId}
-                                    userKeywords={formData.userKeywords}
-                                    selectedCategories={formData.selectedCategories}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'answer'}
-                            {#if currentStep === 2}
-                                <AnswerInput
-                                    bind:answerText={formData.answerText}
-                                    questionText="[Question text will be provided when answer creation is triggered from a question]"
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <CategoryInput
-                                    bind:selectedCategories={formData.selectedCategories}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <KeywordInput
-                                    bind:userKeywords={formData.userKeywords}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 6}
-                                <AnswerReview
-                                    answerText={formData.answerText}
-                                    questionId="[Will be provided when answer creation is triggered from a question]"
-                                    questionText="[Question text will be provided when answer creation is triggered from a question]"
-                                    userKeywords={formData.userKeywords}
-                                    selectedCategories={formData.selectedCategories}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'evidence'}
-                            {#if currentStep === 2}
-                                <EvidenceInput
-                                    bind:title={formData.evidenceTitle}
-                                    bind:url={formData.evidenceUrl}
-                                    bind:evidenceType={formData.evidenceType}
-                                    parentNodeText={formData.parentNodeType ? "[Parent node text will be provided when evidence creation is triggered from a node]" : ""}
-                                    parentNodeType={formData.parentNodeType || ""}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <CategoryInput
-                                    bind:selectedCategories={formData.selectedCategories}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <KeywordInput
-                                    bind:userKeywords={formData.userKeywords}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 5}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 6}
-                                <EvidenceReview
-                                    title={formData.evidenceTitle}
-                                    url={formData.evidenceUrl}
-                                    evidenceType={formData.evidenceType}
-                                    parentNodeId={formData.parentNodeId}
-                                    parentNodeType={formData.parentNodeType}
-                                    parentNodeText="[Parent node text will be provided when evidence creation is triggered from a node]"
-                                    userKeywords={formData.userKeywords}
-                                    selectedCategories={formData.selectedCategories}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {:else if formData.nodeType === 'category'}
-                            {#if currentStep === 2}
-                                <CategoryCreationInput
-                                    bind:selectedWordIds={formData.selectedWordIds}
-                                    bind:parentCategoryId={formData.parentCategoryId}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 3}
-                                <DiscussionInput
-                                    bind:discussion={formData.discussion}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:proceed={handleNext}
-                                />
-                            {:else if currentStep === 4}
-                                <CategoryCreationReview
-                                    selectedWordIds={formData.selectedWordIds}
-                                    parentCategoryId={formData.parentCategoryId}
-                                    discussion={formData.discussion}
-                                    publicCredit={formData.publicCredit}
-                                    userId={userData.sub}
-                                    disabled={isLoading}
-                                    on:back={handleBack}
-                                    on:success={e => successMessage = e.detail.message}
-                                    on:error={e => errorMessage = e.detail.message}
-                                />
-                            {/if}
-                        {/if}
-                    </g>
-                </svg>
-            </div>
-        </foreignObject>
+        <!-- Error/Success Messages -->
+        {#if errorMessage || successMessage}
+            <foreignObject
+                {x}
+                y={y + (showStepIndicators ? 45 : 0)}
+                {width}
+                height="50"
+            >
+                <div style="width: 100%; height: 100%;">
+                    <MessageDisplay {errorMessage} {successMessage} />
+                </div>
+            </foreignObject>
+        {/if}
+
+        <!-- Dynamic Form Content -->
+        <!-- ================================================================ -->
+        <!-- COORDINATE SYSTEM ARCHITECTURE (SINGLE SOURCE OF TRUTH):        -->
+        <!--                                                                  -->
+        <!-- 1. ContentBox provides: x, y, width, height, positioning        -->
+        <!--    - For contentText: x=left edge (after padding), y=center     -->
+        <!--    - For voting sections: x=left edge, y=top of section         -->
+        <!--                                                                  -->
+        <!-- 2. This SVG positioned at (x, formY) - absolute coordinates     -->
+        <!--                                                                  -->
+        <!-- 3. <g translate({width/2}, 0)> for horizontal centering         -->
+        <!--    (This centers text horizontally via text-anchor="middle")    -->
+        <!--                                                                  -->
+        <!-- 4. ContentText section Y positioning is CENTER-ORIGIN:          -->
+        <!--    - Y: 0 = CENTER, negative = UP, positive = DOWN              -->
+        <!--    - X: Standard left-to-right (unchanged)                      -->
+        <!--                                                                  -->
+        <!-- 5. Child components calculate Y positions as:                   -->
+        <!--    y = height * positioning.element (where 0 = center)          -->
+        <!--                                                                  -->
+        <!-- 6. To adjust positioning: ONLY edit ContentBox                  -->
+        <!--    POSITIONING_CONFIGS['create-node'] - nowhere else!           -->
+        <!-- ================================================================ -->
+        {@const formY = y + (showStepIndicators ? 50 : 0) + (errorMessage || successMessage ? 60 : 0)}
+        {@const formHeight = height - (showStepIndicators ? 50 : 0) - (errorMessage || successMessage ? 60 : 0)}
+        
+        <svg {x} y={formY} {width} height={formHeight}>
+            <!-- Horizontal centering for text-anchor="middle" to work -->
+            <g transform="translate({width/2}, 0)">
+                {#if currentStep === 1}
+                    <NodeTypeSelect
+                        nodeType={formData.nodeType}
+                        {positioning}
+                        width={width}
+                        height={formHeight}
+                        on:typeChange={handleNodeTypeChange}
+                        on:proceed={handleNext}
+                    />
+                {:else if formData.nodeType === 'word'}
+                    {#if currentStep === 2}
+                        <WordInput
+                            bind:word={formData.word}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <DefinitionInput
+                            bind:definitionText={formData.definitionText}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <WordReview
+                            word={formData.word}
+                            definitionText={formData.definitionText}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'statement'}
+                    {#if currentStep === 2}
+                        <StatementInput
+                            bind:statement={formData.statement}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <StatementReview
+                            statement={formData.statement}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'openquestion'}
+                    {#if currentStep === 2}
+                        <OpenQuestionInput
+                            bind:questionText={formData.questionText}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <OpenQuestionReview
+                            questionText={formData.questionText}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'quantity'}
+                    {#if currentStep === 2}
+                        <UnitCategorySelect
+                            bind:unitCategoryId={formData.unitCategoryId}
+                            bind:defaultUnitId={formData.defaultUnitId}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <QuantityInput
+                            bind:question={formData.question}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 7}
+                        <QuantityReview
+                            question={formData.question}
+                            unitCategoryId={formData.unitCategoryId}
+                            defaultUnitId={formData.defaultUnitId}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'answer'}
+                    {#if currentStep === 2}
+                        <AnswerInput
+                            bind:answerText={formData.answerText}
+                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <AnswerReview
+                            answerText={formData.answerText}
+                            questionId="[Will be provided when answer creation is triggered from a question]"
+                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'evidence'}
+                    {#if currentStep === 2}
+                        <EvidenceInput
+                            bind:title={formData.evidenceTitle}
+                            bind:url={formData.evidenceUrl}
+                            bind:evidenceType={formData.evidenceType}
+                            parentNodeText={formData.parentNodeType ? "[Parent node text will be provided when evidence creation is triggered from a node]" : ""}
+                            parentNodeType={formData.parentNodeType || ""}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <EvidenceReview
+                            title={formData.evidenceTitle}
+                            url={formData.evidenceUrl}
+                            evidenceType={formData.evidenceType}
+                            parentNodeId={formData.parentNodeId}
+                            parentNodeType={formData.parentNodeType}
+                            parentNodeText="[Parent node text will be provided when evidence creation is triggered from a node]"
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {:else if formData.nodeType === 'category'}
+                    {#if currentStep === 2}
+                        <CategoryCreationInput
+                            bind:selectedWordIds={formData.selectedWordIds}
+                            bind:parentCategoryId={formData.parentCategoryId}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <CategoryCreationReview
+                            selectedWordIds={formData.selectedWordIds}
+                            parentCategoryId={formData.parentCategoryId}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                        />
+                    {/if}
+                {/if}
+            </g>
+        </svg>
     </svelte:fragment>
 </BaseDetailNode>
 
 <style>
-    .form-container {
-        font-family: 'Inter', sans-serif;
-        color: white;
-    }
-
     .step-indicator {
         fill: rgba(255, 255, 255, 0.2);
         transition: all 0.3s ease;

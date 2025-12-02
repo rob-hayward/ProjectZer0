@@ -1,14 +1,31 @@
 <!-- src/lib/components/graph/nodes/ui/ContentBox.svelte -->
-<!-- REORGANIZED: Semantic 3-section structure - contentText / inclusionVoting / contentVoting -->
+<!-- SEMANTIC STRUCTURE: contentText / inclusionVoting / contentVoting -->
+<!--
+COORDINATE SYSTEM - SINGLE SOURCE OF TRUTH FOR POSITIONING
+
+After parent transform translate({width/2}, 0):
+  • Origin (0,0) = horizontal center, top of content section
+  • X axis: 0 = center, positive = right, negative = left  
+  • Y axis: 0 = top, positive values go DOWN
+
+POSITIONING VALUES in POSITIONING_CONFIGS are FRACTIONS (0-1):
+  • 0.0 = top of section, 0.5 = middle, 1.0 = bottom
+  • Child components calculate: y = height * positioning.elementName
+
+TO ADJUST POSITIONING:
+  1. Find node type in POSITIONING_CONFIGS below
+  2. Adjust fractional values (0-1)
+  3. NEVER add positioning logic to child components
+-->
 <script lang="ts">
     import { COORDINATE_SPACE } from '$lib/constants/graph/coordinate-space';
     import type { NodeType } from '$lib/types/graph/enhanced';
     
     export let nodeType: NodeType;
     export let mode: 'preview' | 'detail' = 'detail';
-    export let showBorder: boolean = false; // Set to true for layout refinement
+    export let showBorder: boolean = false;
     
-    // Layout configuration per node type (SINGLE SOURCE OF TRUTH)
+    // Layout configuration per node type
     const LAYOUT_CONFIGS: Record<string, {
         horizontalPadding: number;
         verticalPadding: number;
@@ -141,75 +158,60 @@
         }
     };
     
-    // ============================================================================
-    // LAYOUT RATIOS - Semantic 3-section structure per node type and mode
-    // ============================================================================
-    // REORGANIZED: contentText / inclusionVoting / contentVoting
+    // Layout ratios - how much space each section gets (contentText / inclusionVoting / contentVoting)
     const LAYOUT_RATIOS: Record<string, {
         detail: { contentText: number; inclusionVoting: number; contentVoting: number };
         preview: { contentText: number; inclusionVoting: number; contentVoting: number };
     }> = {
         answer: {
-            // Answer node: Text + both voting systems (similar to statement)
             detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         word: {
-            // Word node: Simple structure - word display + inclusion voting only
             detail: { contentText: 0.60, inclusionVoting: 0.40, contentVoting: 0 },
             preview: { contentText: 0.50, inclusionVoting: 0.50, contentVoting: 0 }
         },
-       definition: {
-            // Definition node: Text + both voting systems
+        definition: {
             detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
-        // UPDATED: Statement with new semantic structure (Option B - More Content Text)
         statement: {
             detail: { 
-                contentText: 0.40,      // 40% = 170px for statement text (was 30%)
-                inclusionVoting: 0.30,  // 30% = 127px for Include/Exclude voting (was 35%)
-                contentVoting: 0.30     // 30% = 127px for Agree/Disagree voting (was 35%, still symmetric!)
+                contentText: 0.40,      // 40% = 170px for statement text
+                inclusionVoting: 0.30,  // 30% = 127px for Include/Exclude voting
+                contentVoting: 0.30     // 30% = 127px for Agree/Disagree voting
             },
             preview: { 
-                contentText: 0.65,      // Preview: mostly text
-                inclusionVoting: 0.35,  // Just inclusion voting in preview
-                contentVoting: 0        // No content voting in preview
+                contentText: 0.65,
+                inclusionVoting: 0.35,
+                contentVoting: 0
             }
         },
         openquestion: {
-            // Open question: Only inclusion voting (no content voting)
-            // More space for content since we have fewer sections
             detail: { contentText: 0.60, inclusionVoting: 0.40, contentVoting: 0 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         quantity: {
-            // Quantity node: Question + inclusion voting + visualization/response interface
             detail: { contentText: 0.15, inclusionVoting: 0.15, contentVoting: 0.70 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         evidence: {
-            // Evidence node: Details + inclusion voting + peer review system
             detail: { contentText: 0.30, inclusionVoting: 0.30, contentVoting: 0.40 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         comment: {
-            // Comment node: Text + content voting only (no inclusion voting)
             detail: { contentText: 0.50, inclusionVoting: 0, contentVoting: 0.50 },
             preview: { contentText: 0.60, inclusionVoting: 0, contentVoting: 0.40 }
         },
         category: {
-            // Category node: Category display + stats + hierarchy + inclusion voting only
             detail: { contentText: 0.60, inclusionVoting: 0.40, contentVoting: 0 },
             preview: { contentText: 0.65, inclusionVoting: 0.35, contentVoting: 0 }
         },
         control: {
-            // Control node: Content only, no voting
             detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
             preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
         },
         dashboard: {
-            // Dashboard node: Content only, no voting
             detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
             preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
         },
@@ -219,20 +221,8 @@
         }
     };
     
-    // ============================================================================
-    // POSITIONING CONFIGS - Element positions within sections (0-1 fractions)
-    // ============================================================================
-    // LOGICAL TOP-TO-BOTTOM ORDER: contentText → inclusionVoting → contentVoting
-    // Each section contains its elements in vertical order (prompt → buttons → stats)
-    //
-    // 🔧 FINE-TUNING GUIDE:
-    // - Values are fractions (0-1) of section height
-    // - For statement detail: inclusionVoting section = 127px tall
-    //   * 0.02 = ~2px from top
-    //   * 0.25 = ~32px from top
-    //   * 0.50 = ~64px from top
-    // - Adjust these values in increments of 0.02-0.05 for fine-tuning
-    // ============================================================================
+    // Positioning configs - element positions within sections (0-1 fractions)
+    // Values represent position from top of section: 0.0 = top, 0.5 = middle, 1.0 = bottom
     const POSITIONING_CONFIGS: Record<string, {
         detail: {
             contentText?: Record<string, number>;
@@ -245,426 +235,307 @@
             contentVoting?: Record<string, number>;
         };
     }> = {
-        // ========================================================================
-        // STATEMENT NODE - Primary reference implementation
-        // ========================================================================
         statement: {
             detail: {
-                // SECTION 1: Content Text (40% = 170px) - Statement display
-                contentText: {
-                    text: 0.2,              // Text starts at top of section
-                    textHeight: 1.0       // Uses full section height
-                },
-                
-                // SECTION 2: Inclusion Voting (30% = 127px) - "Should this exist in the graph?"
-                // 🔧 ADJUST THESE VALUES FOR FINE-TUNING:
-                inclusionVoting: {
-                    prompt: 0.0,          // "Include/Exclude:" prompt (at top)
-                    buttons: 0.40,        // [+] vote count [-] buttons (~44px from top)
-                    stats: 0.50           // Vote data display (~83px from top)
-                },
-                
-                // SECTION 3: Content Voting (30% = 127px) - "Is this statement accurate?"
-                // SYMMETRIC MIRROR of inclusionVoting for visual consistency
-                contentVoting: {
-                    prompt: 0.0,          // "Agree/Disagree:" prompt (at top)
-                    buttons: 0.40,        // [👍] vote count [👎] buttons (~44px from top)
-                    stats: 0.50           // Vote data display (~83px from top)
-                }
-            },
-            preview: {
-                // SECTION 1: Content Text - Statement display only
                 contentText: {
                     text: 0.2,
                     textHeight: 1.0
                 },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 1          // Buttons centered in section
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting - Not shown in preview
+                contentVoting: {
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
+                }
+            },
+            preview: {
+                contentText: {
+                    text: 0.2,
+                    textHeight: 1.0
+                },
+                inclusionVoting: {
+                    buttons: 0.5
+                },
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // OPENQUESTION NODE - Inclusion voting only, simpler structure
-        // ========================================================================
         openquestion: {
             detail: {
-                // SECTION 1: Content Text (60% = 255px) - Question text + answer count
                 contentText: {
-                    text: 0.2,              // Question text starts at top
-                    textHeight: 0.80,       // Uses 80% of section for question text
-                    answerCount: 0.85       // Answer count display at 85% down
+                    text: 0.2,
+                    textHeight: 0.80,
+                    answerCount: 0.85
                 },
-                
-                // SECTION 2: Inclusion Voting (40% = 170px) - "Should this question exist?"
                 inclusionVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40% down (consistent with other nodes)
-                    stats: 0.50             // Stats at 50% down (consistent with other nodes)
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting - Not applicable for questions
                 contentVoting: {}
             },
             preview: {
-                // SECTION 1: Content Text - Question display only
                 contentText: {
-                    text: 0.2,              // Text starts at top
-                    textHeight: 1.0         // Uses full section
+                    text: 0.2,
+                    textHeight: 1.0
                 },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 0.5            // Buttons centered in section
+                    buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not applicable
                 contentVoting: {}
             }
         },
         
-        // ========================================================================
-        // ANSWER NODE - Dual voting structure similar to Statement
-        // ========================================================================
         answer: {
             detail: {
-                // SECTION 1: Content Text (40% = 170px) - Answer text + instruction
                 contentText: {
-                    text: 0.2,              // Answer text starts at top
-                    textHeight: 1,       // Uses 65% of section for answer text
+                    text: 0.2,
+                    textHeight: 1
                 },
-                
-                // SECTION 2: Inclusion Voting (30% = 127px) - "Should this answer exist?"
                 inclusionVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40% down (symmetric with statement)
-                    stats: 0.50             // Stats at 50% down (symmetric with statement)
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting (30% = 127px) - "Is this answer accurate?"
                 contentVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40% down (symmetric with inclusion)
-                    stats: 0.50             // Stats at 50% down (symmetric with inclusion)
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 }
             },
             preview: {
-                // SECTION 1: Content Text - Answer display only
-                contentText: {
-                    text: 0.0,              // Text starts at top
-                    textHeight: 1.0         // Uses full section
-                },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
-                inclusionVoting: {
-                    buttons: 0.5            // Buttons centered in section
-                },
-                
-                // SECTION 3: Content Voting - Not shown in preview
-                contentVoting: {}
-            }
-        },
-
-        // ========================================================================
-        // QUANTITY NODE - Repurposing contentVoting section for QuantityVisualization
-        // ========================================================================
-        quantity: {
-            detail: {
-                // SECTION 1: Content Text (25% = 106px) - Question + unit category
-                contentText: {
-                    text: 0.0,              // Question text at top
-                    textHeight: 0.70,       // Uses 70% for question
-                    unitCategory: 0.75      // Unit category label at 75%
-                },
-                
-                // SECTION 2: Inclusion Voting (25% = 106px) - Standard inclusion voting
-                inclusionVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40%
-                    stats: 0.50,            // Stats at 50%
-                    // Stats width/centering config
-                    statsXOffset: 0.15,     // Horizontal offset (15% from left)
-                    statsWidth: 0.7         // Use 70% of section width (centered)
-                },
-                
-                // SECTION 3: Content Voting REPURPOSED (50% = 212px) - Visualization + Response Interface
-                contentVoting: {
-                    responsesHeader: 0.0,           // "Community Responses" header
-                    visualization: 0.08,            // Visualization component
-                    visualizationHeight: 0.35,      // Height for visualization
-                    userResponseHeader: 0.45,       // "Your Response" header
-                    currentResponse: 0.52,          // Current response display (if exists)
-                    deleteButton: 0.56,             // Delete button (if response exists)
-                    inputForm: 0.62,                // Input form (or 0.52 if no existing response)
-                    unitSelector: 0.80              // Unit selector dropdown
-                }
-            },
-            preview: {
-                // SECTION 1: Content Text - Question display only
                 contentText: {
                     text: 0.0,
                     textHeight: 1.0
                 },
-                
-                // SECTION 2: Inclusion Voting - Centered buttons
                 inclusionVoting: {
                     buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not shown in preview
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // EVIDENCE NODE - Repurposing contentVoting section for Peer Review System
-        // ========================================================================
-        evidence: {
+        quantity: {
             detail: {
-                // SECTION 1: Content Text (35% = 149px) - Evidence details
                 contentText: {
-                    title: 0.20,                 // Title at top
-                    titleHeight: 0.20,          // 20% for title
-                    typeBadge: 0.42,            // Type badge below title
-                    authors: 0.55,              // Authors metadata
-                    pubDate: 0.62,              // Publication date
-                    url: 0.70,                  // URL link
-                    description: 0.78,          // Description text
-                    descriptionHeight: 0.25,    // Height for description
-                    parentLabel: 0.85,          // Parent node label
-                    parentTitle: 0.92           // Parent node title
+                    text: 0.0,
+                    textHeight: 0.70,
+                    unitCategory: 0.75
                 },
-                
-                // SECTION 2: Inclusion Voting (25% = 106px) - Standard inclusion voting
                 inclusionVoting: {
-                    prompt: 0.0,                // Prompt at top
-                    buttons: 0.35,              // Buttons at 40%
-                    stats: 0.50,                // Stats at 50%
-                    statsXOffset: 0.0,         // Center stats
-                    statsWidth: 0.7             // 70% width for stats
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50,
+                    statsXOffset: 0.15,
+                    statsWidth: 0.7
                 },
-                
-                // SECTION 3: Content Voting REPURPOSED (40% = 170px) - Peer Review System
                 contentVoting: {
-                    header: 0.0,                // "PEER REVIEW ASSESSMENT" header
-                    communityLabel: 0.08,       // "Community Scores" label (if reviews exist)
-                    communityScores: 0.13,      // Community scores display
-                    noReviews: 0.10,            // "No reviews yet" message (if no reviews)
-                    userLabel: 0.42,            // "Your Assessment:" label (with reviews) / 0.20 (no reviews)
-                    userScores: 0.48,           // User's scores display (if has review) / 0.26 (no reviews)
-                    userButtons: 0.75,          // Update/Clear buttons (with reviews) / 0.63 (no reviews)
-                    inputStars: 0.48,           // Star input UI (no user review) / 0.26 (no reviews)
-                    submitButton: 0.65,         // Submit button (no user review) / 0.53 (no reviews)
-                    errorMessage: 0.75          // Error message (no user review) / 0.63 (no reviews)
+                    responsesHeader: 0.0,
+                    visualization: 0.08,
+                    visualizationHeight: 0.35,
+                    userResponseHeader: 0.45,
+                    currentResponse: 0.52,
+                    deleteButton: 0.56,
+                    inputForm: 0.62,
+                    unitSelector: 0.80
                 }
             },
             preview: {
-                // SECTION 1: Content Text - Title and type badge
+                contentText: {
+                    text: 0.0,
+                    textHeight: 1.0
+                },
+                inclusionVoting: {
+                    buttons: 0.5
+                },
+                contentVoting: {}
+            }
+        },
+
+        evidence: {
+            detail: {
+                contentText: {
+                    title: 0.20,
+                    titleHeight: 0.20,
+                    typeBadge: 0.42,
+                    authors: 0.55,
+                    pubDate: 0.62,
+                    url: 0.70,
+                    description: 0.78,
+                    descriptionHeight: 0.25,
+                    parentLabel: 0.85,
+                    parentTitle: 0.92
+                },
+                inclusionVoting: {
+                    prompt: 0.0,
+                    buttons: 0.35,
+                    stats: 0.50,
+                    statsXOffset: 0.0,
+                    statsWidth: 0.7
+                },
+                contentVoting: {
+                    header: 0.0,
+                    communityLabel: 0.08,
+                    communityScores: 0.13,
+                    noReviews: 0.10,
+                    userLabel: 0.42,
+                    userScores: 0.48,
+                    userButtons: 0.75,
+                    inputStars: 0.48,
+                    submitButton: 0.65,
+                    errorMessage: 0.75
+                }
+            },
+            preview: {
                 contentText: {
                     text: 0.0,
                     textHeight: 0.70,
                     typeBadge: 0.75
                 },
-                
-                // SECTION 2: Inclusion Voting - Centered buttons
                 inclusionVoting: {
                     buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not shown in preview
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // WORD NODE - Simplest structure, just word display + inclusion voting
-        // ========================================================================
         word: {
             detail: {
-                // SECTION 1: Content Text (60% = 255px) - Just the word, centered
                 contentText: {
-                    word: 0.5              // Word centered vertically in section
+                    word: 0.5
                 },
-                
-                // SECTION 2: Inclusion Voting (40% = 170px) - Standard inclusion voting
                 inclusionVoting: {
-                    prompt: 0.0,           // Prompt at top
-                    buttons: 0.40,         // Buttons at 40%
-                    stats: 0.50            // Stats at 50%
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting - Not applicable for words
                 contentVoting: {}
             },
             preview: {
-                // SECTION 1: Content Text - Word display, centered
                 contentText: {
-                    word: 0.5              // Word centered vertically
+                    word: 0.5
                 },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 0.5           // Buttons centered in section
+                    buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not applicable
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // DEFINITION NODE - Dual voting structure similar to Statement/Answer
-        // ========================================================================
         definition: {
             detail: {
-                // SECTION 1: Content Text (40% = 170px) - Word + definition + instruction
                 contentText: {
-                    text: 0.2,              // Word + definition at top
-                    textHeight: 0.70,       // Uses 70% for definition text
-                    instruction: 0.75       // Instruction text at 75%
+                    text: 0.2,
+                    textHeight: 0.70,
+                    instruction: 0.75
                 },
-                
-                // SECTION 2: Inclusion Voting (30% = 127px) - "Should this definition exist?"
                 inclusionVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40% (symmetric with statement)
-                    stats: 0.50             // Stats at 50% (symmetric with statement)
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting (30% = 127px) - "Is this definition accurate?"
                 contentVoting: {
-                    prompt: 0.0,            // Prompt at top
-                    buttons: 0.40,          // Buttons at 40% (symmetric with inclusion)
-                    stats: 0.50             // Stats at 50% (symmetric with inclusion)
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 }
             },
             preview: {
-                // SECTION 1: Content Text - Word + definition display
                 contentText: {
-                    text: 0.0,              // Text at top
-                    textHeight: 1.0         // Uses full section
+                    text: 0.0,
+                    textHeight: 1.0
                 },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 0.5            // Buttons centered in section
+                    buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not shown in preview
                 contentVoting: {}
             }
         },
-        // ========================================================================
-        // CATEGORY NODE - Similar to word, but with additional stats and hierarchy
-        // ========================================================================
+
         category: {
             detail: {
-                // SECTION 1: Content Text (60% = 255px) - Category name + stats + hierarchy
                 contentText: {
-                    categoryName: 0.35,        // Category name, centered
-                    stats: 0.55,               // Word/content/child counts
-                    parentCategory: 0.75,      // Parent category link (if exists)
-                    childCategories: 0.85      // Child category links (if exist)
+                    categoryName: 0.35,
+                    stats: 0.55,
+                    parentCategory: 0.75,
+                    childCategories: 0.85
                 },
-                
-                // SECTION 2: Inclusion Voting (40% = 170px) - Standard inclusion voting
                 inclusionVoting: {
-                    prompt: 0.0,               // Prompt at top
-                    buttons: 0.40,             // Buttons at 40%
-                    stats: 0.50                // Stats at 50%
+                    prompt: 0.0,
+                    buttons: 0.40,
+                    stats: 0.50
                 },
-                
-                // SECTION 3: Content Voting - Not applicable for categories
                 contentVoting: {}
             },
             preview: {
-                // SECTION 1: Content Text - Category name + brief stats
                 contentText: {
-                    categoryName: 0.4,         // Category name
-                    statsPreview: 0.65         // Brief stats summary
+                    categoryName: 0.4,
+                    statsPreview: 0.65
                 },
-                
-                // SECTION 2: Inclusion Voting - Just buttons, centered
                 inclusionVoting: {
-                    buttons: 0.5               // Buttons centered in section
+                    buttons: 0.5
                 },
-                
-                // SECTION 3: Content Voting - Not applicable
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // DASHBOARD NODE - Control node, no voting sections
-        // ========================================================================
         dashboard: {
             detail: {
-                // SECTION 1: Content Text (100% = 425px) - All dashboard content
                 contentText: {
-                    nameLabel: 0.2,         // Name label at top
-                    missionLabel: 0.35,     // Mission statement label at 15%
-                    missionHeight: 0.40,    // Height allocated for mission text
-                    statsLabel: 0.70        // Activity stats label at 50%
+                    nameLabel: 0.2,
+                    missionLabel: 0.35,
+                    missionHeight: 0.40,
+                    statsLabel: 0.70
                 },
-                
-                // SECTION 2: Inclusion Voting - Not applicable for dashboard
                 inclusionVoting: {},
-                
-                // SECTION 3: Content Voting - Not applicable for dashboard
                 contentVoting: {}
             },
             preview: {
-                // SECTION 1: Content Text (100%) - Simplified dashboard preview
                 contentText: {
-                    nameLabel: 0.0,         // Name label at top
-                    missionLabel: 0.25,     // Mission label at 25%
-                    missionHeight: 0.70     // Remaining space for mission preview
+                    nameLabel: 0.0,
+                    missionLabel: 0.25,
+                    missionHeight: 0.70
                 },
-                
-                // SECTION 2: Inclusion Voting - Not applicable
                 inclusionVoting: {},
-                
-                // SECTION 3: Content Voting - Not applicable
                 contentVoting: {}
             }
         },
 
-        // ========================================================================
-        // CONTROL NODE - Filter control node, no voting sections  
-        // ========================================================================
         control: {
             detail: {
-                // SECTION 1: Content Text (100%) - All filter UI controls
-                // No positioning needed - uses foreignObject with full width/height
                 contentText: {},
-                
-                // SECTION 2: Inclusion Voting - Not applicable for control node
                 inclusionVoting: {},
-                
-                // SECTION 3: Content Voting - Not applicable for control node
                 contentVoting: {}
             },
             preview: {
-                // SECTION 1: Content Text (100%) - Icon display
-                // No positioning needed - uses centered icon
                 contentText: {},
-                
-                // SECTION 2: Inclusion Voting - Not applicable
                 inclusionVoting: {},
-                
-                // SECTION 3: Content Voting - Not applicable
+                contentVoting: {}
+            }
+        },
+
+        'create-node': {
+            detail: {
+                contentText: {
+                    dropdown: 0.48,         // 48% from top - slightly below center
+                    dropdownHeight: 0.10,   // 10% of height - dropdown allocation
+                    infoText: 0.60,         // 60% from top - helper text
+                    button: 0.72            // 72% from top - action button
+                },
+                inclusionVoting: {},
+                contentVoting: {}
+            },
+            preview: {
+                contentText: {},
+                inclusionVoting: {},
                 contentVoting: {}
             }
         },
         
-        // ========================================================================
-        // DEFAULT - Fallback for unmigrated node types
-        // ========================================================================
         default: {
             detail: {
                 contentText: {},
@@ -729,7 +600,7 @@
     $: inclusionVotingHeight = Math.floor(boxSize * currentRatios.inclusionVoting);
     $: contentVotingHeight = Math.floor(boxSize * currentRatios.contentVoting);
     
-    // SINGLE SOURCE OF TRUTH for Y positioning
+    // Y positioning - single source of truth
     $: contentTextBaseY = -halfBox;
     $: inclusionVotingBaseY = contentTextBaseY + contentTextHeight + finalSectionSpacing;
     $: contentVotingBaseY = inclusionVotingBaseY + inclusionVotingHeight + finalSectionSpacing;
@@ -773,7 +644,7 @@
 
 <g class="content-box" data-box-size={boxSize}>
     {#if showBorder}
-        <!-- Main content box border - white dashed -->
+        <!-- Main content box border -->
         <rect
             x={-halfBox}
             y={-halfBox}
@@ -785,7 +656,7 @@
             stroke-dasharray="8,4"
         />
         
-        <!-- Content Text section border - cyan -->
+        <!-- Section borders -->
         <rect
             x={-halfBox}
             y={contentTextY}
@@ -796,7 +667,6 @@
             stroke-width="1"
         />
         
-        <!-- Inclusion Voting section border - green -->
         {#if inclusionVotingHeight > 0}
             <rect
                 x={-halfBox}
@@ -809,7 +679,6 @@
             />
         {/if}
         
-        <!-- Content Voting section border - yellow -->
         {#if contentVotingHeight > 0}
             <rect
                 x={-halfBox}
@@ -860,7 +729,7 @@
             </text>
         {/if}
         
-        <!-- Dimensions text -->
+        <!-- Dimensions -->
         <text
             x="0"
             y={-halfBox - 5}
@@ -885,6 +754,7 @@
             positioning={currentPositioning.contentText || {}}
         />
     </g>
+    
     {#if inclusionVotingHeight > 0}
         <g class="inclusion-voting-section">
             <slot
