@@ -1,5 +1,5 @@
 <!-- src/lib/components/graph/nodes/createNode/CreateNodeNode.svelte -->
-<!-- UPDATED: CSS-based color cycling for universal graph compatibility -->
+<!-- UPDATED: CSS-based color cycling + bottom-positioned next button -->
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
@@ -99,6 +99,9 @@
     let enableColorCycling = false;
     let hasGraphSettled = false;
     
+    // State for next button hover
+    let isNextButtonHovering = false;
+    
     // Listen for graph settlement if we're a central node
     onMount(() => {
         if (isUniversalCentralNode) {
@@ -139,7 +142,7 @@
     // Apply CSS animation directly to DOM elements
     // Use afterUpdate to ensure DOM is ready, and check more robustly for elements
     $: if (enableColorCycling) {
-        console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
+        console.log('[CreateNodeNode] ✨ Color cycling enabled - applying animation');
         // Use setTimeout to ensure DOM has fully rendered
         setTimeout(() => {
             applyColorCycling(true);
@@ -428,6 +431,18 @@
                  formData.nodeType === 'quantity' ? 7 :
                  formData.nodeType === 'category' ? 4 : 1;
 
+    // Get node radius for button positioning
+    $: nodeRadius = node.radius || (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2);
+
+    // Next button state - ALWAYS show on step 1, just disabled when no type selected
+    $: showNextButton = currentStep === 1;
+    $: isNextButtonDisabled = formData.nodeType === '';
+    $: nextButtonColor = formData.nodeType ? completeStyle.highlightColor : 'rgba(255, 255, 255, 0.3)';
+    $: nextTooltipText = formData.nodeType ? 'Next Step' : 'Select Type First';
+    
+    // Unique filter ID for glow
+    const nextGlowFilterId = `next-glow-${Math.random().toString(36).slice(2)}`;
+
     function handleBack() {
         if (currentStep > 1) {
             currentStep--;
@@ -436,9 +451,20 @@
     }
 
     function handleNext() {
+        if (isNextButtonDisabled) {
+            console.log('[CreateNodeNode] Button click ignored - no type selected');
+            return;
+        }
         if (currentStep < maxSteps) {
             currentStep++;
             errorMessage = null;
+        }
+    }
+
+    function handleNextKeydown(event: KeyboardEvent) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            handleNext();
         }
     }
 
@@ -476,28 +502,11 @@
 
     <!-- FIXED: Proper ContentBox positioning - content centered in node -->
     <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-        <!-- Step Indicators - positioned at top of content area -->
-        {#if showStepIndicators}
-            <svg {x} {y} {width} height="40">
-                <g transform="translate({width/2}, 20)">
-                    {#each Array(maxSteps) as _, i}
-                        <circle
-                            cx={-60 + (i * 20)}
-                            cy="0"
-                            r="4"
-                            class="step-indicator"
-                            class:active={currentStep >= i + 1}
-                        />
-                    {/each}
-                </g>
-            </svg>
-        {/if}
-
         <!-- Error/Success Messages -->
         {#if errorMessage || successMessage}
             <foreignObject
                 {x}
-                y={y + (showStepIndicators ? 45 : 0)}
+                {y}
                 {width}
                 height="50"
             >
@@ -530,8 +539,8 @@
         <!-- 6. To adjust positioning: ONLY edit ContentBox                  -->
         <!--    POSITIONING_CONFIGS['create-node'] - nowhere else!           -->
         <!-- ================================================================ -->
-        {@const formY = y + (showStepIndicators ? 50 : 0) + (errorMessage || successMessage ? 60 : 0)}
-        {@const formHeight = height - (showStepIndicators ? 50 : 0) - (errorMessage || successMessage ? 60 : 0)}
+        {@const formY = y + (errorMessage || successMessage ? 60 : 0)}
+        {@const formHeight = height - (errorMessage || successMessage ? 60 : 0)}
         
         <svg {x} y={formY} {width} height={formHeight}>
             <!-- Horizontal centering for text-anchor="middle" to work -->
@@ -849,6 +858,119 @@
                 {/if}
             </g>
         </svg>
+
+        <!-- Step Indicators - positioned just above the next button -->
+        {#if showStepIndicators}
+            <g transform="translate(0, {nodeRadius - 75})">
+                {#each Array(maxSteps) as _, i}
+                    <circle
+                        cx={-(maxSteps - 1) * 10 + (i * 20)}
+                        cy="0"
+                        r="4"
+                        class="step-indicator"
+                        class:active={currentStep >= i + 1}
+                    />
+                {/each}
+            </g>
+        {/if}
+
+        <!-- Next Step Button (positioned at bottom like Control Node's Apply button) -->
+        <!-- Button is OUTSIDE the translated SVG wrapper to use node-centered coordinates -->
+        {#if showNextButton}
+            <!-- Filter definitions -->
+            <defs>
+                <filter id={nextGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
+                    <feFlood flood-color={nextButtonColor} flood-opacity="0.6" result="color1"/>
+                    <feComposite in="color1" in2="blur1" operator="in" result="shadow1"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="8" result="blur2"/>
+                    <feFlood flood-color={nextButtonColor} flood-opacity="0.8" result="color2"/>
+                    <feComposite in="color2" in2="blur2" operator="in" result="shadow2"/>
+                    
+                    <feGaussianBlur in="SourceAlpha" stdDeviation="4" result="blur3"/>
+                    <feFlood flood-color={nextButtonColor} flood-opacity="1" result="color3"/>
+                    <feComposite in="color3" in2="blur3" operator="in" result="shadow3"/>
+                    
+                    <feMerge>
+                        <feMergeNode in="shadow1"/>
+                        <feMergeNode in="shadow2"/>
+                        <feMergeNode in="shadow3"/>
+                        <feMergeNode in="SourceGraphic"/>
+                    </feMerge>
+                </filter>
+            </defs>
+
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <!-- svelte-ignore a11y-mouse-events-have-key-events -->
+            <circle
+                cx={0}
+                cy={nodeRadius - 40}
+                r={30}
+                fill="transparent"
+                class="next-button-detection"
+                class:disabled={isNextButtonDisabled}
+                on:mouseenter={() => !isNextButtonDisabled && (isNextButtonHovering = true)}
+                on:mouseleave={() => isNextButtonHovering = false}
+                on:click={handleNext}
+                on:keydown={handleNextKeydown}
+                tabindex="0"
+                role="button"
+                aria-label={nextTooltipText}
+                aria-pressed="false"
+                style="cursor: {isNextButtonDisabled ? 'not-allowed' : 'pointer'};"
+            />
+
+            <g style:filter={isNextButtonHovering && !isNextButtonDisabled ? `url(#${nextGlowFilterId})` : 'none'}>
+                <foreignObject 
+                    x={-20}
+                    y={nodeRadius - 60}
+                    width={40}
+                    height={40}
+                    class="next-icon-container"
+                >
+                    <div class="next-icon-wrapper" {...{"xmlns": "http://www.w3.org/1999/xhtml"}}>
+                        <span 
+                            class="material-symbols-outlined next-icon"
+                            class:hovered={isNextButtonHovering && !isNextButtonDisabled}
+                            class:disabled={isNextButtonDisabled}
+                            style:color={nextButtonColor}
+                        >
+                            arrow_circle_right
+                        </span>
+                    </div>
+                </foreignObject>
+            </g>
+
+            <!-- Tooltip -->
+            {#if isNextButtonHovering}
+                <g transform="translate(0, {nodeRadius + 10})">
+                    <rect
+                        x={-50}
+                        y={-10}
+                        width="100"
+                        height="20"
+                        rx="4"
+                        fill="rgba(0, 0, 0, 0.9)"
+                        class="next-tooltip-background"
+                    />
+                    <text
+                        x={0}
+                        y={3}
+                        text-anchor="middle"
+                        dominant-baseline="middle"
+                        fill="white"
+                        font-size="11"
+                        font-weight="500"
+                        font-family="Inter, system-ui, sans-serif"
+                        class="next-tooltip-text"
+                    >
+                        {nextTooltipText}
+                    </text>
+                </g>
+            {/if}
+        {/if}
     </svelte:fragment>
 </BaseDetailNode>
 
@@ -860,5 +982,63 @@
 
     .step-indicator.active {
         fill: rgba(255, 255, 255, 0.8);
+    }
+
+    /* Next button styles (positioned at bottom) */
+    .next-button-detection {
+        transition: all 0.2s ease;
+        outline: none;
+    }
+
+    .next-button-detection:focus {
+        outline: 2px solid rgba(255, 255, 255, 0.3);
+        outline-offset: 4px;
+    }
+    
+    .next-button-detection.disabled {
+        cursor: not-allowed !important;
+    }
+
+    .next-icon-container {
+        overflow: visible;
+        pointer-events: none;
+    }
+
+    .next-icon-wrapper {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+    }
+
+    :global(.material-symbols-outlined.next-icon) {
+        font-size: 32px;
+        transition: all 0.3s ease;
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 48;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    :global(.material-symbols-outlined.next-icon.hovered) {
+        font-size: 36px;
+        font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 48;
+    }
+    
+    :global(.material-symbols-outlined.next-icon.disabled) {
+        opacity: 0.3;
+    }
+
+    .next-tooltip-background {
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.4));
+        pointer-events: none;
+    }
+
+    .next-tooltip-text {
+        pointer-events: none;
+        user-select: none;
+        letter-spacing: 0.02em;
     }
 </style>

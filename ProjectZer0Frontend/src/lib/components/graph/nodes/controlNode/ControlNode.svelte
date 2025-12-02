@@ -719,8 +719,6 @@
                             height="20"
                             rx="4"
                             fill="rgba(0, 0, 0, 0.9)"
-                            stroke={applyButtonColor}
-                            stroke-width="1"
                             class="apply-tooltip-background"
                         />
                         <text
@@ -829,8 +827,6 @@
                         height="20"
                         rx="4"
                         fill="rgba(0, 0, 0, 0.9)"
-                        stroke="var(--color-border-primary)"
-                        stroke-width="1"
                         class="tooltip-background"
                     />
                     <text

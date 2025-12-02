@@ -44,12 +44,6 @@ POSITIONING ARCHITECTURE:
     function handleTypeChange() {
         dispatch('typeChange', { type: nodeType });
     }
-
-    function handleProceed() {
-        if (nodeType && !disabled) {
-            dispatch('proceed');
-        }
-    }
     
     // ============================================================================
     // CALCULATE Y POSITIONS - CENTER-ORIGIN FOR VERTICAL ONLY
@@ -65,7 +59,6 @@ POSITIONING ARCHITECTURE:
     $: dropdownY = height * (positioning.dropdown || -0.02);
     $: dropdownHeight = Math.max(40, height * (positioning.dropdownHeight || 0.10));
     $: infoTextY = height * (positioning.infoText || 0.10);
-    $: buttonY = height * (positioning.button || 0.40);
     
     // Dropdown width (centered, max 240px) - responsive to available width
     $: dropdownWidth = Math.min(240, width * 0.6);
@@ -134,24 +127,6 @@ POSITIONING ARCHITECTURE:
             {/if}
         </text>
     {/if}
-
-    <!-- Material Symbol Button -->
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <g 
-        class="material-symbol-button"
-        class:disabled={!nodeType || disabled}
-        transform="translate(0, {buttonY})"
-        on:click={handleProceed}
-    >
-        <text 
-            class="material-symbols-outlined"
-            text-anchor="middle"
-            dominant-baseline="middle"
-        >
-            arrow_circle_right
-        </text>
-    </g>
 </g>
 
 <style>
@@ -208,48 +183,5 @@ POSITIONING ARCHITECTURE:
     :global(select.form-dropdown:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
-    }
-
-    .material-symbol-button {
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-
-    .material-symbol-button text {
-        fill: rgba(255, 255, 255, 0.8);
-        font-size: 48px;
-        transition: all 0.3s ease;
-    }
-
-    .material-symbol-button:hover text {
-        fill: rgba(255, 255, 255, 1);
-        filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.6));
-    }
-
-    .material-symbol-button.disabled {
-        cursor: not-allowed;
-        opacity: 0.3;
-    }
-
-    .material-symbol-button.disabled:hover text {
-        fill: rgba(255, 255, 255, 0.8);
-        filter: none;
-    }
-
-    .material-symbols-outlined {
-        font-family: 'Material Symbols Outlined';
-        font-weight: normal;
-        font-style: normal;
-        font-size: 48px;
-        line-height: 1;
-        letter-spacing: normal;
-        text-transform: none;
-        display: inline-block;
-        white-space: nowrap;
-        word-wrap: normal;
-        direction: ltr;
-        font-feature-settings: 'liga';
-        -webkit-font-feature-settings: 'liga';
-        -webkit-font-smoothing: antialiased;
     }
 </style>
