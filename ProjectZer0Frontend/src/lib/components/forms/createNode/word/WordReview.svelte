@@ -3,18 +3,20 @@
     import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
-    import { FORM_STYLES } from '$lib/styles/forms';
     import { wordStore } from '$lib/stores/wordStore';
     import { graphStore } from '$lib/stores/graphStore';
-    import FormNavigation from '../shared/FormNavigation.svelte';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
     export let word = '';
-    export let definitionText = ''; // Updated prop name for consistency
+    export let definitionText = '';
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
     export let userId: string | undefined = undefined;
+    
+    export let positioning: Record<string, number> = {};
+    export let width: number = 400;
+    export let height: number = 400;
 
     let shareToX = false;
     let isSubmitting = false;
@@ -26,14 +28,16 @@
         error: { message: string; };
     }>();
 
-    async function handleSubmit() {
+    export async function handleSubmit() {
+        if (disabled || isSubmitting) return;
+        
         isSubmitting = true;
         errorMessage = null;
 
         try {
             const wordData = {
                 word: word.trim(),
-                definitionText, // Now using consistent field name
+                definitionText,
                 discussion,
                 publicCredit,
                 createdBy: userId,
@@ -53,14 +57,11 @@
                 throw new Error('Created word data is incomplete');
             }
 
-            // Update word store
             wordStore.set(createdWord);
             
-            // Update graph store to word view type
             if (browser && graphStore && graphStore.setViewType) {
                 graphStore.setViewType('word');
                 
-                // Force immediate visual update if available
                 if (graphStore.forceTick) {
                     try {
                         graphStore.forceTick();
@@ -76,16 +77,13 @@
                 word: createdWord.word
             });
 
-            // Use direct navigation instead of goto
             setTimeout(() => {
                 if (browser) {
                     const targetUrl = `/graph/word?word=${encodeURIComponent(createdWord.word)}`;
                     console.log('[WordReview] Navigating to:', targetUrl);
-                    
-                    // Use direct window location for reliable navigation
                     window.location.href = targetUrl;
                 }
-            }, 800); // Slightly shorter timeout for better responsiveness
+            }, 800);
 
         } catch (e) {
             if (browser) {
@@ -98,15 +96,18 @@
             isSubmitting = false;
         }
     }
+    
+    $: reviewContainerY = height * (positioning.reviewContainer || 0.05);
+    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.65));
+    $: reviewContainerWidth = Math.min(560, width * 1.0);
 </script>
 
 <g>
-    <!-- Review Content -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign - 30}
-        y="-40"
-        width={FORM_STYLES.layout.fieldWidth + 60}
-        height="290"
+        x={-reviewContainerWidth/2}
+        y={reviewContainerY}
+        width={reviewContainerWidth}
+        height={reviewContainerHeight}
     >
         <div class="review-container">
             <div class="review-item word-item">
@@ -154,23 +155,11 @@
         </div>
     </foreignObject>
 
-    <!-- Messages -->
     {#if errorMessage}
-        <g transform="translate(0, 240)">
-            <MessageDisplay errorMessage={errorMessage} successMessage={null} />
+        <g transform="translate(0, {reviewContainerY + reviewContainerHeight + 10})">
+            <MessageDisplay {errorMessage} successMessage={null} />
         </g>
     {/if}
-
-    <!-- Navigation -->
-    <g transform="translate(0, 270)">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Creating..." : "Create Node"}
-            loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting}
-        />
-    </g>
 </g>
 
 <style>
@@ -180,6 +169,8 @@
         display: flex;
         flex-direction: column;
         gap: 12px;
+        max-height: 100%;
+        overflow-y: auto;
     }
 
     :global(.review-item) {
@@ -198,7 +189,7 @@
     }
 
     .scrollable-content {
-        max-height: 65px;
+        max-height: 125px;
         overflow-y: auto;
         padding-right: 8px;
         margin-bottom: 4px;
@@ -226,14 +217,14 @@
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
         font-size: 11px;
-        font-family: 'Inter', sans-serif;  
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
     :global(.review-item .value) {
         color: white;
         font-size: 13px;
-        font-family: 'Inter', sans-serif;  
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
         line-height: 1.3;
     }
@@ -253,7 +244,7 @@
         gap: 6px;
         color: white;
         font-size: 11px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
@@ -267,7 +258,7 @@
         display: flex;
         align-items: center;
         gap: 6px;
-        padding-left: 35px; 
+        padding-left: 35px;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {

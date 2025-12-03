@@ -96,7 +96,16 @@
     let isLoading = false;
     let errorMessage: string | null = null;
     let successMessage: string | null = null;
-    let isCheckingWord = false; // Track word existence check
+    let isCheckingWord = false;
+    
+    // References to review components
+    let wordReviewComponent: any;
+    let statementReviewComponent: any;
+    let openQuestionReviewComponent: any;
+    let quantityReviewComponent: any;
+    let answerReviewComponent: any;
+    let evidenceReviewComponent: any;
+    let categoryReviewComponent: any;
 
     // IMPROVED: Detect if we're in universal graph as central node
     // Central nodes have id ending in '-central'
@@ -152,7 +161,7 @@
     // Apply CSS animation directly to DOM elements
     // Use afterUpdate to ensure DOM is ready, and check more robustly for elements
     $: if (enableColorCycling) {
-        console.log('[CreateNodeNode] ✨ Color cycling enabled - applying animation');
+        console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
         // Use setTimeout to ensure DOM has fully rendered
         setTimeout(() => {
             applyColorCycling(true);
@@ -444,13 +453,16 @@
     // Get node radius for button positioning
     $: nodeRadius = node.radius || (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2);
 
-    // Next button state
-    $: showNextButton = currentStep === 1 || (currentStep === 2 && formData.nodeType === 'word');
+    // Next/Create button state
+    $: isFinalStep = currentStep === maxSteps;
+    $: showActionButton = currentStep >= 1 && formData.nodeType !== '';
     $: isNextButtonDisabled = 
         (currentStep === 1 && formData.nodeType === '') ||
         (currentStep === 2 && formData.nodeType === 'word' && (!formData.word.trim() || isCheckingWord));
     $: nextButtonColor = !isNextButtonDisabled ? completeStyle.highlightColor : 'rgba(255, 255, 255, 0.3)';
+    $: nextButtonIcon = isFinalStep ? 'add_circle' : 'arrow_circle_right';
     $: nextTooltipText = 
+        isFinalStep ? 'Create Node' :
         isCheckingWord ? 'Checking word...' :
         (currentStep === 1 && !formData.nodeType) ? 'Select Type First' :
         (currentStep === 2 && !formData.word.trim()) ? 'Enter Word First' :
@@ -531,6 +543,26 @@
     function handleNext() {
         if (isNextButtonDisabled) {
             console.log('[CreateNodeNode] Button click ignored - disabled');
+            return;
+        }
+        
+        // Final step: trigger creation
+        if (isFinalStep) {
+            if (formData.nodeType === 'word' && wordReviewComponent) {
+                wordReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'statement' && statementReviewComponent) {
+                statementReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'openquestion' && openQuestionReviewComponent) {
+                openQuestionReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'quantity' && quantityReviewComponent) {
+                quantityReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'answer' && answerReviewComponent) {
+                answerReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'evidence' && evidenceReviewComponent) {
+                evidenceReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'category' && categoryReviewComponent) {
+                categoryReviewComponent.handleSubmit();
+            }
             return;
         }
         
@@ -658,9 +690,12 @@
                             on:back={handleBack}
                             on:proceed={handleNext}
                         />
-                    {:else if currentStep === 3}
+                   {:else if currentStep === 3}
                         <DefinitionInput
                             bind:definitionText={formData.definitionText}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -673,17 +708,21 @@
                             on:proceed={handleNext}
                         />
                     {:else if currentStep === 5}
-                        <WordReview
-                            word={formData.word}
-                            definitionText={formData.definitionText}
-                            discussion={formData.discussion}
-                            publicCredit={formData.publicCredit}
-                            userId={userData.sub}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:success={e => successMessage = e.detail.message}
-                            on:error={e => errorMessage = e.detail.message}
-                        />
+                    <WordReview
+                        bind:this={wordReviewComponent}
+                        word={formData.word}
+                        definitionText={formData.definitionText}
+                        discussion={formData.discussion}
+                        publicCredit={formData.publicCredit}
+                        userId={userData.sub}
+                        {positioning}        
+                        {width}              
+                        height={formHeight}  
+                        disabled={isLoading}
+                        on:back={handleBack}
+                        on:success={e => successMessage = e.detail.message}
+                        on:error={e => errorMessage = e.detail.message}
+                    />
                     {/if}
                 {:else if formData.nodeType === 'statement'}
                     {#if currentStep === 2}
@@ -1069,7 +1108,7 @@
 
         <!-- Next Step Button (positioned at bottom right) -->
         <!-- Button is OUTSIDE the translated SVG wrapper to use node-centered coordinates -->
-        {#if showNextButton}
+        {#if showActionButton}
             <!-- Filter definitions -->
             <defs>
                 <filter id={nextGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
@@ -1131,7 +1170,7 @@
                             class:checking={isCheckingWord}
                             style:color={nextButtonColor}
                         >
-                            {isCheckingWord ? 'progress_activity' : 'arrow_circle_right'}
+                            {isCheckingWord ? 'progress_activity' : nextButtonIcon}
                         </span>
                     </div>
                 </foreignObject>
@@ -1147,6 +1186,8 @@
                         height="20"
                         rx="4"
                         fill="rgba(0, 0, 0, 0.9)"
+                        stroke={nextButtonColor}
+                        stroke-width="1"
                         class="next-tooltip-background"
                     />
                     <text

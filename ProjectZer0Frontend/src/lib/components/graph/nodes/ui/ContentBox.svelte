@@ -215,6 +215,10 @@ TO ADJUST POSITIONING:
             detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
             preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
         },
+        'create-node': {
+            detail: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 },
+            preview: { contentText: 1.0, inclusionVoting: 0, contentVoting: 0 }
+        },
         default: {
             detail: { contentText: 0.40, inclusionVoting: 0.30, contentVoting: 0.30 },
             preview: { contentText: 0.70, inclusionVoting: 0.30, contentVoting: 0 }
@@ -521,10 +525,15 @@ TO ADJUST POSITIONING:
         'create-node': {
             detail: {
                 contentText: {
-                    dropdown: 0.48,         // 48% from top - slightly below center
-                    dropdownHeight: 0.10,   // 10% of height - dropdown allocation
-                    infoText: 0.60,         // 60% from top - helper text
-                    button: 0.72            // 72% from top - action button
+                    label: 0.10,            // Label positioned above the input
+                    dropdown: 0.20,         // Dropdown position (for steps 1-2)
+                    dropdownHeight: 0.20,   // Dropdown height allocation
+                    textarea: 0.20,         // Textarea position (same as dropdown)
+                    textareaHeight: 0.30,   // Textarea height allocation
+                    infoText: 0.80,         // Helper text
+                    button: 0.72,            // Action button
+                    reviewContainer: 0.05,  // Start at 5% from top
+                    reviewContainerHeight: 0.85 // Allocate 65% height
                 },
                 inclusionVoting: {},
                 contentVoting: {}
