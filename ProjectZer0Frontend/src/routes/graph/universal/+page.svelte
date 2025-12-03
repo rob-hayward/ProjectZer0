@@ -193,6 +193,69 @@
             )
         });
     }
+
+    /**
+     * Wait for a node to be positioned by D3 simulation, then center viewport on it
+     * This is necessary because newly added nodes need time for force simulation to position them
+     */
+    async function waitForNodePositionAndCenter(
+        graphStore: any,
+        nodeId: string,
+        maxAttempts: number = 20,
+        delayMs: number = 100,
+        centerDuration: number = 750
+    ): Promise<boolean> {
+        console.log('[UNIVERSAL-PAGE] Waiting for node positioning:', {
+            nodeId: nodeId.substring(0, 20),
+            maxAttempts,
+            delayMs
+        });
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            // Check if node exists and has a valid position
+            const store = graphStore.getState ? graphStore.getState() : graphStore;
+            const nodes = store?.nodes || [];
+            const node = nodes.find((n: any) => n.id === nodeId);
+
+            if (node?.position?.x !== undefined && node?.position?.y !== undefined) {
+                console.log('[UNIVERSAL-PAGE] ✅ Node positioned after', attempt, 'attempts:', {
+                    nodeId: nodeId.substring(0, 20),
+                    position: { x: node.position.x.toFixed(1), y: node.position.y.toFixed(1) },
+                    totalWaitTime: (attempt * delayMs) + 'ms'
+                });
+
+                // Center on the node
+                if (typeof (graphStore as any).centerOnNodeById === 'function') {
+                    const success = (graphStore as any).centerOnNodeById(nodeId, centerDuration);
+                    console.log('[UNIVERSAL-PAGE] Centering result:', success ? '✅ Success' : '❌ Failed');
+                    return success;
+                }
+                return false;
+            }
+
+            // Log progress every 5 attempts
+            if (attempt % 5 === 0) {
+                console.log('[UNIVERSAL-PAGE] Still waiting for node position...', {
+                    attempt,
+                    maxAttempts,
+                    nodeExists: !!node,
+                    hasPosition: !!(node?.position),
+                    positionValid: !!(node?.position?.x !== undefined && node?.position?.y !== undefined)
+                });
+            }
+
+            // Wait before next attempt
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+
+        // Timeout - node never got positioned
+        console.error('[UNIVERSAL-PAGE] ❌ Timeout waiting for node position:', {
+            nodeId: nodeId.substring(0, 20),
+            totalWaitTime: (maxAttempts * delayMs) + 'ms',
+            attempts: maxAttempts
+        });
+        return false;
+    }
     
     // Create navigation nodes
     function createNavigationNodesWithPositions(controlMode: NodeMode): GraphNode[] {
@@ -1422,13 +1485,8 @@ async function handleExpandCategory(event: CustomEvent<{
             // graphData = expandedGraphData;
         }
         
-        // Center on the new category node
-        setTimeout(() => {
-            console.log('[UNIVERSAL-PAGE] Centering on new category node...');
-            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
-                (graphStore as any).centerOnNodeById(categoryGraphNode.id, 750);
-            }
-        }, 500);
+        // Wait for node to be positioned, then center (up to 2 seconds)
+        waitForNodePositionAndCenter(graphStore, categoryGraphNode.id, 20, 100, 750);
         
         console.log('[UNIVERSAL-PAGE] Category node addition complete');
         
@@ -1650,13 +1708,8 @@ async function handleExpandWord(event: CustomEvent<{
             }
         }
         
-        // Center on word node after delay for settling
-        setTimeout(() => {
-            console.log('[UNIVERSAL-PAGE] Centering on word node...');
-            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
-                (graphStore as any).centerOnNodeById(wordGraphNode.id, 750);
-            }
-        }, 500);
+        // Wait for node to be positioned, then center (up to 2 seconds)
+        waitForNodePositionAndCenter(graphStore, wordGraphNode.id, 20, 100, 750);
         
         console.log('[UNIVERSAL-PAGE] Word expansion complete');
         
@@ -1982,7 +2035,10 @@ function calculateDefinitionRing(
         {:else if isEditProfileNode(node)}
             <EditProfileNode {node} />
         {:else if isCreateNodeNode(node)}
-            <CreateNodeNode {node} />
+    <CreateNodeNode 
+        {node}
+        on:expandWord={handleExpandWord}
+    />
         {:else if node.id === controlNodeId}
             <ControlNode 
                 bind:this={controlNodeRef}
