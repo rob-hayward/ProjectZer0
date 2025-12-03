@@ -70,6 +70,20 @@
         dispatch('modeChange', event.detail);
     }
     
+    function handleWordCreated(event: CustomEvent<{ word: string }>) {
+        console.log('[CreateNodeNode] Word created event received:', event.detail);
+        
+        // Forward as expandWord event with source context
+        dispatch('expandWord', {
+            word: event.detail.word,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+    }
+    
     let currentStep = 1;
     let formData = {
         nodeType: '',
@@ -714,7 +728,6 @@
                         definitionText={formData.definitionText}
                         discussion={formData.discussion}
                         publicCredit={formData.publicCredit}
-                        userId={userData.sub}
                         {positioning}        
                         {width}              
                         height={formHeight}  
@@ -722,6 +735,7 @@
                         on:back={handleBack}
                         on:success={e => successMessage = e.detail.message}
                         on:error={e => errorMessage = e.detail.message}
+                        on:expandWord={handleWordCreated}
                     />
                     {/if}
                 {:else if formData.nodeType === 'statement'}

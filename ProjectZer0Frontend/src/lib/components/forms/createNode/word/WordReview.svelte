@@ -3,8 +3,6 @@
     import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
-    import { wordStore } from '$lib/stores/wordStore';
-    import { graphStore } from '$lib/stores/graphStore';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
     export let word = '';
@@ -12,7 +10,6 @@
     export let discussion = '';
     export let publicCredit = false;
     export let disabled = false;
-    export let userId: string | undefined = undefined;
     
     export let positioning: Record<string, number> = {};
     export let width: number = 400;
@@ -26,6 +23,7 @@
         back: void;
         success: { message: string; word: string; };
         error: { message: string; };
+        expandWord: { word: string; };
     }>();
 
     export async function handleSubmit() {
@@ -37,16 +35,16 @@
         try {
             const wordData = {
                 word: word.trim(),
-                definitionText,
-                discussion,
+                initialDefinition: definitionText,  // Backend expects initialDefinition
+                initialComment: discussion,         // Backend expects initialComment
                 publicCredit,
-                createdBy: userId,
-                shareToX,
+                // createdBy is extracted from JWT - don't send it
+                // shareToX is not supported by backend yet
             };
             
             if (browser) console.log('Submitting word creation form:', JSON.stringify(wordData, null, 2));
             
-            const createdWord = await fetchWithAuth('/nodes/word', {
+            const createdWord = await fetchWithAuth('/words', {  // Correct endpoint: /words
                 method: 'POST',
                 body: JSON.stringify(wordData),
             });
@@ -57,33 +55,19 @@
                 throw new Error('Created word data is incomplete');
             }
 
-            wordStore.set(createdWord);
-            
-            if (browser && graphStore && graphStore.setViewType) {
-                graphStore.setViewType('word');
-                
-                if (graphStore.forceTick) {
-                    try {
-                        graphStore.forceTick();
-                    } catch (e) {
-                        console.warn('[WordReview] Error forcing tick:', e);
-                    }
-                }
-            }
-
             const successMsg = `Word node "${createdWord.word}" created successfully`;
             dispatch('success', {
                 message: successMsg,
                 word: createdWord.word
             });
 
+            // Dispatch expandWord event to add new word to universal graph
             setTimeout(() => {
-                if (browser) {
-                    const targetUrl = `/graph/word?word=${encodeURIComponent(createdWord.word)}`;
-                    console.log('[WordReview] Navigating to:', targetUrl);
-                    window.location.href = targetUrl;
-                }
-            }, 800);
+                console.log('[WordReview] Dispatching expandWord event for newly created word:', createdWord.word);
+                dispatch('expandWord', {
+                    word: createdWord.word
+                });
+            }, 500);
 
         } catch (e) {
             if (browser) {
@@ -98,7 +82,7 @@
     }
     
     $: reviewContainerY = height * (positioning.reviewContainer || 0.05);
-    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.65));
+    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.85));
     $: reviewContainerWidth = Math.min(560, width * 1.0);
 </script>
 
@@ -165,10 +149,10 @@
 <style>
     :global(.review-container) {
         background: rgba(0, 0, 0, 0.3);
-        padding: 12px;
+        padding: 16px;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 16px;
         max-height: 100%;
         overflow-y: auto;
     }
@@ -176,20 +160,20 @@
     :global(.review-item) {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 6px;
     }
 
     :global(.word-item) {
-        margin-bottom: 4px;
+        margin-bottom: 8px;
     }
 
     :global(.word-value) {
-        font-size: 14px;
-        font-weight: 500;
+        font-size: 16px;
+        font-weight: 600;
     }
 
     .scrollable-content {
-        max-height: 125px;
+        max-height: 120px;
         overflow-y: auto;
         padding-right: 8px;
         margin-bottom: 4px;
@@ -216,34 +200,37 @@
 
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
-        font-size: 11px;
+        font-size: 12px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
     }
 
     :global(.review-item .value) {
         color: white;
-        font-size: 13px;
+        font-size: 14px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-        line-height: 1.3;
+        line-height: 1.4;
     }
 
     :global(.options-grid) {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 8px;
-        margin-top: 4px;
-        padding-top: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
         padding-left: 12px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     :global(.checkbox-label) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         color: white;
-        font-size: 11px;
+        font-size: 12px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
@@ -251,19 +238,19 @@
     :global(.checkbox-label:first-child) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
     }
 
     :global(.checkbox-label:last-child) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         padding-left: 35px;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {
-        width: 14px;
-        height: 14px;
+        width: 16px;
+        height: 16px;
         border: 2px solid rgba(255, 255, 255, 0.3);
         border-radius: 2px;
         background: rgba(0, 0, 0, 0.9);
@@ -271,13 +258,14 @@
         appearance: none;
         -webkit-appearance: none;
         position: relative;
+        flex-shrink: 0;
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked::after) {
         content: '';
         position: absolute;
-        top: 1px;
-        left: 4px;
+        top: 2px;
+        left: 5px;
         width: 4px;
         height: 8px;
         border: solid white;
