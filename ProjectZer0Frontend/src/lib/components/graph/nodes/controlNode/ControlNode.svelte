@@ -69,6 +69,121 @@
     let keywordDropdownOpen = false;
     let loadingKeywords = false;
     
+    // Dropdown positioning state for fixed positioning
+    let categoryInputRef: HTMLInputElement | null = null;
+    let keywordInputRef: HTMLInputElement | null = null;
+    let categoryDropdownPosition = { top: 0, left: 0, width: 0 };
+    let keywordDropdownPosition = { top: 0, left: 0, width: 0 };
+    
+    // Dropdown portal containers (attached to document.body to escape SVG)
+    let categoryDropdownContainer: HTMLDivElement | null = null;
+    let keywordDropdownContainer: HTMLDivElement | null = null;
+    
+    // Create dropdown containers on mount
+    onMount(() => {
+        // Create category dropdown container
+        categoryDropdownContainer = document.createElement('div');
+        categoryDropdownContainer.id = 'control-category-dropdown';
+        categoryDropdownContainer.style.cssText = 'position: fixed; z-index: 100000; pointer-events: auto;';
+        document.body.appendChild(categoryDropdownContainer);
+        
+        // Create keyword dropdown container
+        keywordDropdownContainer = document.createElement('div');
+        keywordDropdownContainer.id = 'control-keyword-dropdown';
+        keywordDropdownContainer.style.cssText = 'position: fixed; z-index: 100000; pointer-events: auto;';
+        document.body.appendChild(keywordDropdownContainer);
+        
+        return () => {
+            // Cleanup on destroy
+            if (categoryDropdownContainer) {
+                document.body.removeChild(categoryDropdownContainer);
+            }
+            if (keywordDropdownContainer) {
+                document.body.removeChild(keywordDropdownContainer);
+            }
+        };
+    });
+    
+    // Calculate dropdown position when it opens
+    function updateCategoryDropdownPosition() {
+        if (categoryInputRef) {
+            const rect = categoryInputRef.getBoundingClientRect();
+            categoryDropdownPosition = {
+                top: rect.bottom + 2,
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
+    
+    function updateKeywordDropdownPosition() {
+        if (keywordInputRef) {
+            const rect = keywordInputRef.getBoundingClientRect();
+            keywordDropdownPosition = {
+                top: rect.bottom + 2,
+                left: rect.left,
+                width: rect.width
+            };
+        }
+    }
+    
+    // Reactive: Render category dropdown
+    $: if (categoryDropdownContainer && categoryDropdownOpen) {
+        const html = `
+            <div class="dropdown-portal" style="top: ${categoryDropdownPosition.top}px; left: ${categoryDropdownPosition.left}px; width: ${categoryDropdownPosition.width}px;">
+                ${loadingCategories ? 
+                    '<div class="dropdown-item loading">Loading categories...</div>' :
+                    filteredCategories.length === 0 ?
+                    '<div class="dropdown-item loading">No categories found</div>' :
+                    filteredCategories.map(cat => 
+                        `<button class="dropdown-item" data-category-id="${cat.id}">${cat.name}</button>`
+                    ).join('')
+                }
+            </div>
+        `;
+        categoryDropdownContainer.innerHTML = html;
+        
+        // Add click handlers
+        categoryDropdownContainer.querySelectorAll('[data-category-id]').forEach(btn => {
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const categoryId = (e.target as HTMLElement).getAttribute('data-category-id');
+                const category = filteredCategories.find(c => c.id === categoryId);
+                if (category) selectCategory(category);
+            });
+        });
+    } else if (categoryDropdownContainer) {
+        categoryDropdownContainer.innerHTML = '';
+    }
+    
+    // Reactive: Render keyword dropdown
+    $: if (keywordDropdownContainer && keywordDropdownOpen) {
+        const html = `
+            <div class="dropdown-portal" style="top: ${keywordDropdownPosition.top}px; left: ${keywordDropdownPosition.left}px; width: ${keywordDropdownPosition.width}px;">
+                ${loadingKeywords ? 
+                    '<div class="dropdown-item loading">Loading keywords...</div>' :
+                    filteredKeywords.length === 0 ?
+                    '<div class="dropdown-item loading">No keywords found</div>' :
+                    filteredKeywords.map(kw => 
+                        `<button class="dropdown-item" data-keyword="${kw}">${kw}</button>`
+                    ).join('')
+                }
+            </div>
+        `;
+        keywordDropdownContainer.innerHTML = html;
+        
+        // Add click handlers
+        keywordDropdownContainer.querySelectorAll('[data-keyword]').forEach(btn => {
+            btn.addEventListener('mousedown', (e) => {
+                e.preventDefault();
+                const keyword = (e.target as HTMLElement).getAttribute('data-keyword');
+                if (keyword) selectKeyword(keyword);
+            });
+        });
+    } else if (keywordDropdownContainer) {
+        keywordDropdownContainer.innerHTML = '';
+    }
+    
     // Sort state
     let sortBy = 'inclusion_votes';
     let sortDirection: 'asc' | 'desc' = 'desc';
@@ -151,22 +266,10 @@
         loadingCategories = true;
         try {
             const categories = await categoryListStore.loadAllCategories();
-            
-            if (categories && categories.length > 0) {
-                availableCategories = categories;
-            } else {
-                const categoriesResponse = await fetchWithAuth('/graph/universal/filters/categories');
-                if (categoriesResponse && Array.isArray(categoriesResponse)) {
-                    availableCategories = categoriesResponse.map((cat: any) => ({
-                        id: cat.id,
-                        name: cat.name
-                    }));
-                } else {
-                    availableCategories = [];
-                }
-            }
+            availableCategories = categories; // Store already returns Category[] with { id, name }
+            console.log('[ControlNode] âœ… Loaded', availableCategories.length, 'categories');
         } catch (error) {
-            console.error('[ControlNode] Error loading categories:', error);
+            console.error('[ControlNode] âŒ Error loading categories:', error);
             availableCategories = [];
         } finally {
             loadingCategories = false;
@@ -176,23 +279,10 @@
         loadingKeywords = true;
         try {
             const keywords = await wordListStore.loadAllWords();
-            
-            if (keywords && keywords.length > 0) {
-                availableKeywords = keywords;
-            } else {
-                const keywordsResponse = await fetchWithAuth('/graph/universal/filters/keywords');
-                if (keywordsResponse && Array.isArray(keywordsResponse)) {
-                    availableKeywords = keywordsResponse.map((kw: any) => {
-                        if (typeof kw === 'string') return kw;
-                        if (kw && typeof kw === 'object' && 'word' in kw) return kw.word;
-                        return null;
-                    }).filter(Boolean) as string[];
-                } else {
-                    availableKeywords = [];
-                }
-            }
+            availableKeywords = keywords; // Store already returns string[]
+            console.log('[ControlNode] âœ… Loaded', availableKeywords.length, 'keywords');
         } catch (error) {
-            console.error('[ControlNode] Error loading keywords:', error);
+            console.error('[ControlNode] âŒ Error loading keywords:', error);
             availableKeywords = [];
         } finally {
             loadingKeywords = false;
@@ -200,38 +290,46 @@
     }
     
     // Filter categories based on search - show ALL matches, sorted alphabetically
-    $: {
-        if (categorySearch.trim()) {
-            const searchLower = categorySearch.toLowerCase();
-            filteredCategories = availableCategories
-                .filter(cat => 
-                    cat.name.toLowerCase().includes(searchLower) &&
-                    !selectedCategories.some(sel => sel.id === cat.id)
-                )
-                .sort((a, b) => a.name.localeCompare(b.name));
-        } else {
-            filteredCategories = availableCategories
-                .filter(cat => !selectedCategories.some(sel => sel.id === cat.id))
-                .sort((a, b) => a.name.localeCompare(b.name));
-        }
-    }
+    $: filteredCategories = categorySearch.trim()
+        ? availableCategories
+            .filter(cat => 
+                cat.name.toLowerCase().includes(categorySearch.toLowerCase()) &&
+                !selectedCategories.some(sel => sel.id === cat.id)
+            )
+            .sort((a, b) => a.name.localeCompare(b.name))
+        : availableCategories
+            .filter(cat => !selectedCategories.some(sel => sel.id === cat.id))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    
+    // Debug logging
+    $: console.log('[ControlNode] Category filter update:', {
+        availableCount: availableCategories.length,
+        selectedCount: selectedCategories.length,
+        searchTerm: categorySearch,
+        filteredCount: filteredCategories.length,
+        dropdownOpen: categoryDropdownOpen
+    });
     
     // Filter keywords based on search - show ALL matches, sorted alphabetically
-    $: {
-        if (keywordSearch.trim()) {
-            const searchLower = keywordSearch.toLowerCase();
-            filteredKeywords = availableKeywords
-                .filter(kw => 
-                    kw.toLowerCase().includes(searchLower) &&
-                    !selectedKeywords.includes(kw)
-                )
-                .sort((a, b) => a.localeCompare(b));
-        } else {
-            filteredKeywords = availableKeywords
-                .filter(kw => !selectedKeywords.includes(kw))
-                .sort((a, b) => a.localeCompare(b));
-        }
-    }
+    $: filteredKeywords = keywordSearch.trim()
+        ? availableKeywords
+            .filter(kw => 
+                kw.toLowerCase().includes(keywordSearch.toLowerCase()) &&
+                !selectedKeywords.includes(kw)
+            )
+            .sort((a, b) => a.localeCompare(b))
+        : availableKeywords
+            .filter(kw => !selectedKeywords.includes(kw))
+            .sort((a, b) => a.localeCompare(b));
+    
+    // Debug logging
+    $: console.log('[ControlNode] Keyword filter update:', {
+        availableCount: availableKeywords.length,
+        selectedCount: selectedKeywords.length,
+        searchTerm: keywordSearch,
+        filteredCount: filteredKeywords.length,
+        dropdownOpen: keywordDropdownOpen
+    });
     
     function selectCategory(category: Category) {
         if (selectedCategories.length < 5) {
@@ -374,6 +472,7 @@
         
         <!-- REORGANIZED: Section 1 - Content Text (All control panel UI) -->
         <svelte:fragment slot="contentText" let:x let:y let:width let:height>
+            <!-- Main control panel in foreignObject -->
             <foreignObject {x} {y} {width} {height}>
                 <div class="control-panel" {...{"xmlns": "http://www.w3.org/1999/xhtml"}} style="width: {width}px; height: {height}px; padding-top: {height * 0.15}px;">
                     <div class="control-panel-inner">
@@ -382,7 +481,7 @@
                             <div class="section-header">
                                 Node Types
                                 {#if isLoading}
-                                    <span class="loading-indicator-inline">🔄 Applying...</span>
+                                    <span class="loading-indicator-inline">ðŸ”„ Applying...</span>
                                 {/if}
                             </div>
                             <div class="node-type-circles">
@@ -511,33 +610,25 @@
                             {#if selectedCategories.length < 5}
                                 <div class="dropdown-container">
                                     <input 
+                                        bind:this={categoryInputRef}
                                         type="text"
                                         class="search-input-standard"
                                         placeholder="Search or select..."
                                         bind:value={categorySearch}
-                                        on:focus={() => categoryDropdownOpen = true}
-                                        on:blur={() => setTimeout(() => categoryDropdownOpen = false, 200)}
+                                        on:focus={() => {
+                                            console.log('[ControlNode] Category input focused');
+                                            categoryDropdownOpen = true;
+                                            updateCategoryDropdownPosition();
+                                        }}
+                                        on:blur={(e) => {
+                                            console.log('[ControlNode] Category input blur');
+                                            setTimeout(() => {
+                                                categoryDropdownOpen = false;
+                                            }, 250);
+                                        }}
                                         disabled={loadingCategories}
                                     />
-                                    
-                                    {#if categoryDropdownOpen}
-                                        <div class="dropdown-full">
-                                            {#if loadingCategories}
-                                                <div class="dropdown-item loading">Loading categories...</div>
-                                            {:else if filteredCategories.length === 0}
-                                                <div class="dropdown-item loading">No categories found</div>
-                                            {:else}
-                                                {#each filteredCategories as category}
-                                                    <button 
-                                                        class="dropdown-item"
-                                                        on:click={() => selectCategory(category)}
-                                                    >
-                                                        {category.name}
-                                                    </button>
-                                                {/each}
-                                            {/if}
-                                        </div>
-                                    {/if}
+                                    <!-- Dropdown will render outside SVG -->
                                 </div>
                             {/if}
                         </div>
@@ -564,33 +655,25 @@
                             {#if selectedKeywords.length < 5}
                                 <div class="dropdown-container">
                                     <input 
+                                        bind:this={keywordInputRef}
                                         type="text"
                                         class="search-input-standard"
                                         placeholder="Search or select..."
                                         bind:value={keywordSearch}
-                                        on:focus={() => keywordDropdownOpen = true}
-                                        on:blur={() => setTimeout(() => keywordDropdownOpen = false, 200)}
+                                        on:focus={() => {
+                                            console.log('[ControlNode] Keyword input focused');
+                                            keywordDropdownOpen = true;
+                                            updateKeywordDropdownPosition();
+                                        }}
+                                        on:blur={() => {
+                                            console.log('[ControlNode] Keyword input blur');
+                                            setTimeout(() => {
+                                                keywordDropdownOpen = false;
+                                            }, 250);
+                                        }}
                                         disabled={loadingKeywords}
                                     />
-                                    
-                                    {#if keywordDropdownOpen}
-                                        <div class="dropdown-full">
-                                            {#if loadingKeywords}
-                                                <div class="dropdown-item loading">Loading keywords...</div>
-                                            {:else if filteredKeywords.length === 0}
-                                                <div class="dropdown-item loading">No keywords found</div>
-                                            {:else}
-                                                {#each filteredKeywords as keyword}
-                                                    <button 
-                                                        class="dropdown-item"
-                                                        on:click={() => selectKeyword(keyword)}
-                                                    >
-                                                        {keyword}
-                                                    </button>
-                                                {/each}
-                                            {/if}
-                                        </div>
-                                    {/if}
+                                    <!-- Dropdown will render outside SVG -->
                                 </div>
                             {/if}
                         </div>
@@ -1191,18 +1274,15 @@
         cursor: not-allowed;
     }
     
-    .dropdown-full {
-        position: absolute;
-        top: 100%;
-        left: 0;
-        right: 0;
-        margin-top: 2px;
+    .dropdown-portal {
+        position: fixed;  /* Fixed positioning now works since we're outside SVG */
+        margin-top: 0;  /* Position is set via inline styles */
         background: rgba(20, 20, 30, 0.98);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         max-height: 180px;
         overflow-y: auto;
-        z-index: 1000;
+        z-index: 100000;  /* Above everything including blocking overlay */
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
     
@@ -1299,16 +1379,55 @@
         border-color: rgba(66, 153, 225, 0.6);
     }
     
-    .dropdown-full::-webkit-scrollbar {
+    .dropdown-portal::-webkit-scrollbar {
         width: 4px;
     }
     
-    .dropdown-full::-webkit-scrollbar-track {
+    .dropdown-portal::-webkit-scrollbar-track {
         background: rgba(255, 255, 255, 0.05);
     }
     
-    .dropdown-full::-webkit-scrollbar-thumb {
+    .dropdown-portal::-webkit-scrollbar-thumb {
         background: rgba(255, 255, 255, 0.3);
         border-radius: 2px;
+    }
+    
+    /* Global styles for dropdowns rendered to document.body */
+    :global(#control-category-dropdown .dropdown-portal),
+    :global(#control-keyword-dropdown .dropdown-portal) {
+        position: fixed;
+        background: rgba(20, 20, 30, 0.98);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        max-height: 180px;
+        overflow-y: auto;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        pointer-events: auto;
+    }
+    
+    :global(#control-category-dropdown .dropdown-item),
+    :global(#control-keyword-dropdown .dropdown-item) {
+        display: block;
+        width: 100%;
+        padding: 8px 12px;
+        background: transparent;
+        border: none;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 11px;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    
+    :global(#control-category-dropdown .dropdown-item:hover),
+    :global(#control-keyword-dropdown .dropdown-item:hover) {
+        background: rgba(66, 153, 225, 0.2);
+    }
+    
+    :global(#control-category-dropdown .dropdown-item.loading),
+    :global(#control-keyword-dropdown .dropdown-item.loading) {
+        color: rgba(255, 255, 255, 0.5);
+        cursor: default;
+        font-style: italic;
     }
 </style>
