@@ -949,8 +949,6 @@
                             parentCategoryId={formData.parentCategoryId}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
-                            userId={userData.sub}
-                            disabled={isLoading}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}

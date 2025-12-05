@@ -1,24 +1,19 @@
 <!-- src/lib/components/forms/createNode/category/CategoryCreationReview.svelte -->
 <script lang="ts">
-    import { createEventDispatcher, onMount } from 'svelte';
+    import { createEventDispatcher } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
-    export let selectedWordIds: string[] = [];
+    export let selectedWordIds: string[] = [];  // Word texts (lowercase)
     export let parentCategoryId: string | null = null;
     export let discussion = '';
     export let publicCredit = false;
-    export let disabled = false;
-    export let userId: string | undefined = undefined;
     
-    // POSITIONING: Received from ContentBox via CreateNodeNode
     export let positioning: Record<string, number> = {};
     export let width: number = 400;
     export let height: number = 400;
     
-    let words: string[] = [];  // Words are strings now, not objects with IDs
-    let parentCategory: { id: string; name: string } | null = null;
     let isSubmitting = false;
     let errorMessage: string | null = null;
 
@@ -29,22 +24,9 @@
         expandCategory: { categoryId: string; categoryName: string; };
     }>();
     
+    // Category name is just the words joined with spaces
     $: categoryName = selectedWordIds.join(' ');
     
-    onMount(async () => {
-        try {
-            // Words are just strings, so we can use them directly
-            words = selectedWordIds;
-            
-            if (parentCategoryId) {
-                const categories = await fetchWithAuth('/categories');
-                parentCategory = categories.find((c: any) => c.id === parentCategoryId);
-            }
-        } catch (error) {
-            console.error('[CategoryReview] Error fetching details:', error);
-        }
-    });
-
     export async function handleSubmit() {
         if (selectedWordIds.length === 0) {
             errorMessage = "At least one word is required";
@@ -56,22 +38,22 @@
         errorMessage = null;
 
         try {
+            // Send word texts (lowercase) - these ARE the IDs
             const categoryData = {
-                wordIds: selectedWordIds,  // Array of word strings
+                wordIds: selectedWordIds,  // Word texts, not UUIDs
                 parentCategoryId: parentCategoryId || undefined,
                 initialComment: discussion || undefined,
                 publicCredit
-                // createdBy is extracted from JWT - don't send it
             };
             
-            if (browser) console.log('[CategoryReview] Submitting category:', JSON.stringify(categoryData, null, 2));
+            if (browser) console.log('[CategoryReview] Submitting:', categoryData);
             
             const createdCategory = await fetchWithAuth('/categories', {
                 method: 'POST',
                 body: JSON.stringify(categoryData),
             });
             
-            if (browser) console.log('[CategoryReview] Category creation response:', JSON.stringify(createdCategory, null, 2));
+            if (browser) console.log('[CategoryReview] Response:', createdCategory);
 
             if (!createdCategory?.id) {
                 throw new Error('Created category data is incomplete');
@@ -83,9 +65,7 @@
                 categoryId: createdCategory.id
             });
 
-            // Dispatch expandCategory event to add new category to universal graph
             setTimeout(() => {
-                console.log('[CategoryReview] Dispatching expandCategory event for newly created category:', createdCategory.id);
                 dispatch('expandCategory', {
                     categoryId: createdCategory.id,
                     categoryName: categoryName
@@ -94,8 +74,7 @@
 
         } catch (e) {
             if (browser) {
-                console.error('[CategoryReview] Error creating category:', e);
-                console.error('[CategoryReview] Error details:', e instanceof Error ? e.stack : 'Unknown error');
+                console.error('[CategoryReview] Error:', e);
             }
             errorMessage = e instanceof Error ? e.message : 'Failed to create category';
             dispatch('error', { message: errorMessage });
@@ -117,7 +96,6 @@
         height={reviewContainerHeight}
     >
         <div class="review-container">
-            <!-- Category Name -->
             <div class="review-item name-item">
                 <span class="label">Category Name:</span>
                 <div class="category-name">
@@ -125,27 +103,15 @@
                 </div>
             </div>
             
-            <!-- Selected Words -->
             <div class="review-item">
                 <span class="label">Composed of Words:</span>
                 <div class="words-list">
-                    {#each words as word}
+                    {#each selectedWordIds as word}
                         <span class="word-chip">{word}</span>
                     {/each}
                 </div>
             </div>
             
-            <!-- Parent Category -->
-            {#if parentCategory}
-                <div class="review-item">
-                    <span class="label">Parent Category:</span>
-                    <div class="parent-display">
-                        {parentCategory.name}
-                    </div>
-                </div>
-            {/if}
-            
-            <!-- Discussion -->
             {#if discussion}
                 <div class="review-item">
                     <span class="label">Discussion:</span>
@@ -155,7 +121,6 @@
                 </div>
             {/if}
 
-            <!-- Options -->
             <div class="options-grid">
                 <label class="checkbox-label">
                     <input
@@ -269,17 +234,6 @@
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
-    
-    :global(.parent-display) {
-        color: rgba(255, 138, 61, 0.9);
-        font-family: 'Inter', sans-serif;
-        font-size: 13px;
-        font-weight: 500;
-        padding: 6px 10px;
-        background: rgba(255, 138, 61, 0.1);
-        border-radius: 4px;
-        display: inline-block;
-    }
 
     :global(.options-grid) {
         display: grid;
@@ -309,7 +263,6 @@
         background: rgba(0, 0, 0, 0.9);
         cursor: pointer;
         appearance: none;
-        -webkit-appearance: none;
         position: relative;
         flex-shrink: 0;
     }
