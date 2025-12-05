@@ -1,5 +1,5 @@
 <!-- src/lib/components/graph/nodes/createNode/CreateNodeNode.svelte -->
-<!-- UPDATED: CSS-based color cycling + bottom-positioned next button -->
+<!-- UPDATED: Added expandCategory event handling for category creation flow -->
 <script lang="ts">
     import { onMount, onDestroy, createEventDispatcher } from 'svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
@@ -50,7 +50,6 @@
 
     export let node: RenderableNode;
     
-    // Type guard for user profile data
     if (!isUserProfileData(node.data)) {
         throw new Error('Invalid node data type for CreateNodeNode');
     }
@@ -64,6 +63,12 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+       expandCategory: {
+            categoryId: string;
+            categoryName: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -73,9 +78,24 @@
     function handleWordCreated(event: CustomEvent<{ word: string }>) {
         console.log('[CreateNodeNode] Word created event received:', event.detail);
         
-        // Forward as expandWord event with source context
         dispatch('expandWord', {
             word: event.detail.word,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+    }
+    
+   function handleCategoryCreated(event: CustomEvent<{ 
+        categoryId: string; 
+        categoryName: string;
+    }>) {
+        console.log('[CreateNodeNode] Forwarding category with source context');
+        dispatch('expandCategory', {
+            categoryId: event.detail.categoryId,
+            categoryName: event.detail.categoryName,
             sourceNodeId: node.id,
             sourcePosition: {
                 x: node.position?.x || 0,
@@ -112,7 +132,6 @@
     let successMessage: string | null = null;
     let isCheckingWord = false;
     
-    // References to review components
     let wordReviewComponent: any;
     let statementReviewComponent: any;
     let openQuestionReviewComponent: any;
@@ -121,36 +140,26 @@
     let evidenceReviewComponent: any;
     let categoryReviewComponent: any;
 
-    // IMPROVED: Detect if we're in universal graph as central node
-    // Central nodes have id ending in '-central'
     const isUniversalCentralNode = node.id?.endsWith('-central') || false;
     
-    // State for managing CSS animation (not for reactivity - just for class binding)
     let enableColorCycling = false;
     let hasGraphSettled = false;
     
-    // State for next button hover
     let isNextButtonHovering = false;
-    
-    // State for previous button hover
     let isPreviousButtonHovering = false;
     
-    // Listen for graph settlement if we're a central node
     onMount(() => {
         if (isUniversalCentralNode) {
             console.log('[CreateNodeNode] Universal central node detected - waiting for settlement');
             
-            // Listen for opacity reveal completion
             const handleSettlement = () => {
                 hasGraphSettled = true;
                 console.log('[CreateNodeNode] Graph settled - color cycling can begin');
             };
             
-            // Try to listen for existing events that indicate settlement
             window.addEventListener('opacity-reveal-complete', handleSettlement);
             window.addEventListener('link-reveal-complete', handleSettlement);
             
-            // Fallback timer (5 seconds) in case events don't fire
             const fallbackTimer = setTimeout(() => {
                 if (!hasGraphSettled) {
                     console.log('[CreateNodeNode] Fallback: enabling color cycling after 5s');
@@ -166,17 +175,10 @@
         }
     });
     
-    // Enable color cycling ONLY when all conditions met:
-    // 1. We're a central node in universal graph
-    // 2. Graph has settled
-    // 3. No node type selected yet
     $: enableColorCycling = isUniversalCentralNode && hasGraphSettled && formData.nodeType === '';
     
-    // Apply CSS animation directly to DOM elements
-    // Use afterUpdate to ensure DOM is ready, and check more robustly for elements
     $: if (enableColorCycling) {
-        console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
-        // Use setTimeout to ensure DOM has fully rendered
+        console.log('[CreateNodeNode] ✨ Color cycling enabled - applying animation');
         setTimeout(() => {
             applyColorCycling(true);
         }, 100);
@@ -188,7 +190,6 @@
     function applyColorCycling(enable: boolean) {
         if (typeof window === 'undefined') return;
         
-        // Try multiple selectors to find the node
         const selectors = [
             '[data-node-id="create-node-central"]',
             '.detail-node[data-node-id="create-node-central"]',
@@ -209,7 +210,6 @@
             return;
         }
         
-        // Get all the visual elements from BaseNode
         const outerRing = nodeElement.querySelector('.outer-ring');
         const middleRing = nodeElement.querySelector('.middle-ring');
         const backgroundLayer1 = nodeElement.querySelector('.background-layer-1');
@@ -229,7 +229,6 @@
         });
         
         if (enable) {
-            // Add animation to all visual elements
             const elementsToAnimate = [
                 outerRing,
                 middleRing,
@@ -255,7 +254,6 @@
                 textElements: textElements.length
             });
         } else {
-            // Remove animation from all elements
             const elementsToReset = [
                 outerRing,
                 middleRing,
@@ -277,7 +275,6 @@
         }
     }
     
-    // Create a base style object
     const baseStyle = {
         previewSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
         detailSize: COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL,
@@ -293,8 +290,6 @@
     
     let completeStyle = { ...baseStyle };
 
-    // STATIC color selection based on node type - NO INTERVALS
-    // CSS animations handle the cycling when no type is selected
     $: {
         if (formData.nodeType === 'word') {
             completeStyle = {
@@ -393,7 +388,6 @@
                 highlightColor: COLORS.PRIMARY.CATEGORY as any
             };
         } else {
-            // Default to word colors when no type selected
             completeStyle = {
                 ...baseStyle,
                 colors: NODE_CONSTANTS.COLORS.WORD,
@@ -402,7 +396,6 @@
         }
     }
 
-    // Set the title based on current step and node type
     $: stepTitle = currentStep === 1 ? 'Create New Node' :
                   formData.nodeType === 'word' ? 
                     (currentStep === 2 ? 'Enter Word' :
@@ -446,10 +439,8 @@
                      'Review Creation') :
                   'Create New Node';
 
-    // Show step indicators for multi-step flows
     $: showStepIndicators = formData.nodeType !== '' && maxSteps > 1;
 
-    // Current step can vary by node type
     $: currentStep = Math.min(currentStep, 
                               formData.nodeType === 'quantity' ? 7 : 
                               formData.nodeType === 'word' || formData.nodeType === 'statement' || 
@@ -458,16 +449,13 @@
                               formData.nodeType === 'category' ? 4 :
                               1);
 
-    // Max steps based on node type
     $: maxSteps = formData.nodeType === 'word' ? 5 :
                  formData.nodeType === 'statement' || formData.nodeType === 'openquestion' || formData.nodeType === 'answer' || formData.nodeType === 'evidence' ? 6 : 
                  formData.nodeType === 'quantity' ? 7 :
                  formData.nodeType === 'category' ? 4 : 1;
 
-    // Get node radius for button positioning
     $: nodeRadius = node.radius || (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2);
 
-    // Next/Create button state
     $: isFinalStep = currentStep === maxSteps;
     $: showActionButton = currentStep >= 1 && formData.nodeType !== '';
     $: isNextButtonDisabled = 
@@ -484,12 +472,10 @@
         (currentStep === 2 && formData.nodeType === 'category' && formData.selectedWordIds.length === 0) ? 'Select Words First' :
         'Next Step';
     
-    // Previous button state - show on any step after 1
     $: showPreviousButton = currentStep > 1;
     $: previousButtonColor = completeStyle.highlightColor;
     $: previousTooltipText = 'Previous Step';
     
-    // Unique filter IDs for glow
     const nextGlowFilterId = `next-glow-${Math.random().toString(36).slice(2)}`;
     const previousGlowFilterId = `previous-glow-${Math.random().toString(36).slice(2)}`;
 
@@ -500,7 +486,6 @@
         }
     }
 
-    // Check word existence using API
     async function checkWordAndProceed() {
         if (!formData.word.trim()) {
             errorMessage = 'Please enter a word';
@@ -514,16 +499,13 @@
         try {
             console.log('[CreateNodeNode] Checking word existence:', formData.word.trim());
             
-            // Use the universal graph endpoint to load word + definitions
             const response = await fetchWithAuth(`/words/${encodeURIComponent(formData.word.trim())}/with-definitions`);
             
             if (response && response.nodes && response.nodes.length > 0) {
-                // Word exists! Show success message and dispatch expandWord
                 successMessage = `Word "${formData.word.trim()}" already exists. Loading word node...`;
                 
                 console.log('[CreateNodeNode] Word exists, dispatching expandWord event');
                 
-                // Dispatch event to load word into graph (same as keyword click)
                 dispatch('expandWord', {
                     word: formData.word.trim(),
                     sourceNodeId: node.id,
@@ -533,16 +515,13 @@
                     }
                 });
                 
-                // Don't proceed to next step - word already exists
                 return;
             } else {
-                // Word doesn't exist - proceed to next step
                 console.log('[CreateNodeNode] Word does not exist, proceeding to creation');
                 currentStep++;
                 errorMessage = null;
             }
         } catch (error) {
-            // If 404 or word not found, proceed to creation
             if (error instanceof Error && (error.message.includes('404') || error.message.includes('not found'))) {
                 console.log('[CreateNodeNode] Word not found, proceeding to creation');
                 currentStep++;
@@ -562,7 +541,6 @@
             return;
         }
         
-        // Final step: trigger creation
         if (isFinalStep) {
             if (formData.nodeType === 'word' && wordReviewComponent) {
                 wordReviewComponent.handleSubmit();
@@ -582,13 +560,11 @@
             return;
         }
         
-        // Step 2 with word type requires word checking
         if (currentStep === 2 && formData.nodeType === 'word') {
             checkWordAndProceed();
             return;
         }
         
-        // For all other steps, just advance
         if (currentStep < maxSteps) {
             currentStep++;
             errorMessage = null;
@@ -610,7 +586,6 @@
     }
 
     function handleNodeTypeChange(event: CustomEvent<{ type: string }>) {
-        // Reset form when changing node type
         formData = {
             ...formData,
             nodeType: event.detail.type,
@@ -641,9 +616,7 @@
         <NodeHeader title={stepTitle} {radius} mode="detail" />
     </svelte:fragment>
 
-    <!-- FIXED: Proper ContentBox positioning - content centered in node -->
     <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-        <!-- Error/Success Messages -->
         {#if errorMessage || successMessage}
             <foreignObject
                 {x}
@@ -657,34 +630,10 @@
             </foreignObject>
         {/if}
 
-        <!-- Dynamic Form Content -->
-        <!-- ================================================================ -->
-        <!-- COORDINATE SYSTEM ARCHITECTURE (SINGLE SOURCE OF TRUTH):        -->
-        <!--                                                                  -->
-        <!-- 1. ContentBox provides: x, y, width, height, positioning        -->
-        <!--    - For contentText: x=left edge (after padding), y=center     -->
-        <!--    - For voting sections: x=left edge, y=top of section         -->
-        <!--                                                                  -->
-        <!-- 2. This SVG positioned at (x, formY) - absolute coordinates     -->
-        <!--                                                                  -->
-        <!-- 3. <g translate({width/2}, 0)> for horizontal centering         -->
-        <!--    (This centers text horizontally via text-anchor="middle")    -->
-        <!--                                                                  -->
-        <!-- 4. ContentText section Y positioning is CENTER-ORIGIN:          -->
-        <!--    - Y: 0 = CENTER, negative = UP, positive = DOWN              -->
-        <!--    - X: Standard left-to-right (unchanged)                      -->
-        <!--                                                                  -->
-        <!-- 5. Child components calculate Y positions as:                   -->
-        <!--    y = height * positioning.element (where 0 = center)          -->
-        <!--                                                                  -->
-        <!-- 6. To adjust positioning: ONLY edit ContentBox                  -->
-        <!--    POSITIONING_CONFIGS['create-node'] - nowhere else!           -->
-        <!-- ================================================================ -->
         {@const formY = y + (errorMessage || successMessage ? 60 : 0)}
         {@const formHeight = height - (errorMessage || successMessage ? 60 : 0)}
         
         <svg {x} y={formY} {width} height={formHeight}>
-            <!-- Horizontal centering for text-anchor="middle" to work -->
             <g transform="translate({width/2}, 0)">
                 {#if currentStep === 1}
                     <NodeTypeSelect
@@ -995,6 +944,7 @@
                         />
                     {:else if currentStep === 4}
                         <CategoryCreationReview
+                            bind:this={categoryReviewComponent}
                             selectedWordIds={formData.selectedWordIds}
                             parentCategoryId={formData.parentCategoryId}
                             discussion={formData.discussion}
@@ -1004,13 +954,13 @@
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
+                            on:expandCategory={handleCategoryCreated}
                         />
                     {/if}
                 {/if}
             </g>
         </svg>
 
-        <!-- Step Indicators - positioned just above the next button -->
         {#if showStepIndicators}
             <g transform="translate(0, {nodeRadius - 75})">
                 {#each Array(maxSteps) as _, i}
@@ -1025,9 +975,7 @@
             </g>
         {/if}
 
-        <!-- Previous Step Button (positioned at bottom left) -->
         {#if showPreviousButton}
-            <!-- Filter definitions -->
             <defs>
                 <filter id={previousGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
                     <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
@@ -1091,7 +1039,6 @@
                 </foreignObject>
             </g>
 
-            <!-- Tooltip -->
             {#if isPreviousButtonHovering}
                 <g transform="translate(-60, {nodeRadius + 10})">
                     <rect
@@ -1122,10 +1069,7 @@
             {/if}
         {/if}
 
-        <!-- Next Step Button (positioned at bottom right) -->
-        <!-- Button is OUTSIDE the translated SVG wrapper to use node-centered coordinates -->
         {#if showActionButton}
-            <!-- Filter definitions -->
             <defs>
                 <filter id={nextGlowFilterId} x="-100%" y="-100%" width="300%" height="300%">
                     <feGaussianBlur in="SourceAlpha" stdDeviation="12" result="blur1"/>
@@ -1192,7 +1136,6 @@
                 </foreignObject>
             </g>
 
-            <!-- Tooltip -->
             {#if isNextButtonHovering}
                 <g transform="translate(60, {nodeRadius + 10})">
                     <rect
@@ -1235,7 +1178,6 @@
         fill: rgba(255, 255, 255, 0.8);
     }
 
-    /* Previous button styles (positioned at bottom left) */
     .previous-button-detection {
         transition: all 0.2s ease;
         outline: none;
@@ -1285,7 +1227,6 @@
         letter-spacing: 0.02em;
     }
 
-    /* Next button styles (positioned at bottom right) */
     .next-button-detection {
         transition: all 0.2s ease;
         outline: none;

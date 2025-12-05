@@ -1349,10 +1349,10 @@ async function handleExpandCategory(event: CustomEvent<{
             wordCount: expansionData.nodes.filter((n: any) => n.type === 'word').length
         });
         
-        // ✅ NEW: Extract word nodes from the expansion data
+        // Extract word nodes from the expansion data
         const wordApiNodes = expansionData.nodes.filter((n: any) => n.type === 'word');
         
-        // ✅ NEW: Create words array for the category data
+        // Create words array for the category data
         const wordsArray = wordApiNodes.map((w: any) => ({
             id: w.id || w.word,
             word: w.word || w.content,
@@ -1387,10 +1387,10 @@ async function handleExpandCategory(event: CustomEvent<{
                 inclusionPositiveVotes: categoryApiNode.inclusionPositiveVotes || 0,
                 inclusionNegativeVotes: categoryApiNode.inclusionNegativeVotes || 0,
                 inclusionNetVotes: categoryApiNode.inclusionNetVotes || 0,
-                wordCount: categoryApiNode.wordCount || wordsArray.length,  // ✅ UPDATED: Use actual word count
+                wordCount: categoryApiNode.wordCount || wordsArray.length,
                 contentCount: categoryApiNode.contentCount || 0,
                 childCount: categoryApiNode.childCount || 0,
-                words: wordsArray,  // ✅ CHANGED: Use extracted words array instead of categoryApiNode.words
+                words: wordsArray,
                 parentCategory: categoryApiNode.parentCategory || null,
                 childCategories: categoryApiNode.childCategories || [],
                 discussionId: categoryApiNode.discussionId
@@ -1431,28 +1431,14 @@ async function handleExpandCategory(event: CustomEvent<{
         
         console.log('[UNIVERSAL-PAGE] Adding ONLY category node to graph:', {
             categoryNodeId: categoryGraphNode.id,
-            categoryHasWords: wordsArray.length > 0,  // ✅ UPDATED: Show if words were included
-            wordsInCategory: wordsArray.map(w => w.word),  // ✅ NEW: Show which words
+            categoryHasWords: wordsArray.length > 0,
+            wordsInCategory: wordsArray.map(w => w.word),
             relevantLinks: relevantLinks.length,
             excludedWordNodes: expansionData.nodes.filter((n: any) => n.type === 'word').length,
             excludedComposedOfLinks: expansionData.relationships.filter((r: any) => 
                 r.type === 'composed_of' || r.type === 'COMPOSED_OF'
             ).length
         });
-        
-        // Add only the category node to store arrays (for state management)
-        nodes = [...nodes, categoryApiNode];
-        
-        // Filter original API relationships for the store (must match UniversalRelationshipData type)
-        const relevantApiRelationships = expansionData.relationships.filter((rel: any) => {
-            const sourceExists = existingNodeIds.has(rel.source);
-            const targetExists = existingNodeIds.has(rel.target);
-            const isComposedOf = rel.type === 'composed_of' || rel.type === 'COMPOSED_OF';
-            
-            return sourceExists && targetExists && !isComposedOf;
-        });
-        
-        relationships = [...relationships, ...relevantApiRelationships];
         
         // Create COMPLETE graph data with the new category node
         if (graphStore) {
@@ -1474,15 +1460,13 @@ async function handleExpandCategory(event: CustomEvent<{
             if (typeof (graphStore as any).updateState === 'function') {
                 console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
                 (graphStore as any).updateState(expandedGraphData, 0.6);
+                // CRITICAL: Don't update graphData here - prevents gentle sync override
             }
             // Fallback: regular setData (will cause restart)
             else {
                 console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
                 graphStore.setData(expandedGraphData);
             }
-            
-            // Update our local graphData reference
-            // graphData = expandedGraphData;
         }
         
         // Wait for node to be positioned, then center (up to 2 seconds)
@@ -2038,6 +2022,7 @@ function calculateDefinitionRing(
     <CreateNodeNode 
         {node}
         on:expandWord={handleExpandWord}
+        on:expandCategory={handleExpandCategory}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 
