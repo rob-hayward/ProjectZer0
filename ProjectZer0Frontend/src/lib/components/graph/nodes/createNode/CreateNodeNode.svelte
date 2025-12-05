@@ -472,14 +472,16 @@
     $: showActionButton = currentStep >= 1 && formData.nodeType !== '';
     $: isNextButtonDisabled = 
         (currentStep === 1 && formData.nodeType === '') ||
-        (currentStep === 2 && formData.nodeType === 'word' && (!formData.word.trim() || isCheckingWord));
+        (currentStep === 2 && formData.nodeType === 'word' && (!formData.word.trim() || isCheckingWord)) ||
+        (currentStep === 2 && formData.nodeType === 'category' && formData.selectedWordIds.length === 0);
     $: nextButtonColor = !isNextButtonDisabled ? completeStyle.highlightColor : 'rgba(255, 255, 255, 0.3)';
     $: nextButtonIcon = isFinalStep ? 'add_circle' : 'arrow_circle_right';
     $: nextTooltipText = 
         isFinalStep ? 'Create Node' :
         isCheckingWord ? 'Checking word...' :
         (currentStep === 1 && !formData.nodeType) ? 'Select Type First' :
-        (currentStep === 2 && !formData.word.trim()) ? 'Enter Word First' :
+        (currentStep === 2 && formData.nodeType === 'word' && !formData.word.trim()) ? 'Enter Word First' :
+        (currentStep === 2 && formData.nodeType === 'category' && formData.selectedWordIds.length === 0) ? 'Select Words First' :
         'Next Step';
     
     // Previous button state - show on any step after 1
