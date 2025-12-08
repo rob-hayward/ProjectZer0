@@ -1,34 +1,44 @@
 <!-- src/lib/components/forms/createNode/shared/CategoryInput.svelte -->
+<!--
+POSITIONING ARCHITECTURE:
+- This component is POSITIONALLY DUMB - all coordinates come from ContentBox
+- Receives: positioning (fractions), width, height from parent via ContentBox
+- Coordinate system: LEFT-EDGE X, TOP Y
+  • X origin: Left edge of contentText section (after padding)
+  • Y origin: TOP of contentText section
+  • X: Standard left-to-right (0 = left edge, positive = right)
+  • Y: Top-origin (0 = top, 0.5 = middle, 1.0 = bottom)
+- Calculate absolute Y positions as: y = height * positioning.element
+- ContentBox is the SINGLE SOURCE OF TRUTH - adjust values there, not here
+-->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import { FORM_STYLES } from '$lib/styles/forms';
-    import { COLORS } from '$lib/constants/colors';
-    import FormNavigation from './FormNavigation.svelte';
     import { fetchWithAuth } from '$lib/services/api';
     
-    // Array of selected category IDs
     export let selectedCategories: string[] = [];
     export let disabled = false;
     export let description = 'Add categories to help organize content (max 3).';
     
-    // Local state
+    // POSITIONING: Received from ContentBox via CreateNodeNode
+    export let positioning: Record<string, number> = {};
+    export let width: number = 400;
+    export let height: number = 400;
+    
     let searchQuery = '';
     let allCategories: Array<{ id: string; name: string; description?: string }> = [];
     let isLoading = true;
     let showValidationError = false;
     let errorMessage = '';
     let showDropdown = false;
-    let isCreatingNew = false;
     
     const dispatch = createEventDispatcher<{
         back: void;
         proceed: void;
+        createCategory: void;
     }>();
     
-    // Maximum number of categories
     const MAX_CATEGORIES = 3;
     
-    // Fetch all categories on mount
     onMount(async () => {
         try {
             const categories = await fetchWithAuth('/categories');
@@ -41,17 +51,13 @@
         }
     });
     
-    // Get category details by ID
     function getCategoryById(id: string) {
         return allCategories.find(c => c.id === id);
     }
     
-    // Filter categories based on search query
     $: filteredCategories = allCategories.filter(category => {
-        // Don't show already selected categories
         if (selectedCategories.includes(category.id)) return false;
         
-        // Filter by search query
         if (searchQuery) {
             const query = searchQuery.toLowerCase();
             return category.name.toLowerCase().includes(query) ||
@@ -61,92 +67,92 @@
         return true;
     });
     
-    // Add category to selection
     function selectCategory(categoryId: string) {
-        // Reset error state
         showValidationError = false;
         errorMessage = '';
         
-        // Check if max categories reached
         if (selectedCategories.length >= MAX_CATEGORIES) {
             showValidationError = true;
             errorMessage = `Maximum of ${MAX_CATEGORIES} categories allowed`;
             return;
         }
         
-        // Check for duplicates (shouldn't happen due to filtering, but safety check)
         if (selectedCategories.includes(categoryId)) {
             showValidationError = true;
             errorMessage = 'This category is already selected';
             return;
         }
         
-        // Add category
         selectedCategories = [...selectedCategories, categoryId];
         searchQuery = '';
         showDropdown = false;
     }
     
-    // Remove category from selection
     function removeCategory(categoryId: string) {
         selectedCategories = selectedCategories.filter(id => id !== categoryId);
         showValidationError = false;
         errorMessage = '';
     }
     
-    // Handle search input focus
     function handleSearchFocus() {
         if (selectedCategories.length < MAX_CATEGORIES) {
             showDropdown = true;
         }
     }
     
-    // Handle search input blur (with delay to allow click)
     function handleSearchBlur() {
         setTimeout(() => {
             showDropdown = false;
         }, 200);
     }
     
-    // Handle creating new category
     function handleCreateNew() {
-        isCreatingNew = true;
-        showValidationError = true;
-        errorMessage = 'Category creation will be available in the next phase';
-        // TODO: Implement category creation flow in Phase 5
+        console.log('[CategoryInput] User wants to create new category - dispatching event');
+        dispatch('createCategory');
     }
     
-    // Proceed to next step
-    function handleProceed() {
-        dispatch('proceed');
-    }
+    // Calculate Y positions using positioning config
+    $: labelY = height * (positioning.label || 0.10);
+    $: descriptionY = height * (positioning.description || 0.16);
+    $: inputY = height * (positioning.dropdown || 0.20);
+    $: inputHeight = Math.max(40, height * (positioning.dropdownHeight || 0.10));
+    $: dropdownY = inputY + inputHeight - 44;  // Correct offset for seamless connection
+    $: dropdownHeight = Math.max(250, height * 0.40);  // Much taller dropdown
+    $: errorY = dropdownY + (showDropdown ? dropdownHeight + 10 : 10);
+    $: chipsY = errorY + (showValidationError || isLoading ? 25 : 0);
+    $: chipsHeight = Math.max(80, height * 0.15);
+    
+    // Input width (centered, responsive)
+    $: inputWidth = Math.min(340, width * 0.85);
 </script>
 
 <g>
     <!-- Label -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="-20"
+        x="0"
+        y={labelY}
         class="form-label"
+        text-anchor="middle"
     >
         Categories (optional)
     </text>
     
     <!-- Description text -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="0"
+        x="0"
+        y={descriptionY}
         class="description-text"
+        text-anchor="middle"
     >
         {description}
     </text>
     
     <!-- Search Input -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y="15"
-        width={FORM_STYLES.layout.fieldWidth}
-        height="40"
+        x={-inputWidth/2}
+        y={inputY}
+        width={inputWidth}
+        height={inputHeight}
     >
         <input
             type="text"
@@ -165,13 +171,13 @@
     <!-- Dropdown List -->
     {#if showDropdown && !isLoading && filteredCategories.length > 0}
         <foreignObject
-            x={FORM_STYLES.layout.leftAlign}
-            y="57"
-            width={FORM_STYLES.layout.fieldWidth}
-            height="150"
+            x={-inputWidth/2}
+            y={dropdownY}
+            width={inputWidth}
+            height={dropdownHeight}
         >
             <div class="dropdown-container">
-                {#each filteredCategories.slice(0, 5) as category}
+                {#each filteredCategories.slice(0, 10) as category}
                     <button
                         class="category-option"
                         on:click={() => selectCategory(category.id)}
@@ -199,9 +205,10 @@
     <!-- Error Message -->
     {#if showValidationError}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y="65"
+            x="0"
+            y={errorY}
             class="error-message"
+            text-anchor="middle"
         >
             {errorMessage}
         </text>
@@ -210,9 +217,10 @@
     <!-- Loading Message -->
     {#if isLoading}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y="65"
+            x="0"
+            y={errorY}
             class="loading-message"
+            text-anchor="middle"
         >
             Loading categories...
         </text>
@@ -220,10 +228,10 @@
     
     <!-- Selected Categories Display -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y={showDropdown ? "215" : "75"}
-        width={FORM_STYLES.layout.fieldWidth}
-        height="150"
+        x={-inputWidth/2}
+        y={chipsY}
+        width={inputWidth}
+        height={chipsHeight}
     >
         <div class="categories-container">
             {#if selectedCategories.length === 0}
@@ -248,45 +256,32 @@
             {/if}
         </div>
     </foreignObject>
-    
-    <!-- Navigation -->
-    <g transform="translate(0, {showDropdown ? 335 : 195})">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={handleProceed}
-            nextDisabled={disabled || isLoading}
-        />
-    </g>
 </g>
 
 <style>
     .form-label {
         font-size: 14px;
-        text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .description-text {
-        font-size: 11px;
-        text-anchor: start;
+        font-size: 10px;
         fill: rgba(255, 255, 255, 0.5);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .error-message {
-        font-size: 12px;
-        text-anchor: start;
+        font-size: 11px;
         fill: #ff4444;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .loading-message {
-        font-size: 12px;
-        text-anchor: start;
+        font-size: 11px;
         fill: #ffd700;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
@@ -294,8 +289,8 @@
     
     :global(input.form-input) {
         width: 100%;
-        background: rgba(0, 0, 0, 0.9);
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         color: white;
         padding: 8px;
@@ -310,8 +305,8 @@
     
     :global(input.form-input:focus) {
         outline: none;
-        border: 3px solid rgba(255, 255, 255, 0.8);
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+        border-color: rgba(66, 153, 225, 0.6);
+        background: rgba(255, 255, 255, 0.08);
     }
     
     :global(input.form-input.error) {
@@ -325,10 +320,10 @@
     
     :global(.dropdown-container) {
         width: 100%;
-        max-height: 150px;
+        max-height: 100%;
         overflow-y: auto;
         background: rgba(0, 0, 0, 0.95);
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
@@ -338,11 +333,11 @@
         background: none;
         border: none;
         color: white;
-        padding: 8px 12px;
+        padding: 4px 10px;
         text-align: left;
         cursor: pointer;
         font-family: 'Inter', sans-serif;
-        font-size: 0.85rem;
+        font-size: 11px;
         transition: background 0.2s ease;
         border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         display: flex;
@@ -357,11 +352,13 @@
     :global(.category-name) {
         color: white;
         font-weight: 500;
+        font-size: 11px;
     }
     
     :global(.category-desc) {
         color: rgba(255, 255, 255, 0.6);
-        font-size: 0.75rem;
+        font-size: 9px;
+        line-height: 1.3;
     }
     
     :global(.create-new-link) {
@@ -369,11 +366,11 @@
         background: none;
         border: none;
         color: #FF8A3D;
-        padding: 10px 12px;
+        padding: 6px 10px;
         text-align: left;
         cursor: pointer;
         font-family: 'Inter', sans-serif;
-        font-size: 0.85rem;
+        font-size: 11px;
         font-weight: 500;
         transition: background 0.2s ease;
     }
@@ -385,8 +382,8 @@
     :global(.categories-container) {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
-        max-height: 150px;
+        gap: 6px;
+        max-height: 100%;
         overflow-y: auto;
         padding: 4px;
     }
@@ -396,10 +393,10 @@
         align-items: center;
         background: rgba(255, 138, 61, 0.2);
         border: 1px solid rgba(255, 138, 61, 0.3);
-        border-radius: 16px;
-        padding: 4px 8px;
+        border-radius: 14px;
+        padding: 3px 8px;
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 400;
     }
     
@@ -413,7 +410,7 @@
         border: none;
         color: rgba(255, 255, 255, 0.7);
         cursor: pointer;
-        font-size: 16px;
+        font-size: 14px;
         line-height: 1;
         padding: 0;
         margin-left: 4px;
@@ -429,9 +426,27 @@
     :global(.no-categories) {
         color: rgba(255, 255, 255, 0.5);
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 400;
         font-style: italic;
         padding: 4px;
+    }
+    
+    /* Scrollbar styling for dropdown */
+    :global(.dropdown-container::-webkit-scrollbar) {
+        width: 6px;
+    }
+    
+    :global(.dropdown-container::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+    }
+    
+    :global(.dropdown-container::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 3px;
+    }
+    
+    :global(.dropdown-container::-webkit-scrollbar-thumb:hover) {
+        background: rgba(255, 255, 255, 0.4);
     }
 </style>

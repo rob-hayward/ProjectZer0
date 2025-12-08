@@ -69,6 +69,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandStatement: {
+            statementId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -96,6 +101,18 @@
         dispatch('expandCategory', {
             categoryId: event.detail.categoryId,
             categoryName: event.detail.categoryName,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+    }
+    
+    function handleStatementCreated(event: CustomEvent<{ statementId: string }>) {
+        console.log('[CreateNodeNode] Statement created, forwarding with source context');
+        dispatch('expandStatement', {
+            statementId: event.detail.statementId,
             sourceNodeId: node.id,
             sourcePosition: {
                 x: node.position?.x || 0,
@@ -178,7 +195,7 @@
     $: enableColorCycling = isUniversalCentralNode && hasGraphSettled && formData.nodeType === '';
     
     $: if (enableColorCycling) {
-        console.log('[CreateNodeNode] ✨ Color cycling enabled - applying animation');
+        console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
         setTimeout(() => {
             applyColorCycling(true);
         }, 100);
@@ -668,6 +685,9 @@
                     {:else if currentStep === 4}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -690,48 +710,63 @@
                     />
                     {/if}
                 {:else if formData.nodeType === 'statement'}
-                    {#if currentStep === 2}
-                        <StatementInput
-                            bind:statement={formData.statement}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 3}
-                        <CategoryInput
-                            bind:selectedCategories={formData.selectedCategories}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 4}
-                        <KeywordInput
-                            bind:userKeywords={formData.userKeywords}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 5}
-                        <DiscussionInput
-                            bind:discussion={formData.discussion}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
-                    {:else if currentStep === 6}
-                        <StatementReview
-                            statement={formData.statement}
-                            userKeywords={formData.userKeywords}
-                            selectedCategories={formData.selectedCategories}
-                            discussion={formData.discussion}
-                            publicCredit={formData.publicCredit}
-                            userId={userData.sub}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:success={e => successMessage = e.detail.message}
-                            on:error={e => errorMessage = e.detail.message}
-                        />
-                    {/if}
+                {#if currentStep === 2}
+                    <StatementInput
+                        bind:statement={formData.statement}
+                        {positioning}
+                        {width}
+                        height={formHeight}
+                        disabled={isLoading}
+                        on:back={handleBack}
+                        on:proceed={handleNext}
+                    />
+                {:else if currentStep === 3}
+                <CategoryInput
+                    bind:selectedCategories={formData.selectedCategories}
+                    {positioning}        
+                    {width}              
+                    height={formHeight} 
+                    disabled={isLoading}
+                    on:back={handleBack}
+                    on:proceed={handleNext}
+                />
+                {:else if currentStep === 4}
+                    <KeywordInput
+                        bind:userKeywords={formData.userKeywords}
+                        {positioning}
+                        {width}
+                        height={formHeight}
+                        disabled={isLoading}
+                        on:back={handleBack}
+                        on:proceed={handleNext}
+                    />
+                {:else if currentStep === 5}
+                    <DiscussionInput
+                        bind:discussion={formData.discussion}
+                        {positioning}
+                        {width}
+                        height={formHeight}
+                        disabled={isLoading}
+                        on:back={handleBack}
+                        on:proceed={handleNext}
+                    />
+                {:else if currentStep === 6}
+                    <StatementReview
+                        bind:this={statementReviewComponent}
+                        statement={formData.statement}
+                        userKeywords={formData.userKeywords}
+                        selectedCategories={formData.selectedCategories}
+                        discussion={formData.discussion}
+                        publicCredit={formData.publicCredit}
+                        {positioning}
+                        {width}
+                        height={formHeight}
+                        on:back={handleBack}
+                        on:success={e => successMessage = e.detail.message}
+                        on:error={e => errorMessage = e.detail.message}
+                        on:expandStatement={handleStatementCreated}
+                    />
+                {/if}
                 {:else if formData.nodeType === 'openquestion'}
                     {#if currentStep === 2}
                         <OpenQuestionInput
@@ -743,6 +778,9 @@
                     {:else if currentStep === 3}
                         <CategoryInput
                             bind:selectedCategories={formData.selectedCategories}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -750,6 +788,9 @@
                     {:else if currentStep === 4}
                         <KeywordInput
                             bind:userKeywords={formData.userKeywords}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -757,6 +798,9 @@
                     {:else if currentStep === 5}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -794,6 +838,9 @@
                     {:else if currentStep === 4}
                         <CategoryInput
                             bind:selectedCategories={formData.selectedCategories}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -801,6 +848,9 @@
                     {:else if currentStep === 5}
                         <KeywordInput
                             bind:userKeywords={formData.userKeywords}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -808,6 +858,9 @@
                     {:else if currentStep === 6}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -840,6 +893,9 @@
                     {:else if currentStep === 3}
                         <CategoryInput
                             bind:selectedCategories={formData.selectedCategories}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -847,6 +903,9 @@
                     {:else if currentStep === 4}
                         <KeywordInput
                             bind:userKeywords={formData.userKeywords}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -854,6 +913,9 @@
                     {:else if currentStep === 5}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -889,6 +951,9 @@
                     {:else if currentStep === 3}
                         <CategoryInput
                             bind:selectedCategories={formData.selectedCategories}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -896,6 +961,9 @@
                     {:else if currentStep === 4}
                         <KeywordInput
                             bind:userKeywords={formData.userKeywords}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -903,6 +971,9 @@
                     {:else if currentStep === 5}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -938,6 +1009,9 @@
                     {:else if currentStep === 3}
                         <DiscussionInput
                             bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}

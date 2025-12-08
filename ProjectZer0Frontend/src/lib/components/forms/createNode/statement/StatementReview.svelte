@@ -1,32 +1,31 @@
-<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/statement/StatementReview.svelte -->
+<!-- src/lib/components/forms/createNode/statement/StatementReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
-    import { FORM_STYLES } from '$lib/styles/forms';
     import { graphStore } from '$lib/stores/graphStore';
-    import FormNavigation from '$lib/components/forms/createNode/shared/FormNavigation.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
-    import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
 
     export let statement = '';
     export let userKeywords: string[] = [];
     export let selectedCategories: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
-    export let disabled = false;
-    export let userId: string | undefined = undefined;
+    
+    export let positioning: Record<string, number> = {};
+    export let width: number = 400;
+    export let height: number = 400;
     
     let categoryDetails: Array<{ id: string; name: string }> = [];
     let shareToX = false;
     let isSubmitting = false;
     let errorMessage: string | null = null;
-    let successMessage: string | null = null;
 
     const dispatch = createEventDispatcher<{
         back: void;
         success: { message: string; statement: string; };
         error: { message: string; };
+        expandStatement: { statementId: string; };
     }>();
     
     onMount(async () => {
@@ -41,8 +40,13 @@
             }
         }
     });
+    
+    // MAXIMIZED: Start at 0% from top, use 98% of height, stay within ContentBox bounds
+    $: reviewContainerY = height * (positioning.reviewContainer || 0.00);
+    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.98));
+    $: reviewContainerWidth = Math.min(600, width * 1.05);
 
-    async function handleSubmit() {
+    export async function handleSubmit() {
         if (!statement.trim()) {
             errorMessage = "Statement text is required";
             dispatch('error', { message: errorMessage });
@@ -54,33 +58,24 @@
 
         try {
             const statementData = {
-                statement: statement,
-                createdBy: userId,
+                statement: statement.trim(),
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
                 categories: selectedCategories.length > 0 ? selectedCategories : undefined,
-                initialComment: discussion || '',
+                initialComment: discussion || undefined,
                 publicCredit
             };
             
-            console.log('Submitting statement:', JSON.stringify(statementData, null, 2));
+            if (browser) console.log('[StatementReview] Submitting:', statementData);
             
             const createdStatement = await fetchWithAuth('/nodes/statement', {
                 method: 'POST',
                 body: JSON.stringify(statementData),
             });
             
-            console.log('Statement creation response:', JSON.stringify(createdStatement, null, 2));
+            if (browser) console.log('[StatementReview] Response:', createdStatement);
 
-            if (browser && graphStore && graphStore.setViewType) {
-                graphStore.setViewType('statement');
-                
-                if (graphStore.forceTick) {
-                    try {
-                        graphStore.forceTick();
-                    } catch (e) {
-                        console.warn('[StatementReview] Error forcing tick:', e);
-                    }
-                }
+            if (!createdStatement?.id) {
+                throw new Error('Created statement data is incomplete');
             }
 
             const successMsg = `Statement created successfully`;
@@ -88,22 +83,18 @@
                 message: successMsg,
                 statement: statement
             });
-            
-            successMessage = successMsg;
 
             setTimeout(() => {
-                if (browser) {
-                    const targetUrl = `/graph/statement?id=${encodeURIComponent(createdStatement.id)}`;
-                    console.log('[StatementReview] Navigating to:', targetUrl);
-                    
-                    window.location.href = targetUrl;
-                }
-            }, 800);
+                console.log('[StatementReview] Dispatching expandStatement event');
+                dispatch('expandStatement', {
+                    statementId: createdStatement.id
+                });
+            }, 500);
 
         } catch (e) {
             if (browser) {
-                console.error('Error creating statement:', e);
-                console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
+                console.error('[StatementReview] Error:', e);
+                console.error('[StatementReview] Error details:', e instanceof Error ? e.stack : 'Unknown error');
             }
             errorMessage = e instanceof Error ? e.message : 'Failed to create statement';
             dispatch('error', { message: errorMessage });
@@ -114,17 +105,16 @@
 </script>
 
 <g>
-    <!-- Review Content -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign - 30}
-        y="-40"
-        width={FORM_STYLES.layout.fieldWidth + 60}
-        height="350"
+        x={-reviewContainerWidth/2}
+        y={reviewContainerY}
+        width={reviewContainerWidth}
+        height={reviewContainerHeight}
     >
         <div class="review-container">
             <!-- Statement text -->
             <div class="review-item">
-                <span class="label">Statement:</span>
+                <span class="label">statement</span>
                 <div class="scrollable-content">
                     <span class="value">{statement}</span>
                 </div>
@@ -133,7 +123,7 @@
             <!-- Keywords list -->
             {#if userKeywords.length > 0}
                 <div class="review-item">
-                    <span class="label">Your Keywords:</span>
+                    <span class="label">your keywords</span>
                     <div class="keywords-list">
                         {#each userKeywords as keyword}
                             <span class="keyword-chip">{keyword}</span>
@@ -145,14 +135,11 @@
             <!-- Categories display -->
             {#if categoryDetails.length > 0}
                 <div class="review-item">
-                    <span class="label">Categories:</span>
-                    <div class="categories-display">
-                        <svg width="100%" height="30" viewBox="0 0 400 30">
-                            <CategoryTags 
-                                categories={categoryDetails}
-                                radius={100}
-                            />
-                        </svg>
+                    <span class="label">categories</span>
+                    <div class="categories-list">
+                        {#each categoryDetails as category}
+                            <span class="category-chip">{category.name}</span>
+                        {/each}
                     </div>
                 </div>
             {/if}
@@ -160,7 +147,7 @@
             <!-- Discussion -->
             {#if discussion}
                 <div class="review-item">
-                    <span class="label">Discussion:</span>
+                    <span class="label">discussion</span>
                     <div class="scrollable-content">
                         <span class="value">{discussion}</span>
                     </div>
@@ -190,38 +177,55 @@
         </div>
     </foreignObject>
 
-    <!-- Navigation -->
-    <g transform="translate(0, 270)">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Submitting..." : "Create Statement"}
-            loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting || !statement.trim()}
-        />
-    </g>
+    {#if errorMessage}
+        <g transform="translate(0, {reviewContainerY + reviewContainerHeight + 10})">
+            <MessageDisplay {errorMessage} successMessage={null} />
+        </g>
+    {/if}
 </g>
 
 <style>
     :global(.review-container) {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 12px;
+        padding: 0px 10px 8px 10px;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 8px;
+        overflow-y: auto;
+    }
+
+    :global(.review-container::-webkit-scrollbar) {
+        width: 8px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb:hover) {
+        background: rgba(255, 255, 255, 0.4);
     }
 
     :global(.review-item) {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 2px;
     }
 
     .scrollable-content {
-        max-height: 65px;
+        max-height: 55px;
         overflow-y: auto;
-        padding-right: 8px;
-        margin-bottom: 4px;
+        padding-right: 6px;
+        margin-bottom: 2px;
     }
 
     .scrollable-content::-webkit-scrollbar {
@@ -245,56 +249,72 @@
 
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
-        font-size: 11px;
+        font-size: 8px;
         font-family: 'Inter', sans-serif;
-        font-weight: 400;
+        font-weight: 300;
+        text-transform: lowercase !important;
+        letter-spacing: 0.02em;
     }
 
     :global(.review-item .value) {
         color: white;
-        font-size: 13px;
+        font-size: 10px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-        line-height: 1.3;
+        line-height: 1.2;
     }
 
     :global(.keywords-list) {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
+        gap: 4px;
+        margin-top: 2px;
     }
 
     :global(.keyword-chip) {
-        background: rgba(255, 127, 209, 0.2);
-        border: 1px solid rgba(255, 127, 209, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 11px;
+        background: rgba(74, 144, 226, 0.2);
+        border: 1px solid rgba(74, 144, 226, 0.3);
+        border-radius: 10px;
+        padding: 1px 6px;
+        font-size: 9px;
         color: white;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
-    :global(.categories-display) {
-        margin-top: 4px;
+    :global(.categories-list) {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 2px;
+    }
+
+    :global(.category-chip) {
+        background: rgba(255, 138, 61, 0.2);
+        border: 1px solid rgba(255, 138, 61, 0.3);
+        border-radius: 10px;
+        padding: 1px 6px;
+        font-size: 9px;
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-weight: 400;
     }
 
     :global(.options-grid) {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-top: 4px;
-        padding-top: 8px;
-        padding-left: 12px;
+        gap: 6px;
+        margin-top: 2px;
+        padding-top: 6px;
+        padding-left: 8px;
     }
 
     :global(.checkbox-label) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
         color: white;
-        font-size: 11px;
+        font-size: 9px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
@@ -302,42 +322,43 @@
     :global(.checkbox-label:first-child) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
     }
 
     :global(.checkbox-label:last-child) {
         display: flex;
         align-items: center;
-        gap: 6px;
-        padding-left: 35px; 
+        gap: 4px;
+        padding-left: 0px;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {
-        width: 14px;
-        height: 14px;
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        width: 12px;
+        height: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 2px;
         background: rgba(0, 0, 0, 0.9);
         cursor: pointer;
         appearance: none;
         -webkit-appearance: none;
         position: relative;
+        flex-shrink: 0;
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked::after) {
         content: '';
         position: absolute;
         top: 1px;
-        left: 4px;
-        width: 4px;
-        height: 8px;
+        left: 3px;
+        width: 3px;
+        height: 6px;
         border: solid white;
-        border-width: 0 2px 2px 0;
+        border-width: 0 1.5px 1.5px 0;
         transform: rotate(45deg);
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked) {
-        background: rgba(255, 127, 209, 0.3);
+        background: rgba(74, 144, 226, 0.3);
     }
 
     :global(.checkbox-label input[type="checkbox"]:disabled) {
