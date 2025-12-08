@@ -12,7 +12,6 @@
     export let discussion = '';
     export let publicCredit = false;
     
-    export let positioning: Record<string, number> = {};
     export let width: number = 400;
     export let height: number = 400;
     
@@ -41,10 +40,28 @@
         }
     });
     
-    // MAXIMIZED: Start at 0% from top, use 98% of height, stay within ContentBox bounds
-    $: reviewContainerY = height * (positioning.reviewContainer || 0.00);
-    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.98));
-    $: reviewContainerWidth = Math.min(600, width * 1.05);
+    // ============================================================================
+    // STATEMENT REVIEW LAYOUT CONFIGURATION
+    // ============================================================================
+    // These values are component-specific overrides to maximize space for the
+    // statement review screen. They intentionally differ from ContentBox 
+    // 'create-node' defaults which are shared across all creation flows.
+    //
+    // ContentBox 'create-node' defaults (shared by all node creation reviews):
+    //   - reviewContainer: 0.05 (5% from top)
+    //   - reviewContainerHeight: 0.85 (85% of available height)
+    //
+    // StatementReview overrides (this component only):
+    const LAYOUT = {
+        startY: 0.0,        // Start at very top (no gap)
+        heightRatio: 1.0,   // Use full available height
+        widthRatio: 1.0     // Use full available width
+    };
+    // ============================================================================
+    
+    $: reviewContainerY = height * LAYOUT.startY;
+    $: reviewContainerHeight = height * LAYOUT.heightRatio;
+    $: reviewContainerWidth = width * LAYOUT.widthRatio;
 
     export async function handleSubmit() {
         if (!statement.trim()) {
@@ -190,7 +207,7 @@
         height: 100%;
         box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 0px 10px 8px 10px;
+        padding: 0px 6px 4px 6px;  
         display: flex;
         flex-direction: column;
         gap: 8px;

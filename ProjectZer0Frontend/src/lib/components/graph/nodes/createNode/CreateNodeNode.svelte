@@ -758,7 +758,6 @@
                         selectedCategories={formData.selectedCategories}
                         discussion={formData.discussion}
                         publicCredit={formData.publicCredit}
-                        {positioning}
                         {width}
                         height={formHeight}
                         on:back={handleBack}
