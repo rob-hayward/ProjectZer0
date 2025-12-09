@@ -28,6 +28,7 @@
     import { fetchWithAuth } from '$lib/services/api';
     import { fetchCategoryExpansion, type CategoryExpansionResponse } from '$lib/services/graph/CategoryExpansionService';
     import { fetchWordExpansion, type WordExpansionResponse } from '$lib/services/graph/WordExpansionService';
+    import { fetchStatementExpansion, type StatementExpansionResponse } from '$lib/services/graph/StatementExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -1702,6 +1703,128 @@ async function handleExpandWord(event: CustomEvent<{
     }
 }
 
+async function handleExpandStatement(event: CustomEvent<{
+    statementId: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { statementId, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Statement expansion requested:', {
+        statementId, sourceNodeId, sourcePosition
+    });
+    
+    try {
+        // Check if statement already exists
+        const existingStatementNode = graphData.nodes.find(n => 
+            n.type === 'statement' && n.id === statementId
+        );
+        
+        if (existingStatementNode) {
+            console.log('[UNIVERSAL-PAGE] Statement already exists, centering:', statementId);
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(statementId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Statement not in graph, fetching expansion data...');
+        
+        // Fetch statement data
+        const expansionData = await fetchStatementExpansion(statementId);
+        
+        console.log('[UNIVERSAL-PAGE] Statement expansion data received:', {
+            statementId: expansionData.nodes[0]?.id,
+            content: expansionData.nodes[0]?.content?.substring(0, 50)
+        });
+        
+        // Extract statement node
+        const statementApiNode = expansionData.nodes[0];
+        
+        if (!statementApiNode) {
+            console.error('[UNIVERSAL-PAGE] No statement node in expansion response');
+            return;
+        }
+        
+        // Calculate position near source node
+        const statementPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes as any[],
+            150
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Calculated statement position:', statementPosition);
+        
+        // Transform to GraphNode format
+        const statementGraphNode: GraphNode = {
+            id: statementApiNode.id,
+            type: 'statement' as NodeType,
+            data: {
+                id: statementApiNode.id,
+                statement: (statementApiNode as any).statement,
+                createdBy: statementApiNode.created_by || statementApiNode.createdBy,
+                publicCredit: statementApiNode.public_credit ?? statementApiNode.publicCredit ?? true,
+                createdAt: statementApiNode.created_at || statementApiNode.createdAt,
+                updatedAt: statementApiNode.updated_at || statementApiNode.updatedAt,
+                keywords: statementApiNode.keywords || [],
+                categories: statementApiNode.categories || [],
+                positiveVotes: statementApiNode.metadata?.votes?.positive || 0,
+                negativeVotes: statementApiNode.metadata?.votes?.negative || 0,
+                netVotes: statementApiNode.metadata?.votes?.net || 0,
+                relatedStatements: statementApiNode.metadata?.relatedStatements || [],
+                parentQuestion: statementApiNode.metadata?.parentQuestion,
+                discussionId: statementApiNode.metadata?.discussionId,
+                initialComment: statementApiNode.metadata?.initialComment || ''
+            },
+            group: 'statement' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'statement' as any,
+                initialPosition: statementPosition,
+                net_votes: statementApiNode.metadata?.votes?.net || 0,
+                participant_count: statementApiNode.participant_count || 0
+            }
+        };
+        
+        console.log('[UNIVERSAL-PAGE] Adding statement node to graph:', {
+            statementId: statementGraphNode.id,
+            position: statementPosition
+        });
+        
+        // Create expanded graph data
+        if (graphStore) {
+            const expandedGraphData: GraphData = {
+                nodes: [...graphData.nodes, statementGraphNode],
+                links: [...graphData.links] // No new links for statement (no child nodes)
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding statement via updateState...', {
+                previousNodeCount: graphData.nodes.length,
+                newNodeCount: expandedGraphData.nodes.length
+            });
+            
+            // Use updateState with 0.6 wake power to add statement gently
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.6);
+            }
+            // Fallback: regular setData
+            else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(expandedGraphData);
+            }
+        }
+        
+        // Wait for node to be positioned, then center (up to 2 seconds)
+        waitForNodePositionAndCenter(graphStore, statementGraphNode.id, 20, 100, 750);
+        
+        console.log('[UNIVERSAL-PAGE] Statement expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding statement:', error);
+    }
+}
+
 /**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
@@ -1969,6 +2092,7 @@ function calculateDefinitionRing(
         on:filterchange={handleFilterChange}
         on:expandCategory={handleExpandCategory}
         on:expandWord={handleExpandWord}
+        on:expandStatement={handleExpandStatement}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}
@@ -2023,6 +2147,7 @@ function calculateDefinitionRing(
         {node}
         on:expandWord={handleExpandWord}
         on:expandCategory={handleExpandCategory}
+        on:expandStatement={handleExpandStatement}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 

@@ -63,14 +63,19 @@
             showOnlyMyItems: boolean;
             userFilterMode: string;
         };
-        expandCategory: {  // ← ADD THIS
+        expandCategory: {  
             categoryId: string;
             categoryName: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
-         expandWord: {  // ✅ ADD THIS
+         expandWord: {  
             word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+          expandStatement: {  // ← ADD THIS ENTIRE BLOCK
+            statementId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -589,6 +594,23 @@
         }
     }
 
+    function handleExpandStatement(event: CustomEvent<{
+        statementId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Statement expansion event received:', {
+            statementId: event.detail.statementId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        // Forward the event to parent page component
+        dispatch('expandStatement', event.detail);
+        
+        console.log('[Graph] Statement expansion event forwarded to parent page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -923,6 +945,7 @@
                                     on:visibilityChange={handleVisibilityChange}
                                     on:expandCategory={handleExpandCategory}
                                     on:expandWord={handleExpandWord}
+                                    on:expandStatement={handleExpandStatement}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
