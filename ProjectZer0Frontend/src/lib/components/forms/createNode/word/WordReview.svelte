@@ -11,7 +11,6 @@
     export let publicCredit = false;
     export let disabled = false;
     
-    export let positioning: Record<string, number> = {};
     export let width: number = 400;
     export let height: number = 400;
 
@@ -26,6 +25,17 @@
         expandWord: { word: string; };
     }>();
 
+    // ============================================================================
+    // WORD REVIEW LAYOUT CONFIGURATION
+    // ============================================================================
+    // Component-specific overrides to maximize space, matching StatementReview
+    const LAYOUT = {
+        startY: 0.0,        // Start at very top (no gap)
+        heightRatio: 1.0,   // Use full available height
+        widthRatio: 1.0     // Use full available width
+    };
+    // ============================================================================
+
     export async function handleSubmit() {
         if (disabled || isSubmitting) return;
         
@@ -35,21 +45,19 @@
         try {
             const wordData = {
                 word: word.trim(),
-                initialDefinition: definitionText,  // Backend expects initialDefinition
-                initialComment: discussion,         // Backend expects initialComment
+                initialDefinition: definitionText,
+                initialComment: discussion,
                 publicCredit,
-                // createdBy is extracted from JWT - don't send it
-                // shareToX is not supported by backend yet
             };
             
-            if (browser) console.log('Submitting word creation form:', JSON.stringify(wordData, null, 2));
+            if (browser) console.log('[WordReview] Submitting:', wordData);
             
-            const createdWord = await fetchWithAuth('/words', {  // Correct endpoint: /words
+            const createdWord = await fetchWithAuth('/words', {
                 method: 'POST',
                 body: JSON.stringify(wordData),
             });
             
-            if (browser) console.log('Word creation response:', JSON.stringify(createdWord, null, 2));
+            if (browser) console.log('[WordReview] Response:', createdWord);
 
             if (!createdWord?.word) {
                 throw new Error('Created word data is incomplete');
@@ -61,9 +69,8 @@
                 word: createdWord.word
             });
 
-            // Dispatch expandWord event to add new word to universal graph
             setTimeout(() => {
-                console.log('[WordReview] Dispatching expandWord event for newly created word:', createdWord.word);
+                console.log('[WordReview] Dispatching expandWord event');
                 dispatch('expandWord', {
                     word: createdWord.word
                 });
@@ -71,8 +78,7 @@
 
         } catch (e) {
             if (browser) {
-                console.error('Error creating word:', e);
-                console.error('Error details:', e instanceof Error ? e.stack : 'Unknown error');
+                console.error('[WordReview] Error:', e);
             }
             errorMessage = e instanceof Error ? e.message : 'Failed to create new word node';
             dispatch('error', { message: errorMessage });
@@ -81,9 +87,9 @@
         }
     }
     
-    $: reviewContainerY = height * (positioning.reviewContainer || 0.05);
-    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.85));
-    $: reviewContainerWidth = Math.min(560, width * 1.0);
+    $: reviewContainerY = height * LAYOUT.startY;
+    $: reviewContainerHeight = height * LAYOUT.heightRatio;
+    $: reviewContainerWidth = width * LAYOUT.widthRatio;
 </script>
 
 <g>
@@ -95,13 +101,13 @@
     >
         <div class="review-container">
             <div class="review-item word-item">
-                <span class="label">Word:</span>
+                <span class="label">word</span>
                 <span class="value word-value">{word}</span>
             </div>
             
             {#if definitionText}
                 <div class="review-item">
-                    <span class="label">Definition:</span>
+                    <span class="label">definition</span>
                     <div class="scrollable-content">
                         <span class="value">{definitionText}</span>
                     </div>
@@ -110,14 +116,15 @@
             
             {#if discussion}
                 <div class="review-item">
-                    <span class="label">Discussion:</span>
+                    <span class="label">discussion</span>
                     <div class="scrollable-content">
                         <span class="value">{discussion}</span>
                     </div>
                 </div>
             {/if}
 
-            <div class="options-grid">
+            <!-- Options row - single line -->
+            <div class="options-row">
                 <label class="checkbox-label">
                     <input
                         type="checkbox"
@@ -148,13 +155,33 @@
 
 <style>
     :global(.review-container) {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 16px;
+        padding: 0px 6px 4px 6px;  /* Match StatementReview minimal padding */
         display: flex;
         flex-direction: column;
-        gap: 16px;
-        max-height: 100%;
+        gap: 8px;
         overflow-y: auto;
+    }
+
+    :global(.review-container::-webkit-scrollbar) {
+        width: 8px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb:hover) {
+        background: rgba(255, 255, 255, 0.4);
     }
 
     :global(.review-item) {
@@ -173,7 +200,7 @@
     }
 
     .scrollable-content {
-        max-height: 120px;
+        max-height: 150px;
         overflow-y: auto;
         padding-right: 8px;
         margin-bottom: 4px;
@@ -203,7 +230,7 @@
         font-size: 12px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-        text-transform: uppercase;
+        text-transform: lowercase !important;
         letter-spacing: 0.05em;
     }
 
@@ -215,13 +242,14 @@
         line-height: 1.4;
     }
 
-    :global(.options-grid) {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-        margin-top: 12px;
-        padding-top: 12px;
-        padding-left: 12px;
+    :global(.options-row) {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+        margin-top: auto;  /* Push to bottom of flex container */
+        padding-top: 6px;
+        padding-left: 8px;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 
@@ -233,19 +261,6 @@
         font-size: 12px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-    }
-
-    :global(.checkbox-label:first-child) {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    :global(.checkbox-label:last-child) {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding-left: 35px;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {

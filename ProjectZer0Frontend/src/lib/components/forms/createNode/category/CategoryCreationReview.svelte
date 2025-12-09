@@ -5,12 +5,11 @@
     import { fetchWithAuth } from '$lib/services/api';
     import MessageDisplay from '../shared/MessageDisplay.svelte';
 
-    export let selectedWordIds: string[] = [];  // Word texts (lowercase)
+    export let selectedWordIds: string[] = [];
     export let parentCategoryId: string | null = null;
     export let discussion = '';
     export let publicCredit = false;
     
-    export let positioning: Record<string, number> = {};
     export let width: number = 400;
     export let height: number = 400;
     
@@ -24,7 +23,17 @@
         expandCategory: { categoryId: string; categoryName: string; };
     }>();
     
-    // Category name is just the words joined with spaces
+    // ============================================================================
+    // CATEGORY REVIEW LAYOUT CONFIGURATION
+    // ============================================================================
+    // Component-specific overrides to maximize space, matching StatementReview
+    const LAYOUT = {
+        startY: 0.0,        // Start at very top (no gap)
+        heightRatio: 1.0,   // Use full available height
+        widthRatio: 1.0     // Use full available width
+    };
+    // ============================================================================
+    
     $: categoryName = selectedWordIds.join(' ');
     
     export async function handleSubmit() {
@@ -38,9 +47,8 @@
         errorMessage = null;
 
         try {
-            // Send word texts (lowercase) - these ARE the IDs
             const categoryData = {
-                wordIds: selectedWordIds,  // Word texts, not UUIDs
+                wordIds: selectedWordIds,
                 parentCategoryId: parentCategoryId || undefined,
                 initialComment: discussion || undefined,
                 publicCredit
@@ -83,9 +91,9 @@
         }
     }
     
-    $: reviewContainerY = height * (positioning.reviewContainer || 0.05);
-    $: reviewContainerHeight = Math.max(200, height * (positioning.reviewContainerHeight || 0.85));
-    $: reviewContainerWidth = Math.min(560, width * 1.0);
+    $: reviewContainerY = height * LAYOUT.startY;
+    $: reviewContainerHeight = height * LAYOUT.heightRatio;
+    $: reviewContainerWidth = width * LAYOUT.widthRatio;
 </script>
 
 <g>
@@ -97,14 +105,14 @@
     >
         <div class="review-container">
             <div class="review-item name-item">
-                <span class="label">Category Name:</span>
+                <span class="label">category name</span>
                 <div class="category-name">
                     {categoryName}
                 </div>
             </div>
             
             <div class="review-item">
-                <span class="label">Composed of Words:</span>
+                <span class="label">composed of words</span>
                 <div class="words-list">
                     {#each selectedWordIds as word}
                         <span class="word-chip">{word}</span>
@@ -114,14 +122,15 @@
             
             {#if discussion}
                 <div class="review-item">
-                    <span class="label">Discussion:</span>
+                    <span class="label">discussion</span>
                     <div class="scrollable-content">
                         <span class="value">{discussion}</span>
                     </div>
                 </div>
             {/if}
 
-            <div class="options-grid">
+            <!-- Options row - single line -->
+            <div class="options-row">
                 <label class="checkbox-label">
                     <input
                         type="checkbox"
@@ -143,13 +152,33 @@
 
 <style>
     :global(.review-container) {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 16px;
+        padding: 0px 6px 4px 6px;  /* Match StatementReview minimal padding */
         display: flex;
         flex-direction: column;
-        gap: 16px;
-        max-height: 100%;
+        gap: 8px;
         overflow-y: auto;
+    }
+
+    :global(.review-container::-webkit-scrollbar) {
+        width: 8px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb:hover) {
+        background: rgba(255, 255, 255, 0.4);
     }
 
     :global(.review-item) {
@@ -175,7 +204,7 @@
     }
 
     .scrollable-content {
-        max-height: 120px;
+        max-height: 150px;
         overflow-y: auto;
         padding-right: 8px;
         margin-bottom: 4px;
@@ -205,7 +234,7 @@
         font-size: 12px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-        text-transform: uppercase;
+        text-transform: lowercase !important;
         letter-spacing: 0.05em;
     }
 
@@ -235,13 +264,14 @@
         font-weight: 400;
     }
 
-    :global(.options-grid) {
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 8px;
-        margin-top: 12px;
-        padding-top: 12px;
-        padding-left: 12px;
+    :global(.options-row) {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+        margin-top: auto;  /* Push to bottom of flex container */
+        padding-top: 6px;
+        padding-left: 8px;
         border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 
@@ -263,6 +293,7 @@
         background: rgba(0, 0, 0, 0.9);
         cursor: pointer;
         appearance: none;
+        -webkit-appearance: none;
         position: relative;
         flex-shrink: 0;
     }

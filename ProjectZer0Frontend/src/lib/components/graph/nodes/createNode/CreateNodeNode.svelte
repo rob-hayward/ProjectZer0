@@ -699,7 +699,7 @@
                         definitionText={formData.definitionText}
                         discussion={formData.discussion}
                         publicCredit={formData.publicCredit}
-                        {positioning}        
+                         
                         {width}              
                         height={formHeight}  
                         disabled={isLoading}

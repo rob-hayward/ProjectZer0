@@ -171,8 +171,8 @@
                 </div>
             {/if}
 
-            <!-- Options grid -->
-            <div class="options-grid">
+            <!-- Options row - single line -->
+            <div class="options-row">
                 <label class="checkbox-label">
                     <input
                         type="checkbox"
@@ -207,7 +207,7 @@
         height: 100%;
         box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 0px 6px 4px 6px;  
+        padding: 0px 6px 4px 6px;  /* Reduced from 0px 10px 8px 10px */
         display: flex;
         flex-direction: column;
         gap: 8px;
@@ -239,7 +239,7 @@
     }
 
     .scrollable-content {
-        max-height: 55px;
+        max-height: 100px;
         overflow-y: auto;
         padding-right: 6px;
         margin-bottom: 2px;
@@ -317,13 +317,15 @@
         font-weight: 400;
     }
 
-    :global(.options-grid) {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px;
-        margin-top: 2px;
+    :global(.options-row) {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+        margin-top: auto;  /* Push to bottom of flex container */
         padding-top: 6px;
         padding-left: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     :global(.checkbox-label) {
@@ -334,19 +336,6 @@
         font-size: 9px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-    }
-
-    :global(.checkbox-label:first-child) {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-    }
-
-    :global(.checkbox-label:last-child) {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        padding-left: 0px;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {

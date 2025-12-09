@@ -313,7 +313,7 @@ TO ADJUST POSITIONING:
             },
             preview: {
                 contentText: {
-                    text: 0.0,
+                    text: 0.2,
                     textHeight: 1.0
                 },
                 inclusionVoting: {
@@ -350,7 +350,7 @@ TO ADJUST POSITIONING:
             },
             preview: {
                 contentText: {
-                    text: 0.0,
+                    text: 0.2,
                     textHeight: 1.0
                 },
                 inclusionVoting: {
@@ -397,7 +397,7 @@ TO ADJUST POSITIONING:
             preview: {
                 contentText: {
                     text: 0.0,
-                    textHeight: 0.70,
+                    textHeight: 0.20,
                     typeBadge: 0.75
                 },
                 inclusionVoting: {
