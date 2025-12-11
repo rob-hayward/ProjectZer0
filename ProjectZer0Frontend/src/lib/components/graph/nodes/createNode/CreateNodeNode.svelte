@@ -74,6 +74,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandOpenQuestion: {
+            questionId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -119,6 +124,25 @@
                 y: node.position?.y || 0
             }
         });
+    }
+
+    function handleOpenQuestionCreated(event: CustomEvent<{ questionId: string }>) {
+        console.log('[CreateNodeNode] OpenQuestion created, forwarding with source context:', {
+            questionId: event.detail.questionId,
+            nodeId: node.id,
+            position: node.position
+        });
+        
+        dispatch('expandOpenQuestion', {
+            questionId: event.detail.questionId,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+        
+        console.log('[CreateNodeNode] expandOpenQuestion event dispatched to parent');
     }
     
     let currentStep = 1;
@@ -770,6 +794,9 @@
                     {#if currentStep === 2}
                         <OpenQuestionInput
                             bind:questionText={formData.questionText}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -812,10 +839,10 @@
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
-                            disabled={isLoading}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
+                            on:expandOpenQuestion={handleOpenQuestionCreated}
                         />
                     {/if}
                 {:else if formData.nodeType === 'quantity'}

@@ -74,8 +74,13 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
-          expandStatement: {  // ← ADD THIS ENTIRE BLOCK
+          expandStatement: {  
             statementId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandOpenQuestion: {
+            questionId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -611,6 +616,22 @@
         console.log('[Graph] Statement expansion event forwarded to parent page');
     }
 
+    function handleExpandOpenQuestion(event: CustomEvent<{
+        questionId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] OpenQuestion expansion event received:', {
+            questionId: event.detail.questionId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandOpenQuestion', event.detail);
+        
+        console.log('[Graph] OpenQuestion expansion event forwarded to parent page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -946,6 +967,7 @@
                                     on:expandCategory={handleExpandCategory}
                                     on:expandWord={handleExpandWord}
                                     on:expandStatement={handleExpandStatement}
+                                    on:expandOpenQuestion={handleExpandOpenQuestion}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}

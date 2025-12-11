@@ -29,6 +29,7 @@
     import { fetchCategoryExpansion, type CategoryExpansionResponse } from '$lib/services/graph/CategoryExpansionService';
     import { fetchWordExpansion, type WordExpansionResponse } from '$lib/services/graph/WordExpansionService';
     import { fetchStatementExpansion, type StatementExpansionResponse } from '$lib/services/graph/StatementExpansionService';
+    import { fetchOpenQuestionExpansion, type OpenQuestionExpansionResponse } from '$lib/services/graph/OpenQuestionExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -1825,6 +1826,136 @@ async function handleExpandStatement(event: CustomEvent<{
     }
 }
 
+async function handleExpandOpenQuestion(event: CustomEvent<{
+    questionId: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { questionId, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] OpenQuestion expansion requested:', {
+        questionId, sourceNodeId, sourcePosition
+    });
+    
+    try {
+        // Check if already exists
+        const existingNode = graphData.nodes.find(n => 
+            n.type === 'openquestion' && n.id === questionId
+        );
+        
+        if (existingNode) {
+            console.log('[UNIVERSAL-PAGE] OpenQuestion already exists, centering:', questionId);
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(questionId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] OpenQuestion not in graph, fetching expansion data...');
+        
+        // Fetch data
+        const expansionData = await fetchOpenQuestionExpansion(questionId);
+        const questionApiNode = expansionData.nodes[0];
+        
+        if (!questionApiNode) {
+            console.error('[UNIVERSAL-PAGE] No question node in expansion response');
+            return;
+        }
+        
+        // Extract question text (try multiple field names)
+        const questionText = (questionApiNode as any).questionText || 
+                            (questionApiNode as any).content || 
+                            (questionApiNode as any).text || 
+                            '';
+        
+        if (!questionText) {
+            console.error('[UNIVERSAL-PAGE] No question text found! Available fields:', 
+                Object.keys(questionApiNode));
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Question text extracted:', questionText.substring(0, 50) + '...');
+        
+        // Calculate position
+        const questionPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes as any[],
+            150
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Calculated position:', questionPosition);
+        
+        // Transform to GraphNode
+        const questionGraphNode: GraphNode = {
+            id: questionApiNode.id,
+            type: 'openquestion' as NodeType,
+            data: {
+                id: questionApiNode.id,
+                questionText: questionText,
+                answerCount: (questionApiNode as any).metadata?.answer_count || 0,
+                createdBy: (questionApiNode as any).created_by || 
+                          (questionApiNode as any).createdBy || '',
+                publicCredit: (questionApiNode as any).public_credit ?? 
+                             (questionApiNode as any).publicCredit ?? true,
+                createdAt: (questionApiNode as any).created_at || 
+                          (questionApiNode as any).createdAt || new Date().toISOString(),
+                updatedAt: (questionApiNode as any).updated_at || 
+                          (questionApiNode as any).updatedAt,
+                keywords: (questionApiNode as any).keywords || [],
+                categories: (questionApiNode as any).categories || [],
+                positiveVotes: (questionApiNode as any).metadata?.votes?.positive || 0,
+                negativeVotes: (questionApiNode as any).metadata?.votes?.negative || 0,
+                netVotes: (questionApiNode as any).metadata?.votes?.net || 0
+            },
+            group: 'openquestion' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'openquestion' as any,
+                initialPosition: questionPosition,
+                net_votes: (questionApiNode as any).metadata?.votes?.net || 0,
+                answer_count: (questionApiNode as any).metadata?.answer_count || 0,
+                participant_count: (questionApiNode as any).participant_count || 0
+            }
+        };
+        
+        console.log('[UNIVERSAL-PAGE] ✅ Created question node:', {
+            questionId: questionGraphNode.id,
+            questionText: questionText.substring(0, 50) + '...',
+            position: questionPosition
+        });
+        
+        // Create expanded graph data
+        if (graphStore) {
+            const expandedGraphData: GraphData = {
+                nodes: [...graphData.nodes, questionGraphNode],
+                links: [...graphData.links]
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding question via updateState...', {
+                previousNodeCount: graphData.nodes.length,
+                newNodeCount: expandedGraphData.nodes.length
+            });
+            
+            // Use updateState with 0.6 wake power
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.6);
+            } else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(expandedGraphData);
+            }
+        }
+        
+        // Wait for positioning then center
+        waitForNodePositionAndCenter(graphStore, questionGraphNode.id, 20, 100, 750);
+        
+        console.log('[UNIVERSAL-PAGE] OpenQuestion expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding openquestion:', error);
+    }
+}
+
 /**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
@@ -2093,6 +2224,7 @@ function calculateDefinitionRing(
         on:expandCategory={handleExpandCategory}
         on:expandWord={handleExpandWord}
         on:expandStatement={handleExpandStatement}
+        on:expandOpenQuestion={handleExpandOpenQuestion}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}
@@ -2148,6 +2280,7 @@ function calculateDefinitionRing(
         on:expandWord={handleExpandWord}
         on:expandCategory={handleExpandCategory}
         on:expandStatement={handleExpandStatement}
+        on:expandOpenQuestion={handleExpandOpenQuestion}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 
