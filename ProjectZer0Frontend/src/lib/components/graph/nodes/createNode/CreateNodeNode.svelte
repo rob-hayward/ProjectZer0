@@ -79,6 +79,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandQuantity: {
+            quantityId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -143,6 +148,25 @@
         });
         
         console.log('[CreateNodeNode] expandOpenQuestion event dispatched to parent');
+    }
+
+    function handleQuantityCreated(event: CustomEvent<{ quantityId: string }>) {
+        console.log('[CreateNodeNode] Quantity created, forwarding with source context:', {
+            quantityId: event.detail.quantityId,
+            nodeId: node.id,
+            position: node.position
+        });
+        
+        dispatch('expandQuantity', {
+            quantityId: event.detail.quantityId,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+        
+        console.log('[CreateNodeNode] expandQuantity event dispatched to parent');
     }
     
     let currentStep = 1;
@@ -909,9 +933,12 @@
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
+                            {width}             
+                            height={formHeight}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
+                            on:expandQuantity={handleQuantityCreated}
                         />
                     {/if}
                 {:else if formData.nodeType === 'answer'}

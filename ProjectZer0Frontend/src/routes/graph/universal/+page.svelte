@@ -30,6 +30,7 @@
     import { fetchWordExpansion, type WordExpansionResponse } from '$lib/services/graph/WordExpansionService';
     import { fetchStatementExpansion, type StatementExpansionResponse } from '$lib/services/graph/StatementExpansionService';
     import { fetchOpenQuestionExpansion, type OpenQuestionExpansionResponse } from '$lib/services/graph/OpenQuestionExpansionService';
+    import { fetchQuantityExpansion, type QuantityExpansionResponse } from '$lib/services/graph/QuantityExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -1956,6 +1957,137 @@ async function handleExpandOpenQuestion(event: CustomEvent<{
     }
 }
 
+async function handleExpandQuantity(event: CustomEvent<{
+    quantityId: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { quantityId, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Quantity expansion requested:', {
+        quantityId, sourceNodeId, sourcePosition
+    });
+    
+    try {
+        // Check if already exists
+        const existingNode = graphData.nodes.find(n => 
+            n.type === 'quantity' && n.id === quantityId
+        );
+        
+        if (existingNode) {
+            console.log('[UNIVERSAL-PAGE] Quantity already exists, centering:', quantityId);
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(quantityId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Quantity not in graph, fetching expansion data...');
+        
+        // Fetch data
+        const expansionData = await fetchQuantityExpansion(quantityId);
+        const quantityApiNode = expansionData.nodes[0];
+        
+        if (!quantityApiNode) {
+            console.error('[UNIVERSAL-PAGE] No quantity node in expansion response');
+            return;
+        }
+        
+        // Extract question text (try multiple field names)
+        const questionText = (quantityApiNode as any).question || 
+                            (quantityApiNode as any).content || 
+                            (quantityApiNode as any).text || 
+                            '';
+        
+        if (!questionText) {
+            console.error('[UNIVERSAL-PAGE] No question text found! Available fields:', 
+                Object.keys(quantityApiNode));
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Question text extracted:', questionText.substring(0, 50) + '...');
+        
+        // Calculate position
+        const quantityPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes as any[],
+            150
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Calculated position:', quantityPosition);
+        
+        // Transform to GraphNode
+        const quantityGraphNode: GraphNode = {
+            id: quantityApiNode.id,
+            type: 'quantity' as NodeType,
+            data: {
+                id: quantityApiNode.id,
+                question: questionText,
+                unitCategoryId: (quantityApiNode as any).unitCategoryId || null,
+                defaultUnitId: (quantityApiNode as any).defaultUnitId || null,
+                responses: (quantityApiNode as any).metadata?.responses || {},
+                createdBy: (quantityApiNode as any).created_by || 
+                          (quantityApiNode as any).createdBy || '',
+                publicCredit: (quantityApiNode as any).public_credit ?? 
+                             (quantityApiNode as any).publicCredit ?? true,
+                createdAt: (quantityApiNode as any).created_at || 
+                          (quantityApiNode as any).createdAt || new Date().toISOString(),
+                updatedAt: (quantityApiNode as any).updated_at || 
+                          (quantityApiNode as any).updatedAt,
+                keywords: (quantityApiNode as any).keywords || [],
+                categories: (quantityApiNode as any).categories || [],
+                positiveVotes: (quantityApiNode as any).metadata?.votes?.positive || 0,
+                negativeVotes: (quantityApiNode as any).metadata?.votes?.negative || 0,
+                netVotes: (quantityApiNode as any).metadata?.votes?.net || 0
+            },
+            group: 'quantity' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'quantity' as any,
+                initialPosition: quantityPosition,
+                net_votes: (quantityApiNode as any).metadata?.votes?.net || 0,
+                participant_count: (quantityApiNode as any).participant_count || 0
+            }
+        };
+        
+        console.log('[UNIVERSAL-PAGE] ✅ Created quantity node:', {
+            quantityId: quantityGraphNode.id,
+            questionText: questionText.substring(0, 50) + '...',
+            position: quantityPosition
+        });
+        
+        // Create expanded graph data
+        if (graphStore) {
+            const expandedGraphData: GraphData = {
+                nodes: [...graphData.nodes, quantityGraphNode],
+                links: [...graphData.links]
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding quantity via updateState...', {
+                previousNodeCount: graphData.nodes.length,
+                newNodeCount: expandedGraphData.nodes.length
+            });
+            
+            // Use updateState with 0.6 wake power
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(expandedGraphData, 0.6);
+            } else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(expandedGraphData);
+            }
+        }
+        
+        // Wait for positioning then center
+        waitForNodePositionAndCenter(graphStore, quantityGraphNode.id, 20, 100, 750);
+        
+        console.log('[UNIVERSAL-PAGE] Quantity expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding quantity:', error);
+    }
+}
+
 /**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
@@ -2225,6 +2357,7 @@ function calculateDefinitionRing(
         on:expandWord={handleExpandWord}
         on:expandStatement={handleExpandStatement}
         on:expandOpenQuestion={handleExpandOpenQuestion}
+        on:expandQuantity={handleExpandQuantity}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}

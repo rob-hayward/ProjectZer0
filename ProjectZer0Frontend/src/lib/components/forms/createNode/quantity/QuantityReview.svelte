@@ -1,9 +1,7 @@
 <!-- ProjectZer0Frontend/src/lib/components/forms/createNode/quantity/QuantityReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
-    import { graphStore } from '$lib/stores/graphStore';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
 
     export let question = '';
@@ -32,6 +30,7 @@
         back: void;
         success: { message: string; question: string; };
         error: { message: string; };
+        expandQuantity: { quantityId: string; };
     }>();
     
     onMount(async () => {
@@ -127,14 +126,8 @@
             
             console.log('[QuantityReview] Response:', createdQuantity);
 
-            if (browser && graphStore) {
-                if (graphStore.forceTick) {
-                    try {
-                        graphStore.forceTick();
-                    } catch (e) {
-                        console.warn('[QuantityReview] Error forcing tick:', e);
-                    }
-                }
+            if (!createdQuantity?.id) {
+                throw new Error('Created quantity data is incomplete');
             }
 
             const successMsg = `Quantity node created successfully`;
@@ -144,21 +137,18 @@
             });
             
             successMessage = successMsg;
-
+            
+            // Dispatch expand event for universal graph
             setTimeout(() => {
-                if (browser) {
-                    const targetUrl = `/graph/quantity?id=${encodeURIComponent(createdQuantity.id)}`;
-                    console.log('[QuantityReview] Navigating to:', targetUrl);
-                    
-                    window.location.href = targetUrl;
-                }
-            }, 800);
+                console.log('[QuantityReview] Dispatching expandQuantity event');
+                dispatch('expandQuantity', {
+                    quantityId: createdQuantity.id
+                });
+            }, 500);
 
         } catch (e) {
-            if (browser) {
-                console.error('[QuantityReview] Error:', e);
-                console.error('[QuantityReview] Error details:', e instanceof Error ? e.stack : 'Unknown error');
-            }
+            console.error('[QuantityReview] Error:', e);
+            console.error('[QuantityReview] Error details:', e instanceof Error ? e.stack : 'Unknown error');
             errorMessage = e instanceof Error ? e.message : 'Failed to create quantity node';
             dispatch('error', { message: errorMessage });
         } finally {

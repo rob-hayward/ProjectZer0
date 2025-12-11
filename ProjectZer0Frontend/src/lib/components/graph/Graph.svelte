@@ -84,6 +84,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandQuantity: {
+            quantityId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // DOM references
@@ -632,6 +637,22 @@
         console.log('[Graph] OpenQuestion expansion event forwarded to parent page');
     }
 
+    function handleExpandQuantity(event: CustomEvent<{
+        quantityId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Quantity expansion event received:', {
+            quantityId: event.detail.quantityId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandQuantity', event.detail);
+        
+        console.log('[Graph] Quantity expansion event forwarded to parent page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -968,6 +989,7 @@
                                     on:expandWord={handleExpandWord}
                                     on:expandStatement={handleExpandStatement}
                                     on:expandOpenQuestion={handleExpandOpenQuestion}
+                                    on:expandQuantity={handleExpandQuantity}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
