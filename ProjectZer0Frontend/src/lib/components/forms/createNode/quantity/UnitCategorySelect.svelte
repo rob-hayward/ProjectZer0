@@ -1,14 +1,29 @@
 <!-- src/lib/components/forms/createNode/quantity/UnitCategorySelect.svelte -->
+<!--
+POSITIONING ARCHITECTURE:
+- This component is POSITIONALLY DUMB - all coordinates come from ContentBox
+- Receives: positioning (fractions), width, height from parent via ContentBox
+- Coordinate system: LEFT-EDGE X, TOP Y
+  • X origin: Left edge of contentText section (after padding)
+  • Y origin: TOP of contentText section
+  • X: Standard left-to-right (0 = left edge, positive = right)
+  • Y: Top-origin (0 = top, 0.5 = middle, 1.0 = bottom)
+- Calculate absolute Y positions as: y = height * positioning.element
+- ContentBox is the SINGLE SOURCE OF TRUTH - adjust values there, not here
+-->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
-    import { FORM_STYLES } from '$lib/styles/forms';
-    import FormNavigation from '../shared/FormNavigation.svelte';
     import { fetchWithAuth } from '$lib/services/api';
     
     // Unit selection
     export let unitCategoryId = '';
     export let defaultUnitId = '';
     export let disabled = false;
+    
+    // POSITIONING: Received from ContentBox via CreateNodeNode
+    export let positioning: Record<string, number> = {};
+    export let width: number = 400;
+    export let height: number = 400;
     
     // Add flags to track if validation errors should be shown
     let showCategoryValidationError = false;
@@ -75,34 +90,42 @@
         }
     }
     
-    // Attempt to proceed - check validation first
-    function attemptProceed() {
-        if (isValid) {
-            dispatch('proceed');
-        } else {
-            // Only show validation errors when user tries to proceed
-            showCategoryValidationError = !isCategoryValid;
-            showUnitValidationError = !isUnitValid;
-        }
-    }
+    // Calculate Y positions using positioning config
+    $: categoryLabelY = height * (positioning.categoryLabel || 0.10);
+    $: categoryDropdownY = height * (positioning.categoryDropdown || 0.16);
+    $: categoryDropdownHeight = Math.max(40, height * (positioning.categoryDropdownHeight || 0.10));
+    $: categoryValidationY = categoryDropdownY + categoryDropdownHeight + 8;
+    
+    $: unitLabelY = height * (positioning.unitLabel || 0.35);
+    $: unitDropdownY = height * (positioning.unitDropdown || 0.41);
+    $: unitDropdownHeight = Math.max(40, height * (positioning.unitDropdownHeight || 0.10));
+    $: unitValidationY = unitDropdownY + unitDropdownHeight + 8;
+    
+    $: helpText1Y = height * (positioning.helpText1 || 0.60);
+    $: helpText2Y = height * (positioning.helpText2 || 0.65);
+    $: errorY = height * (positioning.error || 0.75);
+    
+    // Dropdown width (centered, responsive)
+    $: dropdownWidth = Math.min(340, width * 0.85);
 </script>
 
 <g>
     <!-- Category Label -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="-40"
+        x="0"
+        y={categoryLabelY}
         class="form-label"
+        text-anchor="middle"
     >
         Unit Category
     </text>
     
     <!-- Category Select -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y={FORM_STYLES.layout.verticalSpacing.labelToInput - 40}
-        width={FORM_STYLES.layout.fieldWidth}
-        height="40"
+        x={-dropdownWidth/2}
+        y={categoryDropdownY}
+        width={dropdownWidth}
+        height={categoryDropdownHeight}
     >
         <select 
             class="form-input select-input"
@@ -121,9 +144,10 @@
     <!-- Category Validation Message -->
     {#if showCategoryValidationError}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y={FORM_STYLES.layout.verticalSpacing.labelToInput}
+            x="0"
+            y={categoryValidationY}
             class="validation-message"
+            text-anchor="middle"
         >
             Unit category is required
         </text>
@@ -131,19 +155,20 @@
     
     <!-- Default Unit Label -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="50"
+        x="0"
+        y={unitLabelY}
         class="form-label"
+        text-anchor="middle"
     >
         Default Unit
     </text>
     
     <!-- Default Unit Select -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y={FORM_STYLES.layout.verticalSpacing.labelToInput + 50}
-        width={FORM_STYLES.layout.fieldWidth}
-        height="40"
+        x={-dropdownWidth/2}
+        y={unitDropdownY}
+        width={dropdownWidth}
+        height={unitDropdownHeight}
     >
         <select 
             class="form-input select-input"
@@ -161,9 +186,10 @@
     <!-- Unit Validation Message -->
     {#if showUnitValidationError}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y={FORM_STYLES.layout.verticalSpacing.labelToInput + 100}
+            x="0"
+            y={unitValidationY}
             class="validation-message"
+            text-anchor="middle"
         >
             Default unit is required
         </text>
@@ -171,16 +197,18 @@
     
     <!-- Help text -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="120"
+        x="0"
+        y={helpText1Y}
         class="help-text"
+        text-anchor="middle"
     >
         Choose the default unit for responses to your question.
     </text>
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="140"
+        x="0"
+        y={helpText2Y}
         class="help-text"
+        text-anchor="middle"
     >
         Users will still be able to respond using any unit in the same category.
     </text>
@@ -188,9 +216,10 @@
     <!-- Error Message -->
     {#if errorMessage}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y="170"
+            x="0"
+            y={errorY}
             class="error-message"
+            text-anchor="middle"
         >
             {errorMessage}
         </text>
@@ -199,73 +228,60 @@
     <!-- Loading Message -->
     {#if isLoading}
         <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y="170"
+            x="0"
+            y={errorY}
             class="loading-message"
+            text-anchor="middle"
         >
             Loading unit categories...
         </text>
     {/if}
-    
-    <!-- Navigation -->
-    <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields + 110})">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={attemptProceed}
-            nextDisabled={disabled || !isValid || isLoading}
-        />
-    </g>
 </g>
 
 <style>
     .form-label {
         font-size: 14px;
-        text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .validation-message {
         font-size: 12px;
-        text-anchor: start;
         fill: #ff4444;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .help-text {
-        font-size: 12px;
-        text-anchor: start;
+        font-size: 11px;
         fill: rgba(255, 255, 255, 0.5);
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .error-message {
         font-size: 12px;
-        text-anchor: start;
         fill: #ff4444;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .loading-message {
         font-size: 12px;
-        text-anchor: start;
         fill: #ffd700;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     :global(.select-input) {
         width: 100%;
-        background: rgba(0, 0, 0, 0.9);
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         color: white;
         padding: 8px;
-        font-family: 'Inter', sans-serif;  /* Changed from Orbitron */
+        font-family: 'Inter', sans-serif;
         font-size: 0.9rem;
         font-weight: 400;
         transition: all 0.2s ease;
@@ -285,8 +301,8 @@
     
     :global(.select-input:focus) {
         outline: none;
-        border: 3px solid rgba(255, 255, 255, 0.8);
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+        border-color: rgba(66, 153, 225, 0.6);
+        background: rgba(255, 255, 255, 0.08);
     }
     
     :global(.select-input.error) {

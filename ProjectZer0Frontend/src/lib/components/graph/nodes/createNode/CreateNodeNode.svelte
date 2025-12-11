@@ -833,6 +833,7 @@
                         />
                     {:else if currentStep === 6}
                         <OpenQuestionReview
+                            bind:this={openQuestionReviewComponent}
                             questionText={formData.questionText}
                             userKeywords={formData.userKeywords}
                             selectedCategories={formData.selectedCategories}
@@ -850,6 +851,9 @@
                         <UnitCategorySelect
                             bind:unitCategoryId={formData.unitCategoryId}
                             bind:defaultUnitId={formData.defaultUnitId}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -857,6 +861,9 @@
                     {:else if currentStep === 3}
                         <QuantityInput
                             bind:question={formData.question}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -893,6 +900,7 @@
                         />
                     {:else if currentStep === 7}
                         <QuantityReview
+                            bind:this={quantityReviewComponent}
                             question={formData.question}
                             unitCategoryId={formData.unitCategoryId}
                             defaultUnitId={formData.defaultUnitId}
@@ -901,7 +909,6 @@
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
-                            disabled={isLoading}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
