@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - WITH VISIBILITY BEHAVIOUR & CATEGORY EXPANSION -->
+<!-- src/lib/components/graph/nodes/NodeRenderer.svelte - WITH VISIBILITY BEHAVIOUR & ALL EXPANSION HANDLERS -->
 <script lang="ts">
     import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
     import { get } from 'svelte/store';
@@ -32,7 +32,7 @@
     let visibilityBehaviour: VisibilityBehaviour | null = null;
     let visibilityUnsubscribe: (() => void) | null = null;
     
-    // Event dispatcher for mode changes, visibility changes, discussions, linked nodes, and category expansion
+    // FIXED: Event dispatcher with ALL expansion event types
     const dispatch = createEventDispatcher<{
         modeChange: { 
             nodeId: string; 
@@ -56,8 +56,23 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
-         expandWord: { 
+        expandWord: { 
             word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandStatement: {
+            statementId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandOpenQuestion: {
+            questionId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandQuantity: {
+            quantityId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -231,7 +246,7 @@
         dispatch('answerQuestion', { questionId: questionId });
     }
     
-    // NEW: Handle category expansion
+    // Handle category expansion
     function handleExpandCategory(event: CustomEvent<{
         categoryId: string;
         categoryName: string;
@@ -245,12 +260,11 @@
             sourcePosition: event.detail.sourcePosition
         });
         
-        // Forward the event to Graph component
         dispatch('expandCategory', event.detail);
-        
         console.log('[NodeRenderer] Category expansion event forwarded to Graph');
     }
 
+    // Handle word expansion
     function handleExpandWord(event: CustomEvent<{
         word: string;
         sourceNodeId: string;
@@ -262,12 +276,57 @@
             sourcePosition: event.detail.sourcePosition
         });
         
-        // Forward the event to Graph component
         dispatch('expandWord', event.detail);
-        
         console.log('[NodeRenderer] Word expansion event forwarded to Graph');
     }
 
+    // NEW: Handle statement expansion
+    function handleExpandStatement(event: CustomEvent<{
+        statementId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Statement expansion event received:', {
+            statementId: event.detail.statementId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandStatement', event.detail);
+        console.log('[NodeRenderer] Statement expansion event forwarded to Graph');
+    }
+
+    // NEW: Handle openquestion expansion
+    function handleExpandOpenQuestion(event: CustomEvent<{
+        questionId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] OpenQuestion expansion event received:', {
+            questionId: event.detail.questionId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandOpenQuestion', event.detail);
+        console.log('[NodeRenderer] OpenQuestion expansion event forwarded to Graph');
+    }
+
+    // NEW: Handle quantity expansion
+    function handleExpandQuantity(event: CustomEvent<{
+        quantityId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Quantity expansion event received:', {
+            quantityId: event.detail.quantityId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandQuantity', event.detail);
+        console.log('[NodeRenderer] Quantity expansion event forwarded to Graph');
+    }
     
     // Position information from node
     $: posX = node.position.x;
@@ -459,14 +518,17 @@
             on:modeChange={handleModeChange}
         />
     {:else}
-        <!-- Render regular node using slot -->
+        <!-- Render regular node using slot - FIXED: Pass all expansion handlers -->
         <slot 
             {node}
             nodeX={posX}
             nodeY={posY}
             handleModeChange={handleModeChange}
             handleExpandCategory={handleExpandCategory}
-            handleExpandWord={handleExpandWord} 
+            handleExpandWord={handleExpandWord}
+            handleExpandStatement={handleExpandStatement}
+            handleExpandOpenQuestion={handleExpandOpenQuestion}
+            handleExpandQuantity={handleExpandQuantity}
         />
     
         <!-- Add show/hide button to qualifying nodes -->

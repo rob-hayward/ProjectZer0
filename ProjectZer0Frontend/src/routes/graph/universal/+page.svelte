@@ -2414,6 +2414,7 @@ function calculateDefinitionRing(
         on:expandCategory={handleExpandCategory}
         on:expandStatement={handleExpandStatement}
         on:expandOpenQuestion={handleExpandOpenQuestion}
+        on:expandQuantity={handleExpandQuantity}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 

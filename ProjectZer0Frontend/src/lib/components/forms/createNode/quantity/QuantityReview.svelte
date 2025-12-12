@@ -90,18 +90,37 @@
     $: reviewContainerWidth = width * LAYOUT.widthRatio;
 
     export async function handleSubmit() {
+        console.log('[QuantityReview] 🔍 DIAGNOSTIC - handleSubmit called!', {
+            question: question.substring(0, 50),
+            questionLength: question.length,
+            unitCategoryId,
+            defaultUnitId,
+            userKeywords,
+            selectedCategories,
+            discussion: discussion.substring(0, 30),
+            publicCredit,
+            userId
+        });
+        
+        // Validation checks
         if (!question.trim()) {
+            console.error('[QuantityReview] ❌ VALIDATION FAILED - No question text');
             errorMessage = "Question text is required";
             dispatch('error', { message: errorMessage });
             return;
         }
         
         if (!unitCategoryId || !defaultUnitId) {
+            console.error('[QuantityReview] ❌ VALIDATION FAILED - Missing unit info', {
+                unitCategoryId,
+                defaultUnitId
+            });
             errorMessage = "Unit category and default unit are required";
             dispatch('error', { message: errorMessage });
             return;
         }
 
+        console.log('[QuantityReview] ✅ Validation passed, starting submission...');
         isSubmitting = true;
         errorMessage = null;
 
@@ -117,20 +136,23 @@
                 publicCredit
             };
             
-            console.log('[QuantityReview] Submitting:', quantityData);
+            console.log('[QuantityReview] 📤 Submitting to API:', quantityData);
             
             const createdQuantity = await fetchWithAuth('/nodes/quantity', {
                 method: 'POST',
                 body: JSON.stringify(quantityData),
             });
             
-            console.log('[QuantityReview] Response:', createdQuantity);
+            console.log('[QuantityReview] 📥 API Response:', createdQuantity);
 
             if (!createdQuantity?.id) {
+                console.error('[QuantityReview] ❌ Invalid response - no ID:', createdQuantity);
                 throw new Error('Created quantity data is incomplete');
             }
 
             const successMsg = `Quantity node created successfully`;
+            console.log('[QuantityReview] ✅ Success! Dispatching events...');
+            
             dispatch('success', {
                 message: successMsg,
                 question: question
@@ -140,19 +162,21 @@
             
             // Dispatch expand event for universal graph
             setTimeout(() => {
-                console.log('[QuantityReview] Dispatching expandQuantity event');
+                console.log('[QuantityReview] 🚀 Dispatching expandQuantity event with ID:', createdQuantity.id);
                 dispatch('expandQuantity', {
                     quantityId: createdQuantity.id
                 });
+                console.log('[QuantityReview] ✅ expandQuantity event dispatched');
             }, 500);
 
         } catch (e) {
-            console.error('[QuantityReview] Error:', e);
-            console.error('[QuantityReview] Error details:', e instanceof Error ? e.stack : 'Unknown error');
+            console.error('[QuantityReview] ❌ Error during submission:', e);
+            console.error('[QuantityReview] Error stack:', e instanceof Error ? e.stack : 'Unknown error');
             errorMessage = e instanceof Error ? e.message : 'Failed to create quantity node';
             dispatch('error', { message: errorMessage });
         } finally {
             isSubmitting = false;
+            console.log('[QuantityReview] 🏁 Submission complete, isSubmitting:', isSubmitting);
         }
     }
 </script>

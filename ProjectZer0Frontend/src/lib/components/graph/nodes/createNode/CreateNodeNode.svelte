@@ -601,29 +601,73 @@
     }
 
     function handleNext() {
+        console.log('[CreateNodeNode] 🔍 DIAGNOSTIC - handleNext called', {
+            isNextButtonDisabled,
+            isFinalStep,
+            currentStep,
+            maxSteps,
+            nodeType: formData.nodeType,
+            hasQuantityComponent: !!quantityReviewComponent,
+            questionData: {
+                question: formData.question?.substring(0, 50),
+                unitCategoryId: formData.unitCategoryId,
+                defaultUnitId: formData.defaultUnitId
+            }
+        });
+        
         if (isNextButtonDisabled) {
-            console.log('[CreateNodeNode] Button click ignored - disabled');
+            console.log('[CreateNodeNode] ❌ Button click ignored - disabled');
             return;
         }
         
         if (isFinalStep) {
+            console.log('[CreateNodeNode] ✅ Is final step, checking node type...');
+            
             if (formData.nodeType === 'word' && wordReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling wordReviewComponent.handleSubmit()');
                 wordReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'statement' && statementReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling statementReviewComponent.handleSubmit()');
                 statementReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'openquestion' && openQuestionReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling openQuestionReviewComponent.handleSubmit()');
                 openQuestionReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'quantity' && quantityReviewComponent) {
-                quantityReviewComponent.handleSubmit();
+                console.log('[CreateNodeNode] 🎯 Calling quantityReviewComponent.handleSubmit()');
+                try {
+                    quantityReviewComponent.handleSubmit();
+                    console.log('[CreateNodeNode] ✅ handleSubmit call completed (may be async)');
+                } catch (error) {
+                    console.error('[CreateNodeNode] ❌ Error calling handleSubmit:', error);
+                }
             } else if (formData.nodeType === 'answer' && answerReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling answerReviewComponent.handleSubmit()');
                 answerReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'evidence' && evidenceReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling evidenceReviewComponent.handleSubmit()');
                 evidenceReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'category' && categoryReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling categoryReviewComponent.handleSubmit()');
                 categoryReviewComponent.handleSubmit();
+            } else {
+                console.error('[CreateNodeNode] ❌ No matching component or component is undefined!', {
+                    nodeType: formData.nodeType,
+                    availableComponents: {
+                        word: !!wordReviewComponent,
+                        statement: !!statementReviewComponent,
+                        openquestion: !!openQuestionReviewComponent,
+                        quantity: !!quantityReviewComponent,
+                        answer: !!answerReviewComponent,
+                        evidence: !!evidenceReviewComponent,
+                        category: !!categoryReviewComponent
+                    }
+                });
             }
             return;
         }
+        
+        // Not final step - proceed to next
+        console.log('[CreateNodeNode] ⏭️ Not final step, proceeding to next step');
         
         if (currentStep === 2 && formData.nodeType === 'word') {
             checkWordAndProceed();
@@ -633,6 +677,7 @@
         if (currentStep < maxSteps) {
             currentStep++;
             errorMessage = null;
+            console.log('[CreateNodeNode] ✅ Advanced to step', currentStep);
         }
     }
 
