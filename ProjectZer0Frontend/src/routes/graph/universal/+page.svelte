@@ -31,6 +31,7 @@
     import { fetchStatementExpansion, type StatementExpansionResponse } from '$lib/services/graph/StatementExpansionService';
     import { fetchOpenQuestionExpansion, type OpenQuestionExpansionResponse } from '$lib/services/graph/OpenQuestionExpansionService';
     import { fetchQuantityExpansion, type QuantityExpansionResponse } from '$lib/services/graph/QuantityExpansionService';
+    import { fetchAnswerExpansion } from '$lib/services/graph/AnswerExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -2089,6 +2090,222 @@ async function handleExpandQuantity(event: CustomEvent<{
 }
 
 /**
+ * Handle answer question - create contextual answer creation node
+ */
+function handleAnswerQuestion(event: CustomEvent<{
+    questionId: string;
+    questionText: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { questionId, questionText, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Answer question requested:', {
+        questionId,
+        questionText: questionText.substring(0, 50) + '...',
+        sourcePosition
+    });
+    
+    // Generate unique ID for the answer creation node
+    const answerCreationNodeId = `create-answer-${questionId}-${Date.now()}`;
+    
+    // Calculate position near the question node
+    const answerFormPosition = calculateProximalPosition(
+        sourcePosition,
+        graphData.nodes as any[],
+        150
+    );
+    
+    console.log('[UNIVERSAL-PAGE] Calculated answer form position:', answerFormPosition);
+    
+    // Create contextual CreateNodeNode configured for answer creation
+   const answerCreationNode: GraphNode = {
+        id: answerCreationNodeId,
+        type: 'create-node' as NodeType,
+        data: $userStore!,
+        group: 'content' as any,  // ← CHANGED: Use content group to allow positioning
+        mode: 'detail' as NodeMode,
+        metadata: {
+            group: 'content' as any,  // ← CHANGED
+            initialPosition: answerFormPosition,
+            contextualConfig: {
+                nodeType: 'answer',
+                parentNodeId: questionId,
+                parentNodeType: 'openquestion',
+                parentDisplayText: questionText,
+                parentPosition: sourcePosition
+            }
+        } as any
+    };
+    
+    console.log('[UNIVERSAL-PAGE] Created contextual answer creation node:', {
+        nodeId: answerCreationNodeId,
+        position: answerFormPosition,
+        contextualConfig: (answerCreationNode.metadata as any)?.contextualConfig
+    });
+    
+    // Add the answer creation node to the graph
+    const expandedGraphData: GraphData = {  // ← CHANGED: Added type annotation
+        nodes: [...graphData.nodes, answerCreationNode],
+        links: [...graphData.links]
+    };
+    
+    // Update graph with modest wake power (form node is interactive)
+    if (graphStore && typeof (graphStore as any).updateState === 'function') {
+        console.log('[UNIVERSAL-PAGE] Calling updateState with 0.4 wake power');
+        (graphStore as any).updateState(expandedGraphData, 0.4);  // ← CHANGED: Use graphStore.updateState
+    } else {
+        console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+        graphStore?.setData(expandedGraphData);
+    }
+    
+    console.log('[UNIVERSAL-PAGE] Answer creation node added to graph');
+    
+    // Center viewport on the new form node
+    setTimeout(() => {
+        if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+            (graphStore as any).centerOnNodeById(answerCreationNodeId, 750);
+        }
+    }, 300);
+}
+
+/**
+ * Handle answer expansion - add created answer to graph
+ */
+async function handleExpandAnswer(event: CustomEvent<{
+    answerId: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { answerId, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Answer expansion requested:', {
+        answerId,
+        sourceNodeId,
+        sourcePosition
+    });
+    
+    try {
+        // Check if answer already exists in graph
+        const existingAnswerNode = graphData.nodes.find(n => 
+            n.type === 'answer' && n.id === answerId
+        );
+        
+        if (existingAnswerNode) {
+            console.log('[UNIVERSAL-PAGE] Answer already exists, centering on it:', answerId);
+            
+            // Remove the CreateNodeNode (source)
+            const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+            const cleanedGraphData: GraphData = {
+                nodes: filteredNodes,
+                links: graphData.links
+            };
+            
+            if (graphStore && typeof (graphStore as any).updateState === 'function') {
+                (graphStore as any).updateState(cleanedGraphData, 0.3);
+            } else {
+                graphStore?.setData(cleanedGraphData);
+            }
+            
+            // Center on existing answer
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(answerId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Answer not in graph, fetching expansion data...');
+        
+        // Fetch answer expansion data
+        const expansionData = await fetchAnswerExpansion(answerId);
+        const answerApiNode = expansionData.nodes[0];
+        
+        if (!answerApiNode) {
+            console.error('[UNIVERSAL-PAGE] No answer node in expansion response');
+            return;
+        }
+        
+        // Extract answer text
+        const answerText = (answerApiNode as any).answerText || 
+                          (answerApiNode as any).content || 
+                          (answerApiNode as any).text || 
+                          '';
+        
+        if (!answerText) {
+            console.error('[UNIVERSAL-PAGE] No answer text found! Available fields:', 
+                Object.keys(answerApiNode));
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Answer text extracted:', answerText.substring(0, 50) + '...');
+        
+        // Use the same position as the CreateNodeNode (sourcePosition)
+        const answerPosition = sourcePosition;
+        
+        // Transform to GraphNode
+        const answerGraphNode: GraphNode = {
+            id: answerApiNode.id,
+            type: 'answer' as NodeType,
+            data: {
+                id: answerApiNode.id,
+                answerText: answerText,
+                questionId: (answerApiNode as any).questionId || 
+                           (answerApiNode as any).parentQuestionId || null,
+                createdBy: (answerApiNode as any).created_by || 
+                          (answerApiNode as any).createdBy || '',
+                publicCredit: (answerApiNode as any).public_credit ?? 
+                             (answerApiNode as any).publicCredit ?? false,
+                categories: (answerApiNode as any).categories || [],
+                keywords: (answerApiNode as any).keywords || []
+            },
+            group: 'content' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'content' as any,
+                initialPosition: answerPosition
+            }
+        };
+        
+        console.log('[UNIVERSAL-PAGE] ✅ Created answer node:', {
+            answerId: answerGraphNode.id,
+            position: answerPosition,
+            answerText: answerText.substring(0, 30) + '...'
+        });
+        
+        // Remove the CreateNodeNode and add the real answer node
+        const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+        const updatedGraphData: GraphData = {
+            nodes: [...filteredNodes, answerGraphNode],
+            links: graphData.links // Relationships created by backend
+        };
+        
+        console.log('[UNIVERSAL-PAGE] Adding answer via updateState...');
+        
+        if (graphStore && typeof (graphStore as any).updateState === 'function') {
+            console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+            (graphStore as any).updateState(updatedGraphData, 0.6);
+        } else {
+            console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+            graphStore?.setData(updatedGraphData);
+        }
+        
+        // Wait for positioning and center
+        await waitForNodePositionAndCenter(
+            graphStore,
+            answerGraphNode.id,
+            20,    // maxAttempts
+            100,   // delayMs
+            750    // centerDuration
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Answer expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding answer:', error);
+    }
+}
+
+/**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
  * First definition gets angle 0 (rightmost), then counter-clockwise
@@ -2358,6 +2575,8 @@ function calculateDefinitionRing(
         on:expandStatement={handleExpandStatement}
         on:expandOpenQuestion={handleExpandOpenQuestion}
         on:expandQuantity={handleExpandQuantity}
+        on:answerQuestion={handleAnswerQuestion}
+        on:expandAnswer={handleExpandAnswer}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}
@@ -2415,6 +2634,7 @@ function calculateDefinitionRing(
         on:expandStatement={handleExpandStatement}
         on:expandOpenQuestion={handleExpandOpenQuestion}
         on:expandQuantity={handleExpandQuantity}
+        on:expandAnswer={handleExpandAnswer}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 

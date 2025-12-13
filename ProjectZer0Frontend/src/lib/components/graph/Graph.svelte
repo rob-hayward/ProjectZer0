@@ -53,7 +53,12 @@
         modechange: { nodeId: string; mode: NodeMode };
         visibilitychange: { nodeId: string; isHidden: boolean };
         reply: { commentId: string };
-        answerQuestion: { questionId: string };
+        answerQuestion: { 
+            questionId: string;
+            questionText: string;         
+            sourceNodeId: string;         
+            sourcePosition: { x: number; y: number };  
+        };
         filterchange: {
             nodeTypes: string[];
             categories: string[];
@@ -86,6 +91,11 @@
         };
         expandQuantity: {
             quantityId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandAnswer: {
+            answerId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -653,6 +663,61 @@
         console.log('[Graph] Quantity expansion event forwarded to parent page');
     }
 
+    function handleAnswerQuestion(event: CustomEvent<{
+        questionId: string;
+    }>) {
+        console.log('[Graph] answerQuestion event received:', event.detail);
+        
+        // Get the question node to extract text and position
+        const questionNode = $graphStore?.nodes?.find(n => n.id === event.detail.questionId);
+        
+        if (!questionNode) {
+            console.error('[Graph] Question node not found:', event.detail.questionId);
+            return;
+        }
+        
+        // Extract question text from node data
+        const questionText = (questionNode.data as any)?.questionText || 
+                            (questionNode.data as any)?.question || 
+                            (questionNode.data as any)?.content || 
+                            'Question text not available';
+        
+        console.log('[Graph] Question node found:', {
+            questionId: questionNode.id,
+            questionText: questionText.substring(0, 50) + '...',
+            position: questionNode.position
+        });
+        
+        // Dispatch enriched event to page
+        dispatch('answerQuestion', {
+            questionId: event.detail.questionId,
+            questionText: questionText,
+            sourceNodeId: questionNode.id,
+            sourcePosition: {
+                x: questionNode.position?.x || 0,
+                y: questionNode.position?.y || 0
+            }
+        });
+        
+        console.log('[Graph] answerQuestion event forwarded to page with full context');
+    }
+
+    function handleExpandAnswer(event: CustomEvent<{
+        answerId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Answer expansion event received:', {
+            answerId: event.detail.answerId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandAnswer', event.detail);
+        
+        console.log('[Graph] Answer expansion event forwarded to parent page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -990,12 +1055,11 @@
                                     on:expandStatement={handleExpandStatement}
                                     on:expandOpenQuestion={handleExpandOpenQuestion}
                                     on:expandQuantity={handleExpandQuantity}
+                                    on:expandAnswer={handleExpandAnswer}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
-                                    on:answerQuestion={event => {
-                                        dispatch('answerQuestion', { questionId: event.detail.questionId });
-                                    }}
+                                    on:answerQuestion={handleAnswerQuestion}
                                 >
                                     <svelte:fragment 
                                         slot="default" 

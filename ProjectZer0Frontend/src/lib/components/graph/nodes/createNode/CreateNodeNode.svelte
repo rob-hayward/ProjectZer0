@@ -56,6 +56,26 @@
     
     const userData = node.data;
 
+    // Extract contextual config if present in node metadata
+    let contextualConfig: {
+        nodeType?: string;
+        parentNodeId?: string;
+        parentNodeType?: string;
+        parentDisplayText?: string;
+        parentPosition?: { x: number; y: number };
+    } | null = null;
+
+    $: if ((node.metadata as any)?.contextualConfig) {
+        contextualConfig = (node.metadata as any).contextualConfig;
+        console.log('[CreateNodeNode] Contextual config detected:', contextualConfig);
+        
+        // Pre-set node type if provided
+        if (contextualConfig?.nodeType && !formData.nodeType) {
+            formData.nodeType = contextualConfig.nodeType;
+            console.log('[CreateNodeNode] Node type pre-set to:', formData.nodeType);
+        }
+    }
+
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode };
         expandWord: { 
@@ -81,6 +101,11 @@
         };
         expandQuantity: {
             quantityId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandAnswer: {
+            answerId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -168,6 +193,25 @@
         
         console.log('[CreateNodeNode] expandQuantity event dispatched to parent');
     }
+
+    function handleAnswerCreated(event: CustomEvent<{ answerId: string }>) {
+        console.log('[CreateNodeNode] Answer created, forwarding with source context:', {
+            answerId: event.detail.answerId,
+            nodeId: node.id,
+            position: node.position
+        });
+        
+        dispatch('expandAnswer', {
+            answerId: event.detail.answerId,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+        
+        console.log('[CreateNodeNode] expandAnswer event dispatched to parent');
+    }
     
     let currentStep = 1;
     let formData = {
@@ -198,12 +242,13 @@
     let isCheckingWord = false;
     
     let wordReviewComponent: any;
+    let categoryReviewComponent: any;
     let statementReviewComponent: any;
     let openQuestionReviewComponent: any;
     let quantityReviewComponent: any;
-    let answerReviewComponent: any;
     let evidenceReviewComponent: any;
-    let categoryReviewComponent: any;
+    let answerReviewComponent: any;
+    
 
     const isUniversalCentralNode = node.id?.endsWith('-central') || false;
     
@@ -519,6 +564,12 @@
                  formData.nodeType === 'quantity' ? 7 :
                  formData.nodeType === 'category' ? 4 : 1;
 
+    // Skip type selection if contextual config provides node type
+    $: if (contextualConfig?.nodeType && formData.nodeType && currentStep === 1) {
+        console.log('[CreateNodeNode] Skipping type selection, going to step 2');
+        currentStep = 2;
+    }             
+
     $: nodeRadius = node.radius || (COORDINATE_SPACE.NODES.SIZES.STANDARD.DETAIL / 2);
 
     $: isFinalStep = currentStep === maxSteps;
@@ -756,15 +807,16 @@
                     />
                 {:else if formData.nodeType === 'word'}
                     {#if currentStep === 2}
-                        <WordInput
-                            bind:word={formData.word}
-                            {positioning}
-                            {width}
-                            height={formHeight}
-                            disabled={isLoading}
-                            on:back={handleBack}
-                            on:proceed={handleNext}
-                        />
+                    <AnswerInput
+                        bind:answerText={formData.answerText}
+                        questionText={contextualConfig?.parentDisplayText || "[Question text will be provided]"}
+                        {positioning}
+                        {width}
+                        height={formHeight}
+                        disabled={isLoading}
+                        on:back={handleBack}
+                        on:proceed={handleNext}
+                    />
                    {:else if currentStep === 3}
                         <DefinitionInput
                             bind:definitionText={formData.definitionText}
@@ -990,7 +1042,7 @@
                     {#if currentStep === 2}
                         <AnswerInput
                             bind:answerText={formData.answerText}
-                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            questionText={contextualConfig?.parentDisplayText || "[Question text will be provided]"}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -1027,9 +1079,10 @@
                         />
                     {:else if currentStep === 6}
                         <AnswerReview
+                            bind:this={answerReviewComponent}
                             answerText={formData.answerText}
-                            questionId="[Will be provided when answer creation is triggered from a question]"
-                            questionText="[Question text will be provided when answer creation is triggered from a question]"
+                            questionId={contextualConfig?.parentNodeId || "[Question ID]"}
+                            questionText={contextualConfig?.parentDisplayText || "[Question text]"}
                             userKeywords={formData.userKeywords}
                             selectedCategories={formData.selectedCategories}
                             discussion={formData.discussion}
@@ -1039,6 +1092,7 @@
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
+                            on:expandAnswer={handleAnswerCreated}
                         />
                     {/if}
                 {:else if formData.nodeType === 'evidence'}

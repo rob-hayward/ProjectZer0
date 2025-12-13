@@ -1,19 +1,34 @@
-<!-- ProjectZer0Frontend/src/lib/components/forms/answer/AnswerInput.svelte -->
+<!-- ProjectZer0Frontend/src/lib/components/forms/createNode/answer/AnswerInput.svelte -->
+<!--
+POSITIONING ARCHITECTURE:
+- This component is POSITIONALLY DUMB - all coordinates come from ContentBox
+- Receives: positioning (fractions), width, height from parent via ContentBox
+- Coordinate system: LEFT-EDGE X, TOP Y
+  • X origin: Left edge of contentText section (after padding)
+  • Y origin: TOP of contentText section
+  • X: Standard left-to-right (0 = left edge, positive = right)
+  • Y: Top-origin (0 = top, 0.5 = middle, 1.0 = bottom)
+- Calculate absolute Y positions as: y = height * positioning.element
+- ContentBox is the SINGLE SOURCE OF TRUTH - adjust values there, not here
+-->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
-    import { FORM_STYLES } from '$lib/styles/forms';
     import { TEXT_LIMITS } from '$lib/constants/validation';
-    import FormNavigation from '$lib/components/forms/createNode/shared/FormNavigation.svelte';
     
     export let answerText = '';
     export let questionText = '';
     export let disabled = false;
     
+    // POSITIONING: Received from ContentBox via CreateNodeNode (may be empty)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    export let positioning: Record<string, number> = {};
+    export let width: number = 400;
+    export let height: number = 400;
+    
     let showValidationErrors = false;
     
     $: isOverLimit = answerText.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH;
     $: isEmpty = answerText.trim().length === 0;
-    $: isValid = !isOverLimit && !isEmpty;
     
     const dispatch = createEventDispatcher<{
         back: void;
@@ -27,30 +42,49 @@
         }
     }
     
-    function attemptProceed() {
-        if (isValid) {
-            dispatch('proceed');
-        } else {
-            showValidationErrors = true;
-        }
+    // Hardcoded Y positions for reliable spacing
+    $: contextLabelY = height * 0.05;
+    $: contextBoxY = height * 0.11;
+    $: contextBoxHeight = height * 0.30;  // 30% of height for question context
+    $: labelY = height * 0.44;  // Moved up from 0.56
+    $: textareaY = height * 0.51;  // Moved up from 0.64
+    $: textareaHeight = height * 0.35;  // Increased from 0.24 for answer input
+    $: charCountY = textareaY + textareaHeight + 15;
+    $: validationY = textareaY + textareaHeight + 35;
+    
+    // Debug logging
+    $: if (height) {
+        console.log('[AnswerInput] Spacing values:', {
+            height,
+            contextBoxHeight,
+            textareaHeight,
+            contextBoxY,
+            textareaY
+        });
     }
+    
+    // Widths (centered, responsive)
+    $: contextWidth = Math.min(340, width * 0.85);
+    $: textareaWidth = Math.min(340, width * 0.85);
 </script>
 
 <g>
-    <!-- Parent Question Context -->
+    <!-- Parent Question Context Label -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="-50"
+        x="0"
+        y={contextLabelY}
         class="context-label"
+        text-anchor="middle"
     >
         Answering Question:
     </text>
     
+    <!-- Parent Question Context Box - centered horizontally -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y="-35"
-        width={FORM_STYLES.layout.fieldWidth}
-        height="50"
+        x={-contextWidth/2}
+        y={contextBoxY}
+        width={contextWidth}
+        height={contextBoxHeight}
     >
         <div class="question-context">
             {questionText}
@@ -59,19 +93,20 @@
     
     <!-- Label -->
     <text 
-        x={FORM_STYLES.layout.leftAlign}
-        y="30"
+        x="0"
+        y={labelY}
         class="form-label"
+        text-anchor="middle"
     >
         Your Answer
     </text>
     
-    <!-- Textarea Input -->
+    <!-- Textarea Input - centered horizontally -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign}
-        y={FORM_STYLES.layout.verticalSpacing.labelToInput + 30}
-        width={FORM_STYLES.layout.fieldWidth}
-        height="120"
+        x={-textareaWidth/2}
+        y={textareaY}
+        width={textareaWidth}
+        height={textareaHeight}
     >
         <textarea
             class="form-textarea"
@@ -83,43 +118,34 @@
         />
     </foreignObject>
     
-    <!-- Validation Message -->
-    {#if showValidationErrors && isEmpty}
-        <text 
-            x={FORM_STYLES.layout.leftAlign}
-            y={FORM_STYLES.layout.verticalSpacing.labelToInput + 160}
-            class="validation-message"
-        >
-            Answer text is required
-        </text>
-    {/if}
-    
-    <!-- Character Count -->
+    <!-- Character Count - centered below textarea -->
     <text 
-        x={FORM_STYLES.layout.leftAlign + FORM_STYLES.layout.fieldWidth - 90}
-        y={FORM_STYLES.layout.verticalSpacing.labelToInput + 190}
+        x="0"
+        y={charCountY}
         class="character-count"
         class:near-limit={answerText.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH - 20}
         class:over-limit={isOverLimit}
-        text-anchor="end"
+        text-anchor="middle"
     >
         {TEXT_LIMITS.MAX_STATEMENT_LENGTH - answerText.length} characters remaining
     </text>
     
-    <!-- Navigation -->
-    <g transform="translate(0, {FORM_STYLES.layout.verticalSpacing.betweenFields + 140})">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={attemptProceed}
-            nextDisabled={disabled || isOverLimit}
-        />
-    </g>
+    <!-- Validation Message - Only shown when empty AND validation should be shown -->
+    {#if showValidationErrors && isEmpty}
+        <text 
+            x="0"
+            y={validationY}
+            class="validation-message"
+            text-anchor="middle"
+        >
+            Answer text is required
+        </text>
+    {/if}
 </g>
 
 <style>
     .context-label {
-        font-size: 12px;
-        text-anchor: start;
+        font-size: 11px;
         fill: rgba(255, 255, 255, 0.5);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
@@ -129,20 +155,38 @@
         background: rgba(182, 140, 255, 0.1);
         border: 1px solid rgba(182, 140, 255, 0.3);
         border-radius: 4px;
-        padding: 8px;
+        padding: 6px 8px;
         color: rgba(255, 255, 255, 0.8);
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 400;
-        line-height: 1.4;
+        line-height: 1.3;
         font-style: italic;
-        max-height: 50px;
+        max-height: 100%;
         overflow-y: auto;
+        box-sizing: border-box;
+    }
+    
+    :global(.question-context::-webkit-scrollbar) {
+        width: 4px;
+    }
+    
+    :global(.question-context::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 2px;
+    }
+    
+    :global(.question-context::-webkit-scrollbar-thumb) {
+        background: rgba(182, 140, 255, 0.3);
+        border-radius: 2px;
+    }
+    
+    :global(.question-context::-webkit-scrollbar-thumb:hover) {
+        background: rgba(182, 140, 255, 0.5);
     }
     
     .form-label {
         font-size: 14px;
-        text-anchor: start;
         fill: rgba(255, 255, 255, 0.7);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
@@ -150,7 +194,6 @@
     
     .validation-message {
         font-size: 12px;
-        text-anchor: start;
         fill: #ff4444;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
@@ -173,9 +216,9 @@
     
     :global(textarea.form-textarea) {
         width: 100%;
-        height: 120px;
-        background: rgba(0, 0, 0, 0.9);
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        height: 100%;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
         color: white;
         padding: 8px;
@@ -191,8 +234,8 @@
     
     :global(textarea.form-textarea:focus) {
         outline: none;
-        border: 3px solid rgba(255, 255, 255, 0.8);
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+        border-color: rgba(182, 140, 255, 0.6);
+        background: rgba(255, 255, 255, 0.08);
     }
     
     :global(textarea.form-textarea.error) {
@@ -202,5 +245,9 @@
     :global(textarea.form-textarea:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
+    }
+    
+    :global(textarea.form-textarea::placeholder) {
+        color: rgba(255, 255, 255, 0.4);
     }
 </style>
