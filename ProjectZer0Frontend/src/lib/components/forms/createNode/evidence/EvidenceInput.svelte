@@ -3,7 +3,7 @@
     import { createEventDispatcher } from 'svelte';
     import { FORM_STYLES } from '$lib/styles/forms';
     import { TEXT_LIMITS } from '$lib/constants/validation';
-    import FormNavigation from '../createNode/shared/FormNavigation.svelte';
+	import FormNavigation from '../shared/FormNavigation.svelte';
     
     export let title = '';
     export let url = '';

@@ -5,9 +5,8 @@
     import { fetchWithAuth } from '$lib/services/api';
     import { FORM_STYLES } from '$lib/styles/forms';
     import { graphStore } from '$lib/stores/graphStore';
-    import FormNavigation from '../createNode/shared/FormNavigation.svelte';
-    import MessageDisplay from '../createNode/shared/MessageDisplay.svelte';
     import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
+	import FormNavigation from '../shared/FormNavigation.svelte';
 
     export let title = '';
     export let url = '';

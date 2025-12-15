@@ -38,8 +38,8 @@
     import AnswerReview from '$lib/components/forms/createNode/answer/AnswerReview.svelte';
     
     // Evidence related imports
-    import EvidenceInput from '$lib/components/forms/evidence/EvidenceInput.svelte';
-    import EvidenceReview from '$lib/components/forms/evidence/EvidenceReview.svelte';
+    // import EvidenceInput from '$lib/components/forms/evidence/EvidenceInput.svelte';
+    // import EvidenceReview from '$lib/components/forms/evidence/EvidenceReview.svelte';
     
     // Category related imports
     import CategoryCreationInput from '$lib/components/forms/createNode/category/CategoryCreationInput.svelte';
@@ -48,6 +48,8 @@
     // Shared imports
     import KeywordInput from '$lib/components/forms/createNode/shared/KeywordInput.svelte';
     import CategoryInput from '$lib/components/forms/createNode/shared/CategoryInput.svelte';
+	import EvidenceInput from '$lib/components/forms/createNode/evidence/EvidenceInput.svelte';
+	import EvidenceReview from '$lib/components/forms/createNode/evidence/EvidenceReview.svelte';
 
     export let node: RenderableNode;
     
