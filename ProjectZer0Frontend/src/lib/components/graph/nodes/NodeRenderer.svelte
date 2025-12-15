@@ -49,6 +49,9 @@
             nodeId: string;
             nodeType: string;
         };
+        createDefinition: {
+            wordId: string;
+        };
         answerQuestion: { questionId: string };
         expandCategory: {
             categoryId: string;
@@ -73,6 +76,16 @@
         };
         expandQuantity: {
             quantityId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandAnswer: {
+            answerId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandDefinition: {
+            definitionId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -246,6 +259,18 @@
         dispatch('answerQuestion', { questionId: questionId });
     }
     
+    // NEW: Handle create definition button click
+    function handleCreateDefinition(event: CustomEvent<{
+        wordId: string;
+    }>) {
+        console.log('[NodeRenderer] Create definition event received:', {
+            wordId: event.detail.wordId
+        });
+        
+        dispatch('createDefinition', event.detail);
+        console.log('[NodeRenderer] Create definition event forwarded to Graph');
+    }
+    
     // Handle category expansion
     function handleExpandCategory(event: CustomEvent<{
         categoryId: string;
@@ -326,6 +351,38 @@
         
         dispatch('expandQuantity', event.detail);
         console.log('[NodeRenderer] Quantity expansion event forwarded to Graph');
+    }
+
+    // NEW: Handle answer expansion
+    function handleExpandAnswer(event: CustomEvent<{
+        answerId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Answer expansion event received:', {
+            answerId: event.detail.answerId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandAnswer', event.detail);
+        console.log('[NodeRenderer] Answer expansion event forwarded to Graph');
+    }
+
+    // NEW: Handle definition expansion
+    function handleExpandDefinition(event: CustomEvent<{
+        definitionId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Definition expansion event received:', {
+            definitionId: event.detail.definitionId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandDefinition', event.detail);
+        console.log('[NodeRenderer] Definition expansion event forwarded to Graph');
     }
     
     // Position information from node
@@ -529,6 +586,8 @@
             handleExpandStatement={handleExpandStatement}
             handleExpandOpenQuestion={handleExpandOpenQuestion}
             handleExpandQuantity={handleExpandQuantity}
+            handleExpandAnswer={handleExpandAnswer}
+            handleExpandDefinition={handleExpandDefinition}
         />
     
         <!-- Add show/hide button to qualifying nodes -->
@@ -560,20 +619,27 @@
                 />
             {/if}
             
-            <!-- Add create linked node button only to statement and quantity nodes -->
-            {#if node.type === 'statement' || node.type === 'quantity'}
+            <!-- Add create linked node button to statement, quantity, AND WORD nodes -->
+            {#if node.type === 'statement' || node.type === 'quantity' || node.type === 'word'}
                 <CreateLinkedNodeButton 
                     y={-node.radius * 0.7071}  
                     x={-node.radius * 0.7071}
                     nodeId={node.id}
                     nodeType={node.type}
                     on:createLinkedNode={event => {
-                        dispatch('createLinkedNode', {
-                            nodeId: event.detail.nodeId || node.id,
-                            nodeType: event.detail.nodeType || node.type
-                        });
-                        
-                        alert(`Create linked node system not yet implemented for ${event.detail.nodeType || node.type} node ${event.detail.nodeId || node.id}`);
+                        // For word nodes, dispatch createDefinition instead
+                        if (node.type === 'word') {
+                            dispatch('createDefinition', {
+                                wordId: node.id
+                            });
+                        } else {
+                            dispatch('createLinkedNode', {
+                                nodeId: event.detail.nodeId || node.id,
+                                nodeType: event.detail.nodeType || node.type
+                            });
+                            
+                            alert(`Create linked node system not yet implemented for ${event.detail.nodeType || node.type} node ${event.detail.nodeId || node.id}`);
+                        }
                     }}
                 />
             {/if}

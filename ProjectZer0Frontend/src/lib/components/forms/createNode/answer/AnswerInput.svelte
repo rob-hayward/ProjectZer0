@@ -25,6 +25,7 @@ POSITIONING ARCHITECTURE:
     export let width: number = 400;
     export let height: number = 400;
     
+    const _positioning = positioning;
     let showValidationErrors = false;
     
     $: isOverLimit = answerText.length > TEXT_LIMITS.MAX_STATEMENT_LENGTH;

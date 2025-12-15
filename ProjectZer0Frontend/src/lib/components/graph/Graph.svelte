@@ -99,6 +99,17 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        createDefinition: {
+            wordId: string;
+            word: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandDefinition: {
+            definitionId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // DOM references
@@ -718,6 +729,60 @@
         console.log('[Graph] Answer expansion event forwarded to parent page');
     }
 
+    function handleCreateDefinition(event: CustomEvent<{
+        wordId: string;
+    }>) {
+        console.log('[Graph] createDefinition event received:', event.detail);
+        
+        // Get the word node to extract word text and position
+        const wordNode = $graphStore?.nodes?.find(n => n.id === event.detail.wordId);
+        
+        if (!wordNode) {
+            console.error('[Graph] Word node not found:', event.detail.wordId);
+            return;
+        }
+        
+        // Extract word text from node data
+        const word = (wordNode.data as any)?.word || 
+                    (wordNode.data as any)?.content || 
+                    'Word not available';
+        
+        console.log('[Graph] Word node found:', {
+            wordId: wordNode.id,
+            word: word,
+            position: wordNode.position
+        });
+        
+        // Dispatch enriched event to page
+        dispatch('createDefinition', {
+            wordId: event.detail.wordId,
+            word: word,
+            sourceNodeId: wordNode.id,
+            sourcePosition: {
+                x: wordNode.position?.x || 0,
+                y: wordNode.position?.y || 0
+            }
+        });
+        
+        console.log('[Graph] createDefinition event forwarded to page with full context');
+    }
+
+    function handleExpandDefinition(event: CustomEvent<{
+        definitionId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[Graph] Definition expansion event received:', {
+            definitionId: event.detail.definitionId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandDefinition', event.detail);
+        
+        console.log('[Graph] Definition expansion event forwarded to parent page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -1056,6 +1121,8 @@
                                     on:expandOpenQuestion={handleExpandOpenQuestion}
                                     on:expandQuantity={handleExpandQuantity}
                                     on:expandAnswer={handleExpandAnswer}
+                                    on:createDefinition={handleCreateDefinition}
+                                    on:expandDefinition={handleExpandDefinition} 
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}

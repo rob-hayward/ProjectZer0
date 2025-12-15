@@ -32,6 +32,7 @@
     import { fetchOpenQuestionExpansion, type OpenQuestionExpansionResponse } from '$lib/services/graph/OpenQuestionExpansionService';
     import { fetchQuantityExpansion, type QuantityExpansionResponse } from '$lib/services/graph/QuantityExpansionService';
     import { fetchAnswerExpansion } from '$lib/services/graph/AnswerExpansionService';
+    import { fetchDefinitionExpansion } from '$lib/services/graph/DefinitionExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -2306,6 +2307,223 @@ async function handleExpandAnswer(event: CustomEvent<{
 }
 
 /**
+ * Handle create definition - create contextual definition creation node
+ */
+function handleCreateDefinition(event: CustomEvent<{
+    wordId: string;
+    word: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { wordId, word, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Create definition requested:', {
+        wordId,
+        word,
+        sourcePosition
+    });
+    
+    // Generate unique ID for the definition creation node
+    const definitionCreationNodeId = `create-definition-${wordId}-${Date.now()}`;
+    
+    // Calculate position near the word node
+    const definitionFormPosition = calculateProximalPosition(
+        sourcePosition,
+        graphData.nodes as any[],
+        150
+    );
+    
+    console.log('[UNIVERSAL-PAGE] Calculated definition form position:', definitionFormPosition);
+    
+    // Create contextual CreateNodeNode configured for definition creation
+    const definitionCreationNode: GraphNode = {
+        id: definitionCreationNodeId,
+        type: 'create-node' as NodeType,
+        data: $userStore!,
+        group: 'content' as any,
+        mode: 'detail' as NodeMode,
+        metadata: {
+            group: 'content' as any,
+            initialPosition: definitionFormPosition,
+            contextualConfig: {
+                nodeType: 'definition',
+                parentNodeId: wordId,
+                parentNodeType: 'word',
+                parentDisplayText: word,
+                parentPosition: sourcePosition
+            }
+        } as any
+    };
+    
+    console.log('[UNIVERSAL-PAGE] Created contextual definition creation node:', {
+        nodeId: definitionCreationNodeId,
+        position: definitionFormPosition,
+        contextualConfig: (definitionCreationNode.metadata as any)?.contextualConfig
+    });
+    
+    // Add the definition creation node to the graph
+    const expandedGraphData: GraphData = {
+        nodes: [...graphData.nodes, definitionCreationNode],
+        links: [...graphData.links]
+    };
+    
+    // Update graph with modest wake power
+    if (graphStore && typeof (graphStore as any).updateState === 'function') {
+        console.log('[UNIVERSAL-PAGE] Calling updateState with 0.4 wake power');
+        (graphStore as any).updateState(expandedGraphData, 0.4);
+    } else {
+        console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+        graphStore?.setData(expandedGraphData);
+    }
+    
+    console.log('[UNIVERSAL-PAGE] Definition creation node added to graph');
+    
+    // Center viewport on the new form node
+    setTimeout(() => {
+        if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+            (graphStore as any).centerOnNodeById(definitionCreationNodeId, 750);
+        }
+    }, 300);
+}
+
+/**
+ * Handle definition expansion - add created definition to graph
+ */
+async function handleExpandDefinition(event: CustomEvent<{
+    definitionId: string;
+    sourceNodeId: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { definitionId, sourceNodeId, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Definition expansion requested:', {
+        definitionId,
+        sourceNodeId,
+        sourcePosition
+    });
+    
+    try {
+        // Check if definition already exists in graph
+        const existingDefinitionNode = graphData.nodes.find(n => 
+            n.type === 'definition' && n.id === definitionId
+        );
+        
+        if (existingDefinitionNode) {
+            console.log('[UNIVERSAL-PAGE] Definition already exists, centering on it:', definitionId);
+            
+            // Remove the CreateNodeNode (source)
+            const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+            const cleanedGraphData: GraphData = {
+                nodes: filteredNodes,
+                links: graphData.links
+            };
+            
+            if (graphStore && typeof (graphStore as any).updateState === 'function') {
+                (graphStore as any).updateState(cleanedGraphData, 0.3);
+            } else {
+                graphStore?.setData(cleanedGraphData);
+            }
+            
+            // Center on existing definition
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(definitionId, 750);
+            }
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Definition not in graph, fetching expansion data...');
+        
+        // Fetch definition expansion data
+        const expansionData = await fetchDefinitionExpansion(definitionId);
+        const definitionApiNode = expansionData.nodes[0];
+        
+        if (!definitionApiNode) {
+            console.error('[UNIVERSAL-PAGE] No definition node in expansion response');
+            return;
+        }
+        
+        // Extract definition text
+        const definitionText = (definitionApiNode as any).definitionText || 
+                              (definitionApiNode as any).content || 
+                              (definitionApiNode as any).text || 
+                              '';
+        
+        if (!definitionText) {
+            console.error('[UNIVERSAL-PAGE] No definition text found! Available fields:', 
+                Object.keys(definitionApiNode));
+            return;
+        }
+        
+        console.log('[UNIVERSAL-PAGE] Definition text extracted:', definitionText.substring(0, 50) + '...');
+        
+        // Use the same position as the CreateNodeNode (sourcePosition)
+        const definitionPosition = sourcePosition;
+        
+        // Transform to GraphNode
+        const definitionGraphNode: GraphNode = {
+            id: definitionApiNode.id,
+            type: 'definition' as NodeType,
+            data: {
+                id: definitionApiNode.id,
+                word: (definitionApiNode as any).word || '',
+                definitionText: definitionText,
+                createdBy: (definitionApiNode as any).created_by || 
+                          (definitionApiNode as any).createdBy || '',
+                publicCredit: (definitionApiNode as any).public_credit ?? 
+                             (definitionApiNode as any).publicCredit ?? true,
+                isApiDefinition: (definitionApiNode as any).is_api_definition ?? 
+                               (definitionApiNode as any).isApiDefinition ?? false,
+                isAICreated: (definitionApiNode as any).is_ai_created ?? 
+                            (definitionApiNode as any).isAICreated ?? false
+            },
+            group: 'definition' as NodeGroup,
+            mode: 'preview' as NodeMode,
+            metadata: {
+                group: 'definition' as any,
+                initialPosition: definitionPosition
+            }
+        };
+        
+        console.log('[UNIVERSAL-PAGE] ✅ Created definition node:', {
+            definitionId: definitionGraphNode.id,
+            position: definitionPosition,
+            definitionText: definitionText.substring(0, 30) + '...'
+        });
+        
+        // Remove the CreateNodeNode and add the real definition node
+        const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+        const updatedGraphData: GraphData = {
+            nodes: [...filteredNodes, definitionGraphNode],
+            links: graphData.links // Relationships created by backend
+        };
+        
+        console.log('[UNIVERSAL-PAGE] Adding definition via updateState...');
+        
+        if (graphStore && typeof (graphStore as any).updateState === 'function') {
+            console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+            (graphStore as any).updateState(updatedGraphData, 0.6);
+        } else {
+            console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+            graphStore?.setData(updatedGraphData);
+        }
+        
+        // Wait for positioning and center
+        await waitForNodePositionAndCenter(
+            graphStore,
+            definitionGraphNode.id,
+            20,    // maxAttempts
+            100,   // delayMs
+            750    // centerDuration
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Definition expansion complete');
+        
+    } catch (error) {
+        console.error('[UNIVERSAL-PAGE] Error expanding definition:', error);
+    }
+}
+
+/**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
  * First definition gets angle 0 (rightmost), then counter-clockwise
@@ -2577,6 +2795,8 @@ function calculateDefinitionRing(
         on:expandQuantity={handleExpandQuantity}
         on:answerQuestion={handleAnswerQuestion}
         on:expandAnswer={handleExpandAnswer}
+         on:createDefinition={handleCreateDefinition}    
+        on:expandDefinition={handleExpandDefinition}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}

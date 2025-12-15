@@ -13,7 +13,8 @@
     // Word related imports
     import NodeTypeSelect from '$lib/components/forms/createNode/shared/NodeTypeSelect.svelte';
     import WordInput from '$lib/components/forms/createNode/word/WordInput.svelte';
-    import DefinitionInput from '$lib/components/forms/createNode/word/DefinitionInput.svelte';
+    import DefinitionInput from '$lib/components/forms/createNode/definition/DefinitionInput.svelte';
+    import DefinitionReview from '$lib/components/forms/createNode/definition/DefinitionReview.svelte';
     import DiscussionInput from '$lib/components/forms/createNode/shared/DiscussionInput.svelte';
     import WordReview from '$lib/components/forms/createNode/word/WordReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
@@ -106,6 +107,11 @@
         };
         expandAnswer: {
             answerId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
+        expandDefinition: {
+            definitionId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
@@ -212,6 +218,18 @@
         
         console.log('[CreateNodeNode] expandAnswer event dispatched to parent');
     }
+
+    function handleDefinitionCreated(event: CustomEvent<{ definitionId: string }>) {
+        console.log('[CreateNodeNode] Definition created, forwarding with source context');
+        dispatch('expandDefinition', {
+            definitionId: event.detail.definitionId,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+    }
     
     let currentStep = 1;
     let formData = {
@@ -248,8 +266,8 @@
     let quantityReviewComponent: any;
     let evidenceReviewComponent: any;
     let answerReviewComponent: any;
+    let definitionReviewComponent: any;
     
-
     const isUniversalCentralNode = node.id?.endsWith('-central') || false;
     
     let enableColorCycling = false;
@@ -497,6 +515,21 @@
                 } as any,
                 highlightColor: COLORS.PRIMARY.CATEGORY as any
             };
+        } else if (formData.nodeType === 'definition') {
+            completeStyle = {
+                ...baseStyle,
+                colors: {
+                    background: `${COLORS.PRIMARY.DEFINITION}33`,
+                    border: `${COLORS.PRIMARY.DEFINITION}FF`,
+                    text: `${COLORS.PRIMARY.DEFINITION}FF`,
+                    hover: `${COLORS.PRIMARY.DEFINITION}FF`,
+                    gradient: {
+                        start: `${COLORS.PRIMARY.DEFINITION}66`,
+                        end: `${COLORS.PRIMARY.DEFINITION}33`
+                    }
+                } as any,
+                highlightColor: COLORS.PRIMARY.DEFINITION as any
+            };
         } else {
             completeStyle = {
                 ...baseStyle,
@@ -547,7 +580,12 @@
                     (currentStep === 2 ? 'Select Words' :
                      currentStep === 3 ? 'Start Discussion' :
                      'Review Creation') :
+                  formData.nodeType === 'definition' ?
+                    (currentStep === 2 ? 'Enter Definition' :
+                     currentStep === 3 ? 'Start Discussion' :
+                     'Review Creation') :
                   'Create New Node';
+                  
 
     $: showStepIndicators = formData.nodeType !== '' && maxSteps > 1;
 
@@ -556,13 +594,13 @@
                               formData.nodeType === 'word' || formData.nodeType === 'statement' || 
                               formData.nodeType === 'openquestion' || formData.nodeType === 'answer' || 
                               formData.nodeType === 'evidence' ? 6 : 
-                              formData.nodeType === 'category' ? 4 :
+                              formData.nodeType === 'category' || formData.nodeType === 'definition' ? 4 :
                               1);
 
     $: maxSteps = formData.nodeType === 'word' ? 5 :
                  formData.nodeType === 'statement' || formData.nodeType === 'openquestion' || formData.nodeType === 'answer' || formData.nodeType === 'evidence' ? 6 : 
                  formData.nodeType === 'quantity' ? 7 :
-                 formData.nodeType === 'category' ? 4 : 1;
+                 formData.nodeType === 'category' || formData.nodeType === 'definition' ? 4 : 1;
 
     // Skip type selection if contextual config provides node type
     $: if (contextualConfig?.nodeType && formData.nodeType && currentStep === 1) {
@@ -697,6 +735,9 @@
             } else if (formData.nodeType === 'evidence' && evidenceReviewComponent) {
                 console.log('[CreateNodeNode] 📝 Calling evidenceReviewComponent.handleSubmit()');
                 evidenceReviewComponent.handleSubmit();
+            } else if (formData.nodeType === 'definition' && definitionReviewComponent) {
+                console.log('[CreateNodeNode] 📝 Calling definitionReviewComponent.handleSubmit()');
+                definitionReviewComponent.handleSubmit();
             } else if (formData.nodeType === 'category' && categoryReviewComponent) {
                 console.log('[CreateNodeNode] 📝 Calling categoryReviewComponent.handleSubmit()');
                 categoryReviewComponent.handleSubmit();
@@ -1093,6 +1134,45 @@
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
                             on:expandAnswer={handleAnswerCreated}
+                        />
+                    {/if}
+                    {:else if formData.nodeType === 'definition'}
+                    {#if currentStep === 2}
+                        <DefinitionInput
+                            bind:definitionText={formData.definitionText}
+                            word={contextualConfig?.parentDisplayText || "[Word]"}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <DefinitionReview
+                            bind:this={definitionReviewComponent}
+                            definitionText={formData.definitionText}
+                            word={contextualConfig?.parentDisplayText || "[Word]"}
+                            wordId={contextualConfig?.parentNodeId || ""}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            userId={userData.sub}
+                            {width}
+                            height={formHeight}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                            on:expandDefinition={handleDefinitionCreated}
                         />
                     {/if}
                 {:else if formData.nodeType === 'evidence'}

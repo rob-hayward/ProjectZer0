@@ -12,12 +12,12 @@
     export let selectedCategories: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     export let disabled = false;
     export let userId: string | undefined = undefined;
     export let width: number = 400;
     export let height: number = 400;
     
+    $: isActuallyDisabled = disabled || isSubmitting;
     let categoryDetails: Array<{ id: string; name: string }> = [];
     let shareToX = false;
     let isSubmitting = false;

@@ -11,9 +11,9 @@
     import { FORM_STYLES } from '$lib/styles/forms';
 
     // Use our new AlternativeDefinitionInput component
-    import AlternativeDefinitionInput from '$lib/components/forms/createNode/alternativeDefinition/AlternativeDefinitionInput.svelte';
+    import AlternativeDefinitionInput from '$lib/components/forms/createNode/definition/DefinitionInput.svelte';
     import DiscussionInput from '$lib/components/forms/createNode/shared/DiscussionInput.svelte';
-    import AlternativeDefinitionReview from '$lib/components/forms/createNode/alternativeDefinition/AlternativeDefinitionReview.svelte';
+    import AlternativeDefinitionReview from '$lib/components/forms/createNode/definition/DefinitionReview.svelte';
     import MessageDisplay from '$lib/components/forms/createNode/shared/MessageDisplay.svelte';
 
     export let node: RenderableNode;
