@@ -1,4 +1,4 @@
-<!-- src/lib/components/graph/Graph.svelte - FIXED EVENT FLOW -->
+<!-- src/lib/components/graph/Graph.svelte -->
 <script lang="ts">
     import { onMount, onDestroy, afterUpdate, createEventDispatcher } from 'svelte';
     import * as d3 from 'd3';
@@ -20,7 +20,6 @@
     import { visibilityStore } from '$lib/stores/visibilityPreferenceStore';
     import { userStore } from '$lib/stores/userStore';
     
-    // Import node components
     import AnswerNode from './nodes/answer/AnswerNode.svelte';
     import CategoryNode from './nodes/category/CategoryNode.svelte';
     import CommentNode from './nodes/comment/CommentNode.svelte';
@@ -39,7 +38,6 @@
 
     visibilityStore.initialize();
 
-    // Props
     export let data: GraphData;
     export let viewType: ViewType;
     export let backgroundConfig: Partial<BackgroundConfig> = {};
@@ -74,12 +72,12 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
-         expandWord: {  
+        expandWord: {  
             word: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
-          expandStatement: {  
+        expandStatement: {  
             statementId: string;
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
@@ -112,13 +110,11 @@
         };
     }>();
 
-    // DOM references
     let container: HTMLDivElement;
     let svg: SVGSVGElement;
     let backgroundGroup: SVGGElement;
     let contentGroup: SVGGElement;
     
-    // Component state
     let background: SvgBackground | null = null;
     let initialTransform: d3.ZoomTransform;
     let resetZoom: (() => void) | undefined;
@@ -129,26 +125,21 @@
     
     let componentId = Math.random().toString(36).slice(2, 8);
     
-    // Debug info
     let centralNodePos = { x: 0, y: 0, transform: "", viewX: 0, viewY: 0 };
     let svgViewportInfo = { width: 0, height: 0, viewBox: "", preserveAspectRatio: "" };
     
-    // Data change tracking
     let lastDataHash = '';
     let lastProcessedDataId = '';
     let isProcessingData = false;
     let dataUpdateCounter = 0;
     let preferencesApplied = false;
 
-    // Event handlers
     let centerOnNodeHandler: EventListener;
     let setTransformHandler: EventListener;
-    let debugModeChangeHandler: EventListener; // Debug event handler
+    let debugModeChangeHandler: EventListener;
 
-    // Universal view detection
     let isUniversalView = false;
 
-    // Constants
     const worldDimensions = {
         width: COORDINATE_SPACE.WORLD.WIDTH,
         height: COORDINATE_SPACE.WORLD.HEIGHT,
@@ -157,13 +148,10 @@
 
     const mergedBackgroundConfig = { ...DEFAULT_BACKGROUND_CONFIG, ...backgroundConfig };
 
-    // Detect universal view
     $: {
         isUniversalView = viewType === 'universal';
     }
 
-    // EXPORTED METHODS
-    
     export function getTransform(): any {
         if (!coordinateSystem) return null;
         return coordinateSystem.getCurrentTransform();
@@ -171,7 +159,6 @@
     
     export function centerViewportOnCoordinates(x: number, y: number, duration: number = 750): boolean {
         if (!svg || !zoomInstance) {
-            console.error('[Graph] Cannot center - svg or zoomInstance is null');
             return false;
         }
         
@@ -225,13 +212,11 @@
     
     export function centerOnNodeById(nodeId: string, duration: number = 750): boolean {
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
-            console.error('[Graph] centerOnNodeById failed: graphStore is not initialized');
             return false;
         }
         
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node || !node.position) {
-            console.error(`[Graph] centerOnNodeById failed: node ${nodeId} not found or has no position`);
             return false;
         }
         
@@ -253,12 +238,6 @@
         const isGenuine = newHash !== lastDataHash && newHash.length > 0;
         
         if (isGenuine) {
-            console.log('[Graph] Genuine data change detected:', {
-                oldHash: lastDataHash.substring(0, 50) + '...',
-                newHash: newHash.substring(0, 50) + '...',
-                nodeCount: newData.nodes?.length || 0,
-                linkCount: newData.links?.length || 0
-            });
             lastDataHash = newHash;
         }
         
@@ -369,7 +348,6 @@
     
     function centerViewportOn(x: number, y: number, zoomLevel?: number, duration: number = 750) {
         if (!svg || !zoomInstance) {
-            console.error('[Graph] centerViewportOn failed: svg or zoomInstance is null');
             return;
         }
         
@@ -393,20 +371,17 @@
 
     function centerOnNode(nodeId: string, duration: number = 750): void {
         if (!graphStore || !$graphStore || !$graphStore.nodes) {
-            console.error('[Graph] centerOnNode failed: graphStore is null');
             return;
         }
         
         const node = $graphStore.nodes.find(n => n.id === nodeId);
         if (!node || !node.position) {
-            console.error(`[Graph] centerOnNode failed: node ${nodeId} not found or has no position`);
             return;
         }
         
         centerViewportOn(node.position.x, node.position.y, undefined, duration);
     }
 
-   // CORRECTED: Mode change handler with comprehensive logging
     function handleModeChange(event: CustomEvent<{ 
         nodeId: string; 
         mode: NodeMode;
@@ -414,67 +389,33 @@
     }>) {
         const { nodeId, mode, position } = event.detail;
         
-        console.log('[Graph] MODE ROUTING - Received mode change from NodeRenderer:', { 
-            nodeId: nodeId.substring(0, 8), 
-            mode, 
-            position: position ? `(${position.x.toFixed(1)}, ${position.y.toFixed(1)})` : 'undefined',
-            hasGraphStore: !!graphStore,
-            graphStoreType: graphStore?.constructor?.name,
-            hasUpdateNodeMode: typeof graphStore?.updateNodeMode === 'function',
-            isUniversalView
-        });
-        
-        // ROUTE DIRECTLY TO MANAGER - Single authority pattern
         if (graphStore && typeof graphStore.updateNodeMode === 'function') {
-            console.log('[Graph] MODE ROUTING - Calling graphStore.updateNodeMode() on UniversalGraphManager');
-            
             try {
                 graphStore.updateNodeMode(nodeId, mode);
-                console.log('[Graph] MODE ROUTING - âœ… Successfully called updateNodeMode()');
                 
-                // Handle centering for detail mode expansions
                 if (mode === 'detail' && position) {
-                    console.log('[Graph] MODE ROUTING - Starting centering animation for expanded node');
-                    console.log('[Graph] MODE ROUTING - Centering target position:', {
-                        x: position.x.toFixed(1), 
-                        y: position.y.toFixed(1)
-                    });
-                    
                     setTimeout(() => {
-                        console.log('[Graph] MODE ROUTING - Executing centerViewportOnCoordinates...');
-                        
-                        // Try using centerOnNodeById instead of fixed coordinates
-                        // This will find the node's current position dynamically
                         const success = centerOnNodeById(nodeId, 750);
                         
-                        console.log('[Graph] MODE ROUTING - Centering result:', success ? 'SUCCESS' : 'FAILED');
-                        
-                        // CRITICAL: Notify graph manager when centering animation completes
-                        // Check if this is a UniversalGraphManager with the centering callback
                         if (success && graphStore && typeof (graphStore as any).onNodeCenteringComplete === 'function') {
                             setTimeout(() => {
-                                console.log('[Graph] MODE ROUTING - Notifying manager that centering is complete');
                                 (graphStore as any).onNodeCenteringComplete(nodeId);
-                            }, 800); // Wait for 750ms animation + 50ms buffer
+                            }, 800);
                         } else if (!success) {
-                            // If centering failed, still notify manager to reheat simulation
-                            console.warn('[Graph] MODE ROUTING - Centering failed, but still notifying manager');
                             if (graphStore && typeof (graphStore as any).onNodeCenteringComplete === 'function') {
                                 setTimeout(() => {
                                     (graphStore as any).onNodeCenteringComplete(nodeId);
-                                }, 100); // Short delay for failed centering
+                                }, 100);
                             }
                         }
-                    }, 100); // Small delay to let layout settle before centering
+                    }, 100);
                 }
                 
             } catch (error) {
-                console.error('[Graph] MODE ROUTING - âŒ Error calling updateNodeMode():', error);
+                console.error('[Graph] Error calling updateNodeMode():', error);
             }
             
         } else if (graphStore && typeof (graphStore as any).updateNodeMode === 'function') {
-            // Fallback for standard graph stores (shouldn't happen in universal view)
-            console.log('[Graph] MODE ROUTING - Using fallback for standard graph store');
             (graphStore as any).updateNodeMode(nodeId, mode);
             
             if (typeof (graphStore as any).forceTick === 'function') {
@@ -492,25 +433,14 @@
                     }
                 }, 50);
             }
-        } else {
-            console.error('[Graph] MODE ROUTING - âŒ Cannot route mode change:', {
-                hasGraphStore: !!graphStore,
-                updateNodeModeExists: typeof graphStore?.updateNodeMode === 'function',
-                graphStoreKeys: graphStore ? Object.getOwnPropertyNames(Object.getPrototypeOf(graphStore)) : [],
-                graphStoreConstructor: graphStore?.constructor?.name,
-                graphStorePrototype: graphStore ? Object.getPrototypeOf(graphStore).constructor.name : 'none'
-            });
         }
         
-        // FORWARD TO PARENT - For any parent components that need to know
         dispatch('modechange', {
             nodeId,
             mode
         });
-        
-        console.log('[Graph] MODE ROUTING - Event forwarded to parent component');
     }
-
+    
     function updateCentralNodeDebugPosition() {
         if (!$graphStore || !$graphStore.nodes || !DEBUG_MODE) return;
         
@@ -534,24 +464,11 @@
     }
 
     function handleVisibilityChange(event: CustomEvent<{ nodeId: string; isHidden: boolean }>) {
-        console.log('[Graph] handleVisibilityChange received event:', {
-            nodeId: event.detail.nodeId,
-            isHidden: event.detail.isHidden,
-            eventType: event.type,
-            timestamp: Date.now()
-        });
-        
         if (graphStore) {
-            console.log('[Graph] Updating graph store node visibility');
             graphStore.updateNodeVisibility(event.detail.nodeId, event.detail.isHidden, 'user');
-        } else {
-            console.warn('[Graph] No graphStore available for visibility update');
         }
         
-        // Forward the event to parent components
         dispatch('visibilitychange', event.detail);
-        
-        console.log('[Graph] Visibility change handling complete - visibilityBehaviour should handle backend save');
     }
 
     function handleFilterChange(event: CustomEvent<{
@@ -563,21 +480,7 @@
         showOnlyMyItems: boolean;
         userFilterMode: string;
     }>) {
-        console.log('[Graph] handleFilterChange received event from ControlNode:', {
-            nodeTypes: event.detail.nodeTypes,
-            categories: event.detail.categories,
-            keywords: event.detail.keywords,
-            sortBy: event.detail.sortBy,
-            sortDirection: event.detail.sortDirection,
-            showOnlyMyItems: event.detail.showOnlyMyItems,
-            userFilterMode: event.detail.userFilterMode,
-            timestamp: Date.now()
-        });
-        
-        // Bubble the event up to the parent page
         dispatch('filterchange', event.detail);
-        
-        console.log('[Graph] Filter change event bubbled to parent page');
     }
 
     function handleExpandCategory(event: CustomEvent<{
@@ -586,17 +489,7 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Category expansion event received:', {
-            categoryId: event.detail.categoryId,
-            categoryName: event.detail.categoryName,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
-        // Forward the event to the parent page component
         dispatch('expandCategory', event.detail);
-        
-        console.log('[Graph] Category expansion event forwarded to parent page');
     }
 
     function handleExpandWord(event: CustomEvent<{
@@ -604,17 +497,8 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Word expansion event received:', {
-            word: event.detail.word,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-    
-    // Forward the event to parent page component
-    dispatch('expandWord', event.detail);
-    
-    console.log('[Graph] Word expansion event forwarded to parent page');
-}
+        dispatch('expandWord', event.detail);
+    }
 
     function toggleDebug() {
         showDebug = !showDebug;
@@ -630,16 +514,7 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Statement expansion event received:', {
-            statementId: event.detail.statementId,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
-        // Forward the event to parent page component
         dispatch('expandStatement', event.detail);
-        
-        console.log('[Graph] Statement expansion event forwarded to parent page');
     }
 
     function handleExpandOpenQuestion(event: CustomEvent<{
@@ -647,15 +522,7 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] OpenQuestion expansion event received:', {
-            questionId: event.detail.questionId,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
         dispatch('expandOpenQuestion', event.detail);
-        
-        console.log('[Graph] OpenQuestion expansion event forwarded to parent page');
     }
 
     function handleExpandQuantity(event: CustomEvent<{
@@ -663,43 +530,23 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Quantity expansion event received:', {
-            quantityId: event.detail.quantityId,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
         dispatch('expandQuantity', event.detail);
-        
-        console.log('[Graph] Quantity expansion event forwarded to parent page');
     }
 
     function handleAnswerQuestion(event: CustomEvent<{
         questionId: string;
     }>) {
-        console.log('[Graph] answerQuestion event received:', event.detail);
-        
-        // Get the question node to extract text and position
         const questionNode = $graphStore?.nodes?.find(n => n.id === event.detail.questionId);
         
         if (!questionNode) {
-            console.error('[Graph] Question node not found:', event.detail.questionId);
             return;
         }
         
-        // Extract question text from node data
         const questionText = (questionNode.data as any)?.questionText || 
                             (questionNode.data as any)?.question || 
                             (questionNode.data as any)?.content || 
                             'Question text not available';
         
-        console.log('[Graph] Question node found:', {
-            questionId: questionNode.id,
-            questionText: questionText.substring(0, 50) + '...',
-            position: questionNode.position
-        });
-        
-        // Dispatch enriched event to page
         dispatch('answerQuestion', {
             questionId: event.detail.questionId,
             questionText: questionText,
@@ -709,8 +556,6 @@
                 y: questionNode.position?.y || 0
             }
         });
-        
-        console.log('[Graph] answerQuestion event forwarded to page with full context');
     }
 
     function handleExpandAnswer(event: CustomEvent<{
@@ -718,42 +563,22 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Answer expansion event received:', {
-            answerId: event.detail.answerId,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
         dispatch('expandAnswer', event.detail);
-        
-        console.log('[Graph] Answer expansion event forwarded to parent page');
     }
 
     function handleCreateDefinition(event: CustomEvent<{
         wordId: string;
     }>) {
-        console.log('[Graph] createDefinition event received:', event.detail);
-        
-        // Get the word node to extract word text and position
         const wordNode = $graphStore?.nodes?.find(n => n.id === event.detail.wordId);
         
         if (!wordNode) {
-            console.error('[Graph] Word node not found:', event.detail.wordId);
             return;
         }
         
-        // Extract word text from node data
         const word = (wordNode.data as any)?.word || 
                     (wordNode.data as any)?.content || 
                     'Word not available';
         
-        console.log('[Graph] Word node found:', {
-            wordId: wordNode.id,
-            word: word,
-            position: wordNode.position
-        });
-        
-        // Dispatch enriched event to page
         dispatch('createDefinition', {
             wordId: event.detail.wordId,
             word: word,
@@ -763,8 +588,6 @@
                 y: wordNode.position?.y || 0
             }
         });
-        
-        console.log('[Graph] createDefinition event forwarded to page with full context');
     }
 
     function handleExpandDefinition(event: CustomEvent<{
@@ -772,15 +595,7 @@
         sourceNodeId: string;
         sourcePosition: { x: number; y: number };
     }>) {
-        console.log('[Graph] Definition expansion event received:', {
-            definitionId: event.detail.definitionId,
-            sourceNodeId: event.detail.sourceNodeId,
-            sourcePosition: event.detail.sourcePosition
-        });
-        
         dispatch('expandDefinition', event.detail);
-        
-        console.log('[Graph] Definition expansion event forwarded to parent page');
     }
 
     function applyViewSpecificBehavior() {
@@ -805,21 +620,10 @@
     function initialize() {
         if (initialized) return;
         
-        console.log('[Graph] Initializing component:', { 
-            componentId, 
-            viewType,
-            isUniversalView,
-            hasExistingGraphStore: !!graphStore
-        });
-        
         if (!graphStore) {
-            console.log('[Graph] Creating new graph store for', viewType);
             graphStore = createGraphStore(viewType);
         } else {
-            console.log('[Graph] Using existing graph store for', viewType);
-            
             if (graphStore.getViewType && graphStore.getViewType() !== viewType) {
-                console.log('[Graph] Updating view type from', graphStore.getViewType(), 'to', viewType);
                 graphStore.setViewType(viewType);
             }
         }
@@ -829,35 +633,23 @@
         initializeBackground();
         
         if (data && isGenuineDataChange(data)) {
-            console.log('[Graph] Applying initial data during initialization');
             processDataUpdate(data, true);
         }
         
         initialized = true;
-        console.log('[Graph] Component initialized successfully');
     }
 
     function processDataUpdate(newData: GraphData, isInitialization: boolean = false) {
         if (isProcessingData && !isInitialization) {
-            console.log('[Graph] Skipping data update - already processing');
             return;
         }
         
         if (!graphStore) {
-            console.warn('[Graph] Cannot process data update - no graph store');
             return;
         }
         
         isProcessingData = true;
         dataUpdateCounter++;
-        
-        console.log('[Graph] Processing data update #', dataUpdateCounter, {
-            isInitialization,
-            viewType,
-            isUniversalView,
-            nodeCount: newData.nodes?.length || 0,
-            linkCount: newData.links?.length || 0
-        });
         
         try {
             const isUniversalManager = typeof graphStore.enableBatchRendering === 'function';
@@ -866,8 +658,6 @@
                 const hasExistingData = graphStore.getPerformanceMetrics?.()?.renderedNodeCount > 0;
                 
                 if (hasExistingData && !isInitialization) {
-                    console.log('[Graph] Using gentle sync for settled universal manager');
-                    
                     if (typeof (graphStore as any).syncDataGently === 'function') {
                         (graphStore as any).syncDataGently(newData);
                     } else {
@@ -878,7 +668,6 @@
                         }
                     }
                 } else {
-                    console.log('[Graph] Initial data load for universal manager');
                     graphStore.setData(newData);
                 }
             } else {
@@ -915,27 +704,18 @@
         }
     }
 
-    // Lifecycle hooks
     onMount(() => {
-        console.log('[Graph] Component mounting with view type:', viewType, 'isUniversal:', isUniversalView);
         initialize();
         
         if (typeof window !== 'undefined') {
             window.addEventListener('resize', updateContainerDimensions);
             
-            // Debug event listener for testing mode changes
             debugModeChangeHandler = ((event: CustomEvent) => {
-                console.log('[Graph] DEBUG - Received debug mode change event from StatementNode:', event.detail);
-                console.log('[Graph] DEBUG - This confirms StatementNode is dispatching events correctly');
-                
-                // TEMPORARY: Call manager directly from debug event to test
-                console.log('[Graph] DEBUG - Testing direct manager call from debug event');
                 if (graphStore && typeof graphStore.updateNodeMode === 'function') {
                     try {
                         graphStore.updateNodeMode(event.detail.nodeId, event.detail.mode);
-                        console.log('[Graph] DEBUG - Direct manager call successful');
                     } catch (error) {
-                        console.error('[Graph] DEBUG - Direct manager call failed:', error);
+                        console.error('[Graph] Debug mode change error:', error);
                     }
                 }
             }) as EventListener;
@@ -993,8 +773,6 @@
     });
 
     onDestroy(() => {
-        console.log('[Graph] Component destroying');
-        
         if (typeof window !== 'undefined') {
             window.removeEventListener('resize', updateContainerDimensions);
             window.removeEventListener('center-on-node', centerOnNodeHandler);
@@ -1013,16 +791,11 @@
         if (graphStore && typeof graphStore.dispose === 'function') {
             const wasCreatedByUs = !lastDataHash;
             if (wasCreatedByUs) {
-                console.log('[Graph] Disposing graph store created by component');
                 graphStore.dispose();
-            } else {
-                console.log('[Graph] Not disposing graph store - managed by parent');
             }
         }
     });
 
-    // Reactive declarations
-    
     $: if (data) {
         preferencesApplied = false;
     }
@@ -1031,8 +804,6 @@
         const currentViewType = graphStore.getViewType ? graphStore.getViewType() : null;
         
         if (currentViewType && currentViewType !== viewType) {
-            console.log('[Graph] View type changed from', currentViewType, 'to', viewType);
-            
             if (typeof graphStore.setViewType === 'function') {
                 graphStore.setViewType(viewType);
             }
@@ -1042,7 +813,6 @@
     }
     
     $: if (initialized && graphStore && data && isGenuineDataChange(data)) {
-        console.log('[Graph] Reactive data change detected');
         processDataUpdate(data, false);
     }
     
@@ -1051,7 +821,6 @@
     }
 </script>
 
-<!-- Component template -->
 <div 
     bind:this={container} 
     class="graph-container"
@@ -1094,7 +863,6 @@
                     </g>
                     {/if}
 
-                    <!-- Links layer -->
                     <g class="links-layer">
                         {#if $graphStore && $graphStore.links && $graphStore.links.length > 0}
                             {#each $graphStore.links as link (link.id)}
@@ -1106,7 +874,6 @@
                         {/if}
                     </g>
 
-                   <!-- Nodes layer -->
                     <g class="nodes-layer">
                         {#if $graphStore && $graphStore.nodes}
                             {#each $graphStore.nodes as node (node.id)}
@@ -1137,7 +904,6 @@
                                         let:handleExpandCategory
                                         let:handleExpandWord
                                     >
-                                        <!-- Direct node rendering - viewType removed from StatementNode and OpenQuestionNode -->
                                         {#if isStatementNode(node)}
                                             <StatementNode 
                                                 {node}
@@ -1200,7 +966,6 @@
                                                 on:filterChange={handleFilterChange}
                                             />
                                         {:else}
-                                            <!-- Fallback for other node types -->
                                             <slot {node} {handleModeChange} />
                                         {/if}
                                         
@@ -1236,10 +1001,6 @@
                             <text x="10" y="90" fill="white" font-size="12">
                                 Links: {$graphStore?.links?.length || 0}
                             </text>
-                            
-                            <text x="10" y="110" fill="white" font-size="12">
-                                Mode Routing: Manager Authority - FIXED
-                            </text>
                         </g>
                     {/if}
                 {/key}
@@ -1247,7 +1008,6 @@
         </g>
     </svg>
 
-    <!-- Control buttons --> 
     <div class="controls">
         {#if resetZoom}
             <button
@@ -1370,7 +1130,6 @@
         pointer-events: none;
     }
 
-    /* Responsive design */
     @media (max-width: 768px) {
         .controls {
             bottom: 0.5rem;
@@ -1388,7 +1147,6 @@
         }
     }
 
-    /* High contrast mode support */
     @media (prefers-contrast: high) {
         .control-button {
             background-color: rgba(0, 0, 0, 0.8);
@@ -1396,14 +1154,12 @@
         }
     }
 
-    /* Reduced motion support */
     @media (prefers-reduced-motion: reduce) {
         .control-button {
             transition: none;
         }
     }
 
-    /* Print styles */
     @media print {
         .controls {
             display: none;

@@ -10,7 +10,8 @@ export async function fetchDefinitionExpansion(definitionId: string): Promise<De
     console.log('[DefinitionExpansionService] Fetching expansion for definition:', definitionId);
     
     try {
-        const response = await fetchWithAuth(`/nodes/definition/${definitionId}`, {
+        // ✅ FIXED: Changed from /nodes/definition/ to /definitions/
+        const response = await fetchWithAuth(`/definitions/${definitionId}`, {
             method: 'GET'
         });
         

@@ -2855,6 +2855,7 @@ function calculateDefinitionRing(
         on:expandOpenQuestion={handleExpandOpenQuestion}
         on:expandQuantity={handleExpandQuantity}
         on:expandAnswer={handleExpandAnswer}
+        on:expandDefinition={handleExpandDefinition}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 
