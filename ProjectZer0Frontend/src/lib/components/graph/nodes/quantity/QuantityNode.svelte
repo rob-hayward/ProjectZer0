@@ -7,7 +7,7 @@
     import { isQuantityData } from '$lib/types/graph/enhanced';
     import BasePreviewNode from '../base/BasePreviewNode.svelte';
     import BaseDetailNode from '../base/BaseDetailNode.svelte';
-    import { TextContent, NodeHeader, InclusionVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits, CreateLinkedNodeButton } from '../ui';
+    import { TextContent, NodeHeader, InclusionVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits } from '../ui';
     import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
     import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
     import { fetchWithAuth } from '$lib/services/api';
@@ -132,7 +132,6 @@
     const dispatch = createEventDispatcher<{
         modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
         visibilityChange: { isHidden: boolean };
-        createChildNode: { parentId: string; parentType: string; childType: string };
         categoryClick: { categoryId: string; categoryName: string };
         keywordClick: { word: string };
     }>();
@@ -204,14 +203,6 @@
 
     function handleKeywordClick(event: CustomEvent<{ word: string }>) {
         dispatch('keywordClick', event.detail);
-    }
-
-    function handleCreateChild() {
-        dispatch('createChildNode', {
-            parentId: node.id,
-            parentType: 'quantity',
-            childType: 'evidence'
-        });
     }
 
     async function loadUserResponseOptimized() {
@@ -800,17 +791,7 @@
             />
         </svelte:fragment>
 
-        <svelte:fragment slot="createChild" let:radius>
-            {#if canExpand}
-                <CreateLinkedNodeButton
-                    y={-radius * 0.7071}
-                    x={radius * 0.7071}
-                    nodeId={node.id}
-                    nodeType="quantity"
-                    on:click={handleCreateChild}
-                />
-            {/if}
-        </svelte:fragment>
+        <!-- REMOVED: createChild slot no longer needed - NodeRenderer handles the CreateLinkedNodeButton -->
     </BaseDetailNode>
 {:else}
     <BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange} on:visibilityChange={handleVisibilityChange}>

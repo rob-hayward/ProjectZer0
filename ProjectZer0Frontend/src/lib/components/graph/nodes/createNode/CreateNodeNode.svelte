@@ -117,6 +117,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandEvidence: {
+            evidenceId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
     
     function handleModeChange(event: CustomEvent<{ mode: NodeMode }>) {
@@ -232,6 +237,25 @@
             }
         });
     }
+
+    function handleEvidenceCreated(event: CustomEvent<{ evidenceId: string }>) {
+        console.log('[CreateNodeNode] Evidence created, forwarding with source context:', {
+            evidenceId: event.detail.evidenceId,
+            nodeId: node.id,
+            position: node.position
+        });
+        
+        dispatch('expandEvidence', {
+            evidenceId: event.detail.evidenceId,
+            sourceNodeId: node.id,
+            sourcePosition: {
+                x: node.position?.x || 0,
+                y: node.position?.y || 0
+            }
+        });
+        
+        console.log('[CreateNodeNode] expandEvidence event dispatched to parent');
+    }
     
     let currentStep = 1;
     let formData = {
@@ -266,7 +290,7 @@
     let statementReviewComponent: any;
     let openQuestionReviewComponent: any;
     let quantityReviewComponent: any;
-    let evidenceReviewComponent: any;
+    let evidenceReviewComponent: any = null;
     let answerReviewComponent: any;
     let definitionReviewComponent: any;
     
@@ -842,6 +866,7 @@
                 {#if currentStep === 1}
                     <NodeTypeSelect
                         nodeType={formData.nodeType}
+                        contextualConfig={contextualConfig}
                         {positioning}
                         width={width}
                         height={formHeight}
@@ -1219,23 +1244,27 @@
                             on:back={handleBack}
                             on:proceed={handleNext}
                         />
-                    {:else if currentStep === 6}
+                   {:else if currentStep === 6}
                         <EvidenceReview
+                            bind:this={evidenceReviewComponent}
                             title={formData.evidenceTitle}
                             url={formData.evidenceUrl}
                             evidenceType={formData.evidenceType}
-                            parentNodeId={formData.parentNodeId}
-                            parentNodeType={formData.parentNodeType}
-                            parentNodeText="[Parent node text will be provided when evidence creation is triggered from a node]"
+                            parentNodeId={contextualConfig?.parentNodeId || ""}
+                            parentNodeType={contextualConfig?.parentNodeType || ""}
+                            parentNodeText={contextualConfig?.parentDisplayText || ""}
                             userKeywords={formData.userKeywords}
                             selectedCategories={formData.selectedCategories}
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
+                            on:expandEvidence={handleEvidenceCreated}
                         />
                     {/if}
                 {:else if formData.nodeType === 'category'}

@@ -7,7 +7,7 @@
 	import { isStatementData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { TextContent, NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits, CreateLinkedNodeButton } from '../ui';
+	import { TextContent, NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits } from '../ui';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
@@ -113,7 +113,7 @@
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
-		createChildNode: { parentId: string; parentType: string; childType: string };
+		createLinkedNode: { nodeId: string; nodeType: string };
 		expandCategory: { 
 			categoryId: string;
 			categoryName: string;
@@ -236,11 +236,11 @@
 			sourcePosition: node.position
 		});
 		
-		dispatch('expandCategory', {  // ← RENAMED from categoryClick
+		dispatch('expandCategory', {
 			categoryId,
 			categoryName,
-			sourceNodeId: node.id,  // ← ADDED
-			sourcePosition: {       // ← ADDED
+			sourceNodeId: node.id,
+			sourcePosition: {
 				x: node.position?.x || 0,
 				y: node.position?.y || 0
 			}
@@ -248,29 +248,21 @@
 	}
 
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
-    const { word } = event.detail;
-    
-    console.log('[NodeComponent] Keyword clicked:', {
-        word,
-        sourceNodeId: node.id,
-        sourcePosition: node.position
-    });
-    
-    dispatch('expandWord', {
-        word,
-        sourceNodeId: node.id,
-        sourcePosition: {
-            x: node.position?.x || 0,
-            y: node.position?.y || 0
-        }
-    });
-}
-
-	function handleCreateChild() {
-		dispatch('createChildNode', {
-			parentId: node.id,
-			parentType: 'statement',
-			childType: 'evidence'
+		const { word } = event.detail;
+		
+		console.log('[StatementNode] Keyword clicked:', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: node.position
+		});
+		
+		dispatch('expandWord', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: {
+				x: node.position?.x || 0,
+				y: node.position?.y || 0
+			}
 		});
 	}
 </script>
@@ -418,17 +410,7 @@
 			/>
 		</svelte:fragment>
 
-		<svelte:fragment slot="createChild" let:radius>
-			{#if canExpand}
-				<CreateLinkedNodeButton
-					y={-radius * 0.7071}
-					x={radius * 0.7071}
-					nodeId={node.id}
-					nodeType="statement"
-					on:click={handleCreateChild}
-				/>
-			{/if}
-		</svelte:fragment>
+		<!-- REMOVED: createChild slot no longer needed - NodeRenderer handles the CreateLinkedNodeButton -->
 	</BaseDetailNode>
 {:else}
 	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>

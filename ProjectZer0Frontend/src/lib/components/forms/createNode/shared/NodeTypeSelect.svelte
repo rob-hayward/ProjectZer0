@@ -10,12 +10,18 @@ POSITIONING ARCHITECTURE:
   • Y: Center-origin (0 = center, negative = UP, positive = DOWN)
 - Calculate absolute Y positions as: y = height * positioning.element
 - ContentBox is the SINGLE SOURCE OF TRUTH - adjust values there, not here
+
+UPDATED: Added contextualConfig support for filtered node type selection
+- When contextualConfig is provided WITHOUT nodeType pre-set, shows only 4 types:
+  * Statement, Quantity, Evidence, OpenQuestion
+- This enables "Link Node" functionality from Answer/Statement/Quantity parents
 -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
 
     export let nodeType = '';
     export let disabled = false;
+    export let contextualConfig: any = null;  // NEW: Context from parent node
     
     // POSITIONING: Received from ContentBox via CreateNodeNode
     export let positioning: Record<string, number> = {};
@@ -27,6 +33,30 @@ POSITIONING ARCHITECTURE:
         typeChange: { type: string };
     }>();
 
+    // Define all node types with their configurations
+    const ALL_NODE_TYPES = [
+        { value: 'word', label: 'Word', description: 'Define a key term or concept', standalone: true },
+        { value: 'category', label: 'Category', description: 'Group related words together', standalone: true },
+        { value: 'statement', label: 'Statement', description: 'Share a claim or assertion', standalone: true, linkedNode: true },
+        { value: 'openquestion', label: 'Open Question', description: 'Ask an open-ended question', standalone: true, linkedNode: true },
+        { value: 'quantity', label: 'Quantity Question', description: 'Ask a question with measurable answer', standalone: true, linkedNode: true },
+        { value: 'evidence', label: 'Evidence', description: 'Provide supporting evidence', standalone: false, linkedNode: true }
+    ];
+
+    // Determine which types to show based on context
+    $: displayTypes = (() => {
+        // If contextualConfig exists but nodeType is NOT pre-set, this is "Link Node" flow
+        // Show only the 4 types that can be created as linked nodes
+        if (contextualConfig && !contextualConfig.nodeType) {
+            console.log('[NodeTypeSelect] Contextual creation mode - showing 4 linked node types');
+            return ALL_NODE_TYPES.filter(type => type.linkedNode);
+        }
+        
+        // Default flow - show all standalone types (5 types)
+        console.log('[NodeTypeSelect] Standalone creation mode - showing 5 standalone types');
+        return ALL_NODE_TYPES.filter(type => type.standalone);
+    })();
+
     $: maxSteps = getMaxSteps(nodeType);
 
     function getMaxSteps(type: string): number {
@@ -34,14 +64,18 @@ POSITIONING ARCHITECTURE:
         switch (type) {
             case 'word': return 5;
             case 'category': return 4;
+            case 'definition': return 4;
             case 'statement': 
-            case 'openquestion': return 6;
+            case 'openquestion': 
+            case 'answer':
+            case 'evidence': return 6;
             case 'quantity': return 7;
             default: return 0;
         }
     }
 
     function handleTypeChange() {
+        console.log('[NodeTypeSelect] Type changed to:', nodeType);
         dispatch('typeChange', { type: nodeType });
     }
     
@@ -62,6 +96,13 @@ POSITIONING ARCHITECTURE:
     
     // Dropdown width (centered, max 240px) - responsive to available width
     $: dropdownWidth = Math.min(240, width * 0.6);
+
+    // Get description for selected type
+    $: selectedTypeDescription = (() => {
+        if (!nodeType) return '';
+        const type = ALL_NODE_TYPES.find(t => t.value === nodeType);
+        return type?.description || '';
+    })();
 </script>
 
 <g>
@@ -72,7 +113,7 @@ POSITIONING ARCHITECTURE:
         class="form-label"
         text-anchor="middle"
     >
-        Select Node Type
+        {contextualConfig && !contextualConfig.nodeType ? 'Select Linked Node Type' : 'Select Node Type'}
     </text>
 
     <!-- Select Input - centered horizontally -->
@@ -89,42 +130,21 @@ POSITIONING ARCHITECTURE:
             {disabled}
         >
             <option value="">Choose type...</option>
-            <!-- 
-                STANDALONE NODE TYPES ONLY
-                These 5 types can be created without requiring a parent node context.
-                
-                NOT included (require parent node - will be implemented via proximity-based creation):
-                - Answer: Requires parent OpenQuestion context
-                - Definition (alternative): Created automatically with Word (first definition is live)
-                - Evidence: Requires parent Statement/Answer/Quantity context
-            -->
-            <option value="word">Word</option>
-            <option value="category">Category</option>
-            <option value="statement">Statement</option>
-            <option value="openquestion">Open Question</option>
-            <option value="quantity">Quantity Question</option>
+            {#each displayTypes as type}
+                <option value={type.value}>{type.label}</option>
+            {/each}
         </select>
     </foreignObject>
 
     <!-- Info Text -->
-    {#if nodeType}
+    {#if nodeType && selectedTypeDescription}
         <text 
             x="0"
             y={infoTextY}
             class="info-text"
             text-anchor="middle"
         >
-            {#if nodeType === 'word'}
-                Define a key term or concept
-            {:else if nodeType === 'category'}
-                Group related words together
-            {:else if nodeType === 'statement'}
-                Share a claim or assertion
-            {:else if nodeType === 'openquestion'}
-                Ask an open-ended question
-            {:else if nodeType === 'quantity'}
-                Ask a question with measurable answer
-            {/if}
+            {selectedTypeDescription}
         </text>
     {/if}
 </g>

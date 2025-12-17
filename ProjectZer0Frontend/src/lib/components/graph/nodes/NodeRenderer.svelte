@@ -89,6 +89,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        expandEvidence: {
+            evidenceId: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     // Store the expected radius for comment nodes
@@ -384,6 +389,21 @@
         dispatch('expandDefinition', event.detail);
         console.log('[NodeRenderer] Definition expansion event forwarded to Graph');
     }
+
+    function handleExpandEvidence(event: CustomEvent<{
+        evidenceId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        console.log('[NodeRenderer] Evidence expansion event received:', {
+            evidenceId: event.detail.evidenceId,
+            sourceNodeId: event.detail.sourceNodeId,
+            sourcePosition: event.detail.sourcePosition
+        });
+        
+        dispatch('expandEvidence', event.detail);
+        console.log('[NodeRenderer] Evidence expansion event forwarded to Graph');
+    }
     
     // Position information from node
     $: posX = node.position.x;
@@ -591,7 +611,7 @@
         />
     
         <!-- Add show/hide button to qualifying nodes -->
-        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment' || node.type === 'openquestion'}
+        {#if node.type === 'word' || node.type === 'definition' || node.type === 'statement' || node.type === 'quantity' || node.type === 'comment' || node.type === 'openquestion' || node.type === 'answer'}
             {#key `${node.radius}-${forceRefresh}`}
                 <ShowHideButton 
                     isHidden={false}
@@ -620,7 +640,7 @@
             {/if}
             
             <!-- Add create linked node button to statement, quantity, AND WORD nodes -->
-            {#if node.type === 'statement' || node.type === 'quantity' || node.type === 'word'}
+            {#if node.type === 'statement' || node.type === 'quantity' || node.type === 'word' || node.type === 'answer'}
                 <CreateLinkedNodeButton 
                     y={-node.radius * 0.7071}  
                     x={-node.radius * 0.7071}

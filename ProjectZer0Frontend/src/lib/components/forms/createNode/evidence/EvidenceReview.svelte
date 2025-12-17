@@ -8,7 +8,7 @@
     import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
 	import FormNavigation from '../shared/FormNavigation.svelte';
 
-    export let title = '';
+   export let title = '';
     export let url = '';
     export let evidenceType = '';
     export let parentNodeId = '';
@@ -20,6 +20,11 @@
     export let publicCredit = false;
     export let disabled = false;
     export let userId: string | undefined = undefined;
+    export let width: number = 400;    
+    export let height: number = 400; 
+
+    $: reviewContainerWidth = Math.min(380, width * 0.95);
+    $: reviewContainerHeight = Math.max(400, height * 0.8);
     
     let categoryDetails: Array<{ id: string; name: string }> = [];
     let isSubmitting = false;

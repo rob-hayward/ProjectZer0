@@ -11,6 +11,12 @@
     export let parentNodeText = '';
     export let parentNodeType = '';
     export let disabled = false;
+    export let positioning: Record<string, number> = {};  
+    export let width: number = 400;                        
+    export let height: number = 400; 
+    
+    $: inputWidth = Math.min(340, width * 0.85);
+    $: _ = positioning;
     
     let showValidationErrors = false;
     

@@ -7,7 +7,7 @@
 	import { isAnswerData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { TextContent, NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits, CreateLinkedNodeButton } from '../ui';
+	import { TextContent, NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, CategoryTags, KeywordTags, NodeMetadata, CreatorCredits } from '../ui';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
@@ -113,7 +113,6 @@
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
-		createChildNode: { parentId: string; parentType: string; childType: string };
 		categoryClick: { categoryId: string; categoryName: string };
 		keywordClick: { word: string };
 	}>();
@@ -223,14 +222,6 @@
 
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
 		dispatch('keywordClick', event.detail);
-	}
-
-	function handleCreateChild() {
-		dispatch('createChildNode', {
-			parentId: node.id,
-			parentType: 'answer',
-			childType: 'evidence'
-		});
 	}
 </script>
 
@@ -386,17 +377,7 @@
 			/>
 		</svelte:fragment>
 
-		<svelte:fragment slot="createChild" let:radius>
-			{#if canExpand}
-				<CreateLinkedNodeButton
-					y={-radius * 0.7071}
-					x={radius * 0.7071}
-					nodeId={node.id}
-					nodeType="answer"
-					on:click={handleCreateChild}
-				/>
-			{/if}
-		</svelte:fragment>
+		<!-- REMOVED: createChild slot no longer needed - NodeRenderer will handle the CreateLinkedNodeButton once 'answer' is added to qualifying node types -->
 	</BaseDetailNode>
 {:else}
 	<BasePreviewNode {node} {canExpand} on:modeChange={handleModeChange}>
