@@ -295,7 +295,7 @@
     let definitionReviewComponent: any;
     
     const isUniversalCentralNode = node.id?.endsWith('-central') || false;
-    
+
     let enableColorCycling = false;
     let hasGraphSettled = false;
     
@@ -329,7 +329,16 @@
         }
     });
     
-    $: enableColorCycling = isUniversalCentralNode && hasGraphSettled && formData.nodeType === '';
+    // Check if this is a contextual create node (has contextualConfig but not central)
+    $: hasContextualConfig = !!(node.metadata as any)?.contextualConfig && !isUniversalCentralNode;
+
+    // Enable color cycling when showing node type selection:
+    // - Universal central node: wait for graph settlement
+    // - Contextual create node: immediate (graph already running)
+    $: enableColorCycling = (
+        (isUniversalCentralNode && hasGraphSettled) || 
+        hasContextualConfig
+    ) && formData.nodeType === '';
     
     $: if (enableColorCycling) {
         console.log('[CreateNodeNode] âœ¨ Color cycling enabled - applying animation');
@@ -345,9 +354,9 @@
         if (typeof window === 'undefined') return;
         
         const selectors = [
-            '[data-node-id="create-node-central"]',
-            '.detail-node[data-node-id="create-node-central"]',
-            'g[data-node-id="create-node-central"]'
+            `[data-node-id="${node.id}"]`,  
+            `.detail-node[data-node-id="${node.id}"]`, 
+            `g[data-node-id="${node.id}"]`  
         ];
         
         let nodeElement: Element | null = null;
