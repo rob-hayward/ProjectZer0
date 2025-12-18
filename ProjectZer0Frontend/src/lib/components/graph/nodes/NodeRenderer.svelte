@@ -657,8 +657,6 @@
                                 nodeId: event.detail.nodeId || node.id,
                                 nodeType: event.detail.nodeType || node.type
                             });
-                            
-                            alert(`Create linked node system not yet implemented for ${event.detail.nodeType || node.type} node ${event.detail.nodeId || node.id}`);
                         }
                     }}
                 />

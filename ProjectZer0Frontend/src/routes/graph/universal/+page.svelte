@@ -2524,6 +2524,117 @@ async function handleExpandDefinition(event: CustomEvent<{
 }
 
 /**
+ * Handle create linked node - create contextual node creation form
+ * Shows filtered node type selection (Statement, Quantity, Evidence, OpenQuestion)
+ */
+function handleCreateLinkedNode(event: CustomEvent<{
+    nodeId: string;
+    nodeType: string;
+    sourcePosition: { x: number; y: number };
+}>) {
+    const { nodeId, nodeType, sourcePosition } = event.detail;
+    
+    console.log('[UNIVERSAL-PAGE] Create linked node requested:', {
+        nodeId,
+        nodeType,
+        sourcePosition
+    });
+    
+    // Find parent node
+    const parentNode = graphData.nodes.find(n => n.id === nodeId);
+    if (!parentNode) {
+        console.error('[UNIVERSAL-PAGE] Parent node not found:', nodeId);
+        return;
+    }
+    
+    // Extract display text by type
+    let parentDisplayText = '';
+    switch (nodeType) {
+        case 'statement':
+            parentDisplayText = (parentNode.data as any).statement || '';
+            break;
+        case 'answer':
+            parentDisplayText = (parentNode.data as any).answerText || '';
+            break;
+        case 'quantity':
+            parentDisplayText = (parentNode.data as any).question || '';
+            break;
+        default:
+            console.warn('[UNIVERSAL-PAGE] Unsupported parent type for linked node:', nodeType);
+            return;
+    }
+    
+    const createNodeId = `create-linked-${nodeId}-${Date.now()}`;
+    
+    console.log('[UNIVERSAL-PAGE] Parent node details:', {
+        parentId: nodeId,
+        parentType: nodeType,
+        parentDisplayText: parentDisplayText.substring(0, 50) + '...',
+        sourcePosition
+    });
+    
+    // Calculate proximal position
+    const formPosition = calculateProximalPosition(
+        sourcePosition,
+        graphData.nodes as any[],
+        150
+    );
+    
+    console.log('[UNIVERSAL-PAGE] Calculated form position:', formPosition);
+    
+    // Create CreateNodeNode with contextualConfig
+    // CRITICAL: nodeType NOT set → NodeTypeSelect shows 4 filtered options
+    const createNodeNode: GraphNode = {
+        id: createNodeId,
+        type: 'create-node' as NodeType,
+        data: $userStore!,
+        group: 'content' as any,
+        mode: 'detail' as NodeMode,
+        metadata: {
+            group: 'content' as any,
+            initialPosition: formPosition,
+            contextualConfig: {
+                // nodeType: undefined - NOT SET
+                parentNodeId: nodeId,
+                parentNodeType: nodeType,
+                parentDisplayText: parentDisplayText,
+                parentPosition: sourcePosition
+            }
+        } as any
+    };
+    
+    console.log('[UNIVERSAL-PAGE] Created contextual create node:', {
+        nodeId: createNodeId,
+        position: formPosition,
+        contextualConfig: (createNodeNode.metadata as any)?.contextualConfig
+    });
+    
+    // Add to graph
+    const expandedGraphData: GraphData = {
+        nodes: [...graphData.nodes, createNodeNode],
+        links: [...graphData.links]
+    };
+    
+    // Update with modest wake power
+    if (graphStore && typeof (graphStore as any).updateState === 'function') {
+        console.log('[UNIVERSAL-PAGE] Calling updateState with 0.4 wake power');
+        (graphStore as any).updateState(expandedGraphData, 0.4);
+    } else {
+        console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+        graphStore?.setData(expandedGraphData);
+    }
+    
+    console.log('[UNIVERSAL-PAGE] Create node added to graph');
+    
+    // Center viewport
+    setTimeout(() => {
+        if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+            (graphStore as any).centerOnNodeById(createNodeId, 750);
+        }
+    }, 300);
+}
+
+/**
  * Calculate positions for definitions in a ring around word node
  * Definitions are positioned in order (sorted by content votes)
  * First definition gets angle 0 (rightmost), then counter-clockwise
@@ -2797,6 +2908,7 @@ function calculateDefinitionRing(
         on:expandAnswer={handleExpandAnswer}
          on:createDefinition={handleCreateDefinition}    
         on:expandDefinition={handleExpandDefinition}
+        on:createLinkedNode={handleCreateLinkedNode}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
         {#if isStatementNode(node)}

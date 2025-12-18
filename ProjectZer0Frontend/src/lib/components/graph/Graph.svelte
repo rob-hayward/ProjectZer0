@@ -113,6 +113,11 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        createLinkedNode: {
+            nodeId: string;
+            nodeType: string;
+            sourcePosition: { x: number; y: number };
+        };
     }>();
 
     let container: HTMLDivElement;
@@ -618,6 +623,35 @@
         console.log('[Graph] Evidence expansion event forwarded to page');
     }
 
+    function handleCreateLinkedNode(event: CustomEvent<{
+        nodeId: string;
+        nodeType: string;
+    }>) {
+        const parentNode = $graphStore?.nodes?.find(n => n.id === event.detail.nodeId);
+        
+        if (!parentNode) {
+            console.error('[Graph] Parent node not found:', event.detail.nodeId);
+            return;
+        }
+        
+        console.log('[Graph] Create linked node event received:', {
+            nodeId: event.detail.nodeId,
+            nodeType: event.detail.nodeType,
+            position: parentNode.position
+        });
+        
+        dispatch('createLinkedNode', {
+            nodeId: event.detail.nodeId,
+            nodeType: event.detail.nodeType,
+            sourcePosition: {
+                x: parentNode.position?.x || 0,
+                y: parentNode.position?.y || 0
+            }
+        });
+        
+        console.log('[Graph] Create linked node event forwarded to page');
+    }
+
     function applyViewSpecificBehavior() {
         if (!graphStore) return;
         
@@ -911,6 +945,7 @@
                                     on:createDefinition={handleCreateDefinition}
                                     on:expandDefinition={handleExpandDefinition} 
                                     on:expandEvidence={handleExpandEvidence}
+                                    on:createLinkedNode={handleCreateLinkedNode}
                                     on:reply={event => {
                                         dispatch('reply', { commentId: event.detail.commentId });
                                     }}
