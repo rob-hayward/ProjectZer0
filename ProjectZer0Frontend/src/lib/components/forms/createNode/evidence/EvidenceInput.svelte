@@ -74,25 +74,31 @@ POSITIONING ARCHITECTURE:
                                parentNodeType === 'quantity' ? 'Quantity' :
                                'Node';
     
-    // Calculate Y positions using positioning config (user's updated values)
-    $: contextLabelY = height * (positioning.contextLabel || 0.02);
-    $: contextBoxY = height * (positioning.contextBox || 0.06);
-    $: contextBoxHeight = Math.max(40, height * (positioning.contextBoxHeight || 0.10));
+    // Calculate Y positions using positioning config
+    // LAYOUT: Bottom-up with tighter gaps (2% instead of 4%), more room for context
     
-    $: titleLabelY = height * (positioning.titleLabel || 0.18);
-    $: titleInputY = height * (positioning.titleInput || 0.22);
-    $: titleInputHeight = Math.max(40, height * (positioning.titleInputHeight || 0.22));
-    $: titleCharCountY = titleInputY + titleInputHeight + 12;
+    // Context section (top) - expanded from 18% to 26% using saved space
+    $: contextLabelY = height * (positioning.contextLabel || 0.02);
+    $: contextBoxY = height * (positioning.contextBox || 0.04);
+    $: contextBoxHeight = Math.max(70, height * (positioning.contextBoxHeight || 0.26));
+    
+    // Title section (middle-top) - tighter gap (2% instead of 4%)
+    $: titleLabelY = height * (positioning.titleLabel || 0.32);
+    $: titleInputY = height * (positioning.titleInput || 0.34);
+    $: titleInputHeight = Math.max(80, height * (positioning.titleInputHeight || 0.28));
+    $: titleCharCountY = titleInputY + titleInputHeight + 8;
     $: titleValidationY = titleInputY + titleInputHeight + 8;
     
-    $: urlLabelY = height * (positioning.urlLabel || 0.55);
-    $: urlInputY = height * (positioning.urlInput || 0.59);
-    $: urlInputHeight = Math.max(40, height * (positioning.urlInputHeight || 0.08));
+    // URL section (middle-bottom) - tighter gap (2% instead of 4%)
+    $: urlLabelY = height * (positioning.urlLabel || 0.64);
+    $: urlInputY = height * (positioning.urlInput || 0.66);
+    $: urlInputHeight = Math.max(36, height * (positioning.urlInputHeight || 0.08));
     $: urlValidationY = urlInputY + urlInputHeight + 8;
     
-    $: typeLabelY = height * (positioning.typeLabel || 0.77);
-    $: typeInputY = height * (positioning.typeInput || 0.81);
-    $: typeInputHeight = Math.max(40, height * (positioning.typeInputHeight || 0.08));
+    // Evidence type section (bottom) - tighter gap (2% instead of 4%)
+    $: typeLabelY = height * (positioning.typeLabel || 0.76);
+    $: typeInputY = height * (positioning.typeInput || 0.78);
+    $: typeInputHeight = Math.max(36, height * (positioning.typeInputHeight || 0.08));
     $: typeValidationY = typeInputY + typeInputHeight + 8;
     
     // Input width (centered, responsive)
@@ -132,27 +138,21 @@ POSITIONING ARCHITECTURE:
         Evidence Title
     </text>
     
-    <!-- Title Input with Floating Label -->
+    <!-- Title Input -->
     <foreignObject
         x={-inputWidth/2}
         y={titleInputY}
         width={inputWidth}
         height={titleInputHeight}
     >
-        <div class="input-wrapper">
-            <input
-                id="evidence-title-input"
-                type="text"
-                class="form-input floating-input"
-                class:error={showValidationErrors && isTitleEmpty}
-                class:has-value={title.length > 0}
-                bind:value={title}
-                on:input={handleTitleInput}
-                placeholder=" "
-                {disabled}
-            />
-            <label for="evidence-title-input" class="floating-label">Brief title describing this evidence</label>
-        </div>
+        <textarea
+            class="form-textarea"
+            class:error={showValidationErrors && isTitleEmpty}
+            bind:value={title}
+            on:input={handleTitleInput}
+            placeholder="Brief title describing this evidence"
+            {disabled}
+        />
     </foreignObject>
     
     <!-- Title Validation / Character Count -->
@@ -188,26 +188,21 @@ POSITIONING ARCHITECTURE:
         Evidence URL
     </text>
     
-    <!-- URL Input with Floating Label -->
+    <!-- URL Input -->
     <foreignObject
         x={-inputWidth/2}
         y={urlInputY}
         width={inputWidth}
         height={urlInputHeight}
     >
-        <div class="input-wrapper">
-            <input
-                id="evidence-url-input"
-                type="url"
-                class="form-input floating-input"
-                class:error={showValidationErrors && (isUrlEmpty || !isUrlValid)}
-                class:has-value={url.length > 0}
-                bind:value={url}
-                placeholder=" "
-                {disabled}
-            />
-            <label for="evidence-url-input" class="floating-label">https://example.com/evidence</label>
-        </div>
+        <input
+            type="url"
+            class="form-input"
+            class:error={showValidationErrors && (isUrlEmpty || !isUrlValid)}
+            bind:value={url}
+            placeholder="https://example.com/evidence"
+            {disabled}
+        />
     </foreignObject>
     
     <!-- URL Validation -->
@@ -241,29 +236,24 @@ POSITIONING ARCHITECTURE:
         Evidence Type
     </text>
     
-    <!-- Evidence Type Select with Floating Label -->
+    <!-- Evidence Type Select -->
     <foreignObject
         x={-inputWidth/2}
         y={typeInputY}
         width={inputWidth}
         height={typeInputHeight}
     >
-        <div class="input-wrapper">
-            <select 
-                id="evidence-type-select"
-                class="form-input select-input floating-input"
-                class:error={showValidationErrors && isTypeEmpty}
-                class:has-value={evidenceType !== ''}
-                bind:value={evidenceType}
-                {disabled}
-            >
-                <option value=""></option>
-                {#each EVIDENCE_TYPES as type}
-                    <option value={type.value}>{type.label}</option>
-                {/each}
-            </select>
-            <label for="evidence-type-select" class="floating-label select-floating-label">Select evidence type</label>
-        </div>
+        <select 
+            class="form-input select-input"
+            class:error={showValidationErrors && isTypeEmpty}
+            bind:value={evidenceType}
+            {disabled}
+        >
+            <option value="">Select evidence type...</option>
+            {#each EVIDENCE_TYPES as type}
+                <option value={type.value}>{type.label}</option>
+            {/each}
+        </select>
     </foreignObject>
     
     <!-- Evidence Type Validation -->
@@ -281,7 +271,7 @@ POSITIONING ARCHITECTURE:
 
 <style>
     .context-label {
-        font-size: 11px;
+        font-size: 10px;
         fill: rgba(255, 255, 255, 0.5);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
@@ -294,31 +284,32 @@ POSITIONING ARCHITECTURE:
         padding: 6px 8px;
         color: rgba(255, 255, 255, 0.8);
         font-family: 'Inter', sans-serif;
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 400;
-        line-height: 1.3;
+        line-height: 1.4;
         font-style: italic;
+        height: 100%;
         max-height: 100%;
         overflow-y: auto;
         box-sizing: border-box;
     }
     
     .form-label {
-        font-size: 14px;
+        font-size: 12px;
         fill: rgba(255, 255, 255, 0.7);
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .validation-message {
-        font-size: 11px;
+        font-size: 10px;
         fill: #ff4444;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
     
     .character-count {
-        font-size: 11px;
+        font-size: 10px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
         fill: rgba(255, 255, 255, 0.6);
@@ -332,16 +323,27 @@ POSITIONING ARCHITECTURE:
         fill: #ff4444;
     }
     
-    /* Input wrapper for floating labels */
-    :global(.input-wrapper) {
-        position: relative;
-        width: 100%;
-        height: 100%;
-    }
-    
-    /* Base input styles */
+    /* Standard form input styles (for single-line inputs) */
     :global(input.form-input),
     :global(select.form-input) {
+        width: 100%;
+        /* height removed - let inputs use natural height */
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        border-radius: 4px;
+        color: white;
+        padding: 8px;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 400;
+        transition: all 0.2s ease;
+        box-sizing: border-box;
+        display: block;
+        margin: 0;
+    }
+    
+    /* Textarea styles (for multiline inputs like title) */
+    :global(textarea.form-textarea) {
         width: 100%;
         height: 100%;
         background: rgba(255, 255, 255, 0.05);
@@ -350,70 +352,42 @@ POSITIONING ARCHITECTURE:
         color: white;
         padding: 8px;
         font-family: 'Inter', sans-serif;
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         font-weight: 400;
+        line-height: 1.4;
         transition: all 0.2s ease;
         box-sizing: border-box;
         display: block;
         margin: 0;
+        resize: none;
     }
     
-    /* Floating input adjustments */
-    :global(.floating-input) {
-        padding: 18px 8px 6px 8px !important; /* Extra top padding for label */
-    }
-    
-    /* Floating label */
-    :global(.floating-label) {
-        position: absolute;
-        left: 8px;
-        top: 6px; /* Position at top of input */
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.5);
-        font-family: 'Inter', sans-serif;
-        font-weight: 400;
-        pointer-events: none;
-        transition: all 0.2s ease;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: calc(100% - 16px);
-    }
-    
-    /* When input is focused or has value, label stays at top with color change */
-    :global(.floating-input:focus ~ .floating-label),
-    :global(.floating-input.has-value ~ .floating-label) {
-        color: rgba(66, 153, 225, 0.8);
-    }
-    
-    /* Placeholder hidden by default */
-    :global(.floating-input::placeholder) {
-        opacity: 0;
-    }
-    
-    /* Show placeholder only when focused (optional - can remove if not wanted) */
-    :global(.floating-input:focus::placeholder) {
-        opacity: 0.4;
-        color: rgba(255, 255, 255, 0.4);
-    }
-    
-    /* Input focus states */
+    /* Input and textarea focus states */
     :global(input.form-input:focus),
-    :global(select.form-input:focus) {
+    :global(select.form-input:focus),
+    :global(textarea.form-textarea:focus) {
         outline: none;
         border-color: rgba(66, 153, 225, 0.6);
         background: rgba(255, 255, 255, 0.08);
     }
     
+    /* Placeholder styling */
+    :global(input.form-input::placeholder),
+    :global(textarea.form-textarea::placeholder) {
+        color: rgba(255, 255, 255, 0.4);
+    }
+    
     /* Error states */
     :global(input.form-input.error),
-    :global(select.form-input.error) {
+    :global(select.form-input.error),
+    :global(textarea.form-textarea.error) {
         border-color: #ff4444;
     }
     
     /* Disabled states */
     :global(input.form-input:disabled),
-    :global(select.form-input:disabled) {
+    :global(select.form-input:disabled),
+    :global(textarea.form-textarea:disabled) {
         opacity: 0.5;
         cursor: not-allowed;
     }
@@ -428,17 +402,7 @@ POSITIONING ARCHITECTURE:
         background-repeat: no-repeat;
         background-position: right 8px center;
         background-size: 20px;
-        padding-right: 32px !important;
-    }
-    
-    /* Select floating label adjustment (hide when empty/default option) */
-    :global(select.floating-input:not(.has-value) ~ .floating-label.select-floating-label) {
-        opacity: 1;
-    }
-    
-    :global(select.floating-input.has-value ~ .floating-label.select-floating-label) {
-        opacity: 1;
-        color: rgba(66, 153, 225, 0.8);
+        padding-right: 32px;
     }
     
     :global(.select-input option) {

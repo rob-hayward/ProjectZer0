@@ -522,18 +522,33 @@ TO ADJUST POSITIONING:
             }
         },
 
-        'create-node': {
+     'create-node': {
             detail: {
                 contentText: {
-                    label: 0.10,            // Label positioned above the input
-                    dropdown: 0.20,         // Dropdown position (for steps 1-2)
-                    dropdownHeight: 0.20,   // Dropdown height allocation
-                    textarea: 0.20,         // Textarea position (same as dropdown)
-                    textareaHeight: 0.30,   // Textarea height allocation
-                    infoText: 0.80,         // Helper text
-                    button: 0.72,            // Action button
-                    reviewContainer: 0.05,  // Start at 5% from top
-                    reviewContainerHeight: 0.85 // Allocate 65% height
+                    // Generic fields (NodeTypeSelect, etc)
+                    label: 0.10,
+                    dropdown: 0.20,
+                    dropdownHeight: 0.20,
+                    textarea: 0.20,
+                    textareaHeight: 0.30,
+                    infoText: 0.80,
+                    button: 0.72,
+                    reviewContainer: 0.05,
+                    reviewContainerHeight: 0.85,
+                    
+                    // Evidence creation specific (prefixed to avoid conflicts)
+                    evidence_contextLabel: 0.02,
+                    evidence_contextBox: 0.04,
+                    evidence_contextBoxHeight: 0.34,
+                    evidence_titleLabel: 0.32,
+                    evidence_titleInput: 0.34,
+                    evidence_titleInputHeight: 0.28,
+                    evidence_urlLabel: 0.74,
+                    evidence_urlInput: 0.76,
+                    evidence_urlInputHeight: 0.08,
+                    evidence_typeLabel: 0.86,
+                    evidence_typeInput: 0.88,
+                    evidence_typeInputHeight: 0.08
                 },
                 inclusionVoting: {},
                 contentVoting: {}

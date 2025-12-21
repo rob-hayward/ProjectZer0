@@ -1217,8 +1217,11 @@
                             bind:title={formData.evidenceTitle}
                             bind:url={formData.evidenceUrl}
                             bind:evidenceType={formData.evidenceType}
-                            parentNodeText={formData.parentNodeType ? "[Parent node text will be provided when evidence creation is triggered from a node]" : ""}
-                            parentNodeType={formData.parentNodeType || ""}
+                            parentNodeText={contextualConfig?.parentDisplayText || ""}
+                            parentNodeType={contextualConfig?.parentNodeType || ""}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
