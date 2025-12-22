@@ -116,10 +116,14 @@ POSITIONING ARCHITECTURE:
     $: descriptionY = height * (positioning.description || 0.16);
     $: inputY = height * (positioning.dropdown || 0.20);
     $: inputHeight = Math.max(40, height * (positioning.dropdownHeight || 0.10));
-    $: dropdownY = inputY + inputHeight - 44;  // Correct offset for seamless connection
-    $: dropdownHeight = Math.max(250, height * 0.40);  // Much taller dropdown
-    $: errorY = dropdownY + (showDropdown ? dropdownHeight + 10 : 10);
-    $: chipsY = errorY + (showValidationError || isLoading ? 25 : 0);
+    $: dropdownY = inputY + inputHeight - 4;  // Offset for seamless dropdown connection
+    $: dropdownHeight = Math.max(250, height * 0.40);  // Tall dropdown menu
+    // FIXED: Error message position depends on whether dropdown is showing
+    $: errorY = showDropdown ? (dropdownY + dropdownHeight + 10) : (inputY + inputHeight + 10);
+    // Position chips AFTER dropdown when it's visible, otherwise right after input
+    $: chipsY = showDropdown 
+    ? dropdownY + dropdownHeight + 10  // After dropdown
+    : inputY + inputHeight + (showValidationError || isLoading ? 35 : 10);  // After input
     $: chipsHeight = Math.max(80, height * 0.15);
     
     // Input width (centered, responsive)
@@ -153,6 +157,7 @@ POSITIONING ARCHITECTURE:
         y={inputY}
         width={inputWidth}
         height={inputHeight}
+        style="pointer-events: auto;"
     >
         <input
             type="text"
@@ -175,8 +180,9 @@ POSITIONING ARCHITECTURE:
             y={dropdownY}
             width={inputWidth}
             height={dropdownHeight}
+            style="pointer-events: auto; overflow: visible;"
         >
-            <div class="dropdown-container">
+            <div class="dropdown-container" style="position: relative; z-index: 9999;">
                 {#each filteredCategories.slice(0, 10) as category}
                     <button
                         class="category-option"

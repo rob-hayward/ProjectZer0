@@ -853,7 +853,7 @@
         <NodeHeader title={stepTitle} {radius} mode="detail" />
     </svelte:fragment>
 
-    <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
+        <svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
         {#if errorMessage || successMessage}
             <foreignObject
                 {x}
@@ -870,7 +870,7 @@
         {@const formY = y + (errorMessage || successMessage ? 60 : 0)}
         {@const formHeight = height - (errorMessage || successMessage ? 60 : 0)}
         
-        <svg {x} y={formY} {width} height={formHeight}>
+        <svg {x} y={formY} {width} height={formHeight} overflow="visible" style="pointer-events: auto;">
             <g transform="translate({width/2}, 0)">
                 {#if currentStep === 1}
                     <NodeTypeSelect
@@ -884,17 +884,16 @@
                     />
                 {:else if formData.nodeType === 'word'}
                     {#if currentStep === 2}
-                    <AnswerInput
-                        bind:answerText={formData.answerText}
-                        questionText={contextualConfig?.parentDisplayText || "[Question text will be provided]"}
-                        {positioning}
-                        {width}
-                        height={formHeight}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                   {:else if currentStep === 3}
+                        <WordInput
+                            bind:word={formData.word}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
                         <DefinitionInput
                             bind:definitionText={formData.definitionText}
                             {positioning}
@@ -915,79 +914,78 @@
                             on:proceed={handleNext}
                         />
                     {:else if currentStep === 5}
-                    <WordReview
-                        bind:this={wordReviewComponent}
-                        word={formData.word}
-                        definitionText={formData.definitionText}
-                        discussion={formData.discussion}
-                        publicCredit={formData.publicCredit}
-                         
-                        {width}              
-                        height={formHeight}  
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:success={e => successMessage = e.detail.message}
-                        on:error={e => errorMessage = e.detail.message}
-                        on:expandWord={handleWordCreated}
-                    />
+                        <WordReview
+                            bind:this={wordReviewComponent}
+                            word={formData.word}
+                            definitionText={formData.definitionText}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                            on:expandWord={handleWordCreated}
+                        />
                     {/if}
                 {:else if formData.nodeType === 'statement'}
-                {#if currentStep === 2}
-                    <StatementInput
-                        bind:statement={formData.statement}
-                        {positioning}
-                        {width}
-                        height={formHeight}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                {:else if currentStep === 3}
-                <CategoryInput
-                    bind:selectedCategories={formData.selectedCategories}
-                    {positioning}        
-                    {width}              
-                    height={formHeight} 
-                    disabled={isLoading}
-                    on:back={handleBack}
-                    on:proceed={handleNext}
-                />
-                {:else if currentStep === 4}
-                    <KeywordInput
-                        bind:userKeywords={formData.userKeywords}
-                        {positioning}
-                        {width}
-                        height={formHeight}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                {:else if currentStep === 5}
-                    <DiscussionInput
-                        bind:discussion={formData.discussion}
-                        {positioning}
-                        {width}
-                        height={formHeight}
-                        disabled={isLoading}
-                        on:back={handleBack}
-                        on:proceed={handleNext}
-                    />
-                {:else if currentStep === 6}
-                    <StatementReview
-                        bind:this={statementReviewComponent}
-                        statement={formData.statement}
-                        userKeywords={formData.userKeywords}
-                        selectedCategories={formData.selectedCategories}
-                        discussion={formData.discussion}
-                        publicCredit={formData.publicCredit}
-                        {width}
-                        height={formHeight}
-                        on:back={handleBack}
-                        on:success={e => successMessage = e.detail.message}
-                        on:error={e => errorMessage = e.detail.message}
-                        on:expandStatement={handleStatementCreated}
-                    />
-                {/if}
+                    {#if currentStep === 2}
+                        <StatementInput
+                            bind:statement={formData.statement}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 3}
+                        <CategoryInput
+                            bind:selectedCategories={formData.selectedCategories}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 4}
+                        <KeywordInput
+                            bind:userKeywords={formData.userKeywords}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 5}
+                        <DiscussionInput
+                            bind:discussion={formData.discussion}
+                            {positioning}
+                            {width}
+                            height={formHeight}
+                            disabled={isLoading}
+                            on:back={handleBack}
+                            on:proceed={handleNext}
+                        />
+                    {:else if currentStep === 6}
+                        <StatementReview
+                            bind:this={statementReviewComponent}
+                            statement={formData.statement}
+                            userKeywords={formData.userKeywords}
+                            selectedCategories={formData.selectedCategories}
+                            discussion={formData.discussion}
+                            publicCredit={formData.publicCredit}
+                            {width}
+                            height={formHeight}
+                            on:back={handleBack}
+                            on:success={e => successMessage = e.detail.message}
+                            on:error={e => errorMessage = e.detail.message}
+                            on:expandStatement={handleStatementCreated}
+                        />
+                    {/if}
                 {:else if formData.nodeType === 'openquestion'}
                     {#if currentStep === 2}
                         <OpenQuestionInput
@@ -1107,7 +1105,7 @@
                             discussion={formData.discussion}
                             publicCredit={formData.publicCredit}
                             userId={userData.sub}
-                            {width}             
+                            {width}
                             height={formHeight}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
@@ -1120,6 +1118,9 @@
                         <AnswerInput
                             bind:answerText={formData.answerText}
                             questionText={contextualConfig?.parentDisplayText || "[Question text will be provided]"}
+                            {positioning}
+                            {width}
+                            height={formHeight}
                             disabled={isLoading}
                             on:back={handleBack}
                             on:proceed={handleNext}
@@ -1172,7 +1173,7 @@
                             on:expandAnswer={handleAnswerCreated}
                         />
                     {/if}
-                    {:else if formData.nodeType === 'definition'}
+                {:else if formData.nodeType === 'definition'}
                     {#if currentStep === 2}
                         <DefinitionInput
                             bind:definitionText={formData.definitionText}
@@ -1212,7 +1213,21 @@
                         />
                     {/if}
                 {:else if formData.nodeType === 'evidence'}
+                    <!-- ================================================================ -->
+                    <!-- EVIDENCE CREATION FLOW - WITH DEBUG LOGGING -->
+                    <!-- ================================================================ -->
                     {#if currentStep === 2}
+                        <!-- DEBUG: Console log positioning before passing to EvidenceInput -->
+                        {console.log('[CreateNodeNode] 🔍 Evidence Step 2 - About to render EvidenceInput with:', {
+                            positioning,
+                            positioningKeys: Object.keys(positioning),
+                            evidenceKeys: Object.keys(positioning).filter(k => k.startsWith('evidence_')),
+                            width,
+                            formHeight,
+                            parentNodeText: contextualConfig?.parentDisplayText?.substring(0, 50) + '...',
+                            parentNodeType: contextualConfig?.parentNodeType
+                        })}
+                        
                         <EvidenceInput
                             bind:title={formData.evidenceTitle}
                             bind:url={formData.evidenceUrl}
@@ -1256,7 +1271,7 @@
                             on:back={handleBack}
                             on:proceed={handleNext}
                         />
-                   {:else if currentStep === 6}
+                    {:else if currentStep === 6}
                         <EvidenceReview
                             bind:this={evidenceReviewComponent}
                             title={formData.evidenceTitle}

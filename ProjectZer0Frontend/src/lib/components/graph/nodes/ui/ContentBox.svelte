@@ -177,9 +177,9 @@ TO ADJUST POSITIONING:
         },
         statement: {
             detail: { 
-                contentText: 0.40,      // 40% = 170px for statement text
-                inclusionVoting: 0.30,  // 30% = 127px for Include/Exclude voting
-                contentVoting: 0.30     // 30% = 127px for Agree/Disagree voting
+                contentText: 0.40,
+                inclusionVoting: 0.30,
+                contentVoting: 0.30
             },
             preview: { 
                 contentText: 0.65,
@@ -522,33 +522,40 @@ TO ADJUST POSITIONING:
             }
         },
 
-     'create-node': {
+        'create-node': {
             detail: {
                 contentText: {
                     // Generic fields (NodeTypeSelect, etc)
                     label: 0.10,
                     dropdown: 0.20,
-                    dropdownHeight: 0.20,
-                    textarea: 0.20,
+                    dropdownHeight: 0.10,
+                    textarea: 0.10,
                     textareaHeight: 0.30,
                     infoText: 0.80,
                     button: 0.72,
                     reviewContainer: 0.05,
                     reviewContainerHeight: 0.85,
                     
-                    // Evidence creation specific (prefixed to avoid conflicts)
-                    evidence_contextLabel: 0.02,
-                    evidence_contextBox: 0.04,
-                    evidence_contextBoxHeight: 0.34,
-                    evidence_titleLabel: 0.32,
-                    evidence_titleInput: 0.34,
-                    evidence_titleInputHeight: 0.28,
-                    evidence_urlLabel: 0.74,
-                    evidence_urlInput: 0.76,
-                    evidence_urlInputHeight: 0.08,
-                    evidence_typeLabel: 0.86,
-                    evidence_typeInput: 0.88,
-                    evidence_typeInputHeight: 0.08
+                    // =========================================================================
+                    // EVIDENCE CREATION POSITIONING - SINGLE SOURCE OF TRUTH
+                    // =========================================================================
+                evidence_contextLabel: 0.02,           // Label at 2%
+                evidence_contextBox: 0.04,             // Box starts at 4%
+                evidence_contextBoxHeight: 0.27,       // 33% height for parent context
+                
+                // SECTION 2: Evidence Title (33% of form)
+                evidence_titleLabel: 0.36,             // Label at 39% (small gap after context)
+                evidence_titleInput: 0.38,             // Input starts at 41%
+                evidence_titleInputHeight: 0.27,       // 33% height for title
+                
+                // SECTION 3: URL + Type (33% total, split between them)
+                evidence_urlLabel: 0.73,               // URL label at 76%
+                evidence_urlInput: 0.75,               // URL input at 78%
+                evidence_urlInputHeight: 0.08,        // 15.5% for URL
+                
+                evidence_typeLabel: 0.88,             // Type label at 94.5%
+                evidence_typeInput: 0.90,              // Type input at 96%
+                evidence_typeInputHeight: 0.08         // 4% for type dropdown
                 },
                 inclusionVoting: {},
                 contentVoting: {}
@@ -582,6 +589,17 @@ TO ADJUST POSITIONING:
     
     // Get positioning config for current node type and mode
     $: currentPositioning = (POSITIONING_CONFIGS[nodeType] || POSITIONING_CONFIGS.default)[mode];
+    
+    // DEBUG: Log positioning config when it changes
+    $: if (nodeType === 'create-node' && mode === 'detail') {
+        console.log('[ContentBox] 🔍 Positioning config for create-node:', {
+            nodeType,
+            mode,
+            positioning: currentPositioning.contentText,
+            evidence_contextBoxHeight: currentPositioning.contentText?.evidence_contextBoxHeight,
+            evidence_titleInputHeight: currentPositioning.contentText?.evidence_titleInputHeight
+        });
+    }
     
     // Allow overrides via props
     export let horizontalPadding: number | undefined = undefined;

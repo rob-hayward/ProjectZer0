@@ -1,16 +1,5 @@
 <!-- src/lib/components/forms/createNode/evidence/EvidenceInput.svelte -->
-<!--
-POSITIONING ARCHITECTURE:
-- This component is POSITIONALLY DUMB - all coordinates come from ContentBox
-- Receives: positioning (fractions), width, height from parent via ContentBox
-- Coordinate system: LEFT-EDGE X, TOP Y
-  • X origin: Left edge of contentText section (after padding)
-  • Y origin: TOP of contentText section
-  • X: Standard left-to-right (0 = left edge, positive = right)
-  • Y: Top-origin (0 = top, 0.5 = middle, 1.0 = bottom)
-- Calculate absolute Y positions as: y = height * positioning.element
-- ContentBox is the SINGLE SOURCE OF TRUTH - adjust values there, not here
--->
+<!-- FIXED: Uses CSS classes like other working components, no inline height conflicts -->
 <script lang="ts">
     import { createEventDispatcher } from 'svelte';
     import { TEXT_LIMITS } from '$lib/constants/validation';
@@ -22,14 +11,12 @@ POSITIONING ARCHITECTURE:
     export let parentNodeType = '';
     export let disabled = false;
     
-    // POSITIONING: Received from ContentBox via CreateNodeNode
     export let positioning: Record<string, number> = {};
     export let width: number = 400;
     export let height: number = 400;
     
     let showValidationErrors = false;
     
-    // Evidence type options
     const EVIDENCE_TYPES = [
         { value: 'peer_reviewed_study', label: 'Peer-Reviewed Study' },
         { value: 'government_report', label: 'Government Report' },
@@ -46,7 +33,6 @@ POSITIONING ARCHITECTURE:
     $: isUrlEmpty = url.trim().length === 0;
     $: isUrlValid = url.trim() === '' || isValidUrl(url);
     $: isTypeEmpty = evidenceType === '';
-    $: isValid = !isTitleOverLimit && !isTitleEmpty && !isUrlEmpty && isUrlValid && !isTypeEmpty;
     
     const dispatch = createEventDispatcher<{
         back: void;
@@ -74,39 +60,31 @@ POSITIONING ARCHITECTURE:
                                parentNodeType === 'quantity' ? 'Quantity' :
                                'Node';
     
-    // Calculate Y positions using positioning config
-    // LAYOUT: Bottom-up with tighter gaps (2% instead of 4%), more room for context
+    // Calculate positions using ContentBox positioning (single source of truth)
+    $: contextLabelY = height * (positioning.evidence_contextLabel ?? 0.02);
+    $: contextBoxY = height * (positioning.evidence_contextBox ?? 0.04);
+    $: contextBoxHeight = height * (positioning.evidence_contextBoxHeight ?? 0.55);
     
-    // Context section (top) - expanded from 18% to 26% using saved space
-    $: contextLabelY = height * (positioning.contextLabel || 0.02);
-    $: contextBoxY = height * (positioning.contextBox || 0.04);
-    $: contextBoxHeight = Math.max(70, height * (positioning.contextBoxHeight || 0.26));
-    
-    // Title section (middle-top) - tighter gap (2% instead of 4%)
-    $: titleLabelY = height * (positioning.titleLabel || 0.32);
-    $: titleInputY = height * (positioning.titleInput || 0.34);
-    $: titleInputHeight = Math.max(80, height * (positioning.titleInputHeight || 0.28));
-    $: titleCharCountY = titleInputY + titleInputHeight + 8;
+    $: titleLabelY = height * (positioning.evidence_titleLabel ?? 0.61);
+    $: titleInputY = height * (positioning.evidence_titleInput ?? 0.63);
+    $: titleInputHeight = height * (positioning.evidence_titleInputHeight ?? 0.18);
+    $: titleCharCountY = titleInputY + titleInputHeight + 10;
     $: titleValidationY = titleInputY + titleInputHeight + 8;
     
-    // URL section (middle-bottom) - tighter gap (2% instead of 4%)
-    $: urlLabelY = height * (positioning.urlLabel || 0.64);
-    $: urlInputY = height * (positioning.urlInput || 0.66);
-    $: urlInputHeight = Math.max(36, height * (positioning.urlInputHeight || 0.08));
+    $: urlLabelY = height * (positioning.evidence_urlLabel ?? 0.83);
+    $: urlInputY = height * (positioning.evidence_urlInput ?? 0.85);
+    $: urlInputHeight = height * (positioning.evidence_urlInputHeight ?? 0.07);
     $: urlValidationY = urlInputY + urlInputHeight + 8;
     
-    // Evidence type section (bottom) - tighter gap (2% instead of 4%)
-    $: typeLabelY = height * (positioning.typeLabel || 0.76);
-    $: typeInputY = height * (positioning.typeInput || 0.78);
-    $: typeInputHeight = Math.max(36, height * (positioning.typeInputHeight || 0.08));
+    $: typeLabelY = height * (positioning.evidence_typeLabel ?? 0.93);
+    $: typeInputY = height * (positioning.evidence_typeInput ?? 0.95);
+    $: typeInputHeight = height * (positioning.evidence_typeInputHeight ?? 0.05);
     $: typeValidationY = typeInputY + typeInputHeight + 8;
     
-    // Input width (centered, responsive)
     $: inputWidth = Math.min(340, width * 0.85);
 </script>
 
 <g>
-    <!-- Parent Node Context Label -->
     <text 
         x="0"
         y={contextLabelY}
@@ -116,7 +94,7 @@ POSITIONING ARCHITECTURE:
         Adding Evidence to {parentNodeTypeDisplay}:
     </text>
     
-    <!-- Parent Context Box -->
+    <!-- Parent Context Box - NO inline height style, uses CSS only -->
     <foreignObject
         x={-inputWidth/2}
         y={contextBoxY}
@@ -124,11 +102,10 @@ POSITIONING ARCHITECTURE:
         height={contextBoxHeight}
     >
         <div class="parent-context">
-            {parentNodeText}
+            {parentNodeText || 'Loading parent context...'}
         </div>
     </foreignObject>
     
-    <!-- Title Label (traditional) -->
     <text 
         x="0"
         y={titleLabelY}
@@ -138,7 +115,7 @@ POSITIONING ARCHITECTURE:
         Evidence Title
     </text>
     
-    <!-- Title Input -->
+    <!-- Title Input - NO inline height style, uses CSS only -->
     <foreignObject
         x={-inputWidth/2}
         y={titleInputY}
@@ -155,7 +132,6 @@ POSITIONING ARCHITECTURE:
         />
     </foreignObject>
     
-    <!-- Title Validation / Character Count -->
     {#if showValidationErrors && isTitleEmpty}
         <text 
             x="0"
@@ -178,7 +154,6 @@ POSITIONING ARCHITECTURE:
         </text>
     {/if}
     
-    <!-- URL Label (traditional) -->
     <text 
         x="0"
         y={urlLabelY}
@@ -188,7 +163,7 @@ POSITIONING ARCHITECTURE:
         Evidence URL
     </text>
     
-    <!-- URL Input -->
+    <!-- URL Input - NO inline height style, uses CSS only -->
     <foreignObject
         x={-inputWidth/2}
         y={urlInputY}
@@ -205,7 +180,6 @@ POSITIONING ARCHITECTURE:
         />
     </foreignObject>
     
-    <!-- URL Validation -->
     {#if showValidationErrors && isUrlEmpty}
         <text 
             x="0"
@@ -226,7 +200,6 @@ POSITIONING ARCHITECTURE:
         </text>
     {/if}
     
-    <!-- Evidence Type Label (traditional) -->
     <text 
         x="0"
         y={typeLabelY}
@@ -236,7 +209,7 @@ POSITIONING ARCHITECTURE:
         Evidence Type
     </text>
     
-    <!-- Evidence Type Select -->
+    <!-- Type Select - NO inline height style, uses CSS only -->
     <foreignObject
         x={-inputWidth/2}
         y={typeInputY}
@@ -256,7 +229,6 @@ POSITIONING ARCHITECTURE:
         </select>
     </foreignObject>
     
-    <!-- Evidence Type Validation -->
     {#if showValidationErrors && isTypeEmpty}
         <text 
             x="0"
@@ -277,21 +249,26 @@ POSITIONING ARCHITECTURE:
         font-weight: 400;
     }
     
+    /* 🔑 KEY FIX: Use height: 100% like working components */
     :global(.parent-context) {
+        width: 100%;
+        height: 100%;
+        min-height: 100%;
         background: rgba(103, 242, 142, 0.1);
         border: 1px solid rgba(103, 242, 142, 0.3);
         border-radius: 4px;
-        padding: 6px 8px;
+        padding: 8px;
         color: rgba(255, 255, 255, 0.8);
         font-family: 'Inter', sans-serif;
         font-size: 11px;
         font-weight: 400;
         line-height: 1.4;
         font-style: italic;
-        height: 100%;
-        max-height: 100%;
         overflow-y: auto;
+        overflow-wrap: break-word;
+        word-wrap: break-word;
         box-sizing: border-box;
+        display: block;
     }
     
     .form-label {
@@ -323,11 +300,11 @@ POSITIONING ARCHITECTURE:
         fill: #ff4444;
     }
     
-    /* Standard form input styles (for single-line inputs) */
+    /* Standard form inputs - match DiscussionInput pattern */
     :global(input.form-input),
     :global(select.form-input) {
         width: 100%;
-        /* height removed - let inputs use natural height */
+        height: 100%;
         background: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 4px;
@@ -342,7 +319,7 @@ POSITIONING ARCHITECTURE:
         margin: 0;
     }
     
-    /* Textarea styles (for multiline inputs like title) */
+    /* Textarea - match DiscussionInput pattern */
     :global(textarea.form-textarea) {
         width: 100%;
         height: 100%;
@@ -362,7 +339,6 @@ POSITIONING ARCHITECTURE:
         resize: none;
     }
     
-    /* Input and textarea focus states */
     :global(input.form-input:focus),
     :global(select.form-input:focus),
     :global(textarea.form-textarea:focus) {
@@ -371,20 +347,17 @@ POSITIONING ARCHITECTURE:
         background: rgba(255, 255, 255, 0.08);
     }
     
-    /* Placeholder styling */
     :global(input.form-input::placeholder),
     :global(textarea.form-textarea::placeholder) {
         color: rgba(255, 255, 255, 0.4);
     }
     
-    /* Error states */
     :global(input.form-input.error),
     :global(select.form-input.error),
     :global(textarea.form-textarea.error) {
         border-color: #ff4444;
     }
     
-    /* Disabled states */
     :global(input.form-input:disabled),
     :global(select.form-input:disabled),
     :global(textarea.form-textarea:disabled) {
@@ -392,7 +365,6 @@ POSITIONING ARCHITECTURE:
         cursor: not-allowed;
     }
     
-    /* Select-specific styles */
     :global(.select-input) {
         cursor: pointer;
         -webkit-appearance: none;
@@ -411,7 +383,6 @@ POSITIONING ARCHITECTURE:
         padding: 8px;
     }
     
-    /* Scrollbar for parent context */
     :global(.parent-context::-webkit-scrollbar) {
         width: 4px;
     }
