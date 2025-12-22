@@ -45,9 +45,9 @@ POSITIONING ARCHITECTURE:
     
     // Hardcoded Y positions for reliable spacing
     $: contextLabelY = height * 0.05;
-    $: contextBoxY = height * 0.11;
+    $: contextBoxY = height * 0.07;
     $: contextBoxHeight = height * 0.30;  // 30% of height for question context
-    $: labelY = height * 0.44;  // Moved up from 0.56
+    $: labelY = height * 0.48;  // Moved up from 0.56
     $: textareaY = height * 0.51;  // Moved up from 0.64
     $: textareaHeight = height * 0.35;  // Increased from 0.24 for answer input
     $: charCountY = textareaY + textareaHeight + 15;
@@ -153,6 +153,9 @@ POSITIONING ARCHITECTURE:
     }
     
     :global(.question-context) {
+        width: 100%;         
+        height: 100%;         
+        min-height: 100%; 
         background: rgba(182, 140, 255, 0.1);
         border: 1px solid rgba(182, 140, 255, 0.3);
         border-radius: 4px;
