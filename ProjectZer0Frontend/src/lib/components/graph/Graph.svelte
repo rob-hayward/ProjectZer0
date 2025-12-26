@@ -113,6 +113,13 @@
             sourceNodeId: string;
             sourcePosition: { x: number; y: number };
         };
+        createEvidence: {
+            parentNodeId: string;
+            parentNodeType: string;
+            parentDisplayText: string;
+            sourceNodeId: string;
+            sourcePosition: { x: number; y: number };
+        };
         createLinkedNode: {
             nodeId: string;
             nodeType: string;

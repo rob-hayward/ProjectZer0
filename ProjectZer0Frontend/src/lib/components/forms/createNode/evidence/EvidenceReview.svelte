@@ -29,6 +29,7 @@
 
     const dispatch = createEventDispatcher<{
         back: void;
+        expandEvidence: { evidenceId: string };
         success: { message: string; evidenceId: string; };
         error: { message: string; };
     }>();
@@ -104,12 +105,12 @@
 
         try {
             // Ensure URL has protocol
-            let validUrl = url.trim();
-            if (!validUrl.startsWith('http://') && !validUrl.startsWith('https://')) {
-                validUrl = 'https://' + validUrl;
+            let formattedUrl = url.trim();
+            if (!formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
+                formattedUrl = 'https://' + formattedUrl;
             }
 
-            // Map frontend parent type to backend format
+            // Map parent node type to backend format
             const parentTypeMap: Record<string, string> = {
                 'statement': 'StatementNode',
                 'answer': 'AnswerNode',
@@ -118,14 +119,15 @@
                 'AnswerNode': 'AnswerNode',
                 'QuantityNode': 'QuantityNode'
             };
+            const mappedParentType = parentTypeMap[parentNodeType] || 'StatementNode';
 
             const evidenceData = {
-                title: title.trim(),
-                url: validUrl,
-                evidenceType: evidenceType,
-                parentNodeId: parentNodeId,
-                parentNodeType: parentTypeMap[parentNodeType] || 'StatementNode',
-                createdBy: userId,
+                title,
+                url: formattedUrl,
+                evidenceType,
+                parentNodeId,
+                parentNodeType: mappedParentType,
+                createdBy: userId || 'unknown',
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
                 categoryIds: selectedCategories.length > 0 ? selectedCategories : undefined,
                 initialComment: discussion || undefined,
@@ -152,33 +154,20 @@
             }
 
             const successMsg = `Evidence added successfully`;
+            successMessage = successMsg;
+
+            console.log('[EvidenceReview] Dispatching expandEvidence event:', {
+                evidenceId: createdEvidence.id
+            });
+            
+            dispatch('expandEvidence', {
+                evidenceId: createdEvidence.id
+            });
+            
             dispatch('success', {
                 message: successMsg,
                 evidenceId: createdEvidence.id
             });
-            
-            successMessage = successMsg;
-
-            // Navigate back to parent node
-            setTimeout(() => {
-                if (browser) {
-                    // Map parent node type to view route
-                    const typeToViewMap: Record<string, string> = {
-                        'StatementNode': 'statement',
-                        'AnswerNode': 'answer',
-                        'QuantityNode': 'quantity',
-                        'statement': 'statement',
-                        'answer': 'answer',
-                        'quantity': 'quantity'
-                    };
-                    
-                    const viewType = typeToViewMap[parentNodeType] || 'statement';
-                    const targetUrl = `/graph/${viewType}?id=${encodeURIComponent(parentNodeId)}`;
-                    console.log('[EvidenceReview] Navigating to:', targetUrl);
-                    
-                    window.location.href = targetUrl;
-                }
-            }, 800);
 
         } catch (e) {
             if (browser) {

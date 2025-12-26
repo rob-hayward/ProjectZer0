@@ -33,6 +33,7 @@
     import { fetchQuantityExpansion, type QuantityExpansionResponse } from '$lib/services/graph/QuantityExpansionService';
     import { fetchAnswerExpansion } from '$lib/services/graph/AnswerExpansionService';
     import { fetchDefinitionExpansion } from '$lib/services/graph/DefinitionExpansionService';
+    import { fetchEvidenceExpansion } from '$lib/services/graph/EvidenceExpansionService';
     import { calculateNavigationRingPositions } from '$lib/services/graph/universal/NavigationRingPositioning';
     
     import type { 
@@ -2523,6 +2524,224 @@ async function handleExpandDefinition(event: CustomEvent<{
     }
 }
 
+async function handleCreateEvidence(event: CustomEvent<{
+        parentNodeId: string;
+        parentNodeType: string;
+        parentDisplayText: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        if (!graphStore) return;
+        
+        const { parentNodeId, parentNodeType, parentDisplayText, sourcePosition } = event.detail;
+        
+        console.log('[UNIVERSAL-PAGE] Creating evidence form node:', {
+            parentNodeId,
+            parentNodeType,
+            parentDisplayText: parentDisplayText.substring(0, 50) + '...'
+        });
+        
+        // Generate unique ID for the creation node
+        const evidenceCreationNodeId = `create-evidence-${Date.now()}`;
+        
+        // Calculate position near parent (150px offset)
+        const evidenceFormPosition = calculateProximalPosition(
+            sourcePosition,
+            graphData.nodes,
+            150
+        );
+        
+        console.log('[UNIVERSAL-PAGE] Evidence form position calculated:', evidenceFormPosition);
+        
+        // Create the evidence creation node with contextual config
+        const evidenceCreationNode: GraphNode = {
+            id: evidenceCreationNodeId,
+            type: 'create-node' as NodeType,
+            data: $userStore!,
+            group: 'content' as any,
+            mode: 'detail' as NodeMode,
+            metadata: {
+                group: 'content' as any,
+                initialPosition: evidenceFormPosition,
+                contextualConfig: {
+                    nodeType: 'evidence',
+                    parentNodeId: parentNodeId,
+                    parentNodeType: parentNodeType,
+                    parentDisplayText: parentDisplayText,
+                    parentPosition: sourcePosition
+                }
+            } as any
+        };
+        
+        // Add to graph
+        const updatedGraphData: GraphData = {
+            nodes: [...graphData.nodes, evidenceCreationNode],
+            links: graphData.links
+        };
+        
+        console.log('[UNIVERSAL-PAGE] Adding evidence creation node to graph');
+        
+        if (typeof (graphStore as any).updateState === 'function') {
+            (graphStore as any).updateState(updatedGraphData, 0.4);
+        } else {
+            graphStore.setData(updatedGraphData);
+        }
+        
+        // Center on the new creation node
+        setTimeout(() => {
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                (graphStore as any).centerOnNodeById(evidenceCreationNodeId, 750);
+            }
+        }, 100);
+    }
+
+    async function handleExpandEvidence(event: CustomEvent<{
+        evidenceId: string;
+        sourceNodeId: string;
+        sourcePosition: { x: number; y: number };
+    }>) {
+        if (!graphStore) return;
+        
+        const { evidenceId, sourceNodeId, sourcePosition } = event.detail;
+        
+        console.log('[UNIVERSAL-PAGE] Expanding evidence node:', {
+            evidenceId,
+            sourceNodeId,
+            sourcePosition
+        });
+        
+        try {
+            // Check if evidence already exists
+            const existingEvidenceNode = graphData.nodes.find(n => 
+                n.type === 'evidence' && n.id === evidenceId
+            );
+            
+            if (existingEvidenceNode) {
+                console.log('[UNIVERSAL-PAGE] Evidence already exists, centering on it:', evidenceId);
+                
+                // Remove CreateNodeNode
+                const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+                const cleanedGraphData: GraphData = {
+                    nodes: filteredNodes,
+                    links: graphData.links
+                };
+                
+                if (typeof (graphStore as any).updateState === 'function') {
+                    (graphStore as any).updateState(cleanedGraphData, 0.3);
+                } else {
+                    graphStore.setData(cleanedGraphData);
+                }
+                
+                // Center on existing evidence
+                if (typeof (graphStore as any).centerOnNodeById === 'function') {
+                    (graphStore as any).centerOnNodeById(evidenceId, 750);
+                }
+                return;
+            }
+            
+            console.log('[UNIVERSAL-PAGE] Evidence not in graph, fetching expansion data...');
+            
+            // Fetch evidence expansion data
+            const expansionData = await fetchEvidenceExpansion(evidenceId);
+            const evidenceApiNode = expansionData.nodes[0];
+            
+            if (!evidenceApiNode) {
+                console.error('[UNIVERSAL-PAGE] No evidence node in expansion response');
+                return;
+            }
+            
+            // Extract evidence data
+            const title = evidenceApiNode.title || '';
+            const url = evidenceApiNode.url || '';
+            const evidenceType = evidenceApiNode.evidenceType || 'other';
+            
+            if (!title) {
+                console.error('[UNIVERSAL-PAGE] No evidence title found! Available fields:', 
+                    Object.keys(evidenceApiNode));
+                return;
+            }
+            
+            console.log('[UNIVERSAL-PAGE] Evidence data extracted:', {
+                title: title.substring(0, 50) + '...',
+                url,
+                evidenceType
+            });
+            
+            // Use the same position as the CreateNodeNode
+            const evidencePosition = sourcePosition;
+            
+            // Transform to GraphNode
+            const evidenceGraphNode: GraphNode = {
+                id: evidenceApiNode.id,
+                type: 'evidence' as NodeType,
+                data: {
+                    id: evidenceApiNode.id,
+                    title: title,
+                    url: url,
+                    evidenceType: evidenceType,
+                    parentNodeId: evidenceApiNode.parentNodeId,
+                    parentNodeType: evidenceApiNode.parentNodeType,
+                    createdBy: evidenceApiNode.created_by || evidenceApiNode.createdBy || '',
+                    publicCredit: evidenceApiNode.public_credit ?? evidenceApiNode.publicCredit ?? false,
+                    createdAt: evidenceApiNode.created_at || evidenceApiNode.createdAt,
+                    updatedAt: evidenceApiNode.updated_at || evidenceApiNode.updatedAt,
+                    keywords: evidenceApiNode.keywords || [],
+                    categories: evidenceApiNode.categories || [],
+                    positiveVotes: evidenceApiNode.metadata?.votes?.positive || 0,
+                    negativeVotes: evidenceApiNode.metadata?.votes?.negative || 0,
+                    netVotes: evidenceApiNode.metadata?.votes?.net || 0,
+                    peerReview: evidenceApiNode.metadata?.peerReview,
+                    discussionId: evidenceApiNode.metadata?.discussionId,
+                    initialComment: evidenceApiNode.metadata?.initialComment || ''
+                },
+                group: 'content' as NodeGroup,
+                mode: 'preview' as NodeMode,
+                metadata: {
+                    group: 'content' as any,
+                    initialPosition: evidencePosition,
+                    net_votes: evidenceApiNode.metadata?.votes?.net || 0
+                }
+            };
+            
+            console.log('[UNIVERSAL-PAGE] ✅ Created evidence node:', {
+                evidenceId: evidenceGraphNode.id,
+                position: evidencePosition,
+                title: title.substring(0, 30) + '...'
+            });
+            
+            // Remove CreateNodeNode and add real evidence node
+            const filteredNodes = graphData.nodes.filter(n => n.id !== sourceNodeId);
+            const updatedGraphData: GraphData = {
+                nodes: [...filteredNodes, evidenceGraphNode],
+                links: graphData.links // Relationships created by backend
+            };
+            
+            console.log('[UNIVERSAL-PAGE] Adding evidence via updateState...');
+            
+            if (typeof (graphStore as any).updateState === 'function') {
+                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
+                (graphStore as any).updateState(updatedGraphData, 0.6);
+            } else {
+                console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
+                graphStore.setData(updatedGraphData);
+            }
+            
+            // Wait for positioning and center
+            await waitForNodePositionAndCenter(
+                graphStore,
+                evidenceGraphNode.id,
+                20,    // maxAttempts
+                100,   // delayMs
+                750    // centerDuration
+            );
+            
+            console.log('[UNIVERSAL-PAGE] Evidence expansion complete');
+            
+        } catch (error) {
+            console.error('[UNIVERSAL-PAGE] Error expanding evidence:', error);
+        }
+    }
+
 /**
  * Handle create linked node - create contextual node creation form
  * Shows filtered node type selection (Statement, Quantity, Evidence, OpenQuestion)
@@ -2906,8 +3125,10 @@ function calculateDefinitionRing(
         on:expandQuantity={handleExpandQuantity}
         on:answerQuestion={handleAnswerQuestion}
         on:expandAnswer={handleExpandAnswer}
-         on:createDefinition={handleCreateDefinition}    
+        on:createDefinition={handleCreateDefinition}    
         on:expandDefinition={handleExpandDefinition}
+        on:createEvidence={handleCreateEvidence}
+        on:expandEvidence={handleExpandEvidence}
         on:createLinkedNode={handleCreateLinkedNode}
     >
         <svelte:fragment slot="default" let:node let:handleModeChange>
@@ -2968,6 +3189,7 @@ function calculateDefinitionRing(
         on:expandQuantity={handleExpandQuantity}
         on:expandAnswer={handleExpandAnswer}
         on:expandDefinition={handleExpandDefinition}
+        on:expandEvidence={handleExpandEvidence}
     />
         {:else if node.id === controlNodeId}
             <ControlNode 
