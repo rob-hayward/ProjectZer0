@@ -527,9 +527,9 @@ TO ADJUST POSITIONING:
                 contentText: {
                     // Generic fields (NodeTypeSelect, etc)
                     label: 0.10,
-                    dropdown: 0.15,
+                    dropdown: 0.20,
                     dropdownHeight: 0.10,
-                    textarea: 0.15,
+                    textarea: 0.20,
                     textareaHeight: 0.30,
                     infoText: 0.80,
                     button: 0.72,

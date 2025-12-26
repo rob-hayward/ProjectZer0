@@ -1,12 +1,9 @@
-<!-- src/lib/components/forms/evidence/EvidenceReview.svelte -->
+<!-- src/lib/components/forms/createNode/evidence/EvidenceReview.svelte -->
 <script lang="ts">
     import { createEventDispatcher, onMount } from 'svelte';
     import { browser } from '$app/environment';
     import { fetchWithAuth } from '$lib/services/api';
-    import { FORM_STYLES } from '$lib/styles/forms';
     import { graphStore } from '$lib/stores/graphStore';
-    import CategoryTags from '$lib/components/graph/nodes/ui/CategoryTags.svelte';
-	import FormNavigation from '../shared/FormNavigation.svelte';
 
    export let title = '';
     export let url = '';
@@ -18,7 +15,6 @@
     export let selectedCategories: string[] = [];
     export let discussion = '';
     export let publicCredit = false;
-    export let disabled = false;
     export let userId: string | undefined = undefined;
     export let width: number = 400;    
     export let height: number = 400; 
@@ -68,7 +64,7 @@
         }
     });
 
-    async function handleSubmit() {
+    export async function handleSubmit() {
         if (!title.trim()) {
             errorMessage = "Title is required";
             dispatch('error', { message: errorMessage });
@@ -166,10 +162,10 @@
 <g>
     <!-- Review Content -->
     <foreignObject
-        x={FORM_STYLES.layout.leftAlign - 30}
-        y="-40"
-        width={FORM_STYLES.layout.fieldWidth + 60}
-        height="420"
+        x={-reviewContainerWidth/2}
+        y="0"
+        width={reviewContainerWidth}
+        height={reviewContainerHeight}
     >
         <div class="review-container">
             <!-- Parent Node -->
@@ -220,13 +216,10 @@
             {#if categoryDetails.length > 0}
                 <div class="review-item">
                     <span class="label">Categories:</span>
-                    <div class="categories-display">
-                        <svg width="100%" height="30" viewBox="0 0 400 30">
-                            <CategoryTags 
-                                categories={categoryDetails}
-                                radius={100}
-                            />
-                        </svg>
+                    <div class="categories-list">
+                        {#each categoryDetails as category}
+                            <span class="category-chip">{category.name}</span>
+                        {/each}
                     </div>
                 </div>
             {/if}
@@ -254,53 +247,65 @@
             </div>
         </div>
     </foreignObject>
-
-    <!-- Navigation -->
-    <g transform="translate(0, 270)">
-        <FormNavigation
-            onBack={() => dispatch('back')}
-            onNext={handleSubmit}
-            nextLabel={isSubmitting ? "Submitting..." : "Add Evidence"}
-            loading={isSubmitting}
-            nextDisabled={disabled || isSubmitting || !title.trim() || !url.trim() || !evidenceType}
-        />
-    </g>
 </g>
 
 <style>
     :global(.review-container) {
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
         background: rgba(0, 0, 0, 0.3);
-        padding: 12px;
+        padding: 0px 6px 4px 6px;
         display: flex;
         flex-direction: column;
-        gap: 12px;
+        gap: 6px;
+        overflow-y: auto;
+    }
+
+    :global(.review-container::-webkit-scrollbar) {
+        width: 8px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 4px;
+    }
+
+    :global(.review-container::-webkit-scrollbar-thumb:hover) {
+        background: rgba(255, 255, 255, 0.4);
     }
 
     :global(.review-item) {
         display: flex;
         flex-direction: column;
-        gap: 4px;
+        gap: 1px;
     }
 
     :global(.title-item) {
-        margin-bottom: 4px;
+        margin-top: 6px;
+        margin-bottom: 0px;
     }
 
     :global(.title-value) {
         font-size: 14px;
-        font-weight: 500;
+        font-weight: 400;
     }
     
     :global(.parent-context) {
         background: rgba(103, 242, 142, 0.1);
         border: 1px solid rgba(103, 242, 142, 0.3);
         border-radius: 4px;
-        padding: 8px;
+        padding: 6px;
         color: rgba(255, 255, 255, 0.8);
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 10px;
         font-weight: 400;
-        line-height: 1.4;
+        line-height: 1.3;
         font-style: italic;
         max-height: 60px;
         overflow-y: auto;
@@ -310,7 +315,7 @@
         background: rgba(103, 242, 142, 0.05);
         border: 1px solid rgba(103, 242, 142, 0.2);
         border-radius: 4px;
-        padding: 6px 8px;
+        padding: 4px 6px;
         word-break: break-all;
     }
     
@@ -318,7 +323,7 @@
         color: rgba(103, 242, 142, 1);
         text-decoration: none;
         font-family: 'Inter', sans-serif;
-        font-size: 12px;
+        font-size: 9px;
         font-weight: 400;
     }
     
@@ -329,9 +334,9 @@
     :global(.type-display) {
         color: rgba(103, 242, 142, 0.9);
         font-family: 'Inter', sans-serif;
-        font-size: 13px;
+        font-size: 10px;
         font-weight: 500;
-        padding: 4px 8px;
+        padding: 3px 6px;
         background: rgba(103, 242, 142, 0.1);
         border-radius: 4px;
         display: inline-block;
@@ -365,35 +370,70 @@
 
     :global(.review-item .label) {
         color: rgba(255, 255, 255, 0.7);
-        font-size: 11px;
+        font-size: 8px;
         font-family: 'Inter', sans-serif;
-        font-weight: 400;
+        font-weight: 300;
+        text-transform: lowercase !important;
+        letter-spacing: 0.02em;
     }
 
     :global(.review-item .value) {
         color: white;
-        font-size: 13px;
+        font-size: 10px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
-        line-height: 1.3;
+        line-height: 1.2;
     }
 
     :global(.keywords-list) {
         display: flex;
         flex-wrap: wrap;
-        gap: 6px;
-        margin-top: 4px;
+        gap: 4px;
+        margin-top: 2px;
     }
 
     :global(.keyword-chip) {
-        background: rgba(103, 242, 142, 0.2);
-        border: 1px solid rgba(103, 242, 142, 0.3);
-        border-radius: 12px;
-        padding: 2px 8px;
-        font-size: 11px;
+        background: rgba(255, 216, 110, 0.2);
+        border: 1px solid rgba(255, 216, 110, 0.3);
+        border-radius: 10px;
+        padding: 1px 6px;
+        font-size: 9px;
         color: white;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
+    }
+    
+    :global(.categories-list) {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 4px;
+        margin-top: 2px;
+        overflow-x: auto;
+    }
+
+    :global(.categories-list::-webkit-scrollbar) {
+        height: 4px;
+    }
+
+    :global(.categories-list::-webkit-scrollbar-track) {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    :global(.categories-list::-webkit-scrollbar-thumb) {
+        background: rgba(255, 255, 255, 0.3);
+        border-radius: 2px;
+    }
+
+    :global(.category-chip) {
+        background: rgba(255, 138, 61, 0.2);
+        border: 1px solid rgba(255, 138, 61, 0.3);
+        border-radius: 10px;
+        padding: 1px 6px;
+        font-size: 9px;
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-weight: 400;
+        white-space: nowrap;
     }
     
     :global(.categories-display) {
@@ -402,43 +442,47 @@
 
     :global(.options-grid) {
         display: flex;
-        gap: 8px;
-        margin-top: 4px;
-        padding-top: 8px;
-        padding-left: 12px;
+        flex-direction: row;
+        align-items: center;
+        gap: 16px;
+        margin-top: auto;
+        padding-top: 6px;
+        padding-left: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
     }
 
     :global(.checkbox-label) {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
         color: white;
-        font-size: 11px;
+        font-size: 9px;
         font-family: 'Inter', sans-serif;
         font-weight: 400;
     }
 
     :global(.checkbox-label input[type="checkbox"]) {
-        width: 14px;
-        height: 14px;
-        border: 2px solid rgba(255, 255, 255, 0.3);
+        width: 12px;
+        height: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.3);
         border-radius: 2px;
         background: rgba(0, 0, 0, 0.9);
         cursor: pointer;
         appearance: none;
         -webkit-appearance: none;
         position: relative;
+        flex-shrink: 0;
     }
 
     :global(.checkbox-label input[type="checkbox"]:checked::after) {
         content: '';
         position: absolute;
         top: 1px;
-        left: 4px;
-        width: 4px;
-        height: 8px;
+        left: 3px;
+        width: 3px;
+        height: 6px;
         border: solid white;
-        border-width: 0 2px 2px 0;
+        border-width: 0 1.5px 1.5px 0;
         transform: rotate(45deg);
     }
 

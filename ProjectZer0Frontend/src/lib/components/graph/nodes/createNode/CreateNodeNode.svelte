@@ -1287,7 +1287,6 @@
                             userId={userData.sub}
                             {width}
                             height={formHeight}
-                            disabled={isLoading}
                             on:back={handleBack}
                             on:success={e => successMessage = e.detail.message}
                             on:error={e => errorMessage = e.detail.message}
