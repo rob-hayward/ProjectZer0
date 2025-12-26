@@ -33,23 +33,33 @@
         error: { message: string; };
     }>();
     
-    // Evidence type display labels
+    // Evidence type display labels - MUST match backend exactly
     const EVIDENCE_TYPE_LABELS: Record<string, string> = {
-        'peer_reviewed_study': 'Peer-Reviewed Study',
-        'government_report': 'Government Report',
+        'academic_paper': 'Academic Paper',
         'news_article': 'News Article',
-        'expert_opinion': 'Expert Opinion',
+        'government_report': 'Government Report',
+        'expert_testimony': 'Expert Testimony',
         'dataset': 'Dataset',
-        'video': 'Video',
-        'image': 'Image',
+        'book': 'Book',
+        'website': 'Website',
+        'legal_document': 'Legal Document',
+        'survey_study': 'Survey Study',
+        'meta_analysis': 'Meta-Analysis',
         'other': 'Other'
     };
     
     $: evidenceTypeLabel = EVIDENCE_TYPE_LABELS[evidenceType] || evidenceType;
-    $: parentNodeTypeDisplay = parentNodeType === 'StatementNode' ? 'Statement' :
-                               parentNodeType === 'AnswerNode' ? 'Answer' :
-                               parentNodeType === 'QuantityNode' ? 'Quantity' :
-                               'Node';
+    $: parentNodeTypeDisplay = (() => {
+        const typeMap: Record<string, string> = {
+            'StatementNode': 'Statement',
+            'AnswerNode': 'Answer',
+            'QuantityNode': 'Quantity',
+            'statement': 'Statement',
+            'answer': 'Answer',
+            'quantity': 'Quantity'
+        };
+        return typeMap[parentNodeType] || 'Node';
+    })();
     
     onMount(async () => {
         if (selectedCategories.length > 0) {
@@ -93,16 +103,32 @@
         errorMessage = null;
 
         try {
+            // Ensure URL has protocol
+            let validUrl = url.trim();
+            if (!validUrl.startsWith('http://') && !validUrl.startsWith('https://')) {
+                validUrl = 'https://' + validUrl;
+            }
+
+            // Map frontend parent type to backend format
+            const parentTypeMap: Record<string, string> = {
+                'statement': 'StatementNode',
+                'answer': 'AnswerNode',
+                'quantity': 'QuantityNode',
+                'StatementNode': 'StatementNode',
+                'AnswerNode': 'AnswerNode',
+                'QuantityNode': 'QuantityNode'
+            };
+
             const evidenceData = {
                 title: title.trim(),
-                url: url.trim(),
+                url: validUrl,
                 evidenceType: evidenceType,
                 parentNodeId: parentNodeId,
-                parentNodeType: parentNodeType,
+                parentNodeType: parentTypeMap[parentNodeType] || 'StatementNode',
                 createdBy: userId,
                 userKeywords: userKeywords.length > 0 ? userKeywords : undefined,
-                categories: selectedCategories.length > 0 ? selectedCategories : undefined,
-                initialComment: discussion || '',
+                categoryIds: selectedCategories.length > 0 ? selectedCategories : undefined,
+                initialComment: discussion || undefined,
                 publicCredit
             };
             
@@ -136,9 +162,17 @@
             // Navigate back to parent node
             setTimeout(() => {
                 if (browser) {
-                    const viewType = parentNodeType === 'StatementNode' ? 'statement' :
-                                   parentNodeType === 'AnswerNode' ? 'answer' :
-                                   parentNodeType === 'QuantityNode' ? 'quantity' : 'statement';
+                    // Map parent node type to view route
+                    const typeToViewMap: Record<string, string> = {
+                        'StatementNode': 'statement',
+                        'AnswerNode': 'answer',
+                        'QuantityNode': 'quantity',
+                        'statement': 'statement',
+                        'answer': 'answer',
+                        'quantity': 'quantity'
+                    };
+                    
+                    const viewType = typeToViewMap[parentNodeType] || 'statement';
                     const targetUrl = `/graph/${viewType}?id=${encodeURIComponent(parentNodeId)}`;
                     console.log('[EvidenceReview] Navigating to:', targetUrl);
                     
@@ -293,7 +327,7 @@
 
     :global(.title-value) {
         font-size: 14px;
-        font-weight: 400;
+        font-weight: 500;
     }
     
     :global(.parent-context) {
