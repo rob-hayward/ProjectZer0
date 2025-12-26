@@ -1,262 +1,163 @@
-# ProjectZer0 TODO
+# TODO List - Post Node Creation Implementation
 
-This document outlines the current development priorities and tasks for ProjectZer0. It is organized into sections covering immediate goals, mid-term objectives, long-term vision, and architectural improvements.
+## Overview
+**Major Milestone Achieved:** All node creation flows are now complete! 🎉
 
-## Immediate Priorities
+This includes:
+- Statement, OpenQuestion, Answer, Quantity, Evidence, Category, and Word/Definition nodes
+- Full form validation and submission
+- Contextual linked node creation (Answer from Question, Definition from Word, Evidence from Statement/Answer/Quantity)
+- Graph expansion with proper positioning and viewport centering
 
-### 1. Alternative Definition Creation (Path 2) - ✅ COMPLETED
-- [x] **Create Definition Form Component**
-  - [x] Design modal/form component for adding definitions
-  - [x] Implement input validation rules
-  - [x] Add character limits and formatting controls
-  - [x] Create success/error notification components
+This document tracks remaining features, improvements, and known issues.
 
-- [x] **Navigation and Routing**
-  - [x] Add "Add Definition" navigation node to word view
-  - [x] Create route for definition creation form
-  - [x] Implement form submission and API connectivity
+---
 
-- [x] **Backend Integration**
-  - [x] Connect form to existing API endpoints
-  - [x] Implement error handling for submission failures
-  - [x] Add validation for duplicate definitions
+## Outstanding Tasks
 
-- [x] **UI/UX Enhancements**
-  - [x] Implement transitions for form display/hide
-  - [x] Add loading states during submission
-  - [x] Create confirmation dialogs
+### 1. **Node Positioning & Link Logic** ⚠️
+- **Goal:** Smart node placement and relationship visualization
+- **Issues:**
+  - Nodes not placed proximal to parent
+  - Viewport centering inconsistent
+  - Link display logic incomplete
+- **Components:** `calculateProximalPosition`, force simulation, link rendering
+- **Complexity:** High
+- **Impact:** Critical for UX
 
-- [x] **Graph Integration**
-  - [x] Update word definition layout to include new definitions
-  - [x] Ensure proper sorting of definitions by vote count
-  - [x] Handle real-time updates when new definitions are added
+### 2. **AI Keyword Pipeline Verification**
+- **Goal:** Ensure AI keyword extraction works end-to-end
+- **Current State:** Suspected broken in pipeline
+- **Pipeline Steps to Check:**
+  1. Node creation triggers keyword extraction
+  2. Keywords stored in DB
+  3. Keywords returned in node data
+  4. Keywords displayed in KeywordTags component
+- **Complexity:** Medium
 
-### 2. Visibility Preferences (Path 4) - ✅ COMPLETED
-- [x] **Hidden Node Components**
-  - [x] Create "hidden by community" node component
-  - [x] Create "hidden by you" node component
-  - [x] Implement condensed view for hidden nodes
+### 3. **Sort & Filter Validation + Node Type Expansion**
+- **Goal:** 
+  - Verify all sort/filter options return correct datasets
+  - Add word, category, evidence, definition nodes to filter options
+- **Current State:** 
+  - Filters may not be applying correctly
+  - Only some node types available in filters
+- **Options to Add:** Word, Category, Evidence, Definition (currently only Statement, Question, Answer, Quantity?)
+- **Complexity:** Medium
 
-- [x] **Visibility Controls**
-  - [x] Design hide/show toggle button component
-  - [x] Add button to node components
-  - [x] Implement click handlers for visibility state changes
+### 4. **Consistent Loading Spinners**
+- **Goal:** Unified loading UX across all graph operations
+- **Current State:** 
+  - Different loading screens for different operations
+  - Some operations have no loading indicator
+- **Scenarios to Cover:**
+  - Initial graph load
+  - Node expansion (category, word, etc.)
+  - Filter/sort changes
+  - Node creation
+- **Complexity:** Low-Medium
 
-- [x] **Visibility Logic**
-  - [x] Implement vote threshold logic (-1 or lower = hidden)
-  - [x] Create user preference storage for manually hidden nodes
-  - [x] Add decision tree for determining node visibility
+### 5. **Persistent Category/Word Node Display**
+- **Goal:** Category and word nodes stay visible when clicking additional tags
+- **Current State:** Clicking new tag replaces previous tag node
+- **Desired Behavior:** Accumulate tag nodes until graph reload
+- **Complexity:** Low-Medium
 
-- [x] **Layout Integration**
-  - [x] Update layout strategies to handle hidden nodes
-  - [x] Implement appropriate positioning for hidden nodes
-  - [x] Ensure proper transitions between visibility states
+### 6. **Discussion System Integration**
+- **Goal:** Show comment nodes when "Discuss" button clicked
+- **Current State:** Discuss button exists but doesn't display associated comments
+- **Components Affected:** All content nodes, comment nodes, discussion service
+- **Complexity:** Medium
 
-- [x] **User Preference Persistence**
-  - [x] Connect to API for storing user visibility preferences
-  - [x] Implement preference syncing across sessions
-  - [x] Add bulk preference management
+### 7. **Evidence Node Formatting**
+- **Goal:** Correct layout and size for evidence nodes
+- **Current State:** Evidence nodes display but may need formatting adjustments
+- **Complexity:** Low
 
-## Mid-Term Goals
+### 8. **Test Suite Updates**
+- **Goal:** Update existing tests after recent node creation changes
+- **Current State:** Extensive testing exists but needs updates for new features
+- **Areas to Update:**
+  - Node creation flows (all 7 node types)
+  - Evidence expansion service
+  - Contextual node creation (Answer, Definition, Evidence)
+  - Universal graph node addition
+- **Complexity:** Medium
 
-### 3. Statement View Implementation (Path 1)
-- [ ] **Data Structures and Interfaces**
-  - [ ] Define Statement node interfaces
-  - [ ] Create relationship models for statements and words
-  - [ ] Design filtering and search interfaces
+---
 
-- [ ] **Statement Layout Strategy**
-  - [ ] Create StatementLayout class extending BaseLayoutStrategy
-  - [ ] Implement popularity-based positioning algorithm
-  - [ ] Design relationship visualization between statements
-  - [ ] Add keyword-based grouping logic
+## Future Features
 
-- [ ] **Statement Node Components**
-  - [ ] Design statement preview component
-  - [ ] Design statement detail component
-  - [ ] Create keyword tag components
-  - [ ] Implement voting controls for statements
+### 9. **List/Table Views for Graph Data**
+- **Goal:** Provide alternative tabular views of graph content
+- **Description:** Create list/table views for each network view as alternative to graph visualization
+- **Use Cases:**
+  - Browse content in traditional format
+  - Easier sorting and filtering in tabular format
+  - Better for accessibility
+  - Complement to graph exploration
+- **Complexity:** Medium-High
+- **Priority:** Future enhancement
 
-- [ ] **Statement Filtering**
-  - [ ] Create keyword filter UI controls
-  - [ ] Implement filter logic in layout
-  - [ ] Design filter visualization (highlight/fade)
-  - [ ] Add search functionality
+---
 
-- [ ] **Statement Creation**
-  - [ ] Design statement creation form
-  - [ ] Implement automatic keyword extraction
-  - [ ] Add definition selection for keywords
-  - [ ] Create statement preview before submission
+## Priority Ordering
 
-### 4. Discussion System (Path 3)
-- [ ] **Discussion Data Structures**
-  - [ ] Define discussion and comment interfaces
-  - [ ] Create relationship models for discussions and nodes
-  - [ ] Design threading model for comments
+### **High Priority (Core Functionality)**
+1. Node Positioning & Link Logic - Critical for graph usability
+2. AI Keyword Pipeline - Core feature, affects all new nodes
+3. Sort & Filter Validation + Expansion - Affects data integrity & discovery
 
-- [ ] **Discussion UI Components**
-  - [ ] Create discussion panel component
-  - [ ] Design comment entry form
-  - [ ] Implement comment thread visualization
-  - [ ] Add voting controls for comments
+### **Medium Priority (UX Improvements)**
+4. Consistent Loading Spinners - Professional polish, user confidence
+5. Persistent Tag Nodes - Enhances exploration workflow
+6. Discussion System - Major feature but standalone
+7. Test Suite Updates - Maintain code quality after recent changes
 
-- [ ] **Discussion Integration**
-  - [ ] Add discussion access to node components
-  - [ ] Create routes for discussion views
-  - [ ] Connect to discussion API endpoints
+### **Low Priority (Polish)**
+8. Evidence Node Formatting - Visual refinement
 
-- [ ] **User Experience**
-  - [ ] Implement notification indicators
-  - [ ] Design user attribution for comments
-  - [ ] Add moderation controls
+### **Future Features**
+9. List/Table Views - Alternative visualization format
 
-## Long-Term Vision
+---
 
-### 5. AI Integration
-- [ ] **Automated Tagging**
-  - [ ] Integrate with AI component for content analysis
-  - [ ] Implement automated tag generation
-  - [ ] Add tag suggestion during content creation
+## Quick Wins vs. Complex Issues
 
-- [ ] **Content Recommendation**
-  - [ ] Create recommendation engine integration
-  - [ ] Design recommendation node component
-  - [ ] Implement personalized content suggestions
+### Quick Wins (1-2 hours each)
+- **Consistent Loading Spinners** - Create reusable component, wire everywhere
+- **Evidence Node Formatting** - CSS/layout adjustments
+- **Filter Node Type Addition** - Add node types to filter dropdown
 
-- [ ] **Content Summarization**
-  - [ ] Add AI-powered summary generation
-  - [ ] Implement concept clustering
-  - [ ] Design visualization for concept relationships
+### Medium Complexity (3-5 hours)
+- **Persistent Tag Nodes** - Graph state management
+- **Full Filter Validation** - Validate and fix all filters
+- **Keyword Pipeline Debugging** - End-to-end verification
+- **Test Suite Updates** - Update tests for new node creation flows
 
-### 6. Community Features
-- [ ] **User Profiles**
-  - [ ] Enhance profile visualization
-  - [ ] Add reputation and contribution metrics
-  - [ ] Implement activity timelines
+### Complex (5+ hours)
+- **Positioning & Links** - Core graph behavior
+- **Discussion System** - New interaction pattern
 
-- [ ] **Collaborative Editing**
-  - [ ] Design collaborative editing interface
-  - [ ] Implement real-time collaboration
-  - [ ] Add version history visualization
+---
 
-- [ ] **Community Moderation**
-  - [ ] Create moderation tools
-  - [ ] Implement reputation-based privileges
-  - [ ] Design flagging and review system
+## Dependencies & Notes
 
-## Architectural Improvements
+- **Node Positioning** should be done first - it affects all node additions
+- **AI Keywords** is important to fix before users create too many nodes
+- **Sort/Filter** affects how users find existing content
+- **Discussion System** is a major feature but relatively independent
+- **Persistent Tags** depends on understanding current graph state management
+- **Evidence Formatting** is quick but low impact
+- **Loading Spinners** can be done at any time, improves UX across the board
+- **Test Suite Updates** should be done after major feature implementations stabilize
+- **List/Table Views** is a future enhancement requiring significant UI/UX design
 
-### 7. Performance Optimization
-- [ ] **Rendering Optimization**
-  - [ ] Implement virtual rendering for large graphs
-  - [ ] Add level-of-detail rendering
-  - [ ] Optimize force simulation performance
+---
 
-- [ ] **State Management**
-  - [ ] Refine store structure for better performance
-  - [ ] Implement more granular reactivity
-  - [ ] Add state persistence for faster loading
+## Next Steps
 
-- [ ] **Network Optimization**
-  - [ ] Implement data caching strategy
-  - [ ] Add incremental loading for large datasets
-  - [ ] Optimize WebSocket usage for real-time updates
-
-### 8. Testing and Documentation
-- [ ] **Unit Testing**
-  - [ ] Add tests for layout strategies
-  - [ ] Implement component tests
-  - [ ] Create store testing utilities
-
-- [ ] **Integration Testing**
-  - [ ] Set up end-to-end testing
-  - [ ] Create visual regression tests
-  - [ ] Implement performance benchmarks
-
-- [ ] **Documentation**
-  - [ ] Create component API documentation
-  - [ ] Document layout strategy patterns
-  - [ ] Add architectural diagrams
-  - [ ] Create developer guide
-
-## Current Progress
-
-We've successfully implemented:
-- ✅ Dynamic graph visualization framework
-- ✅ Word definition view with responsive layout
-- ✅ Navigation node system with central node responsiveness
-- ✅ Definition node responsiveness to other nodes' expansion states
-- ✅ Preview/detail mode transitions
-- ✅ Basic user authentication and profile
-- ✅ Voting functionality for definitions
-- ✅ Node visibility preferences with persistence and dynamic positioning
-- ✅ Alternative definition creation with form validation and submission
-- ✅ Real-time graph updates for newly created definitions
-
-## Development Guidelines
-
-When implementing features, follow these architectural principles:
-
-1. **Single Source of Truth**
-   - Store authoritative state in stores, not components
-   - Ensure consistent data flow through the application
-   - Use derived stores for computed values
-
-2. **Separation of Concerns**
-   - Layout strategies handle positioning only
-   - Components handle rendering only
-   - Stores handle state management only
-
-3. **Clear Communication Patterns**
-   - Events flow up from components to parents
-   - Props flow down from parents to components
-   - Stores provide cross-component communication
-
-4. **Progressive Enhancement**
-   - Ensure core functionality works first
-   - Add animations and transitions last
-   - Consider accessibility throughout development
-
-5. **Consistent Naming**
-   - Use clear prefixes for component types (Base*, Layout*, etc.)
-   - Follow established patterns for method naming
-   - Document any deviations from patterns
-
-This TODO will be updated as features are completed and priorities evolve.
-
-
-1.implement 4 buttons on each node:
-hide/show,
-expand/collapse,
-discuss,
-create linked node.
-
-
-2. create list views of each network view.
-
-
-3. create testing for:
-  1. /lib/services/api.ts - Core API communication service
-  2. /lib/services/auth0.ts - Authentication service
-  3. /lib/services/graph/GraphManager.ts - Visualization state management
-  4. /lib/stores/JWTStore.ts - Authentication token management
-  5. /lib/stores/userStore.ts - User profile state management
-  6. /lib/stores/graphStore.ts - Graph visualization state
-  7. /lib/utils/neo4j-utils.ts - Database transformation utilities
-  8. /lib/components/graph/Graph.svelte - Main visualization component
-  9. /lib/services/graph/GraphLayoutTransformer.ts - Layout transformation logic
-  10. /lib/services/graph/CoordinateSystem.ts - Coordinate transformation service
-
-    1. /lib/components/forms/createNode/quantity/QuantityInput.svelte - Form validation and
-  input handling
-  2. /lib/components/graph/nodes/quantity/QuantityVisualization.svelte - D3 visualization
-  logic
-  3. /lib/components/graph/nodes/base/NodeUtils.ts - Core node rendering utilities
-  4. /lib/stores/graphFilterStore.ts - Filter and sort state management
-  5. /routes/graph/dashboard/+page.ts - Dashboard route logic
-  6. /routes/graph/word/+page.ts - Word view route logic
-  7. /lib/components/forms/createNode/shared/KeywordInput.svelte - Common form component
-  8. /lib/utils/svgAnimations.ts - Animation utilities
-  9. /lib/constants/graph/force-simulation.ts - Simulation configuration
-  10. /lib/services/quantity.ts - Quantity-specific service logic
+**Recommended Starting Point:**
+- Option A: Tackle Node Positioning & Link Logic (foundation for everything)
+- Option B: Quick wins first (Loading Spinners + Evidence Formatting) for immediate polish
+- Option C: Fix AI Keywords (affects all future node creation)
