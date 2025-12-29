@@ -50,7 +50,10 @@
         openquestion: true,
         answer: true,
         quantity: true,
-        evidence: true
+        evidence: true,
+        word: true,
+        category: true,
+        definition: true
     };
     
     // Category filter state - SIMPLIFIED: selected = required
@@ -231,16 +234,26 @@
         hover: string;
         gradient: { start: string; end: string };
     } {
-        const typeMap: { [key: string]: 'STATEMENT' | 'OPENQUESTION' | 'ANSWER' | 'QUANTITY' | 'EVIDENCE' } = {
+        const typeMap: { [key: string]: 'STATEMENT' | 'OPENQUESTION' | 'ANSWER' | 'QUANTITY' | 'EVIDENCE' | 'WORD' | 'CATEGORY' | 'DEFINITION' } = {
             'statement': 'STATEMENT',
             'openquestion': 'OPENQUESTION',
             'answer': 'ANSWER',
             'quantity': 'QUANTITY',
-            'evidence': 'EVIDENCE'
+            'evidence': 'EVIDENCE',
+            'word': 'WORD',
+            'category': 'CATEGORY',
+            'definition': 'DEFINITION'
         };
         
         const constantKey = typeMap[nodeType];
-        return NODE_CONSTANTS.COLORS[constantKey] as {
+        const colors = NODE_CONSTANTS.COLORS[constantKey];
+        
+        // ✅ Handle nested DEFINITION structure
+        if (constantKey === 'DEFINITION') {
+            return (colors as any).live; // Use 'live' variant for control node
+        }
+        
+        return colors as {
             background: string;
             border: string;
             text: string;
@@ -501,7 +514,7 @@
                                             --node-text: {getNodeTypeColors('statement').text};
                                         "
                                     >
-                                        <span class="circle-label">ST</span>
+                                        <span class="circle-label">S</span>
                                     </button>
                                     <span class="circle-tooltip">Statement</span>
                                 </div>
@@ -581,9 +594,75 @@
                                             --node-text: {getNodeTypeColors('evidence').text};
                                         "
                                     >
-                                        <span class="circle-label">EV</span>
+                                        <span class="circle-label">E</span>
                                     </button>
                                     <span class="circle-tooltip">Evidence</span>
+                                </div>
+
+                                <!-- Category -->
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.category}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.category = !selectedNodeTypes.category}
+                                        aria-label="Category"
+                                        data-node-type="category"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('category').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('category').background)};
+                                            --node-border: {getNodeTypeColors('category').border};
+                                            --node-text: {getNodeTypeColors('category').text};
+                                        "
+                                    >
+                                        <span class="circle-label">C</span>
+                                    </button>
+                                    <span class="circle-tooltip">Category</span>
+                                </div>
+                                
+                                <!-- Word -->
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.word}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.word = !selectedNodeTypes.word}
+                                        aria-label="Word"
+                                        data-node-type="word"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('word').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('word').background)};
+                                            --node-border: {getNodeTypeColors('word').border};
+                                            --node-text: {getNodeTypeColors('word').text};
+                                        "
+                                    >
+                                        <span class="circle-label">W</span>
+                                    </button>
+                                    <span class="circle-tooltip">Word</span>
+                                </div>
+                                
+                                <!-- Definition -->
+                                <div class="circle-wrapper">
+                                    <button 
+                                        class="circle-button"
+                                        class:selected={selectedNodeTypes.definition}
+                                        class:disabled={isLoading}
+                                        disabled={isLoading}
+                                        on:click={() => selectedNodeTypes.definition = !selectedNodeTypes.definition}
+                                        aria-label="Definition"
+                                        data-node-type="definition"
+                                        style="
+                                            --node-bg: {getNodeTypeColors('definition').background};
+                                            --node-bg-selected: {getSelectedBackground(getNodeTypeColors('definition').background)};
+                                            --node-border: {getNodeTypeColors('definition').border};
+                                            --node-text: {getNodeTypeColors('definition').text};
+                                        "
+                                    >
+                                        <span class="circle-label">D</span>
+                                    </button>
+                                    <span class="circle-tooltip">Definition</span>
                                 </div>
                             </div>
                         </div>
@@ -1053,7 +1132,7 @@
     }
     
     .control-panel-inner {
-        padding: 0 25px;
+        padding: 0 5px;
         box-sizing: border-box;
     }
     
@@ -1097,9 +1176,9 @@
     
     .node-type-circles {
         display: flex;
-        flex-wrap: wrap;
-        gap: 4px;
-        justify-content: space-between;
+        flex-wrap: nowrap;  /* ✅ Changed from wrap to nowrap */
+        gap: 6px;           /* ✅ Reduced gap slightly for tighter spacing */
+        justify-content: center;  /* ✅ Center the buttons */
         max-width: 100%;
     }
     

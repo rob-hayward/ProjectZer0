@@ -22,9 +22,15 @@ import {
 export class UniversalNodesQueryDto {
   // Node type filtering
   node_types?: Array<
-    'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
+    | 'statement'
+    | 'openquestion'
+    | 'answer'
+    | 'quantity'
+    | 'evidence'
+    | 'word'
+    | 'category'
+    | 'definition'
   >;
-  includeNodeTypes?: boolean;
 
   // ✅ Phase 4.2: Category filtering with ANY/ALL modes
   categories?: string[];
@@ -258,6 +264,9 @@ export class UniversalGraphController {
         'answer',
         'quantity',
         'evidence',
+        'word',
+        'category',
+        'definition',
       ];
       const invalidTypes = nodeTypes.filter(
         (type: string) => !validTypes.includes(type),
@@ -271,7 +280,14 @@ export class UniversalGraphController {
       }
 
       parsedQuery.node_types = nodeTypes as Array<
-        'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
+        | 'statement'
+        | 'openquestion'
+        | 'answer'
+        | 'quantity'
+        | 'evidence'
+        | 'word'
+        | 'category'
+        | 'definition'
       >;
     }
 

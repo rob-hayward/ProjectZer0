@@ -123,8 +123,19 @@
     let availableKeywords: string[] = [];
     
     // UPDATED: Support all 5 content node types
-    let selectedNodeTypes: Set<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'> = 
-        new Set(['openquestion', 'statement', 'answer', 'quantity', 'evidence']);
+    let selectedNodeTypes = new Set<
+        'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 
+        'word' | 'category' | 'definition'
+    >([
+        'openquestion', 
+        'statement', 
+        'answer', 
+        'quantity', 
+        'evidence',
+        'word',
+        'category',
+        'definition'
+    ]);
     let minNetVotes = -50;
     let maxNetVotes = 50;
     
@@ -1105,8 +1116,19 @@
                 universalGraphStore.setNodeTypeFilter(filters.nodeTypes);
             } else {
                 // No node types selected = show all types (default behavior)
-                const allTypes: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'> = 
-                    ['openquestion', 'statement', 'answer', 'quantity', 'evidence'];
+                const allTypes: Array<
+                    'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 
+                    'word' | 'category' | 'definition'
+                > = [
+                    'openquestion', 
+                    'statement', 
+                    'answer', 
+                    'quantity', 
+                    'evidence',
+                    'word',
+                    'category',
+                    'definition'
+                ];
                 selectedNodeTypes = new Set(allTypes);
                 universalGraphStore.setNodeTypeFilter(allTypes);
             }
@@ -2964,7 +2986,10 @@ function calculateDefinitionRing(
     }
 
     // UPDATED: Toggle node type function - supports all 5 types
-    function toggleNodeType(nodeType: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence') {
+   function toggleNodeType(
+        nodeType: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 
+                  'word' | 'category' | 'definition'
+    ) {
         if (selectedNodeTypes.has(nodeType)) {
             selectedNodeTypes.delete(nodeType);
         } else {

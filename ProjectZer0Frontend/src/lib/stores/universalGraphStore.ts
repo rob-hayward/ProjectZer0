@@ -10,7 +10,7 @@ import { fetchWithAuth } from '$lib/services/api';
 // UPDATED: Node data structure for universal graph - supports all 5 content node types
 export interface UniversalNodeData {
     id: string;
-    type: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 'category' | 'word';
+    type: 'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 'category' | 'word' | 'definition';
     mode: NodeMode;
     group: string;
     data: any;
@@ -84,7 +84,7 @@ export interface VoteData {
 }
 
 interface UniversalGraphFilters {
-    node_types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'>;
+    node_types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' |'word' | 'category' | 'definition'>;
     keywords: string[];
     keyword_operator: FilterOperator;
     user_id?: string;
@@ -128,7 +128,8 @@ export interface UniversalGraphStore {
     loadNodes: (user: any, requestId?: number) => Promise<void>;
     loadMore: (user: any) => Promise<void>;
     reset: () => void;
-    setNodeTypeFilter: (types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'>) => void;
+    setNodeTypeFilter: (types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'| 
+                 'word' | 'category' | 'definition'>) => void;
     setKeywordFilter: (keywords: string[], operator: FilterOperator) => void;
     setUserFilter: (userId?: string) => void;
     setNetVotesFilter: (min: number, max: number) => void;
@@ -163,7 +164,16 @@ function createUniversalGraphStore(): UniversalGraphStore {
         sortDirection: 'desc',
         
         filters: {
-            node_types: ['openquestion', 'statement', 'answer', 'quantity', 'evidence'],
+            node_types: [
+                'openquestion', 
+                'statement', 
+                'answer', 
+                'quantity', 
+                'evidence',
+                'word',        // ✅ NEW
+                'category',    // ✅ NEW
+                'definition'   // ✅ NEW
+            ],
             keywords: [],
             keyword_operator: 'OR',
             net_votes_min: -50,
@@ -442,7 +452,7 @@ function createUniversalGraphStore(): UniversalGraphStore {
         voteCache.clear();
     }
 
-    function setNodeTypeFilter(types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence'>) {
+    function setNodeTypeFilter(types: Array<'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 'word' | 'category' | 'definition'>) {
         update(s => ({ ...s, filters: { ...s.filters, node_types: types }, offset: 0 }));
     }
 

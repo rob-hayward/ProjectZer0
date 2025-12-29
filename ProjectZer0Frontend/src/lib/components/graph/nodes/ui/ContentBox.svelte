@@ -97,7 +97,7 @@ TO ADJUST POSITIONING:
             mainTextYOffset: 40
         },
         control: {
-            horizontalPadding: 15,
+            horizontalPadding: 5,
             verticalPadding: 10,
             sectionSpacing: 5,
             contentTextYOffset: 0,

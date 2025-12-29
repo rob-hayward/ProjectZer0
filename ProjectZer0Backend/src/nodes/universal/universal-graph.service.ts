@@ -77,6 +77,23 @@ export interface UniversalNodeData {
       contentVote: 'positive' | 'negative' | null;
     };
     userVisibilityPreference?: 'hidden' | 'visible';
+
+    // ✅ NEW: For Word nodes
+    definitionCount?: number;
+    usageCount?: number;
+
+    // ✅ NEW: For Category nodes
+    wordCount?: number;
+    contentCount?: number;
+    childCount?: number;
+    parentCategory?: {
+      id: string;
+      name: string;
+    } | null;
+
+    // ✅ NEW: For Definition nodes
+    wordId?: string;
+    word?: string;
   };
 }
 
@@ -107,7 +124,14 @@ export interface UniversalRelationshipData {
 export interface UniversalGraphOptions {
   // Node type filtering
   node_types?: Array<
-    'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
+    | 'statement'
+    | 'openquestion'
+    | 'answer'
+    | 'quantity'
+    | 'evidence'
+    | 'word'
+    | 'category'
+    | 'definition'
   >;
   includeNodeTypes?: boolean; // true = include, false = exclude
 
@@ -267,8 +291,24 @@ export class UniversalGraphService {
 
       // Determine effective node types based on include/exclude logic
       const allPossibleTypes: Array<
-        'statement' | 'openquestion' | 'answer' | 'quantity' | 'evidence'
-      > = ['statement', 'openquestion', 'answer', 'quantity', 'evidence'];
+        | 'statement'
+        | 'openquestion'
+        | 'answer'
+        | 'quantity'
+        | 'evidence'
+        | 'word'
+        | 'category'
+        | 'definition'
+      > = [
+        'statement',
+        'openquestion',
+        'answer',
+        'quantity',
+        'evidence',
+        'word',
+        'category',
+        'definition',
+      ];
 
       const effectiveTypes = includeNodeTypes
         ? node_types
@@ -303,6 +343,21 @@ export class UniversalGraphService {
       if (effectiveTypes.includes('evidence')) {
         const evidence = await this.fetchEvidence();
         allNodes.push(...evidence);
+      }
+
+      if (effectiveTypes.includes('word')) {
+        const words = await this.fetchWords();
+        allNodes.push(...words);
+      }
+
+      if (effectiveTypes.includes('category')) {
+        const categories = await this.fetchCategories();
+        allNodes.push(...categories);
+      }
+
+      if (effectiveTypes.includes('definition')) {
+        const definitions = await this.fetchDefinitions();
+        allNodes.push(...definitions);
       }
 
       this.logger.debug(
@@ -389,6 +444,223 @@ export class UniversalGraphService {
         error.stack,
       );
       throw error;
+    }
+  }
+
+  /**
+   * Fetch Word nodes from Neo4j
+   * NOTE: Word nodes use the word text itself as the unique identifier
+   */
+  private async fetchWords(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching words for universal graph');
+
+      const query = `
+        MATCH (w:WordNode)
+        WHERE w.inclusionNetVotes > -5
+        OPTIONAL MATCH (w)<-[:DEFINES]-(d:DefinitionNode)
+        WHERE d.inclusionNetVotes > -5
+        OPTIONAL MATCH (w)<-[:TAGGED]-(content)
+        WHERE (content:StatementNode OR content:OpenQuestionNode OR 
+               content:AnswerNode OR content:QuantityNode OR content:EvidenceNode)
+        WITH w, count(DISTINCT d) as defCount, count(DISTINCT content) as useCount
+        RETURN w {
+          .*,
+          definitionCount: defCount,
+          usageCount: useCount
+        } as wordData
+        ORDER BY w.inclusionNetVotes DESC
+        LIMIT 10000
+      `;
+
+      const result = await this.neo4jService.read(query);
+      const words: UniversalNodeData[] = [];
+
+      result.records.forEach((record) => {
+        const data = record.get('wordData');
+
+        // Word nodes use the word text as ID
+        const wordId = data.word || data.id;
+
+        words.push({
+          id: wordId,
+          type: 'word',
+          content: data.word,
+          createdBy: data.created_by || data.createdBy || '',
+          publicCredit: data.public_credit ?? data.publicCredit ?? true,
+          createdAt:
+            data.created_at || data.createdAt || new Date().toISOString(),
+          updatedAt:
+            data.updated_at || data.updatedAt || new Date().toISOString(),
+          inclusionPositiveVotes: data.inclusionPositiveVotes || 0,
+          inclusionNegativeVotes: data.inclusionNegativeVotes || 0,
+          inclusionNetVotes: data.inclusionNetVotes || 0,
+          contentPositiveVotes: 0, // Word nodes don't have content votes
+          contentNegativeVotes: 0,
+          contentNetVotes: 0,
+          discussionId: data.discussion_id || data.discussionId || null,
+          keywords: [], // Word nodes don't have keywords (they ARE keywords)
+          categories: [], // Categories fetched separately if needed
+          metadata: {
+            definitionCount: data.definitionCount || 0,
+            usageCount: data.usageCount || 0,
+          },
+        });
+      });
+
+      this.logger.debug(`Found ${words.length} words from Neo4j`);
+      return words;
+    } catch (error) {
+      this.logger.error(`Error fetching words: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch Category nodes from Neo4j
+   */
+  private async fetchCategories(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching categories for universal graph');
+
+      const query = `
+        MATCH (c:CategoryNode)
+        WHERE c.inclusionNetVotes > -5
+        OPTIONAL MATCH (c)<-[:COMPOSED_OF]-(parent:CategoryNode)
+        WHERE parent.inclusionNetVotes > -5
+        OPTIONAL MATCH (c)-[:COMPOSED_OF]->(child:CategoryNode)
+        WHERE child.inclusionNetVotes > -5
+        OPTIONAL MATCH (c)<-[:COMPOSED_OF]-(w:WordNode)
+        WHERE w.inclusionNetVotes > -5
+        OPTIONAL MATCH (c)<-[:CATEGORIZED_AS]-(content)
+        WHERE (content:StatementNode OR content:OpenQuestionNode OR 
+               content:AnswerNode OR content:QuantityNode OR content:EvidenceNode)
+               AND content.inclusionNetVotes > -5
+        WITH c, parent,
+             count(DISTINCT w) as wordCnt,
+             count(DISTINCT content) as contentCnt,
+             count(DISTINCT child) as childCnt
+        RETURN c {
+          .*,
+          wordCount: wordCnt,
+          contentCount: contentCnt,
+          childCount: childCnt,
+          parentCategory: CASE WHEN parent IS NOT NULL 
+            THEN { id: parent.id, name: parent.name } 
+            ELSE null 
+          END
+        } as categoryData
+        ORDER BY c.inclusionNetVotes DESC
+        LIMIT 10000
+      `;
+
+      const result = await this.neo4jService.read(query);
+      const categories: UniversalNodeData[] = [];
+
+      result.records.forEach((record) => {
+        const data = record.get('categoryData');
+
+        categories.push({
+          id: data.id,
+          type: 'category',
+          content: data.name,
+          createdBy: data.created_by || data.createdBy || '',
+          publicCredit: data.public_credit ?? data.publicCredit ?? true,
+          createdAt:
+            data.created_at || data.createdAt || new Date().toISOString(),
+          updatedAt:
+            data.updated_at || data.updatedAt || new Date().toISOString(),
+          inclusionPositiveVotes: data.inclusionPositiveVotes || 0,
+          inclusionNegativeVotes: data.inclusionNegativeVotes || 0,
+          inclusionNetVotes: data.inclusionNetVotes || 0,
+          contentPositiveVotes: 0, // Category nodes don't have content votes
+          contentNegativeVotes: 0,
+          contentNetVotes: 0,
+          discussionId: data.discussion_id || data.discussionId || null,
+          keywords: [],
+          categories: [],
+          metadata: {
+            wordCount: data.wordCount || 0,
+            contentCount: data.contentCount || 0,
+            childCount: data.childCount || 0,
+            parentCategory: data.parentCategory || null,
+          },
+        });
+      });
+
+      this.logger.debug(`Found ${categories.length} categories from Neo4j`);
+      return categories;
+    } catch (error) {
+      this.logger.error(`Error fetching categories: ${error.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch Definition nodes from Neo4j
+   * Definitions are linked to their parent Word nodes
+   */
+  private async fetchDefinitions(): Promise<UniversalNodeData[]> {
+    try {
+      this.logger.debug('Fetching definitions for universal graph');
+
+      const query = `
+        MATCH (d:DefinitionNode)-[:DEFINES]->(w:WordNode)
+        WHERE d.inclusionNetVotes > -5 AND w.inclusionNetVotes > -5
+        RETURN d {
+          .*,
+          wordId: w.word,
+          word: w.word
+        } as defData
+        ORDER BY d.contentNetVotes DESC, d.inclusionNetVotes DESC
+        LIMIT 10000
+      `;
+
+      const result = await this.neo4jService.read(query);
+      const definitions: UniversalNodeData[] = [];
+
+      result.records.forEach((record) => {
+        const data = record.get('defData');
+
+        // Try multiple possible property names for the definition text
+        const definitionText =
+          data.definition_text ||
+          data.definitionText ||
+          data.definition ||
+          data.text ||
+          'Definition unavailable';
+
+        definitions.push({
+          id: data.id,
+          type: 'definition',
+          content: definitionText,
+          createdBy: data.created_by || data.createdBy || '',
+          publicCredit: data.public_credit ?? data.publicCredit ?? true,
+          createdAt:
+            data.created_at || data.createdAt || new Date().toISOString(),
+          updatedAt:
+            data.updated_at || data.updatedAt || new Date().toISOString(),
+          inclusionPositiveVotes: data.inclusionPositiveVotes || 0,
+          inclusionNegativeVotes: data.inclusionNegativeVotes || 0,
+          inclusionNetVotes: data.inclusionNetVotes || 0,
+          contentPositiveVotes: data.contentPositiveVotes || 0,
+          contentNegativeVotes: data.contentNegativeVotes || 0,
+          contentNetVotes: data.contentNetVotes || 0,
+          discussionId: data.discussion_id || data.discussionId || null,
+          keywords: [],
+          categories: [],
+          metadata: {
+            wordId: data.wordId,
+            word: data.word,
+          },
+        });
+      });
+
+      this.logger.debug(`Found ${definitions.length} definitions from Neo4j`);
+      return definitions;
+    } catch (error) {
+      this.logger.error(`Error fetching definitions: ${error.message}`);
+      return [];
     }
   }
 
