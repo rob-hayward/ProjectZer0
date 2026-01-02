@@ -1,7 +1,6 @@
 <!-- src/lib/components/graph/nodes/definition/DefinitionNode.svelte -->
 <!-- REORGANIZED: Clean 3-section semantic structure - contentText / inclusionVoting / contentVoting -->
-<!-- FIXED: API endpoints now use /definitions/ instead of /nodes/definition/ -->
-<!-- FIXED: Word extraction from data instead of prop, style debugging -->
+<!-- FIXED: Word on same line as definition, preview font size matches category/word nodes -->
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -9,14 +8,13 @@
 	import { isDefinitionData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { TextContent, NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, NodeMetadata, CreatorCredits } from '../ui';
+	import { NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, NodeMetadata, CreatorCredits } from '../ui';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
 	import { graphStore } from '$lib/stores/graphStore';
 
 	export let node: RenderableNode;
-	// FIXED: Make wordText optional since we can extract it from data
 	export let wordText: string = '';
 
 	if (!isDefinitionData(node.data)) {
@@ -25,18 +23,6 @@
 
 	let definitionData = node.data;
 
-	// DEBUG: Log the definition data we're receiving
-	console.log('[DefinitionNode] Received definition data:', {
-		id: definitionData.id,
-		word: definitionData.word,
-		definitionText: definitionData.definitionText,
-		wordTextProp: wordText,
-		hasDefinitionText: !!definitionData.definitionText,
-		definitionTextLength: definitionData.definitionText?.length,
-		nodeStyle: node.style,
-		nodeColors: node.style?.colors
-	});
-
 	const subtype = node.group === 'live-definition' ? 'live' : 'alternative';
 	const nodeTitle = subtype === 'live' ? 'Live Definition' : 'Alternative Definition';
 
@@ -44,22 +30,13 @@
 		return 'definition';
 	}
 
-	// FIXED: Extract word from data object if not provided as prop
 	$: displayWord = wordText || definitionData.word || '[word missing]';
 	$: definitionText = definitionData.definitionText || '[definition text missing]';
-
-	// DEBUG: Log reactive values
-	$: console.log('[DefinitionNode] Reactive values:', {
-		displayWord,
-		definitionText,
-		definitionTextLength: definitionText.length,
-		isDetail
-	});
 
 	let inclusionVoting: VoteBehaviour;
 	let contentVoting: VoteBehaviour;
 
-	// CRITICAL: Extract INCLUSION store references for Svelte's $ auto-subscription
+	// CRITICAL: Extract INCLUSION store references
 	$: inclusionPositiveVotesStore = inclusionVoting?.positiveVotes;
 	$: inclusionNegativeVotesStore = inclusionVoting?.negativeVotes;
 	$: inclusionNetVotesStore = inclusionVoting?.netVotes;
@@ -68,7 +45,7 @@
 	$: inclusionVoteSuccessStore = inclusionVoting?.voteSuccess;
 	$: inclusionLastVoteTypeStore = inclusionVoting?.lastVoteType;
 
-	// CRITICAL: Extract CONTENT store references for Svelte's $ auto-subscription
+	// CRITICAL: Extract CONTENT store references
 	$: contentPositiveVotesStore = contentVoting?.positiveVotes;
 	$: contentNegativeVotesStore = contentVoting?.negativeVotes;
 	$: contentNetVotesStore = contentVoting?.netVotes;
@@ -77,7 +54,7 @@
 	$: contentVoteSuccessStore = contentVoting?.voteSuccess;
 	$: contentLastVoteTypeStore = contentVoting?.lastVoteType;
 
-	// FIXED: Subscribe to INCLUSION stores (reactive), fallback to data
+	// FIXED: Subscribe to INCLUSION stores
 	$: inclusionPositiveVotes = inclusionPositiveVotesStore 
 		? $inclusionPositiveVotesStore
 		: (getNeo4jNumber(definitionData.inclusionPositiveVotes) || 0);
@@ -94,7 +71,7 @@
 		? $inclusionUserVoteStatusStore
 		: (node.metadata?.inclusionVoteStatus?.status || 'none')) as VoteStatus;
 
-	// FIXED: Subscribe to CONTENT stores (reactive), fallback to data
+	// FIXED: Subscribe to CONTENT stores
 	$: contentPositiveVotes = contentPositiveVotesStore 
 		? $contentPositiveVotesStore
 		: (getNeo4jNumber(definitionData.contentPositiveVotes) || 0);
@@ -111,7 +88,7 @@
 		? $contentUserVoteStatusStore
 		: (node.metadata?.contentVoteStatus?.status || 'none')) as VoteStatus;
 
-	// FIXED: Create votingState objects from store subscriptions
+	// FIXED: Create voting states
 	$: inclusionVotingState = {
 		isVoting: inclusionIsVotingStore ? $inclusionIsVotingStore : false,
 		voteSuccess: inclusionVoteSuccessStore ? $inclusionVoteSuccessStore : false,
@@ -125,7 +102,6 @@
 	};
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
-
 	$: isDetail = node.mode === 'detail';
 
 	const dispatch = createEventDispatcher<{
@@ -134,20 +110,6 @@
 	}>();
 
 	onMount(async () => {
-		console.log('[DefinitionNode] Mounting - data verification:', {
-			nodeId: node.id,
-			word: definitionData.word,
-			definitionText: definitionData.definitionText,
-			hasText: !!definitionData.definitionText,
-			textLength: definitionData.definitionText?.length,
-			style: node.style,
-			colors: node.style?.colors
-		});
-
-		console.log('[DefinitionNode] Initializing vote behaviours for', node.id);
-
-		// Initialize INCLUSION voting
-		// FIXED: Use /definitions/ endpoints instead of /nodes/definition/
 		inclusionVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -168,11 +130,8 @@
 				voteStatusKey: 'inclusionVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
-			// NO voteKind - uses separate endpoint
 		});
 
-		// Initialize CONTENT voting
-		// FIXED: Use /definitions/ endpoints instead of /nodes/definition/
 		contentVoting = createVoteBehaviour(node.id, 'definition', {
 			apiIdentifier: definitionData.id,
 			dataObject: definitionData,
@@ -193,10 +152,8 @@
 				voteStatusKey: 'contentVoteStatus',
 				metadataGroup: getMetadataGroup()
 			}
-			// NO voteKind - uses separate endpoint
 		});
 
-		// Initialize both in parallel
 		await Promise.all([
 			inclusionVoting.initialize({
 				positiveVotes: inclusionPositiveVotes,
@@ -209,31 +166,15 @@
 				skipVoteStatusFetch: false
 			})
 		]);
-
-		console.log('[DefinitionNode] Vote behaviours initialized:', {
-			nodeId: node.id,
-			inclusionVotes: { inclusionPositiveVotes, inclusionNegativeVotes, inclusionNetVotes },
-			contentVotes: { contentPositiveVotes, contentNegativeVotes, contentNetVotes },
-			inclusionStatus: inclusionUserVoteStatus,
-			contentStatus: contentUserVoteStatus
-		});
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!inclusionVoting) {
-			console.error('[DefinitionNode] Inclusion vote behaviour not initialized');
-			return;
-		}
-		console.log('[DefinitionNode] Handling inclusion vote:', event.detail.voteType);
+		if (!inclusionVoting) return;
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
 	async function handleContentVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		if (!contentVoting) {
-			console.error('[DefinitionNode] Content vote behaviour not initialized');
-			return;
-		}
-		console.log('[DefinitionNode] Handling content vote:', event.detail.voteType);
+		if (!contentVoting) return;
 		await contentVoting.handleVote(event.detail.voteType);
 	}
 
@@ -251,51 +192,21 @@
 			<NodeHeader title={nodeTitle} {radius} mode="detail" />
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Section 1 - Content Text (Word + Definition) -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
-			<!-- DEBUG: Show what we're trying to render -->
-			{#if !definitionText || definitionText === '[definition text missing]'}
-				<text
-					x="0"
-					y={y + 50}
-					style:font-family="Inter"
-					style:font-size="12px"
-					style:fill="red"
-					style:text-anchor="middle"
-				>
-					DEBUG: No definition text available
-				</text>
-				<text
-					x="0"
-					y={y + 70}
-					style:font-family="Inter"
-					style:font-size="10px"
-					style:fill="red"
-					style:text-anchor="middle"
-				>
-					Data: {JSON.stringify(definitionData)}
-				</text>
-			{/if}
-
-			<!-- Word + Definition display -->
 			<foreignObject 
 				{x} 
-				y={y + Math.floor(height * (positioning.text || 0))} 
+				y={y + Math.floor(height * (positioning.text || 0.2))} 
 				{width} 
 				height={Math.floor(height * (positioning.textHeight || 0.70))}
 			>
-				<div class="definition-wrapper">
+				<div class="definition-wrapper detail">
 					<span class="word-part">{displayWord}:</span>
-					<div class="definition-text">
-						<TextContent text={definitionText} mode="detail" verticalAlign="start" />
-					</div>
+					<span class="definition-text">{definitionText}</span>
 				</div>
 			</foreignObject>
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Section 2 - Inclusion Voting (Complete system) -->
 		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
-			<!-- Inclusion vote prompt -->
 			<foreignObject 
 				{x} 
 				y={y + Math.floor(height * positioning.prompt)} 
@@ -307,7 +218,6 @@
 				</div>
 			</foreignObject>
 
-			<!-- Inclusion vote buttons -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
@@ -322,7 +232,6 @@
 				/>
 			</g>
 
-			<!-- Inclusion vote stats -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={inclusionUserVoteStatus}
@@ -337,9 +246,7 @@
 			</g>
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Section 3 - Content Voting (Complete system, mirrors inclusion!) -->
 		<svelte:fragment slot="contentVoting" let:x let:y let:width let:height let:positioning>
-			<!-- Content vote prompt -->
 			<foreignObject 
 				{x} 
 				y={y + Math.floor(height * positioning.prompt)} 
@@ -351,7 +258,6 @@
 				</div>
 			</foreignObject>
 
-			<!-- Content vote buttons -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
 				<ContentVoteButtons
 					userVoteStatus={contentUserVoteStatus}
@@ -366,7 +272,6 @@
 				/>
 			</g>
 
-			<!-- Content vote stats -->
 			<g transform="translate(0, {y + Math.floor(height * positioning.stats)})">
 				<VoteStats
 					userVoteStatus={contentUserVoteStatus}
@@ -404,26 +309,22 @@
 			<NodeHeader title={nodeTitle} {radius} mode="preview" size="small" />
 		</svelte:fragment>
 
-		<!-- REORGANIZED: Preview mode - simplified structure -->
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
 			<foreignObject 
 				{x} 
-				y={y + Math.floor(height * (positioning.text || 0))} 
+				y={y + Math.floor(height * (positioning.text || 0.2))} 
 				{width} 
-				height={Math.floor(height * (positioning.textHeight || 1.0))}
+				height={Math.floor(height * (positioning.textHeight || 1.15))}
 			>
-				<div class="definition-wrapper">
+				<div class="definition-wrapper preview">
 					<span class="word-part">{displayWord}:</span>
-					<div class="definition-text">
-						<TextContent text={definitionText} mode="preview" verticalAlign="start" />
-					</div>
+					<span class="definition-text">{definitionText}</span>
 				</div>
 			</foreignObject>
 		</svelte:fragment>
 
 		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
-			<!-- Preview mode: just centered inclusion buttons -->
-			<g transform="translate(0, {y + Math.floor(height * positioning.buttons)})">
+			<g transform="translate(0, {y + Math.floor(height * (positioning.buttons || 0.65))})">
 				<InclusionVoteButtons
 					userVoteStatus={inclusionUserVoteStatus}
 					positiveVotes={inclusionPositiveVotes}
@@ -437,8 +338,6 @@
 				/>
 			</g>
 		</svelte:fragment>
-
-		<!-- No content voting in preview mode -->
 	</BasePreviewNode>
 {/if}
 
@@ -462,31 +361,51 @@
 		font-weight: 600;
 	}
 
+	/* UPDATED: Inline layout for word + definition */
 	.definition-wrapper {
 		font-family: Inter, sans-serif;
 		text-align: left;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-start;
 		width: 100%;
 		height: 100%;
 		padding: 5px;
 		box-sizing: border-box;
+		line-height: 1.5;
+		color: white;
+		display: block; /* Block container for proper foreignObject rendering */
 	}
 
+	/* UPDATED: Inline word display */
 	.word-part {
 		font-weight: 600;
 		color: white;
-		font-size: inherit;
-		margin-bottom: 0.5em;
-		display: block;
+		display: inline;
+		margin-right: 0.3em;
 	}
 
+	/* UPDATED: Different font sizes for detail vs preview */
+	.definition-wrapper.detail {
+		font-size: 13px;
+	}
+
+	.definition-wrapper.detail .word-part {
+		font-size: 16px;
+	}
+
+	.definition-wrapper.preview {
+		font-size: 12px;
+		padding: 3px 5px; /* Reduced vertical padding to prevent text cutoff */
+	}
+
+	.definition-wrapper.preview .word-part {
+		font-size: 14px; /* Matches category and word preview nodes */
+	}
+
+	/* UPDATED: Inline definition text with proper wrapping */
 	.definition-text {
-		flex: 1;
-		width: 100%;
+		display: inline;
 		overflow-wrap: break-word;
 		word-wrap: break-word;
+		word-break: break-word;
+		white-space: normal;
 	}
 </style>

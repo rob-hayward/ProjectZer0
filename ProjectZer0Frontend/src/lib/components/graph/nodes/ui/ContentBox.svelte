@@ -262,7 +262,7 @@ TO ADJUST POSITIONING:
                     textHeight: 1.0
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -288,7 +288,7 @@ TO ADJUST POSITIONING:
                     textHeight: 1.0
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -317,7 +317,7 @@ TO ADJUST POSITIONING:
                     textHeight: 1.0
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -354,7 +354,7 @@ TO ADJUST POSITIONING:
                     textHeight: 1.0
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -401,7 +401,7 @@ TO ADJUST POSITIONING:
                     typeBadge: 0.75
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -424,7 +424,7 @@ TO ADJUST POSITIONING:
                     word: 0.5
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -434,7 +434,7 @@ TO ADJUST POSITIONING:
             detail: {
                 contentText: {
                     text: 0.2,
-                    textHeight: 0.70,
+                    textHeight: 1.15,
                     instruction: 0.75
                 },
                 inclusionVoting: {
@@ -450,11 +450,11 @@ TO ADJUST POSITIONING:
             },
             preview: {
                 contentText: {
-                    text: 0.0,
-                    textHeight: 1.0
+                    text: 0.1,
+                    textHeight: 1.15
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }
@@ -463,10 +463,8 @@ TO ADJUST POSITIONING:
         category: {
             detail: {
                 contentText: {
-                    categoryName: 0.35,
-                    stats: 0.55,
-                    parentCategory: 0.75,
-                    childCategories: 0.85
+                    categoryName: 0.40,
+                    subcategories: 0.70
                 },
                 inclusionVoting: {
                     prompt: 0.0,
@@ -477,11 +475,11 @@ TO ADJUST POSITIONING:
             },
             preview: {
                 contentText: {
-                    categoryName: 0.4,
-                    statsPreview: 0.65
+                    categoryName: 0.35,
+                    subcategories: 0.70
                 },
                 inclusionVoting: {
-                    buttons: 0.5
+                    buttons: 0.8
                 },
                 contentVoting: {}
             }

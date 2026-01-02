@@ -266,7 +266,7 @@
 				y={y + Math.floor(height * (positioning.word || 0.5))}
 				class="word-preview"
 				style:font-family="Inter"
-				style:font-size="20px"
+				style:font-size="14px"
 				style:font-weight="500"
 				style:fill="white"
 				style:text-anchor="middle"

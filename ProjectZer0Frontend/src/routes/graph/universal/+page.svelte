@@ -862,7 +862,7 @@
         const universalGraphNodes: GraphNode[] = nodesToProcess.map((node: any) => {
             
             // Extract common properties (same for all node types)
-         const commonProperties = {
+            const commonProperties = {
                 id: node.id,
                 participant_count: node.participant_count,
                 created_at: node.created_at,
@@ -890,24 +890,24 @@
                     };
                     break;
                     
-              case 'statement':
-                nodeData = {
-                    ...commonProperties,
-                    statement: node.content,
-                    relatedStatements: node.metadata?.relatedStatements || [],
-                    parentQuestion: node.metadata?.parentQuestion,
-                    discussionId: node.discussionId,  // ✅ FIXED - top level
-                    initialComment: node.metadata?.initialComment || '',
-                };
-                break;
+                case 'statement':
+                    nodeData = {
+                        ...commonProperties,
+                        statement: node.content,
+                        relatedStatements: node.metadata?.relatedStatements || [],
+                        parentQuestion: node.metadata?.parentQuestion,
+                        discussionId: node.discussionId,
+                        initialComment: node.metadata?.initialComment || '',
+                    };
+                    break;
                     
-               case 'answer':
+                case 'answer':
                     nodeData = {
                         ...commonProperties,
                         answerText: node.content,
                         questionId: node.metadata?.parentQuestion?.nodeId || node.metadata?.discussionId || '',
                         parentQuestion: node.metadata?.parentQuestion,
-                        discussionId: node.discussionId,  // ✅ Top level
+                        discussionId: node.discussionId,
                     };
                     break;
                     
@@ -917,7 +917,7 @@
                         question: node.content,
                         unitCategoryId: node.unitCategoryId || node.metadata?.unitCategoryId || '',
                         defaultUnitId: node.defaultUnitId || node.metadata?.defaultUnitId || '',
-                        discussionId: node.discussionId,  // ✅ Top level
+                        discussionId: node.discussionId,
                     };
                     break;
                     
@@ -930,7 +930,7 @@
                         evidenceType: node.metadata?.evidenceType || '',
                         sourceUrl: node.metadata?.sourceUrl,
                         parentNode: node.metadata?.parentNode,
-                        discussionId: node.discussionId,  // ✅ Top level
+                        discussionId: node.discussionId,
                     };
                     break;
 
@@ -938,12 +938,36 @@
                     nodeData = {
                         ...commonProperties,
                         name: node.content || node.name,
-                        wordCount: node.metadata?.wordCount || 0,
-                        contentCount: node.metadata?.contentCount || 0,
-                        childCount: node.metadata?.childCount || 0,
-                        words: node.metadata?.words || [],
-                        parentCategory: node.metadata?.parentCategory || null,
-                        childCategories: node.metadata?.childCategories || [],
+                        wordCount: node.metadata?.wordCount || node.wordCount || 0,
+                        contentCount: node.metadata?.contentCount || node.contentCount || 0,
+                        childCount: node.metadata?.childCount || node.childCount || 0,
+                        words: (() => {
+                            // Try multiple locations for words array
+                            const wordsArray = node.words || node.metadata?.words || [];
+                            
+                            // Ensure each word has the correct structure
+                            return wordsArray.map((w: any) => {
+                                // If already in correct format, return as-is
+                                if (w && typeof w === 'object' && 'word' in w && 'id' in w) {
+                                    return {
+                                        id: w.id,
+                                        word: w.word,
+                                        inclusionNetVotes: getNeo4jNumber(w.inclusionNetVotes) || 0
+                                    };
+                                }
+                                // If it's just a string, create minimal object
+                                if (typeof w === 'string') {
+                                    return {
+                                        id: w,
+                                        word: w,
+                                        inclusionNetVotes: 0
+                                    };
+                                }
+                                return null;
+                            }).filter(Boolean);
+                        })(),
+                        parentCategory: node.metadata?.parentCategory || node.parentCategory || null,
+                        childCategories: node.metadata?.childCategories || node.childCategories || [],
                         discussionId: node.discussionId
                     };
                     break;
@@ -957,10 +981,33 @@
                         categoryId: node.metadata?.categoryId || node.categoryId,
                         definitions: node.metadata?.definitions || []
                     };
-                    break;    
+                    break;
+                
+                case 'definition':
+                    nodeData = {
+                        ...commonProperties,
+                        word: node.word || node.metadata?.word || '',
+                        definitionText: node.content || node.definitionText || node.metadata?.definitionText || '',
+                        isApiDefinition: node.metadata?.isApiDefinition ?? node.isApiDefinition ?? false,
+                        isAICreated: node.metadata?.isAICreated ?? node.isAICreated ?? false,
+                        isLiveDefinition: node.metadata?.isLiveDefinition ?? node.isLiveDefinition ?? false,
+                        inclusionPositiveVotes: getNeo4jNumber(node.metadata?.votes?.inclusionPositive) || 
+                                                getNeo4jNumber(node.inclusionPositiveVotes) || 0,
+                        inclusionNegativeVotes: getNeo4jNumber(node.metadata?.votes?.inclusionNegative) || 
+                                                getNeo4jNumber(node.inclusionNegativeVotes) || 0,
+                        inclusionNetVotes: getNeo4jNumber(node.metadata?.votes?.inclusionNet) || 
+                                        getNeo4jNumber(node.inclusionNetVotes) || 0,
+                        contentPositiveVotes: getNeo4jNumber(node.metadata?.votes?.contentPositive) || 
+                                            getNeo4jNumber(node.contentPositiveVotes) || 0,
+                        contentNegativeVotes: getNeo4jNumber(node.metadata?.votes?.contentNegative) || 
+                                            getNeo4jNumber(node.contentNegativeVotes) || 0,
+                        contentNetVotes: getNeo4jNumber(node.metadata?.votes?.contentNet) || 
+                                        getNeo4jNumber(node.contentNetVotes) || 0,
+                        discussionId: node.discussionId
+                    };
+                    break;
                     
                 default:
-                    // Fallback for unknown types
                     console.warn(`[UNIVERSAL-PAGE] Unknown node type: ${node.type}`);
                     nodeData = {
                         ...commonProperties,
@@ -1034,7 +1081,6 @@
         // Set data on graph store
         if (graphStore) {
             console.log('[UNIVERSAL-PAGE] Setting data on bound graph store');
-            // Force restart to ensure nodes reposition when sort/filter changes
             graphStore.setData(graphData, { forceRestart: true });
             
             // Apply visibility preferences after setting data

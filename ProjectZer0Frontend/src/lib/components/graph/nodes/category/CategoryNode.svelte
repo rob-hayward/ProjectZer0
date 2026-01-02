@@ -51,10 +51,13 @@
 	let categoryData = node.data as CategoryNodeData;
 
 	$: displayName = categoryData.name;
-	$: wordCount = categoryData.wordCount || 0;
-	$: contentCount = categoryData.contentCount || 0;
 	$: childCount = categoryData.childCount || 0;
-	$: composedWords = categoryData.words || [];
+
+	$: keywordsForDisplay = (categoryData.words || []).map((wordObj: { id: string; word: string; inclusionNetVotes: number }) => ({
+		word: wordObj.word,
+		frequency: 1,
+		source: 'user' as const
+	})) as Keyword[];
 
 	let inclusionVoting: VoteBehaviour;
 
@@ -89,17 +92,8 @@
 	};
 	
 	$: canExpand = hasMetInclusionThreshold(inclusionNetVotes);
-
-	// ✅ FIXED: Convert words to Keyword[] format for KeywordTags component
-	$: keywordsForDisplay = composedWords.map((w: any) => ({
-		word: typeof w === 'string' ? w : w.word,
-		frequency: 1,
-		source: 'user' as const
-	})) as Keyword[];
-
 	$: isDetail = node.mode === 'detail';
 
-	// ✅ FIXED: Added expandWord to event dispatcher
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
@@ -108,25 +102,9 @@
 			sourceNodeId: string;
 			sourcePosition: { x: number; y: number };
 		};
-		parentCategoryClick: { categoryId: string; categoryName: string };
-		childCategoryClick: { categoryId: string; categoryName: string };
 	}>();
 
 	onMount(async () => {
-		console.log('[CategoryNode] 🔍 DEBUG - Component mounted for:', categoryData.name);
-		console.log('[CategoryNode] 🔍 DEBUG - Full categoryData:', categoryData);
-		console.log('[CategoryNode] 🔍 DEBUG - categoryData.words:', categoryData.words);
-		console.log('[CategoryNode] 🔍 DEBUG - composedWords:', composedWords);
-		console.log('[CategoryNode] 🔍 DEBUG - keywordsForDisplay:', keywordsForDisplay);
-		console.log('[CategoryNode] 🔍 DEBUG - Data properties:', {
-			hasWords: 'words' in categoryData,
-			wordsType: typeof categoryData.words,
-			wordsIsArray: Array.isArray(categoryData.words),
-			wordsLength: categoryData.words?.length,
-			wordCount: categoryData.wordCount,
-			keys: Object.keys(categoryData)
-		});
-		
 		console.log('[CategoryNode] Initializing vote behaviour for', node.id);
 		
 		inclusionVoting = createVoteBehaviour(node.id, 'category', {
@@ -148,10 +126,6 @@
 				nodeMetadata: node.metadata,
 				voteStatusKey: 'inclusionVoteStatus',
 				metadataGroup: 'category'
-			},
-			voteKind: 'INCLUSION',
-			onDataUpdate: () => {
-				categoryData = { ...categoryData };
 			}
 		});
 
@@ -169,8 +143,11 @@
 	});
 
 	async function handleInclusionVote(event: CustomEvent<{ voteType: VoteStatus }>) {
-		console.log('[CategoryNode] Handling inclusion vote:', event.detail.voteType);
-		if (!inclusionVoting) return;
+		if (!inclusionVoting) {
+			console.error('[CategoryNode] Vote behaviour not initialized');
+			return;
+		}
+		console.log('[CategoryNode] Handling vote:', event.detail.voteType);
 		await inclusionVoting.handleVote(event.detail.voteType);
 	}
 
@@ -181,7 +158,6 @@
 		});
 	}
 
-	// ✅ FIXED: Now dispatches expandWord event like StatementNode
 	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
 		const { word } = event.detail;
 		
@@ -200,22 +176,6 @@
 			}
 		});
 	}
-
-	function handleParentCategoryClick() {
-		if (categoryData.parentCategory) {
-			dispatch('parentCategoryClick', {
-				categoryId: categoryData.parentCategory.id,
-				categoryName: categoryData.parentCategory.name
-			});
-		}
-	}
-
-	function handleChildCategoryClick(childId: string, childName: string) {
-		dispatch('childCategoryClick', {
-			categoryId: childId,
-			categoryName: childName
-		});
-	}
 </script>
 
 {#if isDetail}
@@ -224,7 +184,6 @@
 			<NodeHeader title="Category" {radius} mode="detail" />
 		</svelte:fragment>
 
-		<!-- ✅ PRESENT: KeywordTags showing composed words -->
 		<svelte:fragment slot="keywordTags" let:radius>
 			{#if keywordsForDisplay.length > 0}
 				<KeywordTags 
@@ -239,7 +198,7 @@
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
 			<text
 				x={x + width/2}
-				y={y + Math.floor(height * (positioning.categoryName || 0.35))}
+				y={y + Math.floor(height * (positioning.categoryName || 0.40))}
 				class="category-name"
 				style:font-family="Inter"
 				style:font-size="28px"
@@ -252,73 +211,19 @@
 				{displayName}
 			</text>
 
-			<foreignObject 
-				{x} 
-				y={y + Math.floor(height * (positioning.stats || 0.55))} 
-				{width} 
-				height="60"
-			>
-				<div class="category-stats">
-					<div class="stat-item">
-						<span class="stat-label">Words:</span>
-						<span class="stat-value">{wordCount}</span>
-					</div>
-					<div class="stat-item">
-						<span class="stat-label">Content:</span>
-						<span class="stat-value">{contentCount}</span>
-					</div>
-					{#if childCount > 0}
+			<!-- Only show subcategories count if it exists -->
+			{#if childCount > 0}
+				<foreignObject 
+					{x} 
+					y={y + Math.floor(height * (positioning.subcategories || 0.70))} 
+					{width} 
+					height="40"
+				>
+					<div class="category-stats">
 						<div class="stat-item">
 							<span class="stat-label">Subcategories:</span>
 							<span class="stat-value">{childCount}</span>
 						</div>
-					{/if}
-				</div>
-			</foreignObject>
-
-			{#if categoryData.parentCategory}
-				<foreignObject 
-					{x} 
-					y={y + Math.floor(height * (positioning.parentCategory || 0.75))} 
-					{width} 
-					height="30"
-				>
-					<div 
-						class="parent-category"
-						on:click={handleParentCategoryClick}
-						on:keydown={(e) => e.key === 'Enter' && handleParentCategoryClick()}
-						role="button"
-						tabindex="0"
-					>
-						↑ Parent: {categoryData.parentCategory.name}
-					</div>
-				</foreignObject>
-			{/if}
-
-			{#if categoryData.childCategories && categoryData.childCategories.length > 0}
-				<foreignObject 
-					{x} 
-					y={y + Math.floor(height * (positioning.childCategories || 0.85))} 
-					{width} 
-					height="40"
-				>
-					<div class="child-categories">
-						{#each categoryData.childCategories.slice(0, 3) as child}
-							<div 
-								class="child-category"
-								on:click={() => handleChildCategoryClick(child.id, child.name)}
-								on:keydown={(e) => e.key === 'Enter' && handleChildCategoryClick(child.id, child.name)}
-								role="button"
-								tabindex="0"
-							>
-								↓ {child.name}
-							</div>
-						{/each}
-						{#if categoryData.childCategories.length > 3}
-							<div class="child-more">
-								+{categoryData.childCategories.length - 3} more
-							</div>
-						{/if}
 					</div>
 				</foreignObject>
 			{/if}
@@ -332,7 +237,7 @@
 				height="24"
 			>
 				<div class="vote-prompt">
-					<strong>Include/Exclude:</strong> Should this category exist in the graph?
+					<strong>Include/Exclude:</strong> Should this category exist?
 				</div>
 			</foreignObject>
 
@@ -387,40 +292,43 @@
 			<NodeHeader title="Category" {radius} mode="preview" size="medium" />
 		</svelte:fragment>
 
-		<svelte:fragment slot="contentText" let:x let:y let:width let:height>
+		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
 			<text
 				x="0"
-				y={y + 8}
+				y={y + Math.floor(height * (positioning.categoryName || 0.35))}
 				class="category-name-preview"
 				text-anchor="middle"
 			>
 				{displayName}
 			</text>
 			
-			{#if wordCount || contentCount}
+			<!-- Only show subcategories count in preview if it exists -->
+			{#if childCount > 0}
 				<text
 					x="0"
-					y={y + 26}
+					y={y + Math.floor(height * (positioning.subcategories || 0.70))}
 					class="stats-preview"
 					text-anchor="middle"
 				>
-					{wordCount ? `${wordCount} words` : ''}{wordCount && contentCount ? ' • ' : ''}{contentCount ? `${contentCount} items` : ''}
+					{childCount} subcategories
 				</text>
 			{/if}
 		</svelte:fragment>
 
-		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height>
-			<InclusionVoteButtons
-				userVoteStatus={inclusionUserVoteStatus}
-				positiveVotes={inclusionPositiveVotes}
-				negativeVotes={inclusionNegativeVotes}
-				isVoting={votingState.isVoting}
-				voteSuccess={votingState.voteSuccess}
-				lastVoteType={votingState.lastVoteType}
-				availableWidth={width}
-				mode="preview"
-				on:vote={handleInclusionVote}
-			/>
+		<svelte:fragment slot="inclusionVoting" let:x let:y let:width let:height let:positioning>
+			<g transform="translate(0, {y + Math.floor(height * (positioning.buttons || 0.5))})">
+				<InclusionVoteButtons
+					userVoteStatus={inclusionUserVoteStatus}
+					positiveVotes={inclusionPositiveVotes}
+					negativeVotes={inclusionNegativeVotes}
+					isVoting={votingState.isVoting}
+					voteSuccess={votingState.voteSuccess}
+					lastVoteType={votingState.lastVoteType}
+					availableWidth={width}
+					mode="preview"
+					on:vote={handleInclusionVote}
+				/>
+			</g>
 		</svelte:fragment>
 	</BasePreviewNode>
 {/if}
@@ -475,56 +383,6 @@
 		color: rgba(255, 138, 61, 0.9);
 		font-weight: 600;
 		font-size: 14px;
-	}
-
-	:global(.parent-category) {
-		font-family: 'Inter', sans-serif;
-		font-size: 11px;
-		font-weight: 500;
-		color: rgba(52, 152, 219, 0.9);
-		text-align: center;
-		cursor: pointer;
-		text-decoration: underline;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		height: 100%;
-	}
-
-	:global(.parent-category:hover) {
-		color: rgba(52, 152, 219, 1);
-	}
-
-	:global(.child-categories) {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 6px;
-		justify-content: center;
-		align-items: center;
-		height: 100%;
-		padding: 0 5px;
-	}
-
-	:global(.child-category) {
-		font-family: 'Inter', sans-serif;
-		font-size: 10px;
-		font-weight: 500;
-		color: rgba(155, 89, 182, 0.9);
-		cursor: pointer;
-		text-decoration: underline;
-		white-space: nowrap;
-	}
-
-	:global(.child-category:hover) {
-		color: rgba(155, 89, 182, 1);
-	}
-
-	:global(.child-more) {
-		font-family: 'Inter', sans-serif;
-		font-size: 10px;
-		font-weight: 400;
-		color: rgba(255, 255, 255, 0.5);
-		font-style: italic;
 	}
 
 	.vote-prompt {

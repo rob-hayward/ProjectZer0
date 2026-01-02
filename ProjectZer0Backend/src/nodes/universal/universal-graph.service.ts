@@ -90,6 +90,12 @@ export interface UniversalNodeData {
       id: string;
       name: string;
     } | null;
+    words?: Array<{
+      // ✅ ADD THIS PROPERTY
+      id: string;
+      word: string;
+      inclusionNetVotes: number;
+    }>;
 
     // ✅ NEW: For Definition nodes
     wordId?: string;
@@ -524,41 +530,56 @@ export class UniversalGraphService {
       this.logger.debug('Fetching categories for universal graph');
 
       const query = `
-        MATCH (c:CategoryNode)
-        WHERE c.inclusionNetVotes > -5
-        OPTIONAL MATCH (c)<-[:COMPOSED_OF]-(parent:CategoryNode)
-        WHERE parent.inclusionNetVotes > -5
-        OPTIONAL MATCH (c)-[:COMPOSED_OF]->(child:CategoryNode)
-        WHERE child.inclusionNetVotes > -5
-        OPTIONAL MATCH (c)<-[:COMPOSED_OF]-(w:WordNode)
-        WHERE w.inclusionNetVotes > -5
-        OPTIONAL MATCH (c)<-[:CATEGORIZED_AS]-(content)
-        WHERE (content:StatementNode OR content:OpenQuestionNode OR 
-               content:AnswerNode OR content:QuantityNode OR content:EvidenceNode)
-               AND content.inclusionNetVotes > -5
-        WITH c, parent,
-             count(DISTINCT w) as wordCnt,
-             count(DISTINCT content) as contentCnt,
-             count(DISTINCT child) as childCnt
-        RETURN c {
-          .*,
-          wordCount: wordCnt,
-          contentCount: contentCnt,
-          childCount: childCnt,
-          parentCategory: CASE WHEN parent IS NOT NULL 
-            THEN { id: parent.id, name: parent.name } 
-            ELSE null 
-          END
-        } as categoryData
-        ORDER BY c.inclusionNetVotes DESC
-        LIMIT 10000
-      `;
+      MATCH (c:CategoryNode)
+      WHERE c.inclusionNetVotes > -5
+      OPTIONAL MATCH (c)<-[:COMPOSED_OF]-(parent:CategoryNode)
+      WHERE parent.inclusionNetVotes > -5
+      OPTIONAL MATCH (c)-[:COMPOSED_OF]->(child:CategoryNode)
+      WHERE child.inclusionNetVotes > -5
+      OPTIONAL MATCH (c)-[:COMPOSED_OF]->(w:WordNode)  // ✅ FIXED: Changed direction
+      WHERE w.inclusionNetVotes > -5
+      OPTIONAL MATCH (c)<-[:CATEGORIZED_AS]-(content)
+      WHERE (content:StatementNode OR content:OpenQuestionNode OR 
+             content:AnswerNode OR content:QuantityNode OR content:EvidenceNode)
+             AND content.inclusionNetVotes > -5
+      WITH c, parent,
+           count(DISTINCT w) as wordCnt,
+           count(DISTINCT content) as contentCnt,
+           count(DISTINCT child) as childCnt,
+           collect(DISTINCT {  // ✅ NEW: Collect word data
+             id: w.word,
+             word: w.word,
+             inclusionNetVotes: w.inclusionNetVotes
+           }) as composedWords  // ✅ NEW: Store words array
+      RETURN c {
+        .*,
+        wordCount: wordCnt,
+        contentCount: contentCnt,
+        childCount: childCnt,
+        words: composedWords,  // ✅ NEW: Include words array
+        parentCategory: CASE WHEN parent IS NOT NULL 
+          THEN { id: parent.id, name: parent.name } 
+          ELSE null 
+        END
+      } as categoryData
+      ORDER BY c.inclusionNetVotes DESC
+      LIMIT 10000
+    `;
 
       const result = await this.neo4jService.read(query);
       const categories: UniversalNodeData[] = [];
 
       result.records.forEach((record) => {
         const data = record.get('categoryData');
+
+        // ✅ NEW: Extract and format the words array
+        const wordsArray = (data.words || [])
+          .filter((w: any) => w && w.word) // Filter out nulls
+          .map((w: any) => ({
+            id: w.id || w.word,
+            word: w.word,
+            inclusionNetVotes: this.toNumber(w.inclusionNetVotes) || 0,
+          }));
 
         categories.push({
           id: data.id,
@@ -573,7 +594,7 @@ export class UniversalGraphService {
           inclusionPositiveVotes: data.inclusionPositiveVotes || 0,
           inclusionNegativeVotes: data.inclusionNegativeVotes || 0,
           inclusionNetVotes: data.inclusionNetVotes || 0,
-          contentPositiveVotes: 0, // Category nodes don't have content votes
+          contentPositiveVotes: 0,
           contentNegativeVotes: 0,
           contentNetVotes: 0,
           discussionId: data.discussion_id || data.discussionId || null,
@@ -584,6 +605,7 @@ export class UniversalGraphService {
             contentCount: data.contentCount || 0,
             childCount: data.childCount || 0,
             parentCategory: data.parentCategory || null,
+            words: wordsArray, // ✅ NEW: Include words in metadata
           },
         });
       });
@@ -594,6 +616,16 @@ export class UniversalGraphService {
       this.logger.error(`Error fetching categories: ${error.message}`);
       return [];
     }
+  }
+
+  // ✅ NEW: Add helper method if not already present
+  private toNumber(value: any): number {
+    if (value === null || value === undefined) return 0;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'object' && 'toNumber' in value) {
+      return value.toNumber();
+    }
+    return 0;
   }
 
   /**
