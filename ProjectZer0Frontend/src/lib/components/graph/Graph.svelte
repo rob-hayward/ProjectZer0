@@ -1017,6 +1017,7 @@
                                             <DefinitionNode
                                                 {node}
                                                 on:modeChange={handleModeChange}
+                                                on:expandWord={handleExpandWord}
                                             />    
                                         {:else if isNavigationNode(node)}
                                             <NavigationNode 

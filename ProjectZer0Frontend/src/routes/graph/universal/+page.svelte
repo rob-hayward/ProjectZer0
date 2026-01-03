@@ -1621,6 +1621,24 @@ async function handleExpandWord(event: CustomEvent<{
             }))
         );
         
+           // ✅ FIX: Filter out definitions that already exist in the graph
+        const existingDefinitionIds = new Set(
+            graphData.nodes
+                .filter(n => n.type === 'definition')
+                .map(n => n.id)
+        );
+
+        const newDefinitions = sortedDefinitions.filter(def => 
+            !existingDefinitionIds.has(def.id)
+        );
+
+        console.log('[UNIVERSAL-PAGE] Filtered definitions:', {
+            total: sortedDefinitions.length,
+            existing: sortedDefinitions.length - newDefinitions.length,
+            new: newDefinitions.length,
+            existingIds: Array.from(existingDefinitionIds)
+        });
+        
         // Calculate position for word node (near source)
         const wordPosition = calculateProximalPosition(
             sourcePosition,
@@ -1633,7 +1651,7 @@ async function handleExpandWord(event: CustomEvent<{
         // Calculate positions for definitions (ring around word, sorted by votes)
         const definitionPositions = calculateDefinitionRing(
             wordPosition,
-            sortedDefinitions.length,
+            newDefinitions.length,
             220  // Radius of ring around word
         );
         
@@ -1665,9 +1683,11 @@ async function handleExpandWord(event: CustomEvent<{
                 net_votes: wordApiNode.inclusion_net_votes || wordApiNode.inclusionNetVotes || 0
             }
         };
+
+     
         
         // Transform definition nodes to GraphNode (using sorted order)
-        const definitionGraphNodes: GraphNode[] = sortedDefinitions.map((defNode, index) => ({
+        const definitionGraphNodes: GraphNode[] = newDefinitions.map((defNode, index) => ({
             id: defNode.id,
             type: 'definition' as NodeType,
             data: {

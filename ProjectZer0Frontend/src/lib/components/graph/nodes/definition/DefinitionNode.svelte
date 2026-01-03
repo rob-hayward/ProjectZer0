@@ -4,11 +4,11 @@
 <script lang="ts">
 	import { onMount, createEventDispatcher } from 'svelte';
 	import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
-	import type { VoteStatus } from '$lib/types/domain/nodes';
+	import type { VoteStatus, Keyword } from '$lib/types/domain/nodes';
 	import { isDefinitionData } from '$lib/types/graph/enhanced';
 	import BasePreviewNode from '../base/BasePreviewNode.svelte';
 	import BaseDetailNode from '../base/BaseDetailNode.svelte';
-	import { NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, NodeMetadata, CreatorCredits } from '../ui';
+	import { NodeHeader, InclusionVoteButtons, ContentVoteButtons, VoteStats, NodeMetadata, CreatorCredits, KeywordTags } from '../ui';
 	import { hasMetInclusionThreshold } from '$lib/constants/graph/voting';
 	import { getNeo4jNumber } from '$lib/utils/neo4j-utils';
 	import { createVoteBehaviour, type VoteBehaviour } from '../behaviours/voteBehaviour';
@@ -32,6 +32,15 @@
 
 	$: displayWord = wordText || definitionData.word || '[word missing]';
 	$: definitionText = definitionData.definitionText || '[definition text missing]';
+
+	// Create keyword tag for the word being defined
+	$: keywordForDisplay = (displayWord && displayWord !== '[word missing]' 
+		? [{
+			word: displayWord,
+			frequency: 1,
+			source: 'user' as const
+		}]
+		: []) as Keyword[];
 
 	let inclusionVoting: VoteBehaviour;
 	let contentVoting: VoteBehaviour;
@@ -107,6 +116,11 @@
 	const dispatch = createEventDispatcher<{
 		modeChange: { mode: NodeMode; position?: { x: number; y: number }; nodeId: string };
 		visibilityChange: { isHidden: boolean };
+		expandWord: { 
+			word: string;
+			sourceNodeId: string;
+			sourcePosition: { x: number; y: number };
+		};
 	}>();
 
 	onMount(async () => {
@@ -184,12 +198,44 @@
 			nodeId: node.id
 		});
 	}
+
+	// Keyword click handler (for the word being defined)
+	function handleKeywordClick(event: CustomEvent<{ word: string }>) {
+		const { word } = event.detail;
+		
+		console.log('[DefinitionNode] Keyword clicked:', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: node.position
+		});
+		
+		dispatch('expandWord', {
+			word,
+			sourceNodeId: node.id,
+			sourcePosition: {
+				x: node.position?.x || 0,
+				y: node.position?.y || 0
+			}
+		});
+	}
 </script>
 
 {#if isDetail}
 	<BaseDetailNode {node} on:modeChange={handleModeChange}>
 		<svelte:fragment slot="title" let:radius>
 			<NodeHeader title={nodeTitle} {radius} mode="detail" />
+		</svelte:fragment>
+
+		<!-- KeywordTags: Show the word being defined -->
+		<svelte:fragment slot="keywordTags" let:radius>
+			{#if keywordForDisplay.length > 0}
+				<KeywordTags 
+					keywords={keywordForDisplay}
+					{radius}
+					maxDisplay={1}
+					on:keywordClick={handleKeywordClick}
+				/>
+			{/if}
 		</svelte:fragment>
 
 		<svelte:fragment slot="contentText" let:x let:y let:width let:height let:positioning>
