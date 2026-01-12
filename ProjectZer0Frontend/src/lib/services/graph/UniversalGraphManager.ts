@@ -1277,7 +1277,7 @@ export class UniversalGraphManager {
                 this.nodeModes.set(node.id, nodeMode);
             }
             
-            if (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && !this.nodeModes.has(node.id)) {
+            if (['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'word', 'category', 'definition'].includes(node.type) && !this.nodeModes.has(node.id)) {
                 nodeMode = 'preview';
                 this.nodeModes.set(node.id, nodeMode);
             }
@@ -1959,11 +1959,11 @@ export class UniversalGraphManager {
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.border;
             case 'answer':
-                return NODE_CONSTANTS.COLORS.ANSWER?.border || 'rgba(100, 200, 255, 1)';
+                return NODE_CONSTANTS.COLORS.ANSWER?.border;
             case 'quantity':
-                return NODE_CONSTANTS.COLORS.QUANTITY?.border || 'rgba(255, 200, 100, 1)';
+                return NODE_CONSTANTS.COLORS.QUANTITY?.border;
             case 'evidence':
-                return NODE_CONSTANTS.COLORS.EVIDENCE?.border || 'rgba(200, 100, 255, 1)';
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.border;
             case 'category':
                 return NODE_CONSTANTS.COLORS.CATEGORY.border; 
             case 'word':
@@ -1987,11 +1987,11 @@ export class UniversalGraphManager {
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.hover;
             case 'answer':
-                return NODE_CONSTANTS.COLORS.ANSWER?.hover || 'rgba(100, 200, 255, 0.3)';
+                return NODE_CONSTANTS.COLORS.ANSWER?.hover;
             case 'quantity':
-                return NODE_CONSTANTS.COLORS.QUANTITY?.hover || 'rgba(255, 200, 100, 0.3)';
+                return NODE_CONSTANTS.COLORS.QUANTITY?.hover;
             case 'evidence':
-                return NODE_CONSTANTS.COLORS.EVIDENCE?.hover || 'rgba(200, 100, 255, 0.3)';
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.hover;
             case 'category':
                 return NODE_CONSTANTS.COLORS.CATEGORY.hover;
             case 'word':
@@ -2015,11 +2015,11 @@ export class UniversalGraphManager {
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.start;
             case 'answer':
-                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.start || 'rgba(100, 200, 255, 0.2)';
+                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.start;
             case 'quantity':
-                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.start || 'rgba(255, 200, 100, 0.2)';
+                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.start;
             case 'evidence':
-                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.start || 'rgba(200, 100, 255, 0.2)';
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.start;
             case 'category':
                 return NODE_CONSTANTS.COLORS.CATEGORY.gradient.start;
             case 'word':
@@ -2043,11 +2043,11 @@ export class UniversalGraphManager {
             case 'openquestion':
                 return NODE_CONSTANTS.COLORS.OPENQUESTION.gradient.end;
             case 'answer':
-                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.end || 'rgba(100, 200, 255, 0.05)';
+                return NODE_CONSTANTS.COLORS.ANSWER?.gradient?.end;
             case 'quantity':
-                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.end || 'rgba(255, 200, 100, 0.05)';
+                return NODE_CONSTANTS.COLORS.QUANTITY?.gradient?.end;
             case 'evidence':
-                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.end || 'rgba(200, 100, 255, 0.05)';
+                return NODE_CONSTANTS.COLORS.EVIDENCE?.gradient?.end;
             case 'category':
                 return NODE_CONSTANTS.COLORS.CATEGORY.gradient.end;
             case 'word':

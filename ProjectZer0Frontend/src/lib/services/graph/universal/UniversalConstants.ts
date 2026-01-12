@@ -56,9 +56,9 @@ export const UNIVERSAL_LAYOUT = {
     
     // Rendering limits
     LIMITS: {
-        MAX_NODES_TO_RENDER: 40,        // Maximum nodes in single-node mode
+        MAX_NODES_TO_RENDER: 200,        // Maximum nodes in single-node mode
         NODES_PER_BATCH: 10,            // Nodes per batch in batch mode
-        MAX_BATCHES: 4,                 // Maximum number of batches
+        MAX_BATCHES: 20,                 // Maximum number of batches
         LINK_PATH_CACHE_SIZE: 500,      // Maximum cached link paths
     },
     

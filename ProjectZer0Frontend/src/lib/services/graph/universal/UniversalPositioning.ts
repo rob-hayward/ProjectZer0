@@ -111,7 +111,7 @@ export class UniversalPositioning {
      */
     public getNodeVotes(node: GraphNode): number {
         if (node.type === 'statement' || node.type === 'openquestion' || 
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word') {
             const votes = node.metadata?.votes as any;
             if (votes) {
                 const positiveVotes = getNeo4jNumber(votes.positive);
@@ -187,7 +187,7 @@ export class UniversalPositioning {
     ): void {
         const contentNodes = nodes.filter(node => 
             node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word'
         );
         
         // Sort by votes
@@ -246,7 +246,7 @@ export class UniversalPositioning {
     ): void {
         const contentNodes = nodes.filter(node => 
             node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word'
         );
         
         // Sort by votes

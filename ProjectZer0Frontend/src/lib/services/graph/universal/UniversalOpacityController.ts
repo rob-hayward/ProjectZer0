@@ -450,7 +450,7 @@ export class UniversalOpacityController {
      */
     public setInitialNodeOpacity(node: EnhancedNode): void {
         if (node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word') {
             if (this.nodeOpacityState === 'hidden') {
                 (node as any).opacity = 0;
             } else {

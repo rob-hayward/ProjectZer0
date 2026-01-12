@@ -80,7 +80,7 @@ export class UniversalRenderingStrategy {
         // Separate system and content nodes - UPDATED for all 5 types
         const contentNodes = data.nodes.filter(node => 
             node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence'
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word'
         );
         const systemNodes = data.nodes.filter(node => 
             node.type === 'navigation' || node.type === 'dashboard' || node.type === 'control'

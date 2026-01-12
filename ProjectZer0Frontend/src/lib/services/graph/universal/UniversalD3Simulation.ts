@@ -467,7 +467,7 @@ export class UniversalD3Simulation {
             
             nodes.forEach(node => {
                 if (node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word') {
                     const targetDistance = (node as any).voteBasedDistance || 400;
                     const x = node.x ?? 0;
                     const y = node.y ?? 0;
@@ -499,7 +499,7 @@ export class UniversalD3Simulation {
             // Group nodes by similar angles
             nodes.forEach(node => {
                 if (node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word') {
                     const angle = Math.atan2(node.y ?? 0, node.x ?? 0);
                     const angleKey = Math.round(angle * UNIVERSAL_FORCES.SETTLEMENT_PHASE.ANGULAR_SPREADING.ANGLE_BUCKETS) / 
                                    UNIVERSAL_FORCES.SETTLEMENT_PHASE.ANGULAR_SPREADING.ANGLE_BUCKETS;
@@ -564,7 +564,7 @@ export class UniversalD3Simulation {
         // Unpin ALL simulation nodes (navigation nodes aren't here)
         simulationNodes.forEach(node => {
             if (node.type === 'statement' || node.type === 'openquestion' ||
-            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence') {
+            node.type === 'answer' || node.type === 'quantity' || node.type === 'evidence' || node.type === 'category' || node.type === 'definition' || node.type === 'word') {
                 node.fx = null;
                 node.fy = null;
                 
