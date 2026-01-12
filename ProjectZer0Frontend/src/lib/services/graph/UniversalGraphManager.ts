@@ -1162,8 +1162,67 @@ export class UniversalGraphManager {
                 netVotes: votes?.net || 0,
                 votes: votes
             };
+        } else if (node.type === 'category') {
+            const votes = node.metadata?.votes as any;
+            const inclusionVotes = votes?.inclusion || votes || {};
+            
+            nodeData = {
+                ...nodeData,
+                name: node.data && 'name' in node.data ? (node.data as any).name :
+                    node.data && 'content' in node.data ? node.data.content : '',
+                inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                wordCount: node.data && 'wordCount' in node.data ? (node.data as any).wordCount : 0,
+                contentCount: node.data && 'contentCount' in node.data ? (node.data as any).contentCount : 0,
+                childCount: node.data && 'childCount' in node.data ? (node.data as any).childCount : 0,
+                words: node.data && 'words' in node.data ? (node.data as any).words : [],
+                parentCategory: node.data && 'parentCategory' in node.data ? (node.data as any).parentCategory : null,
+                childCategories: node.data && 'childCategories' in node.data ? (node.data as any).childCategories : [],
+                discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                votes: votes
+            };
+        } else if (node.type === 'word') {
+            const votes = node.metadata?.votes as any;
+            const inclusionVotes = votes?.inclusion || votes || {};
+            
+            nodeData = {
+                ...nodeData,
+                word: node.data && 'word' in node.data ? (node.data as any).word :
+                    node.data && 'content' in node.data ? node.data.content : '',
+                inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                definitionCount: node.data && 'definitionCount' in node.data ? (node.data as any).definitionCount : 0,
+                usageCount: node.data && 'usageCount' in node.data ? (node.data as any).usageCount : 0,
+                categoryId: node.data && 'categoryId' in node.data ? (node.data as any).categoryId : '',
+                definitions: node.data && 'definitions' in node.data ? (node.data as any).definitions : [],
+                discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                votes: votes
+            };
+        } else if (node.type === 'definition') {
+            const votes = node.metadata?.votes as any;
+            const inclusionVotes = votes?.inclusion || votes || {};
+            const contentVotes = votes?.content || votes || {};
+            
+            nodeData = {
+                ...nodeData,
+                word: node.data && 'word' in node.data ? (node.data as any).word : '',
+                definitionText: node.data && 'definitionText' in node.data ? (node.data as any).definitionText : '',
+                isApiDefinition: node.data && 'isApiDefinition' in node.data ? (node.data as any).isApiDefinition : false,
+                isAICreated: node.data && 'isAICreated' in node.data ? (node.data as any).isAICreated : false,
+                isLiveDefinition: node.data && 'isLiveDefinition' in node.data ? (node.data as any).isLiveDefinition : false,
+                inclusionPositiveVotes: getNeo4jNumber(inclusionVotes?.positive) || 0,
+                inclusionNegativeVotes: getNeo4jNumber(inclusionVotes?.negative) || 0,
+                inclusionNetVotes: getNeo4jNumber(inclusionVotes?.net) || 0,
+                contentPositiveVotes: getNeo4jNumber(contentVotes?.positive) || 0,
+                contentNegativeVotes: getNeo4jNumber(contentVotes?.negative) || 0,
+                contentNetVotes: getNeo4jNumber(contentVotes?.net) || 0,
+                discussionId: node.metadata?.discussionId || (node.data && 'discussionId' in node.data ? (node.data as any).discussionId : ''),
+                votes: votes
+            };
         }
-        
+
         const enhancedNode: EnhancedNode = {
             id: node.id,
             type: node.type,
@@ -1207,7 +1266,7 @@ export class UniversalGraphManager {
             
             const visibilityPref = visibilityStore.getPreference(node.id);
             const isHidden = visibilityPref !== undefined ? !visibilityPref : 
-                            (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type) && netVotes < 0);
+                            (['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'word', 'category', 'definition'].includes(node.type) && netVotes < 0);
             const hiddenReason = visibilityPref !== undefined ? 'user' : 
                                 (isHidden ? 'community' : undefined);
             

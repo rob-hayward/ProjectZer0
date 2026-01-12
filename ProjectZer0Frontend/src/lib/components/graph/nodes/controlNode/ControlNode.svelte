@@ -1,5 +1,4 @@
 <!-- src/lib/components/graph/nodes/controlNode/ControlNode.svelte -->
-<!-- REORGANIZED: Control node structure - contentText only (no voting sections) -->
 <script lang="ts">
     import { onMount, createEventDispatcher } from 'svelte';
     import type { RenderableNode, NodeMode } from '$lib/types/graph/enhanced';
@@ -19,6 +18,12 @@
     export let node: RenderableNode;
     export let isLoading: boolean = false;  // Track if filters are currently loading
     export let applyMode: 'auto' | 'manual' = 'manual';  // Manual apply is now default
+    export let currentNodeTypes: Set<string> | undefined = undefined;
+    export let currentSortBy: string | undefined = undefined;
+    export let currentSortDirection: 'asc' | 'desc' | undefined = undefined;
+    export let currentKeywords: string[] | undefined = undefined;
+    export let currentShowOnlyMyItems: boolean | undefined = undefined;
+    export let currentUserFilterMode: string | undefined = undefined;
     
     // Extract position from node for event handling
     $: nodeX = node.position?.x;
@@ -51,10 +56,25 @@
         answer: true,
         quantity: true,
         evidence: true,
-        word: true,
-        category: true,
-        definition: true
+        word: false,
+        category: false,
+        definition: false
     };
+
+    // NEW: Update selectedNodeTypes when currentNodeTypes prop changes
+    $: if (currentNodeTypes) {
+        selectedNodeTypes = {
+            statement: currentNodeTypes.has('statement'),
+            openquestion: currentNodeTypes.has('openquestion'),
+            answer: currentNodeTypes.has('answer'),
+            quantity: currentNodeTypes.has('quantity'),
+            evidence: currentNodeTypes.has('evidence'),
+            word: currentNodeTypes.has('word'),
+            category: currentNodeTypes.has('category'),
+            definition: currentNodeTypes.has('definition')
+        };
+    }
+
     
     // Category filter state - SIMPLIFIED: selected = required
     let selectedCategories: Category[] = [];
@@ -194,6 +214,32 @@
     // User filter state
     let showOnlyMyItems = false;
     let userFilterMode = 'all';
+    
+    // NEW: Sync state from props
+    $: if (currentKeywords) {
+        selectedKeywords = [...currentKeywords];
+    }
+
+    $: if (currentSortBy !== undefined) {
+        const sortByReverseMapping: Record<string, string> = {
+            'netVotes': 'inclusion_votes',
+            'chronological': 'chronological',
+            'participants': 'participants'
+        };
+        sortBy = sortByReverseMapping[currentSortBy] || 'inclusion_votes';
+    }
+
+    $: if (currentSortDirection !== undefined) {
+        sortDirection = currentSortDirection;
+    }
+
+    $: if (currentShowOnlyMyItems !== undefined) {
+        showOnlyMyItems = currentShowOnlyMyItems;
+    }
+
+    $: if (currentUserFilterMode !== undefined) {
+        userFilterMode = currentUserFilterMode;
+    }
     
     // Auto-apply debounce state (only used in auto mode)
     let filterDebounceTimer: NodeJS.Timeout | null = null;

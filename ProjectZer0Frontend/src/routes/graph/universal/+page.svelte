@@ -122,7 +122,7 @@
     let showOnlyMyItems = false;
     let availableKeywords: string[] = [];
     
-    // UPDATED: Support all 5 content node types
+    // UPDATED: Support all 8 content node types
     let selectedNodeTypes = new Set<
         'openquestion' | 'statement' | 'answer' | 'quantity' | 'evidence' | 
         'word' | 'category' | 'definition'
@@ -131,10 +131,8 @@
         'statement', 
         'answer', 
         'quantity', 
-        'evidence',
-        'word',
-        'category',
-        'definition'
+        'evidence'
+        // word, category, definition intentionally excluded from initial load
     ]);
     let minNetVotes = -50;
     let maxNetVotes = 50;
@@ -1638,7 +1636,7 @@ async function handleExpandWord(event: CustomEvent<{
             new: newDefinitions.length,
             existingIds: Array.from(existingDefinitionIds)
         });
-        
+
         // Calculate position for word node (near source)
         const wordPosition = calculateProximalPosition(
             sourcePosition,
@@ -3288,6 +3286,12 @@ function calculateDefinitionRing(
                 {node}
                 isLoading={nodesLoading}
                 applyMode="manual"
+                currentNodeTypes={selectedNodeTypes}
+                currentSortBy={sortType}
+                currentSortDirection={sortDirection}
+                currentKeywords={filterKeywords}
+                currentShowOnlyMyItems={showOnlyMyItems}
+                currentUserFilterMode="all"
             />
         {/if}
     </svelte:fragment>
