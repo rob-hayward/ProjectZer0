@@ -160,16 +160,19 @@
     $: relationships = $universalGraphStore?.relationships || [];
     $: isReady = authInitialized && dataInitialized;
     
-    // UPDATED: Typed helper functions for node filtering - all 5 types
+    // UPDATED: Typed helper functions for node filtering - all 8 types
     $: questionNodes = nodes.filter((n: any) => n.type === 'openquestion');
     $: statementNodes = nodes.filter((n: any) => n.type === 'statement');
     $: answerNodes = nodes.filter((n: any) => n.type === 'answer');
     $: quantityNodes = nodes.filter((n: any) => n.type === 'quantity');
     $: evidenceNodes = nodes.filter((n: any) => n.type === 'evidence');
+    $: wordNodes = nodes.filter((n: any) => n.type === 'word');
+    $: categoryNodes = nodes.filter((n: any) => n.type === 'category');
+    $: definitionNodes = nodes.filter((n: any) => n.type === 'definition');
     
     // Combined content nodes for overall stats
     $: contentNodes = nodes.filter((n: any) => 
-        ['openquestion', 'statement', 'answer', 'quantity', 'evidence'].includes(n.type)
+        ['openquestion', 'statement', 'answer', 'quantity', 'evidence', 'word', 'category', 'definition'].includes(n.type)
     );
     
     // Update phantom links status when graph store is ready

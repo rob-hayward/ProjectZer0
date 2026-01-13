@@ -1,7 +1,7 @@
 // ProjectZer0Frontend/src/lib/constants/graph/universal-graph.ts
 
 export const BATCH_RENDERING = {
-  MAX_BATCHES: 20,           // For batch mode
+  MAX_BATCHES: 5,           // For batch mode
   BATCH_SIZE: 10,           // For batch mode
   DELAY_BETWEEN_BATCHES: 500, // For batch mode
   ENABLE_SEQUENTIAL: true,  // Sequential mode enabled

@@ -554,9 +554,10 @@ export class UniversalOpacityController {
         });
         
        // Keep system nodes visible
-        nodes.forEach(node => {
+       nodes.forEach(node => {
             if (node.type !== 'statement' && node.type !== 'openquestion' &&
-                node.type !== 'answer' && node.type !== 'quantity' && node.type !== 'evidence') {
+                node.type !== 'answer' && node.type !== 'quantity' && node.type !== 'evidence' &&
+                node.type !== 'word' && node.type !== 'category' && node.type !== 'definition') {
                 (node as any).opacity = 1;
             }
         });
@@ -600,7 +601,7 @@ export class UniversalOpacityController {
     private getSortedContentNodes(nodes: EnhancedNode[]): Array<{ node: EnhancedNode; sortValue: number }> {
         const contentNodes = nodes
             .filter(n => n.type === 'statement' || n.type === 'openquestion' ||
-             n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence')
+             n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' || n.type === 'category' || n.type === 'definition' || n.type === 'word')
             .map(node => {
                 let sortValue: number;
                 

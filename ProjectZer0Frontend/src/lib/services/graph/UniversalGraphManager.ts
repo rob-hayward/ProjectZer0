@@ -175,7 +175,7 @@ export class UniversalGraphManager {
             return;
         }
         
-        this.updateState(newData, 0.2);
+        this.updateState(newData, 0.5);
     }
 
     public async setData(data: GraphData, config?: LayoutUpdateConfig & { forceRestart?: boolean }): Promise<void> {
@@ -206,7 +206,7 @@ export class UniversalGraphManager {
         if (forceRestart || !isSameDataSet) {
             this.stop();
         } else if (currentNodes.length > 0) {
-            this.d3Simulation.wakeSimulation(0.1);
+            this.d3Simulation.wakeSimulation(0.6);
             this.simulationActive = true;
         }
         
@@ -235,7 +235,7 @@ export class UniversalGraphManager {
         }
     }
 
-    public updateState(newData?: Partial<GraphData>, wakePower: number = 0.2): void {
+    public updateState(newData?: Partial<GraphData>, wakePower: number = 0.5): void {
         if (newData) {
             if (newData.nodes) {
                 const transformedNodes = this.transformNodes(newData.nodes);
@@ -480,7 +480,7 @@ export class UniversalGraphManager {
             const nodes = simulation.nodes() as EnhancedNode[];
             
             const contentNodes = nodes.filter(n => 
-                ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type) && !n.fixed
+                ['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'category', 'word', 'definition'].includes(n.type) && !n.fixed
             );
             
             if (contentNodes.length === 0) {
@@ -621,7 +621,7 @@ export class UniversalGraphManager {
                 this.d3Simulation.startSettlementPhase();
                 
                 const nodes = this.d3Simulation.getAllNodes() as unknown as EnhancedNode[];
-                const contentNodes = nodes.filter(n => ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(n.type));
+                const contentNodes = nodes.filter(n => ['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'category', 'word', 'definition'].includes(n.type));
                 
                 if (contentNodes.length > 0) {
                     this.opacityController.startRevealSequence(nodes);
@@ -771,7 +771,7 @@ export class UniversalGraphManager {
         
         const isDormant = this.d3Simulation.isDormantState();
         if (isDormant) {
-            this.d3Simulation.wakeSimulation(0.3);
+            this.d3Simulation.wakeSimulation(0.6);
         } else {
             simulation.alpha(0.3);
             simulation.alphaTarget(0);
@@ -812,7 +812,7 @@ export class UniversalGraphManager {
         let changedCount = 0;
         
         allNodes.forEach(node => {
-            if (node.mode === 'detail' && ['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) {
+            if (node.mode === 'detail' && ['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'category', 'word', 'definition'].includes(node.type)) {
                 this.nodeModes.set(node.id, 'preview');
                 node.mode = 'preview';
                 node.expanded = false;
@@ -886,7 +886,7 @@ export class UniversalGraphManager {
         
         const isDormant = this.d3Simulation.isDormantState();
         if (isDormant) {
-            this.d3Simulation.wakeSimulation(Math.max(alpha, 0.4));
+            this.d3Simulation.wakeSimulation(Math.max(alpha, 0.6));
         } else {
             simulation.alpha(alpha);
             simulation.alphaTarget(0);
@@ -1088,7 +1088,7 @@ export class UniversalGraphManager {
 
     private transformSingleNode(node: GraphNode): EnhancedNode {
         const netVotes = this.positioning.getNodeVotes(node);
-        const isHidden = (['statement', 'openquestion', 'answer', 'quantity', 'evidence'].includes(node.type)) && netVotes < 0;
+        const isHidden = (['statement', 'openquestion', 'answer', 'quantity', 'evidence', 'category', 'word', 'definition'].includes(node.type)) && netVotes < 0;
         
         let nodeMode: NodeMode | undefined = node.mode;
         if (node.group === 'central') {

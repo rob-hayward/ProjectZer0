@@ -48,13 +48,13 @@ export const UNIVERSAL_FORCES = {
     // Settlement phase forces (natural spacing)
     SETTLEMENT_PHASE: {
         CHARGE: {
-            STRENGTH: -400,             // Moderate repulsion for natural spacing
-            DISTANCE_MIN: 80,           // Minimum distance for charge effect
-            DISTANCE_MAX: 1000,         // Maximum distance for charge effect
+            STRENGTH: -600,             // Moderate repulsion for natural spacing
+            DISTANCE_MIN: 100,           // Minimum distance for charge effect
+            DISTANCE_MAX: 1200,         // Maximum distance for charge effect
             THETA: 0.9,                 // Barnes-Hut approximation parameter
         },
         COLLISION: {
-            STRENGTH: 0.8,              // Strong collision avoidance
+            STRENGTH: 0.9,              // Strong collision avoidance
             ITERATIONS: 3,              // More iterations for accuracy
             // Radius added dynamically: node.radius + 60
         },

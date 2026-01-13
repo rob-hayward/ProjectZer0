@@ -170,9 +170,9 @@ function createUniversalGraphStore(): UniversalGraphStore {
                 'answer', 
                 'quantity', 
                 'evidence',
-                'word',        // ✅ NEW
-                'category',    // ✅ NEW
-                'definition'   // ✅ NEW
+                'word',        
+                'category',    
+                'definition'   
             ],
             keywords: [],
             keyword_operator: 'OR',

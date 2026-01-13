@@ -156,23 +156,60 @@ export class UniversalPositioning {
      * UPDATED: Supports 3 rings
      */
     private calculateAngle(globalIndex: number): number {
-        if (globalIndex < this.FIRST_RING_SIZE) {
-            // First ring: evenly distribute nodes in a circle
-            return (globalIndex / this.FIRST_RING_SIZE) * 2 * Math.PI;
-        } else if (globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE) {
+    if (globalIndex < this.FIRST_RING_SIZE) {
+        // First ring: evenly distribute nodes in a circle
+        const angle = (globalIndex / this.FIRST_RING_SIZE) * 2 * Math.PI;
+        const testAngle = (globalIndex / this.FIRST_RING_SIZE) * 2 * Math.PI; // Duplicate calculation
+        console.log('[Positioning] First ring calculation:', {
+            globalIndex,
+            FIRST_RING_SIZE: this.FIRST_RING_SIZE,
+            division: globalIndex / this.FIRST_RING_SIZE,
+            times2: (globalIndex / this.FIRST_RING_SIZE) * 2,
+            timesPi: (globalIndex / this.FIRST_RING_SIZE) * 2 * Math.PI,
+            angle: angle,
+            testAngle: testAngle,
+            mathPi: Math.PI
+        });
+        return angle;
+    } else if (globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE) {
             // Second ring: evenly distribute with offset from first ring
             const secondRingIndex = globalIndex - this.FIRST_RING_SIZE;
             const angleOffset = Math.PI / this.SECOND_RING_SIZE; // Offset for visual variation
-            return (secondRingIndex / this.SECOND_RING_SIZE) * 2 * Math.PI + angleOffset;
+            const angle = (secondRingIndex / this.SECOND_RING_SIZE) * 2 * Math.PI + angleOffset;
+            console.log('[Positioning] Second ring calculation:', {
+                globalIndex,
+                secondRingIndex,
+                SECOND_RING_SIZE: this.SECOND_RING_SIZE,
+                angleOffset: angleOffset.toFixed(4),
+                angle: angle.toFixed(4),
+                angleDegrees: (angle * 180 / Math.PI).toFixed(1)
+            });
+            return angle;
         } else if (this.THIRD_RING_SIZE > 0 && 
-                   globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE) {
+                globalIndex < this.FIRST_RING_SIZE + this.SECOND_RING_SIZE + this.THIRD_RING_SIZE) {
             // Third ring: evenly distribute with different offset
             const thirdRingIndex = globalIndex - this.FIRST_RING_SIZE - this.SECOND_RING_SIZE;
             const angleOffset = Math.PI / (this.THIRD_RING_SIZE * 2); // Different offset
-            return (thirdRingIndex / this.THIRD_RING_SIZE) * 2 * Math.PI + angleOffset;
+            const angle = (thirdRingIndex / this.THIRD_RING_SIZE) * 2 * Math.PI + angleOffset;
+            console.log('[Positioning] Third ring calculation:', {
+                globalIndex,
+                thirdRingIndex,
+                THIRD_RING_SIZE: this.THIRD_RING_SIZE,
+                angleOffset: angleOffset.toFixed(4),
+                angle: angle.toFixed(4),
+                angleDegrees: (angle * 180 / Math.PI).toFixed(1)
+            });
+            return angle;
         } else {
             // Spiral nodes: golden angle for natural distribution
-            return globalIndex * this.goldenAngle;
+            const angle = globalIndex * this.goldenAngle;
+            console.log('[Positioning] Spiral calculation:', {
+                globalIndex,
+                goldenAngle: this.goldenAngle.toFixed(4),
+                angle: angle.toFixed(4),
+                angleDegrees: (angle * 180 / Math.PI).toFixed(1)
+            });
+            return angle;
         }
     }
     
@@ -201,16 +238,34 @@ export class UniversalPositioning {
             return votesB - votesA;
         });
         
+        
         contentNodes.forEach((node, localIndex) => {
-            // Use global index for continuity across batches
             const globalIndex = globalStartIndex + localIndex;
             const netVotes = this.getNodeVotes({ 
                 id: node.id, type: node.type, data: node.data, group: node.group, metadata: node.metadata 
             });
             
-            // Calculate distance and angle based on ring strategy
             const targetDistance = this.calculateTargetDistance(globalIndex);
             const angle = this.calculateAngle(globalIndex);
+            
+            // DEBUG: Check angle calculation for new types
+            if ((node.type === 'word' || node.type === 'category' || node.type === 'definition') && 
+                (localIndex < 3 || localIndex === contentNodes.length - 1)) {
+                console.log('[Positioning] 🔍 Angle for new type:', {
+                    id: node.id.substring(0, 8),
+                    type: node.type,
+                    localIndex,
+                    globalIndex,
+                    netVotes,
+                    angle: angle.toFixed(4),
+                    angleDegrees: (angle * 180 / Math.PI).toFixed(1),
+                    targetDistance: targetDistance.toFixed(1),
+                    willBe_y: (Math.sin(angle) * targetDistance).toFixed(1)
+                });
+            }
+            
+            node.x = Math.cos(angle) * targetDistance;
+            node.y = Math.sin(angle) * targetDistance;
             
             node.x = Math.cos(angle) * targetDistance;
             node.y = Math.sin(angle) * targetDistance;
@@ -314,7 +369,7 @@ export class UniversalPositioning {
         // Sort existing nodes by votes to find where new node fits
         const sortedNodes = [...existingNodes]
             .filter(n => n.type === 'statement' || n.type === 'openquestion' ||
-                        n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence')
+                        n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' || n.type === 'category' || n.type === 'definition' || n.type === 'word')
             .sort((a, b) => {
                 const votesA = (a as any).netVotes || 0;
                 const votesB = (b as any).netVotes || 0;

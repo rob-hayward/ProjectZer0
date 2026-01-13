@@ -57,7 +57,7 @@ export class UniversalD3Simulation {
                     const contentRadius = contentNode.radius || 50;
                     
                     // MUCH LARGER exclusion zone - content nodes should stay far away
-                    const SAFETY_BUFFER = 100; // Increased from 50px to 150px
+                    const SAFETY_BUFFER = 100; // Increased from 50px to 100px
                     const minDistance = systemRadius + contentRadius + SAFETY_BUFFER;
                     
                     // Apply force if within exclusion zone
@@ -69,7 +69,7 @@ export class UniversalD3Simulation {
                         
                         // Exponential strength: closer = much stronger force
                         // Base strength is HIGH and doesn't rely on alpha
-                        const baseStrength = 50.0; // Very high base strength
+                        const baseStrength = 100.0; // Very high base strength
                         const exponentialFactor = Math.pow(penetrationRatio, 2); // Squared for exponential growth
                         const strength = baseStrength * exponentialFactor * (1 + alpha);
                         
@@ -258,7 +258,8 @@ export class UniversalD3Simulation {
     private checkIfSettled(nodes: EnhancedNode[]): void {
         const contentNodes = nodes.filter(n => 
             n.type === 'statement' || n.type === 'openquestion' ||
-            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence'
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' ||
+            n.type === 'category' || n.type === 'definition' || n.type === 'word'
         );
         
         const totalMovement = contentNodes.reduce((sum, n) => {
@@ -296,7 +297,8 @@ export class UniversalD3Simulation {
     private logSettlementProgress(nodes: EnhancedNode[]): void {
         const contentNodes = nodes.filter(n => 
             n.type === 'statement' || n.type === 'openquestion' ||
-            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence'
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' ||
+            n.type === 'category' || n.type === 'definition' || n.type === 'word'
         );
         
         const movingNodes = contentNodes.filter(n => 
@@ -327,7 +329,9 @@ export class UniversalD3Simulation {
         
         const allNodes = this.getAllNodes(); // CHANGED: Get all nodes including system
         const contentNodes = allNodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
-            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence');
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' ||
+            n.type === 'category' || n.type === 'definition' || n.type === 'word'
+        );
         
         const distances = contentNodes.map(n => Math.sqrt((n.x ?? 0) ** 2 + (n.y ?? 0) ** 2));
         const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
@@ -576,6 +580,22 @@ export class UniversalD3Simulation {
                 node.vy = Math.sin(angle) * speed;
             }
         });
+
+        // DEBUG: Check unpinning for new types
+        const newTypeNodes = simulationNodes.filter(n => 
+            n.type === 'word' || n.type === 'category' || n.type === 'definition'
+        );
+        console.log('[D3Simulation] 🔍 New type nodes after unpinning:', {
+            count: newTypeNodes.length,
+            sample: newTypeNodes.slice(0, 3).map(n => ({
+                id: n.id.substring(0, 8),
+                type: n.type,
+                x: n.x?.toFixed(1),
+                y: n.y?.toFixed(1),
+                fx: n.fx,
+                fy: n.fy
+            }))
+        });
         
         // Configure natural forces
         this.configureSettlementPhaseForces();
@@ -691,7 +711,7 @@ export class UniversalD3Simulation {
         // REDUCED: Only log sample positions in development mode
         if (import.meta.env.DEV) {
             const beforeSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
-            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence').slice(0, 3);
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' || n.type === 'category' || n.type === 'definition' || n.type === 'word').slice(0, 3);
             console.log('[D3Simulation] Positions BEFORE stop:', 
                 beforeSample.map(n => ({
                     id: n.id.substring(0, 8),
@@ -724,7 +744,7 @@ export class UniversalD3Simulation {
         // REDUCED: Only log after positions in development mode
         if (import.meta.env.DEV) {
             const afterSample = nodes.filter(n => n.type === 'statement' || n.type === 'openquestion' ||
-            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence').slice(0, 3);
+            n.type === 'answer' || n.type === 'quantity' || n.type === 'evidence' || n.type === 'category' || n.type === 'definition' || n.type === 'word').slice(0, 3);
             console.log('[D3Simulation] Positions AFTER stop:', 
                 afterSample.map(n => ({
                     id: n.id.substring(0, 8),

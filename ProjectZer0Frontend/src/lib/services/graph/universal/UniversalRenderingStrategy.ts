@@ -131,7 +131,7 @@ export class UniversalRenderingStrategy {
     
     /**
      * Render next single node (sequential mode)
-     * UPDATED: Filter for all 5 content node types
+     * UPDATED: Filter for all 8 content node types
      */
     private renderNextSingleNode(
         transformNodes: (nodes: GraphNode[]) => EnhancedNode[],
@@ -155,11 +155,24 @@ export class UniversalRenderingStrategy {
         
         // Position nodes with global index for continuity
         this.positioning.calculateSingleNodePositions(enhancedNodes, 0);
-        
-        // Pin newly added node during drop - UPDATED for all 5 types
+
+        // DEBUG: Check positioning for new types
         const newNode = enhancedNodes[enhancedNodes.length - 1];
+        if (newNode.type === 'word' || newNode.type === 'category' || newNode.type === 'definition') {
+            console.log(`[RenderingStrategy] 🔍 New ${newNode.type} node positioned:`, {
+                id: newNode.id.substring(0, 8),
+                type: newNode.type,
+                x: newNode.x,
+                y: newNode.y,
+                willBecome_fx: newNode.x,
+                willBecome_fy: newNode.y
+            });
+        }
+        
+        // Pin newly added node during drop - UPDATED for all 8 types
         if (newNode.type === 'statement' || newNode.type === 'openquestion' ||
-            newNode.type === 'answer' || newNode.type === 'quantity' || newNode.type === 'evidence') {
+            newNode.type === 'answer' || newNode.type === 'quantity' || newNode.type === 'evidence' 
+            || newNode.type === 'category' || newNode.type === 'definition' || newNode.type === 'word') {
             newNode.fx = newNode.x;
             newNode.fy = newNode.y;
             

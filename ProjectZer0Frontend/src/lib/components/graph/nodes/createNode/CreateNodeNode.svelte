@@ -37,10 +37,6 @@
     import AnswerInput from '$lib/components/forms/createNode/answer/AnswerInput.svelte';
     import AnswerReview from '$lib/components/forms/createNode/answer/AnswerReview.svelte';
     
-    // Evidence related imports
-    // import EvidenceInput from '$lib/components/forms/evidence/EvidenceInput.svelte';
-    // import EvidenceReview from '$lib/components/forms/evidence/EvidenceReview.svelte';
-    
     // Category related imports
     import CategoryCreationInput from '$lib/components/forms/createNode/category/CategoryCreationInput.svelte';
     import CategoryCreationReview from '$lib/components/forms/createNode/category/CategoryCreationReview.svelte';
