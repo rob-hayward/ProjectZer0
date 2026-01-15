@@ -53,17 +53,20 @@ export const LINK_CONSTANTS = {
         }
     },
     COLORS: {
-        // UPDATED: Use Newton's color wheel colors
-        WORD: COLORS.PRIMARY.INDIGO,           // Indigo for word nodes
-        WORD_ALT: COLORS.PRIMARY.BLUE_VIOLET,  // Blue-violet for alternative definitions
+        // Updated to use actual colors from COLORS.PRIMARY
+        WORD: COLORS.PRIMARY.WORD,                    // Golden yellow #FFD86E
+        WORD_ALT: COLORS.PRIMARY.DEFINITION,          // Amber #FFB447 for alternative definitions
         DEFINITION: {
-            LIVE: COLORS.PRIMARY.BLUE_VIOLET,       // Blue-violet for live definitions
-            ALTERNATIVE: COLORS.PRIMARY.BLUE_VIOLET // Blue-violet for alternative definitions
+            LIVE: COLORS.PRIMARY.DEFINITION,           // Amber #FFB447 for live definitions
+            ALTERNATIVE: COLORS.PRIMARY.DEFINITION     // Amber #FFB447 for alternative definitions
         },
-        STATEMENT: COLORS.PRIMARY.YELLOW,      // Yellow for statement nodes
-        OPENQUESTION: COLORS.PRIMARY.CYAN,     // Cyan for open question nodes
-        QUANTITY: COLORS.PRIMARY.ORANGE,       // Orange for quantity nodes
-        COMMENT: COLORS.PRIMARY.MAGENTA        // Magenta for comment nodes
+        STATEMENT: COLORS.PRIMARY.STATEMENT,          // Magenta #FF7FD1
+        OPENQUESTION: COLORS.PRIMARY.OPEN_QUESTION,   // Blue #5BB7FF
+        QUANTITY: COLORS.PRIMARY.QUANTITY,            // Aqua #48E0C2
+        COMMENT: COLORS.PRIMARY.COMMENT,              // Coral-red #FF6B6B
+        CATEGORY: COLORS.PRIMARY.CATEGORY,            // Orange #FF8A3D
+        ANSWER: COLORS.PRIMARY.ANSWER,                // Purple #B68CFF
+        EVIDENCE: COLORS.PRIMARY.EVIDENCE             // Green #67F28E
     },
     ANIMATION: {
         TRANSITION_DURATION: 300,
