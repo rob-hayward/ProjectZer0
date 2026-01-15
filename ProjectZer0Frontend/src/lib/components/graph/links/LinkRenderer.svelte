@@ -18,7 +18,9 @@
     $: isConsolidated = ConsolidatedRelationshipUtils.isConsolidated(link);
     $: relationshipCount = ConsolidatedRelationshipUtils.getRelationshipCount(link);
     $: primaryKeyword = ConsolidatedRelationshipUtils.getPrimaryKeyword(link);
+    $: primaryCategory = ConsolidatedRelationshipUtils.getPrimaryCategory(link);
     $: allKeywords = ConsolidatedRelationshipUtils.getAllKeywords(link);
+    $: allCategories = ConsolidatedRelationshipUtils.getAllCategories(link);
     $: effectiveStrength = ConsolidatedRelationshipUtils.getEffectiveStrength(link);
     $: tooltipText = ConsolidatedRelationshipUtils.getTooltipText(link);
     $: visualProps = ConsolidatedRelationshipUtils.getVisualProperties(link);
@@ -32,9 +34,12 @@
     $: isReplyForm = link.type === 'reply-form';
     $: isAnswerLink = link.type === 'answers' || (link.type === 'alternative' && link.sourceType === 'openquestion');
     $: isSharedKeywordLink = link.type === 'shared_keyword';
+    $: isSharedCategoryLink = link.type === 'shared_category';
     $: isUniversalAnswerLink = link.type === 'answers';
     $: isRespondsToLink = link.type === 'responds_to';
     $: isRelatedToLink = link.type === 'related_to';
+    $: isTaggedWithLink = link.type === 'tagged_with';
+    $: isCategorizedAsLink = link.type === 'categorized_as';
     
     // Get source and target colors based on node types
     $: sourceColor = getSourceColor(link);
@@ -85,17 +90,79 @@
      * Get the source color based on the source node type
      */
     function getSourceColor(link: RenderableLink): string {
-        // Universal graph shared keyword relationships
+        // Shared category relationships - use orange for category links
+        if (isSharedCategoryLink) {
+            switch (link.sourceType) {
+                case 'statement':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+                case 'openquestion':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
+                case 'quantity':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
+                default:
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY);
+            }
+        }
+        
+        // Shared keyword relationships - use gradient from source color
         if (isSharedKeywordLink) {
             switch (link.sourceType) {
                 case 'statement':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
                 case 'openquestion':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
                 case 'quantity':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
                 default:
-                    return LINK_CONSTANTS.COLORS.STATEMENT;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
+            }
+        }
+        
+        // Direct category link (content → category)
+        if (isCategorizedAsLink) {
+            switch (link.sourceType) {
+                case 'statement':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+                case 'openquestion':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
+                case 'quantity':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
+                case 'word':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
+                default:
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY);
+            }
+        }
+        
+        // Direct keyword link (content → word)
+        if (isTaggedWithLink) {
+            switch (link.sourceType) {
+                case 'statement':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+                case 'openquestion':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
+                case 'quantity':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
+                case 'category':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY);
+                default:
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
             }
         }
         
@@ -176,18 +243,50 @@
      * Get the target color based on the target node type
      */
     function getTargetColor(link: RenderableLink): string {
-        // Universal graph shared keyword relationships
+        // Shared category relationships - use gradient to target color
+        if (isSharedCategoryLink) {
+            switch (link.targetType) {
+                case 'statement':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
+                case 'openquestion':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
+                case 'quantity':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
+                default:
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY);
+            }
+        }
+        
+        // Shared keyword relationships - use gradient to target color
         if (isSharedKeywordLink) {
             switch (link.targetType) {
                 case 'statement':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.STATEMENT);
                 case 'openquestion':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.OPENQUESTION);
+                case 'answer':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.ANSWER);
                 case 'quantity':
                     return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.QUANTITY);
+                case 'evidence':
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.EVIDENCE);
                 default:
-                    return LINK_CONSTANTS.COLORS.STATEMENT;
+                    return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
             }
+        }
+        
+        // Direct category link (content → category) - always use category color at target
+        if (isCategorizedAsLink) {
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.CATEGORY);
+        }
+        
+        // Direct keyword link (content → word) - always use word color at target
+        if (isTaggedWithLink) {
+            return extractBaseColorFromStyle(NODE_CONSTANTS.COLORS.WORD);
         }
         
         if (isStatementRelation) {
@@ -301,9 +400,9 @@
     $: consolidationIndicator = (() => {
         if (!isConsolidated) return '';
         
-        if (relationshipCount >= 5) return '●●●'; // Strong consolidation
-        if (relationshipCount >= 3) return '●●'; // Medium consolidation
-        return '●'; // Light consolidation
+        if (relationshipCount >= 5) return 'â—â—â—'; // Strong consolidation
+        if (relationshipCount >= 3) return 'â—â—'; // Medium consolidation
+        return 'â—'; // Light consolidation
     })();
     
     /**
@@ -311,11 +410,26 @@
      */
     $: linkLabel = (() => {
         if (isConsolidated) {
-            return `${primaryKeyword} +${relationshipCount - 1}`;
+            // Keyword consolidation
+            if (isSharedKeywordLink && primaryKeyword) {
+                return `${primaryKeyword} +${relationshipCount - 1}`;
+            }
+            // Category consolidation
+            if (isSharedCategoryLink && primaryCategory) {
+                return `${primaryCategory.name} +${relationshipCount - 1}`;
+            }
         }
+        
+        // Single keyword
         if (primaryKeyword) {
             return primaryKeyword;
         }
+        
+        // Single category
+        if (primaryCategory) {
+            return primaryCategory.name;
+        }
+        
         return '';
     })();
 </script>

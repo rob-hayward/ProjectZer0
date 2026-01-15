@@ -268,7 +268,7 @@ export class UniversalGraphManager {
      * Called when control node mode changes to reposition navigation ring
      */
     public updateNavigationPositions(navigationNodes: GraphNode[]): void {
-        console.log('[UniversalGraphManager] 🎯 updateNavigationPositions called:', {
+        console.log('[UniversalGraphManager] ðŸŽ¯ updateNavigationPositions called:', {
             count: navigationNodes.length,
             nodeTypes: navigationNodes.map(n => n.type),
             hasMetadata: navigationNodes.every(n => !!n.metadata),
@@ -294,7 +294,7 @@ export class UniversalGraphManager {
                     const oldPos = node.x && node.y ? `(${node.x.toFixed(1)}, ${node.y.toFixed(1)})` : 'none';
                     const newPos = `(${navNode.metadata.initialPosition.x.toFixed(1)}, ${navNode.metadata.initialPosition.y.toFixed(1)})`;
                     
-                    console.log('[UniversalGraphManager] 🔄 Updating nav node:', {
+                    console.log('[UniversalGraphManager] ðŸ”„ Updating nav node:', {
                         id: node.id.substring(0, 20),
                         oldPos,
                         newPos,
@@ -325,7 +325,7 @@ export class UniversalGraphManager {
             n.type === 'navigation' || n.group === 'central' || n.fixed
         );
         
-        console.log('[UniversalGraphManager] 🔧 Updating system nodes in simulation:', {
+        console.log('[UniversalGraphManager] ðŸ”§ Updating system nodes in simulation:', {
             systemNodesCount: systemNodes.length,
             navigationNodesCount: systemNodes.filter(n => n.type === 'navigation').length
         });
@@ -337,7 +337,7 @@ export class UniversalGraphManager {
         this.nodesStore.set(updatedNodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        console.log('[UniversalGraphManager] ✅ Navigation positions updated successfully');
+        console.log('[UniversalGraphManager] âœ… Navigation positions updated successfully');
     }
 
     /**
@@ -346,7 +346,7 @@ export class UniversalGraphManager {
      * Pattern: Surgical update - only replaces central node, no simulation restart
      */
     public switchCentralNode(newCentralNode: GraphNode): void {
-        console.log('[UniversalGraphManager] 🔄 switchCentralNode called:', {
+        console.log('[UniversalGraphManager] ðŸ”„ switchCentralNode called:', {
             newNodeId: newCentralNode.id,
             newNodeType: newCentralNode.type,
             newNodeMode: newCentralNode.mode,
@@ -369,7 +369,7 @@ export class UniversalGraphManager {
         const oldCentralIndex = allNodes.findIndex(n => n.group === 'central');
         
         if (oldCentralIndex === -1) {
-            console.error('[UniversalGraphManager] ❌ No existing central node found');
+            console.error('[UniversalGraphManager] âŒ No existing central node found');
             return;
         }
         
@@ -434,13 +434,13 @@ export class UniversalGraphManager {
         this.nodesStore.set(updatedNodes);
         this.forceUpdateCounter.update(n => n + 1);
         
-        console.log('[UniversalGraphManager] ✅ Central node switched successfully');
+        console.log('[UniversalGraphManager] âœ… Central node switched successfully');
         
         // CRITICAL: If radius changed significantly, we need to:
         // 1. Dispatch event for +page to recalculate navigation positions
         // 2. Reheat simulation so content nodes adjust to new central node size
         if (radiusChanged) {
-            console.log('[UniversalGraphManager] 🔥 Reheating simulation for central node size change');
+            console.log('[UniversalGraphManager] ðŸ”¥ Reheating simulation for central node size change');
             
             // Dispatch event to notify +page that navigation needs repositioning
             if (typeof window !== 'undefined') {
@@ -1534,12 +1534,22 @@ export class UniversalGraphManager {
             const targetId = typeof link.target === 'string' ? link.target : link.target.id;
             
             let strength = 0.3;
-            let relationshipType: 'direct' | 'keyword' = 'keyword';
+            let relationshipType: 'direct' | 'keyword' | 'category' = 'direct';
             
+            // Determine relationship type and strength
             if (link.type === 'shared_keyword') {
                 relationshipType = 'keyword';
                 if (link.metadata?.consolidatedKeywords) {
                     strength = Math.min(1.0, link.metadata.consolidatedKeywords.totalStrength);
+                } else {
+                    strength = 0.5;
+                }
+            } else if (link.type === 'shared_category') {
+                relationshipType = 'category';
+                if (link.metadata?.consolidatedCategories) {
+                    strength = Math.min(1.0, link.metadata.consolidatedCategories.totalStrength);
+                } else if (link.metadata?.sharedCategories) {
+                    strength = link.metadata.sharedCategories.length;
                 } else {
                     strength = 0.5;
                 }
@@ -1552,6 +1562,12 @@ export class UniversalGraphManager {
             } else if (link.type === 'evidence_for') {
                 strength = 0.7;
                 relationshipType = 'direct';
+            } else if (link.type === 'categorized_as') {
+                strength = 1.0;
+                relationshipType = 'category';
+            } else if (link.type === 'tagged_with') {
+                strength = 1.0;
+                relationshipType = 'keyword';
             }
             
             const linkMetadata: any = {
@@ -1561,12 +1577,32 @@ export class UniversalGraphManager {
                 targetId
             };
             
+            // Handle consolidated keywords
             if (link.type === 'shared_keyword' && link.metadata?.consolidatedKeywords) {
                 linkMetadata.isConsolidated = true;
                 linkMetadata.originalRelationshipCount = link.metadata.consolidatedKeywords.relationCount;
                 linkMetadata.keyword = link.metadata.consolidatedKeywords.primaryKeyword;
                 linkMetadata.sharedWords = link.metadata.consolidatedKeywords.sharedWords;
                 linkMetadata.relationCount = link.metadata.consolidatedKeywords.relationCount;
+            } else if (link.type === 'shared_keyword' && link.metadata?.sharedWords) {
+                // Legacy: no consolidatedKeywords, but has sharedWords array
+                linkMetadata.isConsolidated = link.metadata.sharedWords.length > 1;
+                linkMetadata.originalRelationshipCount = link.metadata.sharedWords.length;
+                linkMetadata.keyword = link.metadata.sharedWords[0];
+                linkMetadata.relationCount = link.metadata.sharedWords.length;
+            }
+            
+            // Handle consolidated categories
+            if (link.type === 'shared_category' && link.metadata?.consolidatedCategories) {
+                linkMetadata.isConsolidated = true;
+                linkMetadata.originalRelationshipCount = link.metadata.consolidatedCategories.relationCount;
+                linkMetadata.sharedCategories = link.metadata.consolidatedCategories.sharedCategories;
+                linkMetadata.relationCount = link.metadata.consolidatedCategories.relationCount;
+            } else if (link.type === 'shared_category' && link.metadata?.sharedCategories) {
+                // Legacy: no consolidatedCategories, but has sharedCategories array
+                linkMetadata.isConsolidated = link.metadata.sharedCategories.length > 1;
+                linkMetadata.originalRelationshipCount = link.metadata.sharedCategories.length;
+                linkMetadata.relationCount = link.metadata.sharedCategories.length;
             }
             
             const enhancedLink: EnhancedLink = {
@@ -1768,8 +1804,8 @@ export class UniversalGraphManager {
         const unitX = dx / distance;
         const unitY = dy / distance;
         
-        const sourceRadius = source.radius * UNIVERSAL_LAYOUT.NODE_SIZING.RADIUS_SCALE;
-        const targetRadius = target.radius * UNIVERSAL_LAYOUT.NODE_SIZING.RADIUS_SCALE;
+        const sourceRadius = source.radius;
+        const targetRadius = target.radius;
         
         const startX = sourceX + (unitX * sourceRadius);
         const startY = sourceY + (unitY * sourceRadius);

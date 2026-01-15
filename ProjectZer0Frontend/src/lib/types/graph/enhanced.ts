@@ -20,7 +20,7 @@ export type ViewType = 'dashboard' | 'edit-profile' | 'create-node' | 'word' | '
 export type NodeType = 'dashboard' | 'edit-profile' | 'create-node' | 'navigation' | 'word' | 'definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' |'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
 export type NodeGroup = 'central' | 'navigation' | 'word' | 'live-definition' | 'alternative-definition' | 'statement' | 'statement-answer-form' | 'openquestion' | 'quantity' | 'comment' | 'comment-form' | 'control' | 'category' | 'answer' | 'evidence';
 // ENHANCED: Updated link types with consolidated support
-export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'responds_to' | 'related_to' | 'composed_of' | 'tagged_with'| 'evidence_for';
+export type LinkType = 'live' | 'alternative' | 'related' | 'comment' | 'reply' | 'comment-form' | 'reply-form' | 'answers' | 'shared_keyword' | 'shared_category' | 'responds_to' | 'related_to' | 'composed_of' | 'tagged_with' | 'categorized_as' | 'evidence_for';
 export type NodeMode = 'preview' | 'detail';
 
 // NEW: Consolidated keyword metadata interface
@@ -30,6 +30,15 @@ export interface ConsolidatedKeywordMetadata {
     relationCount: number;
     primaryKeyword: string;
     strengthsByKeyword: { [keyword: string]: number };
+    averageStrength: number;
+}
+
+// NEW: Consolidated category metadata interface
+export interface ConsolidatedCategoryMetadata {
+    sharedCategories: Array<{ id: string; name: string }>;
+    totalStrength: number;
+    relationCount: number;
+    primaryCategory: { id: string; name: string };
     averageStrength: number;
 }
 
@@ -153,15 +162,19 @@ export type EnhancedLink = {
     type: LinkType;
     strength?: number;
     index?: number;
-    relationshipType?: 'direct' | 'keyword';
+    relationshipType?: 'direct' | 'keyword' | 'category';
     metadata?: {
         // Backward compatibility fields
         sharedWords?: string[];
+        sharedCategories?: Array<{ id: string; name: string }>;
         relationCount?: number;
         keyword?: string; // Will be primaryKeyword for consolidated relationships
         
         // NEW: Consolidated keyword metadata for optimized relationships
         consolidatedKeywords?: ConsolidatedKeywordMetadata;
+        
+        // NEW: Consolidated category metadata for optimized relationships
+        consolidatedCategories?: ConsolidatedCategoryMetadata;
         
         // NEW: Opacity support for link reveal animations
         opacity?: number;
@@ -183,18 +196,20 @@ export interface RenderableLink {
     sourcePosition: NodePosition;
     targetPosition: NodePosition;
     strength?: number; 
-    relationshipType?: 'direct' | 'keyword';
+    relationshipType?: 'direct' | 'keyword' | 'category';
     opacity?: number; // NEW: D3-controlled opacity for smooth reveals
     
     // ENHANCED: Metadata with consolidated support
     metadata?: {
         // Legacy fields (maintained for backward compatibility)
         sharedWords?: string[];
+        sharedCategories?: Array<{ id: string; name: string }>;
         relationCount?: number;
         keyword?: string; // Primary keyword for consolidated relationships
         
         // NEW: Rich consolidated metadata
         consolidatedKeywords?: ConsolidatedKeywordMetadata;
+        consolidatedCategories?: ConsolidatedCategoryMetadata;
         
         // Performance tracking
         isConsolidated?: boolean; // Quick check for rendering optimizations
@@ -318,38 +333,63 @@ export interface GraphPageData {
  * - Added missing getRelationshipCount() method
  * - Added missing getTooltipText() method
  * - Updated getVisualProperties() to use getRelationshipCount() method
+ * - Added category consolidation support
  */
 export class ConsolidatedRelationshipUtils {
     /**
-     * Check if a relationship is consolidated (has multiple keywords)
+     * Check if a relationship is consolidated (has multiple keywords OR categories)
      */
     static isConsolidated(link: RenderableLink | EnhancedLink): boolean {
-        return Boolean(
+        const hasMultipleKeywords = Boolean(
             link.type === 'shared_keyword' &&
             link.metadata?.consolidatedKeywords &&
             link.metadata.consolidatedKeywords.relationCount > 1
         );
+        
+        const hasMultipleCategories = Boolean(
+            link.type === 'shared_category' &&
+            link.metadata?.consolidatedCategories &&
+            link.metadata.consolidatedCategories.relationCount > 1
+        );
+        
+        return hasMultipleKeywords || hasMultipleCategories;
     }
 
     /**
-     * ADDED: Get the number of relationships consolidated into this link
+     * Get the number of relationships consolidated into this link
      */
     static getRelationshipCount(link: RenderableLink | EnhancedLink): number {
         if (link.metadata?.consolidatedKeywords) {
             return link.metadata.consolidatedKeywords.relationCount;
+        }
+        if (link.metadata?.consolidatedCategories) {
+            return link.metadata.consolidatedCategories.relationCount;
         }
         // Fallback to legacy relationCount or default to 1
         return link.metadata?.relationCount || 1;
     }
 
     /**
-     * Get the primary display keyword for a relationship
+     * Get the primary display keyword for a keyword relationship
      */
     static getPrimaryKeyword(link: RenderableLink | EnhancedLink): string {
         if (link.metadata?.consolidatedKeywords) {
             return link.metadata.consolidatedKeywords.primaryKeyword;
         }
         return link.metadata?.keyword || '';
+    }
+    
+    /**
+     * Get the primary display category for a category relationship
+     */
+    static getPrimaryCategory(link: RenderableLink | EnhancedLink): { id: string; name: string } | null {
+        if (link.metadata?.consolidatedCategories) {
+            return link.metadata.consolidatedCategories.primaryCategory;
+        }
+        if (link.metadata?.sharedCategories && link.metadata.sharedCategories.length > 0) {
+            return link.metadata.sharedCategories[0];
+        }
+        return null;
     }
 
     /**
@@ -365,6 +405,20 @@ export class ConsolidatedRelationshipUtils {
         }
         return link.metadata?.keyword ? [link.metadata.keyword] : [];
     }
+    
+    /**
+     * Get all categories for a relationship (for tooltips, detailed views)
+     */
+    static getAllCategories(link: RenderableLink | EnhancedLink): Array<{ id: string; name: string }> {
+        if (link.metadata?.consolidatedCategories) {
+            return link.metadata.consolidatedCategories.sharedCategories;
+        }
+        // Fallback to legacy sharedCategories
+        if (link.metadata?.sharedCategories) {
+            return link.metadata.sharedCategories;
+        }
+        return [];
+    }
 
     /**
      * Get the effective strength for visual rendering (stroke width, etc.)
@@ -374,30 +428,45 @@ export class ConsolidatedRelationshipUtils {
         if (link.metadata?.consolidatedKeywords) {
             return link.metadata.consolidatedKeywords.totalStrength;
         }
+        if (link.metadata?.consolidatedCategories) {
+            return link.metadata.consolidatedCategories.totalStrength;
+        }
         // Fallback to direct strength or default
         return link.strength || 1.0;
     }
 
     /**
-     * ADDED: Get tooltip text for a relationship
+     * Get tooltip text for a relationship
      */
     static getTooltipText(link: RenderableLink | EnhancedLink): string {
         const isConsolidated = this.isConsolidated(link);
-        const keywords = this.getAllKeywords(link);
         const relationCount = this.getRelationshipCount(link);
         const effectiveStrength = this.getEffectiveStrength(link);
         
-        if (isConsolidated) {
-            return `Shared keywords: ${keywords.join(', ')} (${relationCount} relationships, strength: ${effectiveStrength.toFixed(2)})`;
+        if (link.type === 'shared_keyword') {
+            const keywords = this.getAllKeywords(link);
+            if (isConsolidated) {
+                return `Shared keywords: ${keywords.join(', ')} (${relationCount} relationships)`;
+            }
+            const keyword = keywords[0] || 'connection';
+            return `Shared keyword: ${keyword}`;
         }
         
-        const keyword = keywords[0] || 'connection';
-        return `Shared keyword: ${keyword} (strength: ${effectiveStrength.toFixed(2)})`;
+        if (link.type === 'shared_category') {
+            const categories = this.getAllCategories(link);
+            if (isConsolidated) {
+                return `Shared categories: ${categories.map(c => c.name).join(', ')} (${relationCount} relationships)`;
+            }
+            const category = categories[0]?.name || 'connection';
+            return `Shared category: ${category}`;
+        }
+        
+        // Direct relationship types
+        return link.type.replace(/_/g, ' ');
     }
 
     /**
      * Calculate visual rendering properties based on consolidated relationship
-     * UPDATED: Now uses getRelationshipCount() method instead of direct access
      */
     static getVisualProperties(link: RenderableLink | EnhancedLink): {
         strokeWidth: number;
@@ -407,20 +476,20 @@ export class ConsolidatedRelationshipUtils {
     } {
         const isConsolidated = this.isConsolidated(link);
         const effectiveStrength = this.getEffectiveStrength(link);
-        const relationCount = this.getRelationshipCount(link); // FIXED: Use method instead of direct access
+        const relationCount = this.getRelationshipCount(link);
         
         // Calculate stroke width - consolidated relationships get thicker base
         const baseStrokeWidth = isConsolidated ? 2.0 : 1.5;
-        const strokeWidth = Math.min(3.0, baseStrokeWidth + effectiveStrength * 1.5);
+        const strokeWidth = Math.min(3.0, baseStrokeWidth + effectiveStrength * 0.3);
         
         // Calculate opacity - consolidated relationships get slight boost
         const baseOpacity = 0.6;
-        const strengthBonus = effectiveStrength * 0.3;
+        const strengthBonus = Math.min(0.3, effectiveStrength * 0.1);
         const consolidationBonus = isConsolidated ? 0.1 : 0;
         const opacity = Math.min(0.95, baseOpacity + strengthBonus + consolidationBonus);
         
         // Dash pattern for consolidated relationships
-        const dashArray = isConsolidated ? '3,2' : 'none';
+        const dashArray = isConsolidated && relationCount >= 3 ? '3,2' : 'none';
         
         // Glow intensity based on relationship count
         const glowIntensity = Math.min(8, 2 + (relationCount - 1) * 0.5);
