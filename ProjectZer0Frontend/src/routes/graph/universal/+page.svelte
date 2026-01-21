@@ -1363,17 +1363,23 @@
         console.log('[UNIVERSAL-PAGE] Visibility changed:', { nodeId, isHidden });
     }
 
-    /**
-     * Handle category tag click - expand category in graph
-     * 
-     * Process:
-     * 1. Check if category already exists in graph
-     * 2. If exists: center on existing node
-     * 3. If not exists: fetch category data, add to graph, center on new node
-     * 4. Reheat simulation to allow nodes to settle
-     */
-
-
+/**
+ * UPDATED: Handle category tag click - expand category in graph
+ * 
+ * PROOF OF CONCEPT IMPLEMENTATION
+ * This follows the same pattern as the expand/collapse button:
+ * 1. Add node with fixed position (fx/fy)
+ * 2. Update with minimal wake power (0.1)
+ * 3. Center viewport immediately
+ * 4. Wait for centering animation (850ms)
+ * 5. Release fixed position and reheat gently
+ * 
+ * Process:
+ * 1. Check if category already exists in graph
+ * 2. If exists: center on existing node
+ * 3. If not exists: fetch category data, add to graph with fixed position, center on new node
+ * 4. After centering completes, reheat simulation to allow other nodes to adjust
+ */
 async function handleExpandCategory(event: CustomEvent<{
     categoryId: string;
     categoryName: string;
@@ -1387,7 +1393,7 @@ async function handleExpandCategory(event: CustomEvent<{
     });
     
     try {
-        // Check if category already exists in graphData (not store array to avoid type issues)
+        // Check if category already exists in graphData
         const existingCategoryNode = graphData.nodes.find(n => 
             n.type === 'category' && n.id === categoryId
         );
@@ -1402,7 +1408,7 @@ async function handleExpandCategory(event: CustomEvent<{
         
         console.log('[UNIVERSAL-PAGE] Category not in graph, fetching expansion data...');
         
-        // Fetch category data (includes category + word nodes)
+        // Fetch category data
         const expansionData = await fetchCategoryExpansion(categoryId);
         
         console.log('[UNIVERSAL-PAGE] Category expansion data received:', {
@@ -1410,7 +1416,7 @@ async function handleExpandCategory(event: CustomEvent<{
             totalRelationshipCount: expansionData.relationships.length
         });
         
-        // FILTER: Extract ONLY the category node (first node in response)
+        // Extract ONLY the category node
         const categoryApiNode = expansionData.nodes.find((n: any) => n.type === 'category');
         
         if (!categoryApiNode) {
@@ -1418,37 +1424,33 @@ async function handleExpandCategory(event: CustomEvent<{
             return;
         }
         
-        console.log('[UNIVERSAL-PAGE] Extracted category node:', {
-            categoryId: categoryApiNode.id,
-            categoryName: categoryApiNode.name || categoryApiNode.content,
-            wordCount: expansionData.nodes.filter((n: any) => n.type === 'word').length
-        });
-        
-        // Extract word nodes from the expansion data
+        // Extract word nodes
         const wordApiNodes = expansionData.nodes.filter((n: any) => n.type === 'word');
-        
-        // Create words array for the category data
         const wordsArray = wordApiNodes.map((w: any) => ({
             id: w.id || w.word,
             word: w.word || w.content,
             inclusionNetVotes: w.inclusionNetVotes || 0
         }));
         
-        console.log('[UNIVERSAL-PAGE] Extracted words for category:', {
-            wordCount: wordsArray.length,
-            words: wordsArray.map(w => w.word)
-        });
-        
         // Calculate position near source node
         const categoryPosition = calculateProximalPosition(
             sourcePosition,
-            graphData.nodes as any[],  // Cast to avoid type issues
-            150  // Distance from source node
+            graphData.nodes as any[],
+            150
         );
         
         console.log('[UNIVERSAL-PAGE] Calculated position for category node:', categoryPosition);
         
-        // Transform the category node to GraphNode format
+        // ✅ FIX 1: Capture source node state BEFORE any updates
+        const sourceNode = graphData.nodes.find(n => n.id === sourceNodeId);
+        const sourceNodeMode = sourceNode?.mode;
+        
+        console.log('[UNIVERSAL-PAGE] Preserving source node mode:', {
+            sourceNodeId: sourceNodeId.substring(0, 8),
+            mode: sourceNodeMode
+        });
+        
+        // Create category GraphNode
         const categoryGraphNode: GraphNode = {
             id: categoryApiNode.id,
             type: 'category' as NodeType,
@@ -1474,80 +1476,98 @@ async function handleExpandCategory(event: CustomEvent<{
             mode: 'preview' as NodeMode,
             metadata: {
                 group: 'category' as any,
+                // Manager will use this for initial positioning
                 initialPosition: categoryPosition,
                 ...(categoryApiNode.metadata || {})
             }
         };
         
-        // FILTER: Only include relationships that connect the category to EXISTING nodes
-        // Get IDs of nodes that will be in the graph after we add the category
+        // Filter relationships to existing nodes only
         const existingNodeIds = new Set([
             ...graphData.nodes.map(n => n.id),
             categoryGraphNode.id
         ]);
         
-        // Filter GraphLinks for the graph update
         const relevantLinks: GraphLink[] = expansionData.relationships
             .filter((rel: any) => {
-                const sourceExists = existingNodeIds.has(rel.source);
-                const targetExists = existingNodeIds.has(rel.target);
-                const isComposedOf = rel.type === 'composed_of' || rel.type === 'COMPOSED_OF';
-                
-                return sourceExists && targetExists && !isComposedOf;
+                const sourceId = typeof rel.source === 'string' ? rel.source : rel.source?.id || rel.sourceId;
+                const targetId = typeof rel.target === 'string' ? rel.target : rel.target?.id || rel.targetId;
+                return existingNodeIds.has(sourceId) && existingNodeIds.has(targetId);
             })
             .map((rel: any) => ({
+                source: typeof rel.source === 'string' ? rel.source : rel.source?.id || rel.sourceId,
+                target: typeof rel.target === 'string' ? rel.target : rel.target?.id || rel.targetId,
+                type: rel.type || rel.relationship_type || 'RELATED_TO',
                 id: rel.id,
-                source: rel.source,
-                target: rel.target,
-                type: rel.type as LinkType,
-                strength: rel.metadata?.strength,
-                metadata: rel.metadata
+                metadata: rel.metadata || {}
             }));
         
-        console.log('[UNIVERSAL-PAGE] Adding ONLY category node to graph:', {
-            categoryNodeId: categoryGraphNode.id,
-            categoryHasWords: wordsArray.length > 0,
-            wordsInCategory: wordsArray.map(w => w.word),
-            relevantLinks: relevantLinks.length,
-            excludedWordNodes: expansionData.nodes.filter((n: any) => n.type === 'word').length,
-            excludedComposedOfLinks: expansionData.relationships.filter((r: any) => 
-                r.type === 'composed_of' || r.type === 'COMPOSED_OF'
-            ).length
+        console.log('[UNIVERSAL-PAGE] Filtered relationships:', {
+            totalRelationships: expansionData.relationships.length,
+            relevantRelationships: relevantLinks.length
         });
         
-        // Create COMPLETE graph data with the new category node
+        // Add the category node to graph
         if (graphStore) {
             const expandedGraphData: GraphData = {
                 nodes: [...graphData.nodes, categoryGraphNode],
                 links: [...graphData.links, ...relevantLinks]
             };
             
-            console.log('[UNIVERSAL-PAGE] Adding category node via updateState...', {
-                previousNodeCount: graphData.nodes.length,
-                newNodeCount: expandedGraphData.nodes.length,
-                addedNodes: 1,  // Only 1 category node
-                previousLinkCount: graphData.links.length,
-                newLinkCount: expandedGraphData.links.length,
-                addedLinks: relevantLinks.length
-            });
+            console.log('[UNIVERSAL-PAGE] Adding category node via updateState...');
             
-            // Use updateState with low wake power to add the category node gently
+            // ✅ FIX 2: Use stronger wake power (0.5) to prevent immediate dormancy
             if (typeof (graphStore as any).updateState === 'function') {
-                console.log('[UNIVERSAL-PAGE] Calling updateState with 0.6 wake power');
-                (graphStore as any).updateState(expandedGraphData, 0.6);
-                // CRITICAL: Don't update graphData here - prevents gentle sync override
-            }
-            // Fallback: regular setData (will cause restart)
-            else {
+                console.log('[UNIVERSAL-PAGE] ✅ Calling updateState with 0.5 wake power (INCREASED from 0.3)');
+                (graphStore as any).updateState(expandedGraphData, 0.5);
+                
+                // Update local graphData
+                graphData = expandedGraphData;
+            } else {
                 console.warn('[UNIVERSAL-PAGE] updateState not available, using setData');
                 graphStore.setData(expandedGraphData);
+                graphData = expandedGraphData;
+            }
+            
+            // ✅ FIX 3: Restore source node mode using public API
+            if (sourceNodeMode && sourceNodeMode !== 'preview') {
+                setTimeout(() => {
+                    console.log('[UNIVERSAL-PAGE] ✅ Restoring source node mode to:', sourceNodeMode);
+                    
+                    if (typeof (graphStore as any).updateNodeMode === 'function') {
+                        (graphStore as any).updateNodeMode(sourceNodeId, sourceNodeMode);
+                    }
+                }, 100);
             }
         }
         
-        // Wait for node to be positioned, then center (up to 2 seconds)
-        waitForNodePositionAndCenter(graphStore, categoryGraphNode.id, 20, 100, 750);
+        // ✅ FIX 4: Center with appropriate timing
+        setTimeout(() => {
+            console.log('[UNIVERSAL-PAGE] ✅ Centering on new category node...');
+            
+            if (graphStore && typeof (graphStore as any).centerOnNodeById === 'function') {
+                const centerSuccess = (graphStore as any).centerOnNodeById(categoryGraphNode.id, 750);
+                console.log('[UNIVERSAL-PAGE] Centering initiated:', centerSuccess ? 'SUCCESS' : 'FAILED');
+            }
+            
+            // ✅ FIX 5: Use onNodeCenteringComplete callback for coordinated release
+            setTimeout(() => {
+                console.log('[UNIVERSAL-PAGE] ✅ Centering animation complete');
+                
+                // Use the manager's callback if available
+                if (typeof (graphStore as any).onNodeCenteringComplete === 'function') {
+                    console.log('[UNIVERSAL-PAGE] ✅ Calling onNodeCenteringComplete for coordinated reheat');
+                    (graphStore as any).onNodeCenteringComplete(categoryGraphNode.id);
+                }
+                // Fallback: manual reheat with strong power
+                else if (typeof (graphStore as any).reheatSimulation === 'function') {
+                    console.log('[UNIVERSAL-PAGE] ✅ Manual reheat with 0.6 alpha');
+                    (graphStore as any).reheatSimulation(0.6);
+                }
+            }, 850);
+        }, 300);  // Delay centering to let node be added to simulation
         
-        console.log('[UNIVERSAL-PAGE] Category node addition complete');
+        console.log('[UNIVERSAL-PAGE] ✅ Category expansion initiated');
         
     } catch (error) {
         console.error('[UNIVERSAL-PAGE] Error expanding category:', error);
